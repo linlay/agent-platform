@@ -7,10 +7,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
 	"time"
+	"unicode"
 
 	"agent-platform/internal/connector"
 	"agent-platform/internal/hostenv"
+	"agent-platform/internal/observability"
 )
 
 // Preparation describes installation independently of authentication.
@@ -39,16 +44,32 @@ type preparationJob struct {
 	done   chan struct{}
 }
 type CLIExecutionError struct {
-	Stage      string
-	ExitCode   int
-	Diagnostic string
-	Cause      error
+	Stage             string
+	ExitCode          int
+	Diagnostic        string
+	ValidationMessage string
+	Cause             error
 }
 
 func (e *CLIExecutionError) Error() string {
+	if e.ValidationMessage != "" {
+		// The process succeeded; readiness failed while validating its output.
+		// Keep the safe diagnostic visible instead of calling exit 0 a failure.
+		return fmt.Sprintf("CLI %s validation failed: %s", e.Stage, e.ValidationMessage)
+	}
+	if e.ExitCode == 0 {
+		return fmt.Sprintf("CLI %s execution did not complete", e.Stage)
+	}
 	return fmt.Sprintf("CLI %s failed (exit %d)", e.Stage, e.ExitCode)
 }
 func (e *CLIExecutionError) Unwrap() error { return e.Cause }
+
+func cliVersionValidationError(message string, cause error) error {
+	if cause == nil {
+		cause = errors.New(message)
+	}
+	return &CLIExecutionError{Stage: "versionCheck", ValidationMessage: message, Diagnostic: message, Cause: cause}
+}
 func exitCode(cmd *exec.Cmd) int {
 	if cmd.ProcessState != nil {
 		return cmd.ProcessState.ExitCode()
@@ -172,6 +193,9 @@ func (m *Manager) StartPreparation(id string) (Preparation, error) {
 		release()
 		return Preparation{}, err
 	}
+	if pkg.InstallationDigest == "" {
+		pkg.InstallationDigest = fingerprint
+	}
 	ctx, cancel := context.WithTimeout(m.ctx, 15*time.Minute)
 	s := Preparation{ConnectorID: id, Status: "preparing", Fingerprint: fingerprint, Stage: "prepare", UpdatedAt: time.Now().UTC()}
 	if err = m.savePreparation(s); err != nil {
@@ -191,9 +215,6 @@ func (m *Manager) StartPreparation(id string) (Preparation, error) {
 				env, envErr := m.cliEnvironment(pkg)
 				err = envErr
 				if err == nil {
-					if pkg.BinDir != "" {
-						env = hostenv.Set(env, "PATH", pkg.BinDir)
-					}
 					s.Executable, err = hostenv.LookPath(settings.Command, env)
 					if err == nil {
 						s.ExecutableSHA256, err = connector.CLIFileHash(s.Executable)
@@ -219,9 +240,26 @@ func (m *Manager) StartPreparation(id string) (Preparation, error) {
 			s.Status = "canceled"
 			s.Message = "Preparation canceled or expired; external side effects may remain"
 		}
-		if saveErr := m.savePreparation(s); saveErr != nil {
-			s.Status = "failed"
-			s.Message = "Cannot persist preparation result: " + saveErr.Error()
+		saved := false
+		if s.Status == "ready" {
+			// The ready record must be durable before committing the active
+			// pointer. A persistence failure leaves the previous active package.
+			if saveErr := m.savePreparation(s); saveErr != nil {
+				s.Status = "failed"
+				s.Message = "Cannot persist preparation result: " + saveErr.Error()
+			} else if activationErr := m.activatePreparedCLI(ctx, pkg, s); activationErr != nil {
+				s.Status = "failed"
+				s.Stage = "activation"
+				s.Message = activationErr.Error()
+			} else {
+				saved = true
+			}
+		}
+		if !saved {
+			if saveErr := m.savePreparation(s); saveErr != nil {
+				s.Status = "failed"
+				s.Message = "Cannot persist preparation result: " + saveErr.Error()
+			}
 		}
 		release()
 		if s.Status == "ready" && m.reload != nil {
@@ -293,9 +331,6 @@ func (m *Manager) verifyPreparedEntry(pkg connector.Package, s Preparation) erro
 	if err != nil {
 		return err
 	}
-	if pkg.BinDir != "" {
-		env = hostenv.Set(env, "PATH", pkg.BinDir)
-	}
 	entry, err := hostenv.LookPath(settings.Command, env)
 	if err != nil {
 		return err
@@ -307,6 +342,13 @@ func (m *Manager) verifyPreparedEntry(pkg connector.Package, s Preparation) erro
 	return nil
 }
 func (m *Manager) requirePrepared(pkg connector.Package) error {
+	if pkg.InstallationDigest != "" {
+		if active, matched, err := activePreparationFor(m.sources, pkg); err == nil && matched {
+			return m.verifyPreparedEntry(pkg, active)
+		} else if err != nil {
+			return err
+		}
+	}
 	s, err := m.readPreparation(pkg.ID)
 	if err != nil {
 		return fmt.Errorf("CLI is not prepared; prepare the connector first")
@@ -315,8 +357,59 @@ func (m *Manager) requirePrepared(pkg connector.Package) error {
 	if err != nil {
 		return err
 	}
+	if pkg.InstallationDigest != "" && filepath.Base(pkg.Dir) == fingerprint {
+		fingerprint = pkg.InstallationDigest
+	}
 	if s.Status != "ready" || s.Fingerprint != fingerprint {
 		return fmt.Errorf("CLI is not prepared for this package; prepare the connector first")
 	}
 	return m.verifyPreparedEntry(pkg, s)
+}
+
+var cliDiagnosticUserInfo = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)[^\s/@]+@`)
+var cliDiagnosticBasicAuth = regexp.MustCompile(`(?i)(\bBasic\s+)[a-z0-9+/=]+`)
+var cliDiagnosticNPMAuth = regexp.MustCompile(`(?i)((?:_auth(?:token)?|_password)\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'[^']*'|[^\s,;&}\]<>]+)`)
+var cliDiagnosticSecretKey = regexp.MustCompile(`(?i)token|secret|password|passwd|api.?key|authorization|cookie`)
+
+// This text belongs only in Preparation.Diagnostic, never in Error(), catalog
+// summaries or model output. Preparation runs do not receive account credentials.
+func cliPreparationDiagnostic(summary, output string, pkg connector.Package, env []string) string {
+	var secrets []string
+	if values, ok := pkg.CLI["staticEnv"].(map[string]any); ok {
+		for _, value := range values {
+			if text, ok := value.(string); ok && text != "" {
+				secrets = append(secrets, text)
+			}
+		}
+	}
+	for _, entry := range env {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && value != "" && cliDiagnosticSecretKey.MatchString(key) {
+			secrets = append(secrets, value)
+		}
+	}
+	// Mask the longest value first so a shorter overlapping value cannot leave
+	// the remainder of a credential visible.
+	sort.Slice(secrets, func(i, j int) bool { return len(secrets[i]) > len(secrets[j]) })
+	for _, value := range secrets {
+		output = strings.ReplaceAll(output, value, observability.HiddenToken)
+	}
+	output = cliDiagnosticBasicAuth.ReplaceAllString(output, "${1}"+observability.HiddenToken)
+	output = cliDiagnosticNPMAuth.ReplaceAllString(output, "${1}"+observability.HiddenToken)
+	output = observability.SanitizeLog(output)
+	output = cliDiagnosticUserInfo.ReplaceAllString(output, "${1}"+observability.HiddenToken+"@")
+	output = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return -1
+		}
+		return r
+	}, output)
+	chars := []rune(strings.TrimSpace(output))
+	if len(chars) > 2048 {
+		chars = append(chars[:2048], []rune("\n[truncated]")...)
+	}
+	if len(chars) == 0 {
+		return summary
+	}
+	return summary + ":\n" + string(chars)
 }

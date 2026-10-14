@@ -81,7 +81,7 @@ func TestConfiguredTokenCLIReachesExecution(t *testing.T) {
 	dir := filepath.Join(sources.ExternalRoot, "demo")
 	os.MkdirAll(dir, 0700)
 	os.WriteFile(filepath.Join(dir, "connector.json"), []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"token","token_schema":{"fields":[{"key":"KEY","required":true}]}}`), 0600)
-	os.WriteFile(filepath.Join(dir, "cli.json"), []byte(`{}`), 0600)
+	os.WriteFile(filepath.Join(dir, "cli.json"), []byte(`{"versionCheck":{"command":{"darwin":"missing-fixture --version","linux":"missing-fixture --version","win32":"missing-fixture.exe --version"},"minVersion":"1.0.0"}}`), 0600)
 	m := connectorauth.New(t.Context(), sources, nil)
 	auth, err := m.SetToken(t.Context(), "demo", map[string]string{"KEY": "fixture"})
 	if err != nil || auth.Status != "configured" {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -84,12 +85,24 @@ func (m *Manager) Check(ctx context.Context, id, component string) (Session, err
 			return Session{}, err
 		}
 		defer release()
+		pkg, err = m.loadActiveManagedCLI(id)
+		if err != nil {
+			return Session{}, err
+		}
 		ok, err := m.cliStatus(checkCtx, pkg)
 		status := "unauthorized"
-		if err != nil {
+		message := "CLI did not match its declared authenticated state"
+		if errors.Is(err, ErrTokenRejected) {
+			message = "CLI authentication was not accepted; stored login materials were preserved"
+			if errors.Is(err, ErrCredentialAuthenticationDenied) {
+				message = ErrCredentialAuthenticationDenied.Error()
+			}
+		} else if err != nil {
 			status = "failed"
+			message = "CLI status check unavailable; stored login materials were preserved"
 		} else if ok {
 			status = "authorized"
+			message = "CLI authenticated state verified"
 		}
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -104,7 +117,7 @@ func (m *Manager) Check(ctx context.Context, id, component string) (Session, err
 		if previous := m.sessions[id]; previous != nil && previous.Status != "pending" && previous.Status != "preparing" {
 			delete(m.sessions, id)
 		}
-		return Session{ConnectorID: id, Status: status, AuthBrowser: pkg.AuthorizationBrowser()}, nil
+		return Session{ConnectorID: id, Status: status, AuthBrowser: pkg.AuthorizationBrowser(), Message: message}, nil
 	}
 	// OAuth uses the existing locally stored grant/expiry contract; OneID reads Desktop identity.
 	return m.StatusComponent(ctx, id, component)

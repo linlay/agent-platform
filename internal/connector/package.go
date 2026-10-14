@@ -39,15 +39,18 @@ type Manifest struct {
 // Package is an immutable, secret-free description of an installed package.
 type Package struct {
 	Manifest
-	Builtin    bool
-	StateRoot  string
-	Dir        string
-	BinDir     string
-	Skills     []Skill
-	MCP        map[string]map[string]any
-	CLI        map[string]any
-	Views      map[string]view.Definition
-	iconSHA256 string
+	Builtin            bool
+	StateRoot          string
+	Dir                string
+	BinDir             string
+	InstallationDigest string `json:"-"`
+	// InstallationRoot remains stable while candidate credentials use a temporary StateRoot.
+	InstallationRoot string `json:"-"`
+	Skills           []Skill
+	MCP              map[string]map[string]any
+	CLI              map[string]any
+	Views            map[string]view.Definition
+	iconSHA256       string
 }
 
 type Skill struct {
@@ -101,6 +104,11 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 		return Package{}, err
 	}
 	pkg.Dir = dir
+	installationDigest, err := RuntimeInstallationDigest(dir, id)
+	if err != nil {
+		return Package{}, err
+	}
+	pkg.InstallationDigest = installationDigest
 	if pkg.Icon != "" {
 		icon, err := pkg.ReadIcon()
 		if err != nil {
@@ -142,11 +150,16 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 	pkg.normalizeLegacyIdentityAuth()
 	if err := read("cli.json", &pkg.CLI); err != nil {
 		if pkg.Type == "cli" || !os.IsNotExist(err) {
-			return Package{}, fmt.Errorf("connector %s cli.json: %w", id, err)
+			return Package{}, fmt.Errorf("%w: connector %s cli.json: %w", ErrInvalidPackage, id, err)
 		}
+	} else if pkg.CLI == nil {
+		return Package{}, fmt.Errorf("%w: connector %s cli.json must be an object", ErrInvalidPackage, id)
 	}
 	if pkg.Type == "cli" && pkg.CLI == nil {
 		return Package{}, fmt.Errorf("connector %s cli.json must be an object", id)
+	}
+	if err := pkg.ValidateCLI(); err != nil {
+		return Package{}, fmt.Errorf("connector %s: %w", id, err)
 	}
 	var viewConfig view.Config
 	if err := read("view.json", &viewConfig); err == nil {

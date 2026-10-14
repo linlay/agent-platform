@@ -59,6 +59,24 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 		if binding.Mode == connector.AuthOneID {
 			continue
 		}
+		if binding.PackageDir != "" {
+			// Protocol cli.json.env is scoped to verified component calls. Keep
+			// only the explicitly published legacy Terminal mappings; opening a
+			// general terminal must not expose newly declared CLI credentials.
+			pkg, err := connector.LoadDirectory(binding.PackageDir, binding.ID)
+			if err != nil {
+				return terminalpkg.OpenResult{}, &statusError{Status: http.StatusServiceUnavailable, Message: "connector package unavailable"}
+			}
+			legacy := pkg.AuthBindings["cli"].Env
+			if len(legacy) == 0 {
+				continue
+			}
+			values := map[string]string{}
+			for name := range legacy {
+				values[name] = binding.Env[name]
+			}
+			binding.Env, binding.StaticEnv = values, nil
+		}
 		values, err := connectorauth.ResolveEnvironment(s.backgroundCtx, binding, "")
 		if err != nil {
 			return terminalpkg.OpenResult{}, &statusError{Status: http.StatusServiceUnavailable, Message: err.Error()}

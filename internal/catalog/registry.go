@@ -849,6 +849,11 @@ func cloneAgentDefinitionSnapshot(src AgentDefinition) AgentDefinition {
 			env[key] = value
 		}
 		dst.ConnectorCredentials[i].Env = env
+		staticEnv := map[string]string{}
+		for key, value := range src.ConnectorCredentials[i].StaticEnv {
+			staticEnv[key] = value
+		}
+		dst.ConnectorCredentials[i].StaticEnv = staticEnv
 	}
 	for k, v := range src.ConnectorEnv {
 		dst.ConnectorEnv[k] = v

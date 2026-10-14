@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/bashast"
 	"agent-platform/internal/builtins"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/hostenv"
 	"agent-platform/internal/pathutil"
 	"agent-platform/internal/shellanalysis"
 )
@@ -63,6 +64,23 @@ func captureSystemExecutables() map[string]string {
 }
 
 func resolvedProgram(name, cwd string, variables map[string]string) string {
+	if runtime.GOOS == "windows" {
+		// npm publishes both a POSIX shim without an extension and a Windows
+		// cmd shim. Use Windows PATHEXT resolution, never the POSIX sibling.
+		if strings.ContainsAny(name, "/\\") && !filepath.IsAbs(name) {
+			name = resolveAgainstCwd(name, cwd)
+		}
+		env := []string{"PATH=" + os.Getenv("PATH")}
+		for key, value := range variables {
+			if strings.EqualFold(key, "PATH") || strings.EqualFold(key, "PATHEXT") {
+				env = hostenv.Set(env, key, value)
+			}
+		}
+		if p, err := hostenv.LookPath(name, env); err == nil {
+			return p
+		}
+		return ""
+	}
 	if strings.ContainsAny(name, "/\\") || filepath.IsAbs(name) {
 		return resolveAgainstCwd(name, cwd)
 	}
@@ -77,15 +95,9 @@ func resolvedProgram(name, cwd string, variables map[string]string) string {
 		if !filepath.IsAbs(dir) {
 			dir = filepath.Join(cwd, dir)
 		}
-		suffixes := []string{""}
-		if runtime.GOOS == "windows" {
-			suffixes = append(suffixes, ".exe", ".com", ".bat", ".cmd")
-		}
-		for _, suffix := range suffixes {
-			p := filepath.Join(dir, name+suffix)
-			if info, err := os.Stat(p); err == nil && info.Mode().IsRegular() && (info.Mode()&0o111 != 0 || runtime.GOOS == "windows") {
-				return p
-			}
+		p := filepath.Join(dir, name)
+		if info, err := os.Stat(p); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+			return p
 		}
 	}
 	return ""

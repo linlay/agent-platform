@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -56,6 +55,14 @@ type Service struct {
 	Sources connector.Sources
 }
 
+func (s *Service) executionPackage(id string) (connector.Package, error) {
+	pkg, err := s.Sources.Load(id)
+	if err != nil {
+		return pkg, err
+	}
+	return connectorauth.ResolveActiveCLIPackage(s.Sources, pkg)
+}
+
 func (s Scope) permits(id, adapter string) bool {
 	if s.Subject == "" || s.Check == nil || s.Check() != nil {
 		return false
@@ -71,7 +78,7 @@ func (s *Service) Describe(scope Scope, id string) (Catalog, error) {
 	if !scope.permits(id, "") {
 		return Catalog{}, failure("connector_execution_not_allowed", 403)
 	}
-	pkg, err := s.Sources.Load(id)
+	pkg, err := s.executionPackage(id)
 	if err != nil {
 		return Catalog{}, failure("connector_unavailable", 503)
 	}
@@ -136,7 +143,7 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 	if auth == nil {
 		return result, failure("connector_unavailable", 503)
 	}
-	pkg, err := s.Sources.Load(req.ConnectorID)
+	pkg, err := s.executionPackage(req.ConnectorID)
 	if err != nil {
 		return result, failure("connector_unavailable", 503)
 	}
@@ -150,11 +157,26 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 		component = req.Component
 	}
 	status, err := auth.StatusComponent(ctx, req.ConnectorID, component)
-	if err != nil || status.Status == "setup_required" {
+	if err != nil {
 		return result, failure("connector_unavailable", 503)
 	}
-	if status.Status != "authorized" && status.Status != "configured" && status.Status != "delegated" && status.Status != "no_auth" {
+	switch status.Status {
+	case "authorized", "configured", "delegated", "no_auth":
+		// Configured credentials without an independent status command are
+		// usable, but do not assert that the account has been verified.
+	case "unauthorized":
 		return result, failure("connector_auth_required", 401)
+	case "setup_required":
+		return result, failure("connector_setup_required", 409)
+	case "preparing", "pending":
+		return result, failure("connector_authorization_pending", 409)
+	case "pending_verification":
+		return result, failure("connector_verification_required", 409)
+	case "canceled", "expired":
+		return result, failure("connector_auth_failed", 409)
+	default:
+		// A transient or malformed status is not an authentication rejection.
+		return result, failure("connector_unavailable", 503)
 	}
 	// Keep the package stable through dispatch, including cross-process imports.
 	if !pkg.Builtin {
@@ -164,13 +186,13 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 		}
 		defer release()
 	}
-	pkg, err = s.Sources.Load(req.ConnectorID)
+	pkg, err = s.executionPackage(req.ConnectorID)
 	if err != nil {
 		return result, failure("connector_unavailable", 503)
 	}
 	revision, err := auth.Revision(req.ConnectorID)
 	if err != nil {
-		return result, failure("connector_auth_required", 401)
+		return result, failure("connector_unavailable", 503)
 	}
 	if req.CredentialRevision != "" && req.CredentialRevision != revision {
 		return result, failure("connector_auth_expired", 401)
@@ -185,6 +207,20 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 		return result, failure("connector_execution_not_allowed", 403)
 	}
 	var receiptFile string
+	var capturedCLIEnvironment []string
+	if req.Adapter == "cli" && pkg.AuthMode == connector.AuthToken {
+		base, envErr := connectorauth.CLIBaseEnvironment(pkg)
+		if envErr != nil {
+			return result, failure("connector_unavailable", 503)
+		}
+		capturedCLIEnvironment, revision, err = auth.TokenCLIEnvironmentSnapshot(ctx, pkg, base)
+		if err != nil {
+			return result, failure("connector_auth_required", 401)
+		}
+		if req.CredentialRevision != "" && req.CredentialRevision != revision {
+			return result, failure("connector_auth_expired", 401)
+		}
+	}
 	if req.IdempotencyKey != "" {
 		var previous *Result
 		receiptFile, previous, err = beginWrite(s.Sources.PersistentRoot(), scope, req)
@@ -201,7 +237,11 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 		}()
 	}
 	if req.Adapter == "cli" {
-		result, err = callCLI(ctx, pkg, req.Args)
+		if capturedCLIEnvironment != nil {
+			result, err = callCLIWithEnvironment(ctx, pkg, req.Args, capturedCLIEnvironment)
+		} else {
+			result, err = callCLI(ctx, pkg, req.Args)
+		}
 	} else {
 		result.MCP, err = callMCP(ctx, pkg, req.Component, req.ToolName, req.Arguments)
 	}
@@ -252,30 +292,23 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 }
 func callCLI(ctx context.Context, pkg connector.Package, args []string) (Result, error) {
 	var result Result
-	env := []string{}
-	for _, name := range []string{"PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL"} {
-		if value, ok := os.LookupEnv(name); ok {
-			env = append(env, name+"="+value)
-		}
-	}
-	values, err := pkg.CLIConfigEnvironment()
+	env, err := connectorauth.CLIBaseEnvironment(pkg)
 	if err != nil {
 		return result, failure("connector_unavailable", 503)
-	}
-	for k, v := range values {
-		env = append(env, k+"="+v)
 	}
 	binding, err := connectorauth.CLIEnvironment(pkg)
 	if err != nil {
 		return result, failure("connector_auth_required", 401)
 	}
-	credentials, err := connectorauth.ResolveEnvironment(ctx, binding, "")
+	env, err = connectorauth.ApplyCLIProcessEnvironment(ctx, binding, env, "", connectorauth.CLIPhaseBusiness)
 	if err != nil {
 		return result, failure("connector_auth_required", 401)
 	}
-	for k, v := range credentials {
-		env = append(env, k+"="+v)
-	}
+	return callCLIWithEnvironment(ctx, pkg, args, env)
+}
+
+func callCLIWithEnvironment(ctx context.Context, pkg connector.Package, args, env []string) (Result, error) {
+	var result Result
 	cmd, err := connectorauth.ExecutionCommand(ctx, pkg, args, env)
 	if err != nil {
 		return result, failure("connector_cli_unavailable", 503)

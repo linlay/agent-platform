@@ -20,7 +20,7 @@ func connectorImportPlan(t *testing.T, s *ControlService) *ArchiveImportPlan {
 	writer := zip.NewWriter(&archive)
 	for name, content := range map[string]string{
 		"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":null}`,
-		"cli.json":       `{}`,
+		"cli.json":       `{"versionCheck":{"command":{"darwin":"demo --version","linux":"demo --version","win32":"demo.exe --version"},"minVersion":"1.0.0"}}`,
 	} {
 		entry, err := writer.Create(name)
 		if err != nil {

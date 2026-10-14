@@ -24,10 +24,17 @@ type CredentialEnvironment struct {
 	Resource    string
 	Destination string
 	Env         map[string]string
+	StaticEnv   map[string]string
+	// Public package identity is frozen alongside templates, never secret values.
+	PackageDir         string
+	PackageBinDir      string
+	PackageVersion     string
+	InstallationDigest string
+	InstallationRoot   string
 }
 
 var authVariable = regexp.MustCompile(`\$\{([A-Z][A-Z0-9_]*)\}`)
-var envName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+var envName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 var headerName = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 
 func ResolveAuthTemplate(template string, values map[string]string) (string, error) {
@@ -111,15 +118,20 @@ func (p Package) ValidateAuthBindings() error {
 			}
 		}
 		for name, template := range binding.Env {
-			if !envName.MatchString(name) || strings.HasPrefix(name, "AP_") || strings.HasSuffix(name, "_CONFIG_DIR") || name == "PATH" || name == "HOME" || name == "NODE_OPTIONS" || name == "PYTHONPATH" || name == "BASH_ENV" || name == "ENV" || name == "ZDOTDIR" || name == "SHELLOPTS" || name == "BASHOPTS" || strings.HasPrefix(name, "LD_") || strings.HasPrefix(name, "DYLD_") {
+			if !validCLIEnvironmentName(name) {
 				return fmt.Errorf("invalid credential environment variable")
 			}
-			if err := validateAuthTemplate(template, allowed); err != nil {
+			variables := allowed
+			if target == "cli" {
+				variables = p.compatibleAuthVariables()
+			}
+			if err := validateAuthTemplate(template, variables); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
+	_, err := p.CLIExecutionEnvironment()
+	return err
 }
 
 func validateAuthTemplate(template string, allowed map[string]string) error {

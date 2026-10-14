@@ -124,6 +124,41 @@ func TestMCPStdioHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
+func TestStdioProcessSurvivesCompletedCallContextCancellation(t *testing.T) {
+	root := t.TempDir()
+	writeStdioHelperRegistry(t, filepath.Join(root, "stdio.yml"), "persistent_tool")
+	registry, err := NewRegistry(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := NewClientWithGate(registry, nil, nil)
+	defer client.Close()
+	callCtx, cancelCall := context.WithCancel(t.Context())
+	first, err := client.CallTool(callCtx, "stdio-test", "persistent_tool", nil, nil)
+	if err != nil {
+		cancelCall()
+		t.Fatal(err)
+	}
+	firstPID, err := mcpResultPID(first)
+	if err != nil {
+		cancelCall()
+		t.Fatal(err)
+	}
+	cancelCall()
+	second, err := client.CallTool(t.Context(), "stdio-test", "persistent_tool", nil, nil)
+	if err != nil {
+		t.Fatal("completed call context killed a reusable stdio process", err)
+	}
+	secondPID, err := mcpResultPID(second)
+	if err != nil || secondPID != firstPID {
+		t.Fatal("completed call context rebuilt the stdio session", err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+	waitForProcessExit(t, firstPID)
+}
+
 func writeStdioHelperRegistry(t *testing.T, path string, toolName string) {
 	t.Helper()
 	content := "serverKey: stdio-test\n" +

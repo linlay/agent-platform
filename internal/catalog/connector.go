@@ -83,7 +83,11 @@ func (a *runtimeAgentAssembler) resolveConnectors(def *AgentDefinition) error {
 		if err != nil {
 			return pkg, err
 		}
-		return a.connectors.InstallShared(pkg)
+		mounted, err := a.connectors.InstallShared(pkg)
+		if err != nil {
+			return mounted, err
+		}
+		return connectorauth.ResolveActiveCLIPackage(a.connectors, mounted)
 	})
 }
 
@@ -104,7 +108,6 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 	def.ConnectorBinDirs = nil
 	def.ConnectorEnv = map[string]string{}
 	def.ConnectorCredentials = nil
-	credentialNames := map[string]bool{}
 	def.ConnectorCLIEntries = nil
 	def.ConnectorMounts = nil
 	def.ConnectorMCPServers = nil
@@ -144,13 +147,9 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 		if err != nil {
 			return err
 		}
-		if len(credential.Env) > 0 {
-			for name := range credential.Env {
-				if credentialNames[name] {
-					return fmt.Errorf("connectors have conflicting credential env %s", name)
-				}
-				credentialNames[name] = true
-			}
+		if pkg.CLI != nil || len(credential.Env) > 0 || len(credential.StaticEnv) > 0 {
+			// Each descriptor is consumed only by its connector child. Independent
+			// connectors may use the same upstream environment variable names.
 			def.ConnectorCredentials = append(def.ConnectorCredentials, credential)
 		}
 		for key, value := range values {
@@ -162,6 +161,13 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 
 		if pkg.BinDir != "" && (pkg.CLI != nil || len(pkg.MCP) > 0 || len(pkg.Skills) > 0) {
 			def.ConnectorBinDirs = append(def.ConnectorBinDirs, pkg.BinDir)
+		}
+		if pkg.CLI != nil {
+			installed, err := connectorauth.CLIInstallationBinDir(pkg)
+			if err != nil {
+				return err
+			}
+			def.ConnectorBinDirs = append(def.ConnectorBinDirs, installed)
 		}
 		def.ConnectorMounts = append(def.ConnectorMounts, ConnectorMount{ID: id, Dir: pkg.Dir, Digest: filepath.Base(pkg.Dir)})
 		for _, component := range pkg.ServerKeys() {
@@ -234,6 +240,22 @@ func (d *AgentDefinition) bindConnectorRuntime() error {
 	d.ConnectorCLIEntries = nil
 	for i := range d.ConnectorMounts {
 		mount := &d.ConnectorMounts[i]
+		for _, binding := range d.ConnectorCredentials {
+			if binding.ID != mount.ID || binding.PackageVersion == "" {
+				continue
+			}
+			pkg := connector.Package{Manifest: connector.Manifest{ID: mount.ID, Version: binding.PackageVersion}, Dir: mount.Dir, StateRoot: binding.Root, InstallationDigest: binding.InstallationDigest, InstallationRoot: binding.InstallationRoot}
+			installed, err := connectorauth.CLIInstallationBinDir(pkg)
+			if err != nil {
+				return err
+			}
+			d.ConnectorBinDirs = append(d.ConnectorBinDirs, installed)
+			entries, err := connector.SnapshotCLIEntriesFromBin(mount.ID, filepath.Dir(installed), installed)
+			if err != nil {
+				return err
+			}
+			d.ConnectorCLIEntries = append(d.ConnectorCLIEntries, entries...)
+		}
 		hasExecutableComponent := binDirs[filepath.Join(mount.Dir, "bin")]
 		if info, err := os.Stat(filepath.Join(mount.Dir, "bin")); hasExecutableComponent && err == nil && info.IsDir() {
 			d.ConnectorBinDirs = append(d.ConnectorBinDirs, filepath.Join(mount.Dir, "bin"))

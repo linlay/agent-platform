@@ -53,8 +53,11 @@ func TestMountedConnectorImportsAllSkillsAndRemovesOnDetach(t *testing.T) {
 	if !ok {
 		t.Fatalf("agent unavailable: %#v", registry.adminAgents)
 	}
-	if len(def.Skills) != 0 || len(def.EffectiveSkills()) != 1 || len(def.ConnectorBinDirs) != 1 || len(def.ConnectorMounts) != 1 || filepath.Base(filepath.Dir(def.ConnectorMounts[0].Dir)) != "builtin.dbx" {
+	if len(def.Skills) != 0 || len(def.EffectiveSkills()) != 1 || len(def.ConnectorBinDirs) != 2 || len(def.ConnectorMounts) != 1 || filepath.Base(filepath.Dir(def.ConnectorMounts[0].Dir)) != "builtin.dbx" {
 		t.Fatalf("bad mounted definition %#v", def)
+	}
+	if def.ConnectorBinDirs[1] != filepath.Join(def.ConnectorMounts[0].Dir, "bin") || !strings.Contains(def.ConnectorBinDirs[0], string(filepath.Separator)+"installations"+string(filepath.Separator)) {
+		t.Fatal("version-private installation must precede the package bin")
 	}
 	if len(def.Tools) != 0 {
 		t.Fatalf("CLI/skill mount granted ordinary tools: %v", def.Tools)
@@ -125,7 +128,7 @@ func TestConnectorSkillNameConflictsRejectAgent(t *testing.T) {
 			for _, id := range tc.connectors {
 				pkg := filepath.Join(root, "connectors", id)
 				writeRuntimeAssemblerFile(t, filepath.Join(pkg, "connector.json"), `{"id":"`+id+`","name":"Fixture","version":"1.0.0","type":"cli","auth_mode":"none"}`)
-				writeRuntimeAssemblerFile(t, filepath.Join(pkg, "cli.json"), `{}`)
+				writeRuntimeAssemblerFile(t, filepath.Join(pkg, "cli.json"), `{"versionCheck":{"command":{"darwin":"fixture --version","linux":"fixture --version","win32":"fixture.exe --version"},"minVersion":"1.0.0"}}`)
 				writeRuntimeAssemblerFile(t, filepath.Join(pkg, "skills", "shared", "SKILL.md"), "---\nname: shared\ndescription: Shared fixture\n---\n")
 			}
 			assembler := runtimeAgentAssembler{connectors: connector.Sources{ExternalRoot: filepath.Join(root, "connectors")}}

@@ -65,37 +65,51 @@ func TestPreparationRawInitAndBundledPrecedence(t *testing.T) {
 	}
 	root := t.TempDir()
 	cli := simpleCLI()
-	bin := t.TempDir()
-	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
-	t.Setenv("TEST_CLI_BIN", bin)
-	cli["init"] = osCommands("test -f connector.json && { printf '#!/bin/sh\\nprintf 1.2.0\\n' > \"$TEST_CLI_BIN/demo\"; chmod +x \"$TEST_CLI_BIN/demo\"; }\nprintf cwd-ok > initialized")
+	marker := filepath.Join(t.TempDir(), "initialized")
+	cli["staticEnv"] = map[string]any{"TEST_MARKER": marker}
+	cli["init"] = osCommands("test -f connector.json && { printf '#!/bin/sh\\nprintf 1.2.0\\n' > \"$CONNECTOR_BIN_DIR/demo\"; chmod +x \"$CONNECTOR_BIN_DIR/demo\"; }\nprintf cwd-ok > \"$TEST_MARKER\"")
 	pkg := writeCLIPackage(t, root, "demo", cli)
 	m := New(context.Background(), connector.Sources{ExternalRoot: root}, nil)
 	s, err := m.Prepare(context.Background(), pkg.ID)
 	if err != nil || s.Status != "ready" {
 		t.Fatalf("prepare: %+v %v", s, err)
 	}
-	if data, err := os.ReadFile(filepath.Join(pkg.Dir, "initialized")); err != nil || string(data) != "cwd-ok" {
+	if data, err := os.ReadFile(marker); err != nil || string(data) != "cwd-ok" {
 		t.Fatalf("raw script cwd: %s %v", data, err)
 	}
-	// Empty bin is an explicit bundled package and cannot fall back to global demo.
+	bin, err := CLIInstallationBinDir(pkg)
+	if err != nil || !strings.HasPrefix(s.Executable, bin+string(filepath.Separator)) {
+		t.Fatalf("executable was not installed outside package: %+v %v", s, err)
+	}
+	// A package bin directory no longer suppresses init. An insufficient bundled
+	// version is replaced by the version-private entry and then checked again.
 	if err := os.Mkdir(filepath.Join(pkg.Dir, "bin"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(filepath.Join(pkg.Dir, "initialized")); err != nil {
+	if err := os.Remove(marker); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = m.Prepare(context.Background(), pkg.ID); err == nil {
-		t.Fatal("empty bin used global executable")
-	}
-	if _, err = os.Stat(filepath.Join(pkg.Dir, "initialized")); !os.IsNotExist(err) {
-		t.Fatal("bundled package executed init")
-	}
-	if err := os.WriteFile(filepath.Join(pkg.Dir, "bin", "demo"), []byte("#!/bin/sh\nprintf 1.2.0"), 0755); err != nil {
+	if err := os.WriteFile(filepath.Join(pkg.Dir, "bin", "demo"), []byte("#!/bin/sh\nprintf 1.1.0"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = m.Prepare(context.Background(), pkg.ID); err != nil {
 		t.Fatal(err)
+	}
+	if _, err = os.Stat(marker); err != nil {
+		t.Fatal("insufficient bundled version did not execute init", err)
+	}
+	// A sufficient version skips init even when declared.
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg.Dir, "bin", "demo"), []byte("#!/bin/sh\nprintf 1.3.0"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Prepare(context.Background(), pkg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("sufficient version executed init")
 	}
 }
 func TestPreparationCancellationConflictRecoveryAndRetry(t *testing.T) {
@@ -146,7 +160,7 @@ func TestPreparationCancellationConflictRecoveryAndRetry(t *testing.T) {
 	cli["init"] = osCommands("printf diagnostic >&2; exit 7")
 	writeCLIPackage(t, root, "demo", cli)
 	s, err = m.Prepare(context.Background(), "demo")
-	if err == nil || s.ExitCode == nil || *s.ExitCode != 7 || !strings.Contains(s.Diagnostic, "diagnostic") {
+	if err == nil || s.ExitCode == nil || *s.ExitCode != 7 || !strings.Contains(s.Diagnostic, "diagnostic") || strings.Contains(err.Error(), "diagnostic") || strings.Contains(s.Message, "diagnostic") {
 		t.Fatalf("failure: %+v %v", s, err)
 	}
 }

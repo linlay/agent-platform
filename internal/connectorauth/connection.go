@@ -28,11 +28,17 @@ type Connection struct {
 	Authentication        Session      `json:"authentication"`
 	Capabilities          Capabilities `json:"capabilities"`
 	Preparation           *Preparation `json:"preparation,omitempty"`
+	ActivePackageVersion  string       `json:"activePackageVersion,omitempty"`
 }
 
 // Connection is a local snapshot. Reading a list must not launch a CLI or contact an upstream.
 func (m *Manager) Connection(ctx context.Context, id string) (Connection, error) {
 	pkg, err := m.sources.Load(id)
+	if err != nil {
+		return Connection{}, err
+	}
+	desiredDir := pkg.Dir
+	pkg, err = ResolveActiveCLIPackage(m.sources, pkg)
 	if err != nil {
 		return Connection{}, err
 	}
@@ -44,6 +50,9 @@ func (m *Manager) Connection(ctx context.Context, id string) (Connection, error)
 		return Connection{}, err
 	}
 	c := Connection{ConnectionState: state, ConfigurationRequired: pkg.AuthMode != connector.AuthNoAuth, Readiness: "configuration_required", Capabilities: Capabilities{CanConnect: pkg.AuthMode != connector.AuthToken, CanDisconnect: true, CanCheck: true, AuthMode: pkg.AuthMode, AuthBrowser: pkg.AuthorizationBrowser(), HasCLI: pkg.CLI != nil, HasMCP: len(pkg.MCP) > 0}}
+	if pkg.Dir != desiredDir {
+		c.ActivePackageVersion = pkg.Version
+	}
 	if pkg.AuthMode == connector.AuthNoAuth {
 		c.Readiness = "no_auth"
 		c.Capabilities.CanConnect = false
@@ -57,9 +66,19 @@ func (m *Manager) Connection(ctx context.Context, id string) (Connection, error)
 		}
 		prep.Diagnostic = ""
 		c.Preparation = &prep
-		if prep.Status != "ready" {
+		if prep.Status != "ready" && c.ActivePackageVersion == "" {
 			c.Readiness = "preparing"
 			c.Authentication = Session{ConnectorID: id, Status: "setup_required", AuthBrowser: pkg.AuthorizationBrowser()}
+			switch prep.Status {
+			case "failed":
+				c.Readiness = "unavailable"
+				prep.Message = "CLI preparation failed; retry connector preparation"
+				c.Authentication.Message = prep.Message
+			case "canceled":
+				c.Readiness = "unavailable"
+				prep.Message = "CLI preparation was canceled; retry connector preparation"
+				c.Authentication.Message = prep.Message
+			}
 			return c, nil
 		}
 	}
@@ -71,6 +90,9 @@ func (m *Manager) Connection(ctx context.Context, id string) (Connection, error)
 	}
 	c.Authentication = auth
 	if !state.Configured {
+		if auth.Status == "pending_verification" || auth.PendingVerification {
+			c.Readiness = "pending_verification"
+		}
 		return c, nil
 	}
 	switch auth.Status {
@@ -89,15 +111,17 @@ func (m *Manager) Connection(ctx context.Context, id string) (Connection, error)
 }
 
 type DisconnectResult struct {
-	ConnectorID string   `json:"connectorId"`
-	Configured  bool     `json:"configured"`
-	Warnings    []string `json:"warnings,omitempty"`
+	ConnectorID      string   `json:"connectorId"`
+	Configured       bool     `json:"configured"`
+	RemoteRevocation string   `json:"remoteRevocation,omitempty"`
+	Warnings         []string `json:"warnings,omitempty"`
 }
 
 // Disconnect clears local authorization. Already-dispatched business calls may finish.
-// It never resets a CLI's private HOME/config/data, removes a package, or logs out Desktop SSO.
+// It removes only this connector's private login directories, preserving prepared
+// programs, invocation receipts, other connectors and Desktop SSO.
 func (m *Manager) Disconnect(ctx context.Context, id string) (DisconnectResult, error) {
-	result := DisconnectResult{ConnectorID: id}
+	result := DisconnectResult{ConnectorID: id, RemoteRevocation: "unsupported"}
 	pkg, err := m.sources.Load(id)
 	if err != nil {
 		return result, err
@@ -124,10 +148,10 @@ func (m *Manager) Disconnect(ctx context.Context, id string) (DisconnectResult, 
 		if lockErr != nil {
 			return result, lockErr
 		}
+		defer release()
 		err = m.logoutCLI(ctx, pkg)
-		release()
 		if err != nil {
-			result.Warnings = append(result.Warnings, "CLI sign-out did not complete; private settings were preserved")
+			result.Warnings = append(result.Warnings, "CLI sign-out did not complete; local login materials were cleared")
 		}
 	}
 	unlock, err := lockCredentials(ctx, pkg.PersistentRoot(), id)
@@ -145,6 +169,22 @@ func (m *Manager) Disconnect(ctx context.Context, id string) (DisconnectResult, 
 	for _, name := range []string{"credentials.json", "pending-credentials.json", "verification.json", "oauth.json", "oauth-resources"} {
 		if err = os.RemoveAll(filepath.Join(dir, name)); err != nil {
 			return result, fmt.Errorf("connector authorization cleanup failed")
+		}
+	}
+	if pkg.AuthMode == connector.AuthDelegated && pkg.CLI != nil {
+		private, err := CLIPrivateEnvironmentDirs(pkg)
+		if err != nil {
+			return result, fmt.Errorf("connector login environment cleanup failed")
+		}
+		seen := map[string]bool{}
+		for _, path := range private {
+			if seen[path] {
+				continue
+			}
+			seen[path] = true
+			if err := os.RemoveAll(path); err != nil {
+				return result, fmt.Errorf("connector login environment cleanup failed")
+			}
 		}
 	}
 	m.mu.Lock()

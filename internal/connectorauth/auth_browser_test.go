@@ -16,7 +16,8 @@ func TestSessionBrowserPolicyAndStaleCancel(t *testing.T) {
 	manifest := connector.Manifest{ID: "demo", Name: "Demo", Version: "1.0.0", Type: "cli", AuthBrowser: "embedded"}
 	data, _ := json.Marshal(manifest)
 	os.WriteFile(filepath.Join(dir, "connector.json"), data, 0644)
-	os.WriteFile(filepath.Join(dir, "cli.json"), []byte(`{}`), 0644)
+	cli, _ := json.Marshal(simpleCLI())
+	os.WriteFile(filepath.Join(dir, "cli.json"), cli, 0644)
 	m := New(context.Background(), connector.Sources{ExternalRoot: root}, nil)
 	s, err := m.Status(context.Background(), "demo")
 	if err != nil {

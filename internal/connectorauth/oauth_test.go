@@ -165,10 +165,29 @@ func TestMCPOAuthRegistrationUsesAdvertisedGrantTypes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newOAuthRegistrationManager(t, tc.supported, func(w http.ResponseWriter, r *http.Request) {
 				var registration struct {
-					GrantTypes []string `json:"grant_types"`
+					ClientName              string   `json:"client_name"`
+					RedirectURIs            []string `json:"redirect_uris"`
+					TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+					GrantTypes              []string `json:"grant_types"`
+					ResponseTypes           []string `json:"response_types"`
+					Scope                   string   `json:"scope"`
 				}
-				if err := json.NewDecoder(r.Body).Decode(&registration); err != nil {
+				// An RFC 7591 server need not implement OIDC extensions such as
+				// application_type. Reject extensions instead of silently ignoring them.
+				decoder := json.NewDecoder(r.Body)
+				decoder.DisallowUnknownFields()
+				if err := decoder.Decode(&registration); err != nil {
 					t.Error(err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if registration.ClientName != "Agent Platform" || registration.TokenEndpointAuthMethod != "none" || !slices.Equal(registration.ResponseTypes, []string{"code"}) || registration.Scope != "context:read" || len(registration.RedirectURIs) != 1 {
+					t.Errorf("invalid public OAuth client metadata: %+v", registration)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if _, _, err := callbackAddress(registration.RedirectURIs[0]); err != nil {
+					t.Error("registration lost its loopback callback", err)
 					w.WriteHeader(http.StatusBadRequest)
 					return
 				}

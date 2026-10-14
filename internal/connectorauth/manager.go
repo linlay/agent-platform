@@ -177,10 +177,7 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 			m.mu.Unlock()
 			return Session{}, err
 		}
-		pkg, err = m.sources.Load(id)
-		if err == nil && !pkg.ManagedCLI() {
-			err = fmt.Errorf("connector does not support interactive login")
-		}
+		pkg, err = m.loadActiveManagedCLI(id)
 		if err == nil {
 			err = m.requirePrepared(pkg)
 		}
@@ -250,6 +247,26 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 	return result, nil
 }
 
+// Call only while holding this connector's operation lock. Preparation targets
+// the source package; authentication must use the same active CLI as business calls.
+func (m *Manager) loadActiveManagedCLI(id string) (connector.Package, error) {
+	pkg, err := m.sources.Load(id)
+	if err != nil {
+		return connector.Package{}, err
+	}
+	if pkg.AuthMode != connector.AuthDelegated || !pkg.ManagedCLI() {
+		return connector.Package{}, fmt.Errorf("connector does not support managed CLI authentication")
+	}
+	pkg, err = ResolveActiveCLIPackage(m.sources, pkg)
+	if err != nil {
+		return connector.Package{}, err
+	}
+	if pkg.ID != id || pkg.AuthMode != connector.AuthDelegated || !pkg.ManagedCLI() {
+		return connector.Package{}, fmt.Errorf("active connector does not support managed CLI authentication")
+	}
+	return pkg, nil
+}
+
 func (m *Manager) setURL(s *login, u string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -265,6 +282,10 @@ func (m *Manager) Status(ctx context.Context, id string) (Session, error) {
 // StatusComponent reads local authorization snapshots; probes run through Check.
 func (m *Manager) StatusComponent(_ context.Context, id, component string) (Session, error) {
 	pkg, err := m.sources.Load(id)
+	if err != nil {
+		return Session{}, err
+	}
+	pkg, err = ResolveActiveCLIPackage(m.sources, pkg)
 	if err != nil {
 		return Session{}, err
 	}

@@ -7,16 +7,18 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
+
+	"agent-platform/internal/connector"
 )
 
 func TestWindowsNodeShimUsesArgvNotCmd(t *testing.T) {
 	for _, shim := range []string{`@node "%~dp0\launcher.cjs" %*`, `"%_prog%" "%dp0%\node_modules\demo\bin.js" %*`} {
-		target, err := nodeShimScript(shim)
+		target, err := connector.WindowsNodeShimScript(shim)
 		if err != nil || target == "" {
 			t.Fatal(target, err)
 		}
 	}
-	if _, err := nodeShimScript(`echo not-a-node-shim`); err == nil {
+	if _, err := connector.WindowsNodeShimScript(`echo not-a-node-shim`); err == nil {
 		t.Fatal("accepted opaque shim")
 	}
 	dir := t.TempDir()

@@ -115,7 +115,7 @@ func TestArchiveImportPublishesDetectedIdentityToItsCenter(t *testing.T) {
 			case "connector":
 				resourceType, target = "connector", h.cfg.Paths.EffectiveConnectorsCenterDir()
 				files["connector.json"] = `{"id":"demo","name":"Demo","version":"0.1.0","type":"cli","auth_mode":null}`
-				files["cli.json"] = `{}`
+				files["cli.json"] = `{"versionCheck":{"command":{"darwin":"demo --version","linux":"demo --version","win32":"demo.exe --version"},"minVersion":"1.0.0"}}`
 				files["skills/attached/SKILL.md"] = "---\nname: attached\ndescription: Attached\n---\nUse it."
 			case "skill":
 				files["wrapper/SKILL.md"] = "---\nid: demo\nname: demo\ndescription: Demo\nversion: 1.0.0\n---\nUse it."
@@ -254,7 +254,7 @@ func TestArchiveImportRollbackAndPreparationFailureAreDistinct(t *testing.T) {
 			h, e, path := importFixture(t)
 			files := map[string]string{"SKILL.md": "---\nname: demo\ndescription: Demo\n---\nUse it."}
 			if typ == "connector" {
-				files = map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":null}`, "cli.json": `{}`}
+				files = map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":null}`, "cli.json": `{"versionCheck":{"command":{"darwin":"demo --version","linux":"demo --version","win32":"demo.exe --version"},"minVersion":"1.0.0"}}`}
 			}
 			importZIP(t, path, files)
 			args := importArgs(typ, path, false)

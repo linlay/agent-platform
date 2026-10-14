@@ -271,6 +271,28 @@ func planConfigMigration(dir, agents string) (*configMigration, error) {
 		}
 		m.retired = append(m.retired, path)
 	}
+	// Consolidated and legacy KBASE prompt files can still carry this retired
+	// section after a program-only upgrade. Retain its original in the normal
+	// migration backup; unrelated prompts and model settings are preserved.
+	if _, exists := prompts["kbase"]; exists {
+		text, err := migrationRender(prompts)
+		if err != nil {
+			return nil, err
+		}
+		fields, err := YAMLSourceMap(text, "kbase")
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := fields["editing-prompt"]; exists {
+			delete(fields, "editing-prompt")
+			prompts["kbase"], err = migrationObject(fields)
+			if err != nil {
+				return nil, err
+			}
+			changed["agent-prompt.yml"] = true
+			m.notes = append(m.notes, "Retired agent-prompt.kbase.editing-prompt (original retained in backup)")
+		}
+	}
 	if agents != "" {
 		if err := filepath.WalkDir(agents, func(path string, d os.DirEntry, err error) error {
 			if err != nil {

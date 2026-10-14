@@ -57,6 +57,12 @@ func connectorExecution(session QuerySession, x BashExecution, vars map[string]s
 			if session.ConnectorDirs[entry.ConnectorID] == "" {
 				continue
 			}
+			// Containers currently mount the immutable package, not the private
+			// host installation. Its relative paths cannot impersonate that mount.
+			root, rootErr := pathutil.Canonicalize(session.ConnectorDirs[entry.ConnectorID])
+			if rootErr != nil || root.Key != entry.RootKey {
+				continue
+			}
 			expected := path.Join("/connectors", entry.ConnectorID, entry.RelativePath)
 			if canonical != expected {
 				continue
@@ -71,17 +77,39 @@ func connectorExecution(session QuerySession, x BashExecution, vars map[string]s
 		return false
 	}
 	for _, entry := range session.ConnectorCLIEntries {
-		root := session.ConnectorDirs[entry.ConnectorID]
-		r, rootErr := pathutil.Canonicalize(root)
+		if session.ConnectorDirs[entry.ConnectorID] == "" || entry.Root == "" {
+			continue
+		}
+		// A prepared npm entry lives outside the immutable package. Its grant
+		// is anchored to the actual root frozen by Catalog, never to StateDir
+		// as a whole or merely to a PATH directory.
+		r, rootErr := pathutil.Canonicalize(entry.Root)
 		p, pathErr := pathutil.Canonicalize(canonical)
-		if root == "" || rootErr != nil || pathErr != nil || !pathutil.WithinRoot(p, r) {
+		if rootErr != nil || r.Key != entry.RootKey || pathErr != nil || !pathutil.WithinRoot(p, r) {
 			continue
 		}
 		if p.Key != entry.PathKey {
 			continue
 		}
 		hash, err := connector.CLIFileHash(canonical)
-		return err == nil && hash == entry.SHA256
+		if err != nil || hash != entry.SHA256 {
+			return false
+		}
+		if entry.LauncherTarget != "" {
+			// The launcher text alone is insufficient when Windows actually
+			// executes a different file through its safe Node argv adapter.
+			target, err := connector.WindowsNodeShimTarget(canonical)
+			if err != nil {
+				return false
+			}
+			script, err := pathutil.Canonicalize(target)
+			if err != nil || script.Key != entry.LauncherTargetKey || !pathutil.WithinRoot(script, r) {
+				return false
+			}
+			hash, err := connector.CLIFileHash(script.Host)
+			return err == nil && hash == entry.LauncherTargetSHA256
+		}
+		return true
 	}
 	return false
 }

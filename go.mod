@@ -3,6 +3,7 @@ module agent-platform
 go 1.25.0
 
 require (
+	github.com/dlclark/regexp2/v2 v2.8.4
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/net v0.52.0

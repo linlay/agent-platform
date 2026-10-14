@@ -233,14 +233,14 @@ func copyPackage(source, target string) error {
 // The managed Host CLI launcher needs only its state directory, never a token.
 // This generated descriptor keeps custom source/runtime/state roots independent.
 func prepareRuntimeState(pkg Package, dir string) error {
-	if !pkg.ManagedCLI() {
+	if pkg.CLI == nil {
 		return nil
 	}
 	stateDir, err := StateDir(pkg.PersistentRoot(), pkg.ID)
 	if err != nil {
 		return err
 	}
-	data, err := json.Marshal(map[string]string{"stateDir": stateDir})
+	data, err := json.Marshal(map[string]string{"stateDir": stateDir, "installationDigest": pkg.InstallationDigest})
 	if err != nil {
 		return err
 	}
@@ -250,6 +250,9 @@ func prepareRuntimeState(pkg Package, dir string) error {
 	}
 	if err := os.WriteFile(descriptor, data, 0600); err != nil {
 		return err
+	}
+	if !pkg.ManagedCLI() {
+		return nil
 	}
 	// Upgrade the known Platform-generated launcher in legacy imported archives.
 	// The authoritative source remains unchanged; arbitrary launchers are untouched.
@@ -271,4 +274,26 @@ func prepareRuntimeState(pkg Package, dir string) error {
 		return err
 	}
 	return os.WriteFile(launcher, bytes.ReplaceAll(data, old, current), info.Mode().Perm())
+}
+
+// RuntimeInstallationDigest is public installation identity recorded only in
+// content-addressed runtime copies. Source packages never choose this locator.
+func RuntimeInstallationDigest(dir, id string) (string, error) {
+	if filepath.Base(filepath.Dir(dir)) != id || !validDigest(filepath.Base(dir)) {
+		return "", nil
+	}
+	var descriptor struct {
+		StateDir           string `json:"stateDir"`
+		InstallationDigest string `json:"installationDigest"`
+	}
+	if err := ReadJSON(filepath.Join(dir, ".platform-runtime.json"), &descriptor); err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	if descriptor.InstallationDigest != "" && !validDigest(descriptor.InstallationDigest) {
+		return "", fmt.Errorf("invalid connector installation identity")
+	}
+	return descriptor.InstallationDigest, nil
 }

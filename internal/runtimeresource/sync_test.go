@@ -174,7 +174,7 @@ func TestSyncOverwritesAllPackagedPlatformResourceDomains(t *testing.T) {
 	}
 	for _, id := range []string{"existing", "unknown"} {
 		writeTestFile(t, filepath.Join(runtimeRoot, "connectors-center", id, "connector.json"), fmt.Sprintf(`{"id":%q,"name":%q,"version":"1.0.0","type":"cli","auth_mode":"none"}`, id, id))
-		writeTestFile(t, filepath.Join(runtimeRoot, "connectors-center", id, "cli.json"), `{}`)
+		writeTestFile(t, filepath.Join(runtimeRoot, "connectors-center", id, "cli.json"), `{"versionCheck":{"command":{"darwin":"demo --version","linux":"demo --version","win32":"demo.exe --version"},"minVersion":"1.0.0"}}`)
 	}
 	existingScript := filepath.Join(runtimeRoot, "agents", "existing", "keep-mode.sh")
 	writeTestFile(t, existingScript, "#!/bin/sh\necho old\n")
@@ -194,7 +194,7 @@ func TestSyncOverwritesAllPackagedPlatformResourceDomains(t *testing.T) {
 	entries["env/registries/authoritative.yml"] = "new-registry"
 	for _, id := range []string{"existing", "new"} {
 		entries["env/connectors-center/"+id+"/connector.json"] = fmt.Sprintf(`{"id":%q,"name":%q,"version":"2.0.0","type":"cli","auth_mode":"none"}`, id, id)
-		entries["env/connectors-center/"+id+"/cli.json"] = `{}`
+		entries["env/connectors-center/"+id+"/cli.json"] = `{"versionCheck":{"command":{"darwin":"demo --version","linux":"demo --version","win32":"demo.exe --version"},"minVersion":"1.0.0"}}`
 	}
 	source := writeTestZip(t, entries)
 	result, err := Sync(Options{

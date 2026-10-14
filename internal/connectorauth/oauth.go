@@ -144,29 +144,86 @@ func (m *Manager) discover(ctx context.Context, resource, destination string, se
 	fallback := false
 	var challengedScopes []string
 	if metadata == "" {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, destination, nil)
-		if err != nil {
-			return nil, nil, err
+		if !secureURL(destination) {
+			return nil, nil, fmt.Errorf("invalid OAuth discovery destination")
 		}
-		req.Header.Set("Accept", "application/json, text/event-stream")
-		resp, err := m.client.Do(req)
-		if err != nil {
-			return nil, nil, fmt.Errorf("OAuth discovery request failed")
-		}
-		resp.Body.Close()
-		challenges, err := oauthex.ParseWWWAuthenticate(resp.Header.Values("WWW-Authenticate"))
-		if err != nil {
-			return nil, nil, fmt.Errorf("invalid OAuth challenge")
-		}
-		for _, c := range challenges {
-			if strings.EqualFold(c.Scheme, "Bearer") {
-				if scope := c.Params["scope"]; scope != "" {
-					challengedScopes = strings.Fields(scope)
+		probeClient := *m.client
+		probeClient.Jar = nil
+		probeClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		for _, method := range []string{http.MethodGet, http.MethodPost} {
+			var body io.Reader
+			if method == http.MethodPost {
+				// Some stateless MCP endpoints advertise authentication only on POST.
+				// This is a single initialize probe, never a business tool call.
+				body = strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"agent-platform","version":"1.0.0"}}}`)
+			}
+			probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			req, err := http.NewRequestWithContext(probeCtx, method, destination, body)
+			if err != nil {
+				cancel()
+				return nil, nil, err
+			}
+			req.Header.Set("Accept", "application/json, text/event-stream")
+			if body != nil {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			resp, err := probeClient.Do(req)
+			if err != nil {
+				cancel()
+				return nil, nil, fmt.Errorf("OAuth discovery request failed")
+			}
+			resp.Body.Close()
+			cancel()
+			if sessionID := resp.Header.Get("Mcp-Session-Id"); method == http.MethodPost && resp.StatusCode >= 200 && resp.StatusCode < 300 && sessionID != "" {
+				// Only release the unauthenticated session created by this probe.
+				cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+				cleanup, err := http.NewRequestWithContext(cleanupCtx, http.MethodDelete, destination, nil)
+				if err == nil {
+					cleanup.Header.Set("Mcp-Session-Id", sessionID)
+					var result *http.Response
+					result, err = probeClient.Do(cleanup)
+					if err == nil {
+						result.Body.Close()
+						if (result.StatusCode < 200 || result.StatusCode >= 300) && result.StatusCode != http.StatusNotFound && result.StatusCode != http.StatusMethodNotAllowed && result.StatusCode != http.StatusGone {
+							err = fmt.Errorf("session cleanup rejected")
+						}
+					}
 				}
-				metadata = c.Params["resource_metadata"]
-				if metadata != "" {
-					break
+				cleanupCancel()
+				if err != nil {
+					return nil, nil, fmt.Errorf("OAuth discovery probe session cleanup failed")
 				}
+			}
+			switch {
+			case resp.StatusCode >= 200 && resp.StatusCode < 300,
+				resp.StatusCode == http.StatusUnauthorized, resp.StatusCode == http.StatusForbidden,
+				resp.StatusCode == http.StatusMethodNotAllowed, resp.StatusCode == http.StatusNotFound, resp.StatusCode == http.StatusGone:
+			default:
+				return nil, nil, fmt.Errorf("OAuth discovery request failed (HTTP %d)", resp.StatusCode)
+			}
+			challenges, err := oauthex.ParseWWWAuthenticate(resp.Header.Values("WWW-Authenticate"))
+			if err != nil {
+				return nil, nil, fmt.Errorf("invalid OAuth challenge")
+			}
+			for _, c := range challenges {
+				if strings.EqualFold(c.Scheme, "Bearer") {
+					if scope := c.Params["scope"]; scope != "" {
+						challengedScopes = strings.Fields(scope)
+					}
+					metadata = c.Params["resource_metadata"]
+					if metadata != "" {
+						break
+					}
+				}
+			}
+			if metadata != "" {
+				break
+			}
+			if resp.StatusCode == http.StatusForbidden {
+				return nil, nil, fmt.Errorf("OAuth discovery request failed (HTTP %d)", resp.StatusCode)
+			}
+			if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
+				break
 			}
 		}
 		if metadata == "" {
@@ -312,7 +369,7 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 	}
 	if cfg.ClientID == "" {
 		registration, err := oauthex.RegisterClient(ctx, registrationEndpoint, &oauthex.ClientRegistrationMetadata{
-			ClientName: "Agent Platform", RedirectURIs: []string{redirect}, ApplicationType: "native",
+			ClientName: "Agent Platform", RedirectURIs: []string{redirect},
 			TokenEndpointAuthMethod: "none", GrantTypes: registrationGrants, ResponseTypes: []string{"code"}, Scope: strings.Join(scopes, " "),
 		}, m.client)
 		if err != nil {

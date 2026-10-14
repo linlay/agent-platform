@@ -131,15 +131,15 @@ else {
 	}
 }
 
-func TestCLIAuthStepsRejectUnsafeCommands(t *testing.T) {
-	for _, line := range []string{"demo init; other", "demo $(whoami)", "npm install demo", "demo status > file"} {
+func TestCLIAuthStepsAcceptDeclaredShellCommands(t *testing.T) {
+	for _, line := range []string{"demo init; demo finalize", "demo \"$CONNECTOR_ARCH\"", "test -f config && demo status", "demo status > file"} {
 		for _, field := range []string{"command", "skipIf"} {
-			fields := map[string]any{"command": map[string]any{"darwin": "demo init", "linux": "demo init", "win32": "demo init"}, "authUrlDomain": "example.test"}
-			fields[field] = map[string]any{"darwin": line, "linux": line, "win32": line}
+			fields := map[string]any{"command": osCommands("demo init"), "authUrlDomain": "example.test"}
+			fields[field] = osCommands(line)
 			pkg := connector.Package{CLI: map[string]any{"auth": []any{fields}}}
-			if _, err := cliAuthSteps(pkg, "demo"); err == nil {
+			if _, err := cliAuthSteps(pkg); err != nil {
 				encoded, _ := json.Marshal(fields)
-				t.Fatalf("accepted unsafe step %s", encoded)
+				t.Fatalf("rejected declared shell step %s: %v", encoded, err)
 			}
 		}
 	}

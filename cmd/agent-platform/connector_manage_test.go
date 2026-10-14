@@ -26,7 +26,7 @@ func TestConnectorManagementUsesCurrentStateAndIgnoresLegacyCredentials(t *testi
 			}
 			for path, data := range map[string]string{
 				filepath.Join(center, "demo", "connector.json"):                    `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`,
-				filepath.Join(center, "demo", "cli.json"):                          `{}`,
+				filepath.Join(center, "demo", "cli.json"):                          `{"versionCheck":{"command":{"darwin":"demo --version","linux":"demo --version","win32":"demo.exe --version"},"minVersion":"1.0.0"}}`,
 				filepath.Join(old, ".credentials", "demo.json"):                    `{"TOKEN":"test-credential"}`,
 				filepath.Join(runtimeRoot, "connectors", "demo", "connector.json"): "invalid ignored legacy package",
 				filepath.Join(state, "connectors", "demo", "credentials.json"):     `{"TOKEN":"current-credential"}`,
@@ -129,7 +129,7 @@ func TestConnectorManageOneIDUsesIdentityFileAndNeverStoresToken(t *testing.T) {
 	dir := filepath.Join(runtimeRoot, "connectors-center", "demo")
 	os.MkdirAll(dir, 0755)
 	os.WriteFile(filepath.Join(dir, "connector.json"), []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"oneid-token"}`), 0644)
-	os.WriteFile(filepath.Join(dir, "cli.json"), []byte(`{}`), 0644)
+	os.WriteFile(filepath.Join(dir, "cli.json"), []byte(`{"versionCheck":{"command":{"darwin":"demo --version","linux":"demo --version","win32":"demo.exe --version"},"minVersion":"1.0.0"}}`), 0644)
 	explicit := filepath.Join(t.TempDir(), "sso-access-token.txt")
 	os.WriteFile(explicit, []byte("test-private-sso"), 0600)
 	for _, tc := range []struct{ file, status string }{{"", "unauthorized"}, {explicit, "authorized"}} {

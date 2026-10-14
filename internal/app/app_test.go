@@ -66,7 +66,7 @@ func TestAppStartupIgnoresLegacyRuntimeSourcesAndState(t *testing.T) {
 	// overwrite the current package or credentials.
 	files := map[string]string{
 		"connectors-center/demo/connector.json":             `{"id":"demo","name":"Current Demo","version":"2.0.0","type":"cli","auth_mode":"none"}`,
-		"connectors-center/demo/cli.json":                   `{}`,
+		"connectors-center/demo/cli.json":                   `{"versionCheck":{"command":{"darwin":"demo --version","linux":"demo --version","win32":"demo.exe --version"},"minVersion":"1.0.0"}}`,
 		".state/connectors/demo/credentials.json":           `{"TOKEN":"current-state"}`,
 		"connectors/invalid/connector.json":                 "invalid legacy manifest",
 		"connector-state/.credentials/demo.json":            "invalid legacy credentials",

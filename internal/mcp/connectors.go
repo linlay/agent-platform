@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/connectorauth"
+	"agent-platform/internal/shellenv"
 )
 
 func loadConnectorServers(sources connector.Sources) (map[string]ServerDefinition, error) {
@@ -105,12 +107,12 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 	}
 	tree["serverKey"] = connector.ServerKey(pkg.ID, name)
 	if disabled, exists := component["disabled"]; exists {
-		value, ok := disabled.(bool)
+		_, ok := disabled.(bool)
 		if !ok {
 			return ServerDefinition{}, fmt.Errorf("disabled must be boolean")
 		}
-		tree["enabled"] = !value
 	}
+	tree["enabled"] = ConnectorComponentEnabled(component)
 	switch component["type"] {
 	case "streamableHttp", "http":
 		if hasAnyKey(component, "command", "args", "env", "staticEnv", "runtime") {
@@ -175,23 +177,18 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 			}
 			for key, rawValue := range entries {
 				value, ok := rawValue.(string)
-				if !ok {
-					return ServerDefinition{}, fmt.Errorf("%s values must be strings", field)
+				if !ok || strings.TrimSpace(value) == "" || strings.ContainsRune(value, '\x00') {
+					return ServerDefinition{}, fmt.Errorf("%s values must be nonempty strings", field)
+				}
+				var err error
+				value, err = normalizeMCPAuthenticationValue(pkg, field, value)
+				if err != nil {
+					return ServerDefinition{}, err
+				}
+				if pair[0] == "env" && (!validMCPEnvironmentName(key) || strings.ContainsAny(value, "\r\n")) {
+					return ServerDefinition{}, fmt.Errorf("MCP environment uses an invalid or platform-owned variable")
 				}
 				if pkg.AuthMode == connector.AuthOneID {
-					// ONEID_TOKEN and AP_ACCESS_TOKEN are both supported Authorization templates.
-					// Normalize the exact ONEID_TOKEN template to the shared in-memory form;
-					// runtime identity and destination checks remain unchanged.
-					if field == "headers" && strings.EqualFold(key, "Authorization") && value == "Bearer ${ONEID_TOKEN}" {
-						value = "Bearer ${AP_ACCESS_TOKEN}"
-					}
-					if (field == "staticHeaders" || field == "staticEnv") && strings.Contains(value, "${") {
-						return ServerDefinition{}, fmt.Errorf("oneid-token templates belong in headers/env, not static fields")
-					}
-					resolved, err := resolveConnectorCredential(pkg, value, map[string]string{agentconfig.EnvAccessToken: "identity"})
-					if err != nil || strings.Contains(resolved, "${") {
-						return ServerDefinition{}, fmt.Errorf("oneid-token only supplies AP_ACCESS_TOKEN")
-					}
 					if pair[0] == "headers" && strings.EqualFold(key, "Authorization") && (field != "headers" || value != "Bearer ${AP_ACCESS_TOKEN}") {
 						return ServerDefinition{}, fmt.Errorf("oneid-token manages Authorization; omit it or use Bearer ${AP_ACCESS_TOKEN}")
 					}
@@ -208,15 +205,21 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 					return ServerDefinition{}, fmt.Errorf("header contains newline")
 				}
 				values[key] = value
+				entries[key] = value
 			}
 		}
 		if len(values) > 0 {
 			tree[pair[0]] = values
 		}
 	}
-	// Resolve bare names only from the connector's prepared bin directory.
-	if command, ok := tree["command"].(string); ok && !filepath.IsAbs(command) && !strings.ContainsAny(command, `/\`) {
-		tree["command"] = filepath.Join("bin", command)
+	bareCommand, _ := tree["command"].(string)
+	if filepath.IsAbs(bareCommand) || strings.ContainsAny(bareCommand, `/\`) {
+		bareCommand = ""
+	} else if bareCommand != "" && pkg.CLI == nil {
+		// MCP-only packages retain their existing package-local executable route.
+		// A CLI component opts into its prepared installation/PATH contract.
+		tree["command"] = filepath.Join("bin", bareCommand)
+		bareCommand = ""
 	}
 	server, err := parseServerTree(filepath.Join(pkg.Dir, "mcp.json"), tree)
 	if err != nil {
@@ -226,15 +229,28 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		server.EndpointPath = ""
 	}
 	if server.Transport == TransportStdio {
+		if bareCommand != "" {
+			server.Command = bareCommand
+		}
+		// Validate package fields before adding platform-owned public directories.
+		if err := agentconfig.ValidateUserEnvironment(server.Env); err != nil {
+			return ServerDefinition{}, err
+		}
 		values, err := pkg.CLIConfigEnvironment()
 		if err != nil {
 			return ServerDefinition{}, err
 		}
-		if len(values) > 0 && server.Env == nil {
-			server.Env = map[string]string{}
-		}
-		for key, value := range values {
-			server.Env[key] = value
+		server.ConnectorPrivateEnv = values
+		if pkg.CLI != nil {
+			private, err := connectorauth.CLIPrivateEnvironmentDirs(pkg)
+			if err != nil {
+				return ServerDefinition{}, err
+			}
+			server.ConnectorPrivateEnv = agentconfig.Merge(private, values)
+			server.ConnectorInstallationBinDir, err = connectorauth.CLIInstallationBinDir(pkg)
+			if err != nil {
+				return ServerDefinition{}, err
+			}
 		}
 	}
 	server.ConnectorID = pkg.ID
@@ -268,9 +284,6 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		for key, value := range headers {
 			server.ConnectorTokenHeaders[key], _ = value.(string)
 		}
-	}
-	if err := agentconfig.ValidateUserEnvironment(server.Env); err != nil {
-		return ServerDefinition{}, err
 	}
 	server.DisabledTools, err = normalizeStringSlice(component["disabledTools"])
 	if err != nil {
@@ -308,6 +321,61 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		server.SetupError = "connector runtime preparation is not implemented; provide a prepared command without runtime requirements"
 	}
 	return server, nil
+}
+
+// ConnectorComponentEnabled accepts the package's component schema, before it
+// is converted to a registry tree. A declared disabled flag overrides platform.
+// The normal package validation rejects non-boolean disabled values.
+func ConnectorComponentEnabled(component map[string]any) bool {
+	if disabled, ok := component["disabled"].(bool); ok {
+		return !disabled
+	}
+	platform, _ := component["platform"].(map[string]any)
+	return firstBool(platform["enabled"], true)
+}
+
+var mcpEnvironmentName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+
+func validMCPEnvironmentName(name string) bool {
+	if !mcpEnvironmentName.MatchString(name) || shellenv.UnsafeOverride(name) || strings.HasSuffix(name, "_CONFIG_DIR") || strings.HasPrefix(name, "XDG_") {
+		return false
+	}
+	switch name {
+	case "CONNECTOR_BIN_DIR", "CONNECTOR_ARCH", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "HOMEDRIVE", "HOMEPATH", "NPM_CONFIG_PREFIX":
+		return false
+	}
+	return true
+}
+
+func normalizeMCPAuthenticationValue(pkg connector.Package, field, value string) (string, error) {
+	if field == "staticHeaders" || field == "staticEnv" {
+		if strings.Contains(value, "${") {
+			return "", fmt.Errorf("credential templates belong in headers/env, not static fields")
+		}
+		return value, nil
+	}
+	declared := map[string]string{}
+	switch pkg.AuthMode {
+	case connector.AuthToken:
+		fields, err := connector.TokenFields(pkg.Manifest)
+		if err != nil {
+			return "", err
+		}
+		for _, field := range fields {
+			declared[field.Key] = "placeholder"
+		}
+	case connector.AuthOneID:
+		value = strings.ReplaceAll(value, "${ONEID_TOKEN}", "${AP_ACCESS_TOKEN}")
+		declared[agentconfig.EnvAccessToken] = "placeholder"
+	case connector.AuthOAuth, connector.AuthMCP:
+		value = strings.ReplaceAll(value, "${OAUTH_ACCESS_TOKEN}", "${ACCESS_TOKEN}")
+		declared["ACCESS_TOKEN"] = "placeholder"
+	}
+	resolved, err := resolveConnectorCredential(pkg, value, declared)
+	if err != nil || strings.Contains(resolved, "${") {
+		return "", fmt.Errorf("MCP authentication template references an undeclared credential")
+	}
+	return value, nil
 }
 
 func cloneAuthComponent(original map[string]any) map[string]any {

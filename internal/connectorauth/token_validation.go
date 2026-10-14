@@ -14,8 +14,21 @@ import (
 // ErrTokenRejected is reserved for a component's explicit authentication failure.
 // Network and setup failures must never be misclassified as expired credentials.
 var ErrTokenRejected = errors.New("connector credentials were not accepted")
+
+// ErrCredentialAuthenticationDenied denotes an explicit service-side rejection,
+// which may require account recovery rather than entering a different password.
+var ErrCredentialAuthenticationDenied error = credentialAuthenticationDeniedError{}
 var ErrCredentialValidatorUnavailable = errors.New("connector credential validation is unavailable")
 var ErrCredentialCheckFailed = errors.New("connector credential check failed; saved credentials were preserved")
+
+type credentialAuthenticationDeniedError struct{}
+
+func (credentialAuthenticationDeniedError) Error() string {
+	return "connector service denied authentication; saved credentials were preserved"
+}
+func (credentialAuthenticationDeniedError) Unwrap() error { return ErrTokenRejected }
+
+const tokenConfiguredMessage = "Credentials configured; account has not been independently verified"
 
 type tokenValidation struct {
 	cancel context.CancelFunc
@@ -65,6 +78,9 @@ func (m *Manager) validateTokenCredentials(ctx context.Context, pkg connector.Pa
 	}
 	defer os.RemoveAll(root)
 	candidate := pkg
+	if candidate.InstallationRoot == "" {
+		candidate.InstallationRoot = pkg.PersistentRoot()
+	}
 	candidate.StateRoot = root
 	dir, err := candidate.ConnectorStateDir()
 	if err != nil {
@@ -88,6 +104,12 @@ func (m *Manager) validateTokenCredentials(ctx context.Context, pkg connector.Pa
 	if hasCLIStatus {
 		accepted, err := m.cliStatus(ctx, candidate)
 		if err != nil {
+			if errors.Is(err, ErrCredentialAuthenticationDenied) {
+				return "", ErrCredentialAuthenticationDenied
+			}
+			if errors.Is(err, ErrTokenRejected) {
+				return "", ErrTokenRejected
+			}
 			return "", ErrCredentialCheckFailed
 		}
 		if !accepted {
@@ -99,6 +121,9 @@ func (m *Manager) validateTokenCredentials(ctx context.Context, pkg connector.Pa
 			return "", ErrCredentialValidatorUnavailable
 		}
 		if err := m.credentialValidator(ctx, candidate, values); err != nil {
+			if errors.Is(err, ErrCredentialAuthenticationDenied) {
+				return "", ErrCredentialAuthenticationDenied
+			}
 			if errors.Is(err, ErrTokenRejected) {
 				return "", ErrTokenRejected
 			}
@@ -129,12 +154,16 @@ func (m *Manager) tokenStatus(pkg connector.Package) (Session, error) {
 	if !ready {
 		if pending {
 			result.Status = "pending_verification"
+			result.Message = "Candidate credentials are awaiting verification; no active credentials were changed"
 		}
 		return result, nil
 	}
 	result.Status = cachedVerification(pkg, values)
 	if result.Status == "" {
 		result.Status = "configured"
+	}
+	if result.Status == "configured" {
+		result.Message = tokenConfiguredMessage
 	}
 	return result, nil
 }

@@ -65,8 +65,10 @@ func (s Sources) InstallShared(pkg Package) (Package, error) {
 	if err != nil {
 		return Package{}, err
 	}
+	pkg.InstallationDigest = before
 	indexKey := before
-	if pkg.ManagedCLI() {
+	// Every CLI descriptor embeds StateRoot, including packages without managed login.
+	if pkg.CLI != nil {
 		indexKey = fmt.Sprintf("%x", sha256.Sum256([]byte(before+"\x00"+s.PersistentRoot())))
 	}
 	indexPath := filepath.Join(parent, ".source-"+indexKey+".json")
@@ -79,7 +81,15 @@ func (s Sources) InstallShared(pkg Package) (Package, error) {
 			}
 			mounted, err := LoadDirectory(dest, pkg.ID)
 			mounted.Builtin, mounted.StateRoot = pkg.Builtin, s.PersistentRoot()
-			return mounted, err
+			if err != nil {
+				return Package{}, err
+			}
+			// Older cached CLI packages lack the source installation identity.
+			// Republish instead of selecting a different bin directory after restart.
+			if pkg.CLI == nil || mounted.InstallationDigest == before {
+				mounted.InstallationDigest = before
+				return mounted, nil
+			}
 		} else if !os.IsNotExist(err) {
 			return Package{}, err
 		}
@@ -122,7 +132,7 @@ func (s Sources) InstallShared(pkg Package) (Package, error) {
 		return Package{}, err
 	}
 	mounted, err := LoadDirectory(dest, pkg.ID)
-	mounted.Builtin, mounted.StateRoot = pkg.Builtin, s.PersistentRoot()
+	mounted.Builtin, mounted.StateRoot, mounted.InstallationDigest = pkg.Builtin, s.PersistentRoot(), before
 	return mounted, err
 }
 
@@ -234,6 +244,30 @@ func (s Sources) CollectShared() error {
 	}
 	for _, id := range ids {
 		if !id.IsDir() || !ValidID(id.Name()) {
+			continue
+		}
+		// A verified active installation survives failed updates even with no
+		// live Run lease. Corrupt/unknown active metadata is preserved for repair.
+		protectUnknownActive := false
+		activePath := filepath.Join(s.PersistentRoot(), id.Name(), "active-installation.json")
+		var active map[string]any
+		if err := ReadJSON(activePath, &active); err == nil {
+			dir, _ := active["dir"].(string)
+			digest, _ := active["digest"].(string)
+			if validDigest(digest) && filepath.Clean(dir) == filepath.Join(root, id.Name(), digest) {
+				actual, err := RuntimeFingerprint(dir)
+				if err == nil && actual == digest {
+					pinned[dir] = true
+				} else {
+					protectUnknownActive = true
+				}
+			} else {
+				protectUnknownActive = true
+			}
+		} else if !os.IsNotExist(err) {
+			protectUnknownActive = true
+		}
+		if protectUnknownActive {
 			continue
 		}
 		versions, err := os.ReadDir(filepath.Join(root, id.Name()))

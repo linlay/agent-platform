@@ -56,7 +56,7 @@ func TestSyncInstallsCurrentConnectorWithoutMigratingLegacyData(t *testing.T) {
 	source := writeTestZip(t, map[string]string{
 		"env/VERSION": "1.0.0",
 		"env/connectors-center/demo/connector.json": manifest,
-		"env/connectors-center/demo/cli.json":       `{}`,
+		"env/connectors-center/demo/cli.json":       `{"versionCheck":{"command":{"darwin":"demo --version","linux":"demo --version","win32":"demo.exe --version"},"minVersion":"1.0.0"}}`,
 		"env/connectors/obsolete/connector.json":    "ignored legacy package",
 	})
 	options := Options{RuntimeDir: root, Source: source, DesktopFrom: "legacy", DesktopTo: "1.0.0", Mode: ModeVersionChange}

@@ -21,7 +21,7 @@ func TestConnectorIconZIPCatalogAndHTTP(t *testing.T) {
 		z := zip.NewWriter(&archive)
 		for name, data := range map[string]string{
 			"connector.json": `{"id":"brand-demo","name":"Brand","version":"1.1.1","type":"cli","auth_mode":null,"icon":"assets/icon.svg"}`,
-			"cli.json":       `{}`, "assets/icon.svg": icon,
+			"cli.json":       `{"versionCheck":{"command":{"darwin":"demo --version","linux":"demo --version","win32":"demo.exe --version"},"minVersion":"1.0.0"}}`, "assets/icon.svg": icon,
 		} {
 			f, err := z.Create(name)
 			if err != nil {

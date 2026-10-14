@@ -110,12 +110,17 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	cmd.Args = append([]string{shellExecutable}, boundArgs...)
 	cmd.Env = commandEnv
 	if direct != nil {
-		cmd = exec.CommandContext(runCtx, direct.Program, direct.Args...)
-		cmd.WaitDelay, cmd.Dir = bashOutputPipeWaitDelay, workingDir
-		cmd.Env, err = t.connectorCommandEnvironment(runCtx, execCtx, direct.ID, commandEnv)
-		if err != nil {
-			return ToolExecutionResult{Output: err.Error(), Error: "connector_credentials_unavailable", ExitCode: -1}, nil
+		childEnv, envErr := t.connectorCommandEnvironment(runCtx, execCtx, direct.ID, commandEnv)
+		if envErr != nil {
+			return ToolExecutionResult{Output: envErr.Error(), Error: "connector_credentials_unavailable", ExitCode: -1}, nil
 		}
+		// Share CLI/MCP's native entry adapter. Windows npm cmd shims become
+		// Node + script argv, so connector payloads never pass through cmd.exe.
+		cmd, err = connectorauth.ExecutionProgramCommand(runCtx, direct.Program, direct.Args, workingDir, childEnv)
+		if err != nil {
+			return ToolExecutionResult{Output: err.Error(), Error: "connector_execution_unavailable", ExitCode: -1}, nil
+		}
+		cmd.WaitDelay = bashOutputPipeWaitDelay
 	}
 
 	stdoutFile, err := os.CreateTemp("", "agent-platform-bash-stdout-*.log")
@@ -519,18 +524,18 @@ func (t *RuntimeToolExecutor) connectorCommandEnvironment(ctx context.Context, e
 		if binding.ID != id {
 			continue
 		}
-		values, err := connectorauth.ResolveEnvironment(ctx, binding, t.cfg.IdentityFile)
+		childEnv, err := connectorauth.ApplyCLIProcessEnvironment(ctx, binding, env, t.cfg.IdentityFile, connectorauth.CLIPhaseBusiness)
 		if err != nil {
 			return nil, err
 		}
+		env = childEnv
 		if binding.Mode == connector.AuthOneID {
 			identity, err := agentconfig.ReadIdentityEnvironment(t.cfg.IdentityFile)
 			if err != nil {
 				return nil, err
 			}
-			values = agentconfig.Merge(values, identity)
+			env = mergeEnvironmentList(env, identity)
 		}
-		env = mergeEnvironmentList(env, values)
 	}
 	return env, nil
 }

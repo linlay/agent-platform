@@ -23,7 +23,7 @@ func iconPackage(t *testing.T, root, icon string, data []byte) Package {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for path, data := range map[string][]byte{"connector.json": content, "cli.json": []byte(`{}`), icon: data} {
+	for path, data := range map[string][]byte{"connector.json": content, "cli.json": []byte(minimalTestCLI), icon: data} {
 		if err := os.WriteFile(filepath.Join(dir, path), data, 0o644); err != nil {
 			t.Fatal(err)
 		}

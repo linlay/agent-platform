@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -27,6 +28,7 @@ import (
 	"agent-platform/internal/hostenv"
 	"agent-platform/internal/httpclient"
 	"agent-platform/internal/observability"
+	"agent-platform/internal/shellenv"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -435,8 +437,6 @@ func (c *Client) transportWithIdentity(server ServerDefinition, identity map[str
 	}
 	switch server.Transport {
 	case TransportStdio:
-		cmd := exec.Command(server.Command, server.Args...)
-		cmd.Dir = server.WorkingDir
 		env := server.Env
 		if server.ConnectorOneID {
 			env = map[string]string{}
@@ -454,7 +454,25 @@ func (c *Client) transportWithIdentity(server ServerDefinition, identity map[str
 				env[key] = value
 			}
 		}
+		if len(server.ConnectorPrivateEnv) > 0 {
+			env = agentconfig.Merge(env, server.ConnectorPrivateEnv)
+			for _, dir := range server.ConnectorPrivateEnv {
+				if info, err := os.Lstat(dir); err == nil {
+					if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+						return nil, fmt.Errorf("MCP private directory must be a real directory")
+					}
+				} else if !os.IsNotExist(err) {
+					return nil, err
+				}
+				if err := os.MkdirAll(dir, 0700); err != nil {
+					return nil, err
+				}
+			}
+		}
 		baseEnv := os.Environ()
+		if server.ConnectorID != "" {
+			baseEnv = shellenv.InheritedEnvironment(baseEnv)
+		}
 		if server.IsolatedEnvironment {
 			baseEnv = nil
 			for _, key := range []string{"PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL"} {
@@ -463,19 +481,59 @@ func (c *Client) transportWithIdentity(server ServerDefinition, identity map[str
 				}
 			}
 		}
-		cmd.Env = connector.WithPath(builtins.EnsureBinInEnv(append(baseEnv, envPairs(env)...)), []string{server.ConnectorBinDir})
-		if server.ConnectorOneID {
-			cmd.Env = agentconfig.WithIdentityEnvironment(cmd.Env, identity)
-		} else {
-			cmd.Env = agentconfig.WithIdentityEnvironment(cmd.Env, nil)
+		commandEnv := builtins.EnsureBinInEnv(baseEnv)
+		for key, value := range env {
+			commandEnv = hostenv.Set(commandEnv, key, value)
 		}
+		commandEnv = connector.WithPath(commandEnv, []string{server.ConnectorInstallationBinDir, server.ConnectorBinDir})
+		if server.ConnectorInstallationBinDir != "" {
+			commandEnv = hostenv.Set(commandEnv, "CONNECTOR_BIN_DIR", server.ConnectorInstallationBinDir)
+			commandEnv = hostenv.Set(commandEnv, "CONNECTOR_ARCH", runtime.GOARCH)
+		}
+		if server.ConnectorOneID {
+			commandEnv = agentconfig.WithIdentityEnvironment(commandEnv, identity)
+		} else {
+			commandEnv = agentconfig.WithIdentityEnvironment(commandEnv, nil)
+		}
+		entry := server.Command
 		if !filepath.IsAbs(server.Command) && !strings.ContainsAny(server.Command, "/\\") {
-			resolved, err := hostenv.LookPath(server.Command, cmd.Env)
+			resolved, err := hostenv.LookPath(server.Command, commandEnv)
 			if err != nil {
 				return nil, err
 			}
-			cmd.Path = resolved
-			cmd.Err = nil
+			entry = resolved
+		}
+		ownedRoot := ""
+		for _, bin := range []string{server.ConnectorInstallationBinDir, server.ConnectorBinDir} {
+			if bin == "" {
+				continue
+			}
+			rel, err := filepath.Rel(bin, entry)
+			if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				ownedRoot = filepath.Dir(bin)
+				break
+			}
+		}
+		if ownedRoot != "" {
+			canonicalRoot, err := filepath.EvalSymlinks(ownedRoot)
+			if err != nil {
+				return nil, err
+			}
+			canonicalEntry, err := filepath.EvalSymlinks(entry)
+			if err != nil {
+				return nil, err
+			}
+			rel, err := filepath.Rel(canonicalRoot, canonicalEntry)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return nil, fmt.Errorf("MCP command escapes its package installation")
+			}
+			entry = canonicalEntry
+		}
+		// The SDK owns this long-lived process. Binding it to an individual
+		// initialize/tool-call context would kill a reusable stdio session.
+		cmd, err := connectorauth.ExecutionProgramCommand(context.Background(), entry, server.Args, server.WorkingDir, commandEnv)
+		if err != nil {
+			return nil, err
 		}
 		cmd.Stderr = os.Stderr
 		if server.IsolatedEnvironment {
@@ -558,6 +616,7 @@ func (c *Client) httpClientForServer(server ServerDefinition) *http.Client {
 		authSource: server.AuthSource, identityFile: c.identityFile, configuredHost: configuredHost,
 		closeTimeout: sessionCloseTimeout, cancellationTimeout: cancellationNotificationTimeout,
 		oneID: server.ConnectorOneID, identityResource: server.ResolvedURL(),
+		oauth: server.ConnectorOAuth,
 	}
 	if server.ConnectorOAuth {
 		authClient := &http.Client{Transport: transport, Timeout: 30 * time.Second}
@@ -581,6 +640,7 @@ type headerRoundTripper struct {
 	identityFile        string
 	configuredHost      string
 	oneID               bool
+	oauth               bool
 	identityResource    string
 	closeTimeout        time.Duration
 	cancellationTimeout time.Duration
@@ -624,12 +684,19 @@ func (t headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 			}
 		}
 	}
+	if t.oauth {
+		accessToken, ok := strings.CutPrefix(cloned.Header.Get("Authorization"), "Bearer ")
+		if !ok || accessToken == "" {
+			return nil, fmt.Errorf("OAuth access token is unavailable")
+		}
+		identity = map[string]string{"ACCESS_TOKEN": accessToken}
+	}
 	for key, value := range t.headers {
-		if t.oneID {
+		if t.oneID || t.oauth {
 			var err error
 			value, err = resolveConnectorCredential(connector.Package{}, value, identity)
-			if err != nil {
-				return nil, fmt.Errorf("oneid-token header requires AP_ACCESS_TOKEN")
+			if err != nil || strings.ContainsAny(value, "\r\n\x00") {
+				return nil, fmt.Errorf("MCP header requires valid credentials")
 			}
 		}
 		cloned.Header.Set(key, value)
