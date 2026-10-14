@@ -31,7 +31,7 @@ func TestEmbeddedNativeConnectors(t *testing.T) {
 	if len(desktop.NativeTools()) != 11 || len(desktop.Skills) != 1 || desktop.Skills[0].Name != "platform-control" {
 		t.Fatalf("desktop capabilities: %v %+v", desktop.NativeTools(), desktop.Skills)
 	}
-	if len(web.NativeTools()) != 15 || len(web.Skills) != 1 || web.Skills[0].Name != "web-control" || web.AuthMode != AuthNoAuth {
+	if len(web.NativeTools()) != 16 || len(web.Skills) != 1 || web.Skills[0].Name != "web-control" || web.AuthMode != AuthNoAuth {
 		t.Fatalf("web-control capabilities: %v %+v", web.NativeTools(), web.Skills)
 	}
 	for _, tool := range web.NativeTools() {

@@ -32,6 +32,7 @@ var requiredBuiltinToolNames = []string{
 	"surface_evaluate",
 	"surface_click",
 	"surface_element",
+	"surface_login",
 	"surface_cdp",
 	"awcp_manual",
 	"awcp_invoke",

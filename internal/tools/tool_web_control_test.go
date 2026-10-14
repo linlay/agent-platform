@@ -515,6 +515,9 @@ func TestSurfaceToolsMapToOneRequestEach(t *testing.T) {
 		{tool: "surface_cdp", args: map[string]any{"surfaceId": "page:1", "method": "DOM.querySelector", "params": map[string]any{"nodeId": 1.0, "selector": "#a"}}, method: "DOM.querySelector", surfaceID: "page:1", params: map[string]any{"nodeId": 1.0, "selector": "#a"}},
 		{tool: "surface_cdp", args: map[string]any{"surfaceId": "page:1", "method": "Network.enable"}, method: "Network.enable", surfaceID: "page:1"},
 		{tool: "surface_element", args: map[string]any{"surfaceId": "page:1", "selector": "#name", "action": "fill", "value": "Ada"}, actionType: "desktop.web.interactElement", params: map[string]any{"surfaceId": "page:1", "selector": "#name", "action": "fill", "value": "Ada"}},
+		{tool: "surface_login", args: map[string]any{"surfaceId": "page:1", "action": "list"}, actionType: "desktop.credentials.list", params: map[string]any{"surfaceId": "page:1"}},
+		{tool: "surface_login", args: map[string]any{"surfaceId": "page:1", "action": "fill"}, actionType: "desktop.credentials.fill", params: map[string]any{"surfaceId": "page:1"}},
+		{tool: "surface_login", args: map[string]any{"surfaceId": "page:1", "action": "fill", "accountId": "acct-1", "submit": false}, actionType: "desktop.credentials.fill", params: map[string]any{"surfaceId": "page:1", "accountId": "acct-1", "submit": false}},
 	} {
 		executor, execCtx, invoker := webControlTestRuntime(t, func(ClientRequest) map[string]any {
 			return map[string]any{"ok": true, "result": map[string]any{"surface": map[string]any{"surfaceId": "page:1", "containerId": "container:1", "url": "https://example.com/"}}}
@@ -581,6 +584,13 @@ func TestSurfaceToolsRejectInvalidInputBeforeSending(t *testing.T) {
 		{"surface_element", map[string]any{"surfaceId": "page:1", "selector": "#a", "action": "click"}},
 		{"surface_element", map[string]any{"surfaceId": "page:1", "action": "fill"}},
 		{"surface_element", map[string]any{"surfaceId": "page:1", "selector": "#a", "action": "fill", "value": 3}},
+		{"surface_login", map[string]any{"surfaceId": "page:1"}},
+		{"surface_login", map[string]any{"action": "list"}},
+		{"surface_login", map[string]any{"surfaceId": "page:1", "action": "read"}},
+		{"surface_login", map[string]any{"surfaceId": "page:1", "action": "list", "accountId": "acct-1"}},
+		{"surface_login", map[string]any{"surfaceId": "page:1", "action": "fill", "submit": "true"}},
+		{"surface_login", map[string]any{"surfaceId": "page:1", "action": "fill", "origin": "https://example.com"}},
+		{"surface_login", map[string]any{"surfaceId": "page:1", "action": "fill", "password": "x"}},
 		{"surface_cdp", map[string]any{"surfaceId": "page:1", "method": "Runtime.evaluate", "params": map[string]any{"expression": "1"}}},
 		{"surface_cdp", map[string]any{"surfaceId": "page:1", "method": "Surface.close"}},
 		{"surface_cdp", map[string]any{"surfaceId": "page:1", "method": "AWCP.invoke"}},
@@ -719,7 +729,7 @@ func TestAwcpToolsReportValidationInTheirOwnFieldNames(t *testing.T) {
 func TestWebControlToolSetMatchesConnectorRegistry(t *testing.T) {
 	executor, execCtx, _ := webControlTestRuntime(t, nil)
 	tools := (connector.Package{Manifest: connector.Manifest{ID: connector.WebControlConnectorID, Type: "native"}}).NativeTools()
-	if len(tools) != 15 {
+	if len(tools) != 16 {
 		t.Fatalf("web-control tools: %v", tools)
 	}
 	defs, err := LoadEmbeddedToolDefinitions()

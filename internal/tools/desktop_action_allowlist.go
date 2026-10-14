@@ -106,6 +106,8 @@ var webControlActionNames = [...]string{
 	"desktop.workpanel.closeTab",
 	"desktop.workpanel.closeWorkpanel",
 	"desktop.web.interactElement",
+	"desktop.credentials.list",
+	"desktop.credentials.fill",
 }
 
 var desktopActionNamePattern = regexp.MustCompile(`^desktop(?:\.[A-Za-z][A-Za-z0-9]*)+$`)

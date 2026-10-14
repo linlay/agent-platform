@@ -1,6 +1,7 @@
 package accesspolicy
 
 import (
+	"path/filepath"
 	"strings"
 
 	"agent-platform/internal/config"
@@ -11,6 +12,10 @@ import (
 // secrets: the effective StateDir (connector credentials and the default
 // identity file), a separately configured identity file, and the document
 // preview records, whose share links open the previewed documents.
+//
+// Under Desktop the runtime root also holds Desktop's own secrets partition
+// (<runtime root>/.desktop/secrets, the saved website passwords). Agents use
+// those only through surface_login, never by reading the files.
 func PlatformProtectedPaths(cfg config.Config) []string {
 	state := cfg.Paths.EffectiveStateDir()
 	identity := cfg.IdentityFile
@@ -22,6 +27,9 @@ func PlatformProtectedPaths(cfg config.Config) []string {
 		if strings.TrimSpace(p) != "" {
 			paths = append(paths, p)
 		}
+	}
+	if cfg.RuntimeMode == config.RuntimeModeDesktop && strings.TrimSpace(state) != "" {
+		paths = append(paths, filepath.Join(filepath.Dir(state), ".desktop", "secrets"))
 	}
 	return paths
 }
