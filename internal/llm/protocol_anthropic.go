@@ -100,8 +100,10 @@ func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawC
 	case "content_block_start":
 		block := AnyMapNode(payload["content_block"])
 		blockType := AnyStringNode(block["type"])
-		s.currentTurn.observation.RawContentBytes += len(AnyStringNode(block["text"]))
-		s.currentTurn.observation.RawReasoningBytes += len(AnyStringNode(block["thinking"]))
+		text, _ := block["text"].(string)
+		thinking, _ := block["thinking"].(string)
+		s.currentTurn.observation.RawContentBytes += len(text)
+		s.currentTurn.observation.RawReasoningBytes += len(thinking)
 		if blockType == "tool_use" {
 			s.currentTurn.observation.RawToolDeltas++
 			index := AnyIntNode(payload["index"])
@@ -127,14 +129,18 @@ func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawC
 		delta := AnyMapNode(payload["delta"])
 		switch AnyStringNode(delta["type"]) {
 		case "text_delta":
-			s.currentTurn.observation.RawContentBytes += len(AnyStringNode(delta["text"]))
-			s.appendCompatContent(AnyStringNode(delta["text"]))
+			// Payload fragments are verbatim: trimming their boundaries removes
+			// Markdown newlines, word separators and whitespace-only deltas.
+			text, _ := delta["text"].(string)
+			s.currentTurn.observation.RawContentBytes += len(text)
+			s.appendCompatContent(text)
 		case "thinking_delta":
-			s.currentTurn.observation.RawReasoningBytes += len(AnyStringNode(delta["thinking"]))
-			s.appendCompatAnthropicThinking(AnyStringNode(delta["thinking"]))
+			thinking, _ := delta["thinking"].(string)
+			s.currentTurn.observation.RawReasoningBytes += len(thinking)
+			s.appendCompatAnthropicThinking(thinking)
 		case "input_json_delta":
 			s.currentTurn.observation.RawToolDeltas++
-			partialJSON := AnyStringNode(delta["partial_json"])
+			partialJSON, _ := delta["partial_json"].(string)
 			if partialJSON == "" {
 				return false, nil
 			}

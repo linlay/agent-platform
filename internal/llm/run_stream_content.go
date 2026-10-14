@@ -144,7 +144,7 @@ func (s *llmRunStream) responseReasoningFormat() string {
 func extractReasoningDetailTexts(details []map[string]any) []string {
 	texts := make([]string, 0, len(details))
 	for _, detail := range details {
-		if text := AnyStringNode(detail["text"]); text != "" {
+		if text, _ := detail["text"].(string); text != "" {
 			texts = append(texts, text)
 		}
 	}
