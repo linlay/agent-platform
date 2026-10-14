@@ -81,7 +81,24 @@ func connectorExecution(session QuerySession, x BashExecution, vars map[string]s
 			continue
 		}
 		hash, err := connector.CLIFileHash(canonical)
-		return err == nil && hash == entry.SHA256
+		if err != nil || hash != entry.SHA256 {
+			return false
+		}
+		if entry.LauncherTarget != "" {
+			// The launcher text alone is insufficient when Windows actually
+			// executes a different file through the Node argv adapter.
+			target, err := connector.WindowsNodeShimTarget(canonical)
+			if err != nil {
+				return false
+			}
+			script, err := pathutil.Canonicalize(target)
+			if err != nil || script.Key != entry.LauncherTargetKey || !pathutil.WithinRoot(script, r) {
+				return false
+			}
+			hash, err := connector.CLIFileHash(script.Host)
+			return err == nil && hash == entry.LauncherTargetSHA256
+		}
+		return true
 	}
 	return false
 }

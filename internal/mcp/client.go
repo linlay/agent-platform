@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -477,6 +478,16 @@ func (c *Client) transportWithIdentity(server ServerDefinition, identity map[str
 			cmd.Path = resolved
 			cmd.Err = nil
 		}
+		if connectorLauncher(cmd.Path, server.ConnectorBinDir, runtime.GOOS) {
+			// A connector's own npm shim runs as Node + script argv instead of
+			// through cmd.exe. Other commands, such as npx or uvx, are unchanged.
+			// The SDK owns this long-lived process, so no per-call context binds it.
+			adapted, err := connectorauth.ExecutionProgramCommand(context.Background(), cmd.Path, server.Args, server.WorkingDir, cmd.Env)
+			if err != nil {
+				return nil, err
+			}
+			cmd = adapted
+		}
 		cmd.Stderr = os.Stderr
 		if server.IsolatedEnvironment {
 			cmd.Stderr = io.Discard
@@ -770,4 +781,18 @@ func envPairs(values map[string]string) []string {
 		out = append(out, key+"="+values[key])
 	}
 	return out
+}
+
+// connectorLauncher reports a Windows batch launcher inside the connector
+// package's bin. Only such an entry needs the Node argv adapter.
+func connectorLauncher(entry, binDir, goos string) bool {
+	if goos != "windows" || binDir == "" || entry == "" {
+		return false
+	}
+	ext := strings.ToLower(filepath.Ext(entry))
+	if ext != ".cmd" && ext != ".bat" {
+		return false
+	}
+	rel, err := filepath.Rel(binDir, entry)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }

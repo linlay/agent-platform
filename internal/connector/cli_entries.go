@@ -3,10 +3,12 @@ package connector
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"agent-platform/internal/pathutil"
@@ -20,9 +22,17 @@ type CLIEntry struct {
 	PathKey      string
 	RelativePath string
 	SHA256       string
+	// Windows Node launchers additionally freeze the script they actually run.
+	LauncherTarget       string
+	LauncherTargetKey    string
+	LauncherTargetSHA256 string
 }
 
 func SnapshotCLIEntries(id, dir string) ([]CLIEntry, error) {
+	return snapshotCLIEntries(id, dir, runtime.GOOS)
+}
+
+func snapshotCLIEntries(id, dir, goos string) ([]CLIEntry, error) {
 	bin := filepath.Join(dir, "bin")
 	items, err := os.ReadDir(bin)
 	if os.IsNotExist(err) {
@@ -62,7 +72,25 @@ func SnapshotCLIEntries(id, dir string) ([]CLIEntry, error) {
 		if err != nil {
 			return nil, err
 		}
-		entries = append(entries, CLIEntry{ConnectorID: id, Path: canonical.Host, PathKey: canonical.Key, RelativePath: filepath.ToSlash(rel), SHA256: hash})
+		entry := CLIEntry{ConnectorID: id, Path: canonical.Host, PathKey: canonical.Key, RelativePath: filepath.ToSlash(rel), SHA256: hash}
+		if goos == "windows" && (ext == ".cmd" || ext == ".bat") {
+			target, err := WindowsNodeShimTarget(canonical.Host)
+			if err != nil && !errors.Is(err, ErrUnsupportedWindowsNodeShim) {
+				return nil, err
+			}
+			if err == nil {
+				script, err := pathutil.Canonicalize(target)
+				if err != nil || !pathutil.WithinRoot(script, root) {
+					return nil, fmt.Errorf("connector CLI shim escapes runtime package: %s", p)
+				}
+				hash, err := CLIFileHash(script.Host)
+				if err != nil {
+					return nil, err
+				}
+				entry.LauncherTarget, entry.LauncherTargetKey, entry.LauncherTargetSHA256 = script.Host, script.Key, hash
+			}
+		}
+		entries = append(entries, entry)
 	}
 	return entries, nil
 }
