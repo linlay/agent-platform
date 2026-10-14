@@ -300,3 +300,35 @@ func connectorMountForTest(t *testing.T, def catalog.AgentDefinition, id string)
 	t.Fatalf("missing connector mount %s", id)
 	return catalog.ConnectorMount{}
 }
+
+func TestConnectorUsageDirectoryOmitsDisabledMCPComponents(t *testing.T) {
+	f := connectorUsageFixture(t)
+	registry := f.registry.(*catalog.FileRegistry)
+	servers := map[string]any{
+		"main":      map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp"},
+		"secondary": map[string]any{"type": "streamableHttp", "url": "https://example.test/secondary", "disabled": true},
+		"legacy":    map[string]any{"type": "streamableHttp", "url": "https://example.test/legacy", "platform": map[string]any{"enabled": false}},
+	}
+	data, _ := json.Marshal(map[string]any{"mcpServers": servers})
+	if err := os.WriteFile(filepath.Join(f.cfg.Paths.EffectiveConnectorsCenterDir(), "meeting", "mcp.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Reload(context.Background(), "agents"); err != nil {
+		t.Fatal(err)
+	}
+	rec := connectorUsageRequest(f.server, http.MethodGet, "/api/connectors?agentKey=mock-agent", nil)
+	var body api.ApiResponse[api.ConnectorOptionsResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("directory: %s (%v)", rec.Body.String(), err)
+	}
+	for _, item := range body.Data.Connectors {
+		if item.ID != "meeting" {
+			continue
+		}
+		if len(item.MCP) != 1 || item.MCP[0].ServerKey != "meeting" {
+			t.Fatalf("disabled components must not wait for synchronization: %+v", item.MCP)
+		}
+		return
+	}
+	t.Fatal("meeting connector missing")
+}

@@ -51,16 +51,19 @@ func (m *Manager) commitTokenCredentials(pkg connector.Package, values map[strin
 		}
 		return fmt.Errorf("connector credential commit failed; saved credentials were preserved")
 	}
-	if err = savePrivateJSON(path, values); err != nil {
-		return rollback()
-	}
-	if err = m.markConfigured(pkg); err != nil {
-		return rollback()
-	}
+	// Readers take the credential lock, so they see either the old or the new
+	// account. The order below also bounds a crash between steps: the revision
+	// changes before the credentials, and the binding is set only after them.
 	if err = changeAuthState(pkg.PersistentRoot(), pkg.ID, false); err != nil {
 		return rollback()
 	}
 	if err = saveVerification(pkg, values, status); err != nil {
+		return rollback()
+	}
+	if err = savePrivateJSON(path, values); err != nil {
+		return rollback()
+	}
+	if err = m.markConfigured(pkg); err != nil {
 		return rollback()
 	}
 	if err = os.Remove(filepath.Join(dir, "pending-credentials.json")); err != nil && !os.IsNotExist(err) {

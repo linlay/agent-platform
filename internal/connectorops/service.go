@@ -140,11 +140,18 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 	if err != nil {
 		return result, failure("connector_unavailable", 503)
 	}
-	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID, pkg.AuthMode); err != nil {
-		return result, failure("connector_configuration_required", 409)
-	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID, pkg.AuthMode); err != nil {
+		// A first token submission awaiting Check is not configured yet, but the
+		// user needs the Check guidance rather than a request to configure again.
+		if pkg.AuthMode == connector.AuthToken {
+			if status, statusErr := auth.StatusComponent(ctx, req.ConnectorID, ""); statusErr == nil && status.Status == "pending_verification" {
+				return result, failure("connector_verification_required", 409)
+			}
+		}
+		return result, failure("connector_configuration_required", 409)
+	}
 	component := ""
 	if req.Adapter == "mcp" {
 		component = req.Component
@@ -216,7 +223,7 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 		}()
 	}
 	if req.Adapter == "cli" {
-		result, err = callCLI(ctx, pkg, req.Args)
+		result, err = callCLI(ctx, pkg, req.Args, revision)
 	} else {
 		result.MCP, err = callMCP(ctx, pkg, req.Component, req.ToolName, req.Arguments)
 	}
@@ -265,7 +272,26 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 	b.b.Write(p)
 	return n, nil
 }
-func callCLI(ctx context.Context, pkg connector.Package, args []string) (Result, error) {
+
+// credentialFailure keeps the authentication category instead of reporting
+// every credential read failure as a missing login.
+func credentialFailure(err error) error {
+	switch {
+	case errors.Is(err, connectorauth.ErrTokenVerificationPending):
+		return failure("connector_verification_required", 409)
+	case errors.Is(err, connectorauth.ErrOAuthClientSetupRequired):
+		return failure("connector_setup_required", 409)
+	case errors.Is(err, connectorauth.ErrOAuthRefreshFailed), errors.Is(err, connectorauth.ErrOAuthCredentialUnavailable),
+		errors.Is(err, connectorauth.ErrCredentialStoreUnavailable), errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		return failure("connector_unavailable", 503)
+	default:
+		return failure("connector_auth_required", 401)
+	}
+}
+
+// revision is the credential revision reported with the result. A token account
+// read for this execution must be that same revision.
+func callCLI(ctx context.Context, pkg connector.Package, args []string, revision string) (Result, error) {
 	var result Result
 	env := []string{}
 	for _, name := range []string{"PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL"} {
@@ -284,9 +310,12 @@ func callCLI(ctx context.Context, pkg connector.Package, args []string) (Result,
 	if err != nil {
 		return result, failure("connector_auth_required", 401)
 	}
-	credentials, err := connectorauth.ResolveEnvironment(ctx, binding, "")
+	credentials, executed, err := connectorauth.ResolveEnvironmentWithRevision(ctx, binding, "")
 	if err != nil {
-		return result, failure("connector_auth_required", 401)
+		return result, credentialFailure(err)
+	}
+	if executed != "" && executed != revision {
+		return result, failure("connector_auth_expired", 401)
 	}
 	for k, v := range credentials {
 		env = append(env, k+"="+v)

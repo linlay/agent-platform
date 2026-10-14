@@ -3,6 +3,7 @@ package connectorauth
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -30,50 +31,60 @@ func CLIEnvironment(pkg connector.Package) (connector.CredentialEnvironment, err
 }
 
 func ResolveEnvironment(ctx context.Context, d connector.CredentialEnvironment, identityFile string) (map[string]string, error) {
+	env, _, err := ResolveEnvironmentWithRevision(ctx, d, identityFile)
+	return env, err
+}
+
+// ResolveEnvironmentWithRevision also returns the token revision read together
+// with the values, so a caller can bind a request to the account it executes.
+// Other modes return an empty revision.
+func ResolveEnvironmentWithRevision(ctx context.Context, d connector.CredentialEnvironment, identityFile string) (map[string]string, string, error) {
 	if len(d.Env) == 0 {
-		return nil, nil
+		return nil, "", nil
 	}
 	values := map[string]string{}
+	revision := ""
 	switch d.Mode {
 	case connector.AuthToken:
-		path, err := connector.CredentialsPath(d.Root, d.ID)
+		var err error
+		values, revision, err = ReadTokenCredentials(ctx, d.Root, d.ID)
 		if err != nil {
-			return nil, err
-		}
-		if err := readPrivateJSON(path, &values); err != nil {
+			if !os.IsNotExist(err) {
+				return nil, "", fmt.Errorf("connector %s credentials are unavailable: %w", d.ID, ErrCredentialStoreUnavailable)
+			}
 			// Pending values only change this diagnostic. They never become an
 			// execution credential before the explicit Check commits them.
 			dir, stateErr := StateDir(d.Root, d.ID)
 			var pending map[string]string
 			if stateErr == nil && readPrivateJSON(filepath.Join(dir, "pending-credentials.json"), &pending) == nil && len(pending) > 0 {
-				return nil, fmt.Errorf("connector %s credentials have been saved and are awaiting verification; use Check in connector settings; no need to re-enter credentials", d.ID)
+				return nil, "", fmt.Errorf("connector %s: %w", d.ID, ErrTokenVerificationPending)
 			}
-			return nil, fmt.Errorf("connector %s requires credentials", d.ID)
+			return nil, "", fmt.Errorf("connector %s requires credentials: %w", d.ID, ErrTokenRejected)
 		}
 	case connector.AuthOAuth, connector.AuthMCP:
 		token, err := AccessToken(ctx, d.Root, d.ID, d.Resource, nil, d.Destination)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		values["ACCESS_TOKEN"] = token
 	case connector.AuthOneID:
 		var err error
 		values, err = agentconfig.ReadIdentityEnvironment(identityFile)
 		if err != nil {
-			return nil, fmt.Errorf("Desktop SSO is unavailable")
+			return nil, "", fmt.Errorf("Desktop SSO is unavailable")
 		}
 	default:
-		return nil, fmt.Errorf("unsupported credential environment")
+		return nil, "", fmt.Errorf("unsupported credential environment")
 	}
 	env := map[string]string{}
 	for name, template := range d.Env {
 		value, err := connector.ResolveAuthTemplate(template, values)
 		if err != nil || strings.ContainsAny(value, "\x00\r\n") {
-			return nil, fmt.Errorf("connector %s requires valid credentials", d.ID)
+			return nil, "", fmt.Errorf("connector %s requires valid credentials: %w", d.ID, ErrTokenRejected)
 		}
 		env[name] = value
 	}
-	return env, nil
+	return env, revision, nil
 }
 
 func ResolveEnvironments(ctx context.Context, bindings []connector.CredentialEnvironment, identityFile string) (map[string]string, error) {

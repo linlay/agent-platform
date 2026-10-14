@@ -44,6 +44,24 @@ func loadConnectorServers(sources connector.Sources) (map[string]ServerDefinitio
 	return servers, nil
 }
 
+// EnabledConnectorServerKeys lists the source keys of components the registry
+// synchronizes. Disabled components never receive a synchronization status.
+func EnabledConnectorServerKeys(pkg connector.Package) []string {
+	names := make([]string, 0, len(pkg.MCP))
+	for name := range pkg.MCP {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	keys := make([]string, 0, len(names))
+	for _, name := range names {
+		if server, err := connectorServer(pkg, name); err == nil && !server.Enabled() {
+			continue
+		}
+		keys = append(keys, connector.ServerKey(pkg.ID, name))
+	}
+	return keys
+}
+
 // The platform block carries explicit deployment settings migrated from the
 // former registry (tool aliases/overrides and the platform identity adapter).
 // It is not a second source of MCP definitions.

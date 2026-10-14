@@ -17,6 +17,11 @@ var ErrTokenRejected = errors.New("connector credentials were not accepted")
 var ErrCredentialValidatorUnavailable = errors.New("connector credential validation is unavailable")
 var ErrCredentialCheckFailed = errors.New("connector credential check failed; saved credentials were preserved")
 
+// ErrTokenVerificationPending means only an unverified candidate exists. It
+// directs the user to Check instead of re-entering credentials.
+var ErrTokenVerificationPending = errors.New("credentials have been saved and are awaiting verification; use Check in connector settings; no need to re-enter credentials")
+var ErrCredentialStoreUnavailable = errors.New("connector credential store is unavailable; saved credentials were preserved")
+
 const tokenConfiguredMessage = "Credentials configured; account has not been independently verified"
 
 type tokenValidation struct {

@@ -75,7 +75,9 @@ func (s *Server) listSelectableConnectors(ctx context.Context, agentKey, locale 
 		if err != nil {
 			entry.Readiness = "unavailable"
 		} else {
-			for _, sourceKey := range pkg.ServerKeys() {
+			// Only components the Agent can use: a disabled one is never synced and
+			// would otherwise stay pending forever.
+			for _, sourceKey := range mcp.EnabledConnectorServerKeys(pkg) {
 				mounted := false
 				for _, mount := range mounts {
 					if mount.ID != item.ID || (agentKey != "" && mount.AgentKey != agentKey) {
