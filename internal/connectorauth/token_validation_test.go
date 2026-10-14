@@ -85,8 +85,45 @@ func TestTokenCLIWithoutStatusCompletesConfiguration(t *testing.T) {
 		t.Fatal(session, err)
 	}
 	connection, err := m.Connection(t.Context(), pkg.ID)
-	if err != nil || !connection.Configured || connection.Readiness != "ready" || connection.Authentication.Status != "configured" {
+	if err != nil || !connection.Configured || connection.Readiness != "ready" || connection.Authentication.Status != "configured" || connection.Authentication.Message != tokenConfiguredMessage {
 		t.Fatal(connection, err)
+	}
+}
+
+func TestAcceptedTokenPreservesActiveCredentialsWhenMetadataIsInvalid(t *testing.T) {
+	m, pkg := tokenCLIFixture(t, false)
+	if _, err := m.SetToken(t.Context(), pkg.ID, map[string]string{"API_KEY": "old-secret"}); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := pkg.ConnectorStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := map[string]string{}
+	for _, name := range []string{"credentials.json", "connection.json", "verification.json"} {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[name] = string(data)
+	}
+	// A damaged metadata file used to fail after the credential file had been
+	// replaced, exposing the new account despite reporting a failed save.
+	if err := os.WriteFile(filepath.Join(dir, "auth-state.json"), []byte("not-json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SetToken(t.Context(), pkg.ID, map[string]string{"API_KEY": "new-secret"}); err == nil || strings.Contains(err.Error(), "new-secret") {
+		t.Fatal("invalid state accepted or credentials leaked", err)
+	}
+	for name, previous := range before {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil || string(data) != previous {
+			t.Fatal("failed save partially changed active state", name, err)
+		}
+	}
+	values, ready, err := TokenValues(pkg)
+	if err != nil || !ready || values["API_KEY"] != "old-secret" {
+		t.Fatal("failed save replaced active account", err)
 	}
 }
 

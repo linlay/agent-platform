@@ -86,10 +86,13 @@ func (m *Manager) Check(ctx context.Context, id, component string) (Session, err
 		defer release()
 		ok, err := m.cliStatus(checkCtx, pkg)
 		status := "unauthorized"
+		message := "CLI did not match its declared authenticated state"
 		if err != nil {
 			status = "failed"
+			message = "CLI status check unavailable; stored login materials were preserved"
 		} else if ok {
 			status = "authorized"
+			message = "CLI authenticated state verified"
 		}
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -104,7 +107,7 @@ func (m *Manager) Check(ctx context.Context, id, component string) (Session, err
 		if previous := m.sessions[id]; previous != nil && previous.Status != "pending" && previous.Status != "preparing" {
 			delete(m.sessions, id)
 		}
-		return Session{ConnectorID: id, Status: status, AuthBrowser: pkg.AuthorizationBrowser()}, nil
+		return Session{ConnectorID: id, Status: status, AuthBrowser: pkg.AuthorizationBrowser(), Message: message}, nil
 	}
 	// OAuth uses the existing locally stored grant/expiry contract; OneID reads Desktop identity.
 	return m.StatusComponent(ctx, id, component)

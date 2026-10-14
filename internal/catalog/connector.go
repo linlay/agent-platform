@@ -247,15 +247,34 @@ func (d *AgentDefinition) bindConnectorRuntime() error {
 	return nil
 }
 
-func (r *FileRegistry) ConnectorRuntimes() []connector.AgentRuntime {
+// PublishedConnectorRuntimes lists only each Agent's current published mounts.
+// Versions retained by Runs remain in ConnectorRuntimes for routing and GC.
+func (r *FileRegistry) PublishedConnectorRuntimes() []connector.AgentRuntime {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	return r.publishedConnectorRuntimesLocked()
+}
+
+func (r *FileRegistry) publishedConnectorRuntimesLocked() []connector.AgentRuntime {
 	var result []connector.AgentRuntime
 	for _, def := range r.agents {
 		for _, mount := range def.ConnectorMounts {
 			result = append(result, connector.AgentRuntime{AgentKey: def.Key, ID: mount.ID, Dir: mount.Dir, Digest: mount.Digest})
 		}
 	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].AgentKey != result[j].AgentKey {
+			return result[i].AgentKey < result[j].AgentKey
+		}
+		return result[i].ID < result[j].ID
+	})
+	return result
+}
+
+func (r *FileRegistry) ConnectorRuntimes() []connector.AgentRuntime {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := r.publishedConnectorRuntimesLocked()
 	if r.assembler != nil {
 		if pins, err := r.assembler.connectors.PinnedRuntimes(); err == nil {
 			result = append(result, pins...)

@@ -232,3 +232,71 @@ func TestConnectorUsageDirectoryDistinguishesIdleAndFailedCLIPreparation(t *test
 		read("unavailable")
 	}
 }
+
+func TestConnectorUsageDirectoryReportsOnlyPublishedAgentVersion(t *testing.T) {
+	f := connectorUsageFixture(t)
+	registry := f.registry.(*catalog.FileRegistry)
+	old, release, ok := registry.AcquireAgentRuntime("mock-agent")
+	if !ok {
+		t.Fatal("missing runtime")
+	}
+	t.Cleanup(release)
+	oldMount := connectorMountForTest(t, old, "meeting")
+	source := filepath.Join(f.cfg.Paths.EffectiveConnectorsCenterDir(), "meeting", "notes.md")
+	if err := os.WriteFile(source, []byte("new version"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Reload(context.Background(), "agents"); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := registry.AgentDefinition("mock-agent")
+	currentMount := connectorMountForTest(t, current, "meeting")
+	if currentMount.Digest == oldMount.Digest {
+		t.Fatal("package change did not publish a new version")
+	}
+	retained := 0
+	for _, mount := range registry.ConnectorRuntimes() {
+		if mount.AgentKey == "mock-agent" && mount.ID == "meeting" {
+			retained++
+		}
+	}
+	if retained < 2 {
+		t.Fatalf("fixture lacks a retained Run version: %d", retained)
+	}
+	// The retained Run's version is healthy; the current version has not synced yet.
+	f.server.deps.MCPToolSyncStatus = stubMCPToolSyncStatusProvider{statuses: map[string]api.MCPServerToolSyncStatus{
+		connector.AgentVersionServerKey("mock-agent", "meeting", oldMount.Digest): {Status: "ready"},
+	}}
+	for _, path := range []string{"/api/connectors?agentKey=mock-agent", "/api/connectors"} {
+		rec := connectorUsageRequest(f.server, http.MethodGet, path, nil)
+		var body api.ApiResponse[api.ConnectorOptionsResponse]
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("%s: %s (%v)", path, rec.Body.String(), err)
+		}
+		for _, item := range body.Data.Connectors {
+			if item.ID != "meeting" {
+				continue
+			}
+			var statuses []string
+			for _, server := range item.MCP {
+				if server.AgentKey == "mock-agent" {
+					statuses = append(statuses, server.Status)
+				}
+			}
+			if !slices.Equal(statuses, []string{"pending"}) {
+				t.Fatalf("%s reported retained or duplicate versions: %+v", path, item.MCP)
+			}
+		}
+	}
+}
+
+func connectorMountForTest(t *testing.T, def catalog.AgentDefinition, id string) catalog.ConnectorMount {
+	t.Helper()
+	for _, mount := range def.ConnectorMounts {
+		if mount.ID == id {
+			return mount
+		}
+	}
+	t.Fatalf("missing connector mount %s", id)
+	return catalog.ConnectorMount{}
+}

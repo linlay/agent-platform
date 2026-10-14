@@ -95,8 +95,22 @@ func TestFirstOfflineTokenCanBeSavedWithoutBecomingAuthorized(t *testing.T) {
 		t.Fatal(got, err)
 	}
 	c, err := m.Connection(t.Context(), "remote")
-	if err != nil || c.Authentication.Status != "pending_verification" || c.Readiness == "ready" {
+	if err != nil || c.Configured || c.Authentication.Status != "pending_verification" || c.Readiness == "ready" {
 		t.Fatal(c, err)
+	}
+	pkg, err := sources.Load("remote")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ready, err := TokenValues(pkg); err != nil || ready {
+		t.Fatal("unverified first candidate became active", err)
+	}
+	m.WithCredentialValidator(acceptTokenForPersistenceTest)
+	if checked, err := m.Check(t.Context(), "remote", ""); err != nil || checked.Status != "authorized" {
+		t.Fatal("candidate could not be checked later", checked, err)
+	}
+	if c, err := m.Connection(t.Context(), "remote"); err != nil || !c.Configured || c.Authentication.Status != "authorized" {
+		t.Fatal("accepted candidate did not establish binding", c, err)
 	}
 }
 func TestLegacyCLILogoutDoesNotDeleteConfiguration(t *testing.T) {

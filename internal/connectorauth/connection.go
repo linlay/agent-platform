@@ -60,6 +60,16 @@ func (m *Manager) Connection(ctx context.Context, id string) (Connection, error)
 		if prep.Status != "ready" {
 			c.Readiness = "preparing"
 			c.Authentication = Session{ConnectorID: id, Status: "setup_required", AuthBrowser: pkg.AuthorizationBrowser()}
+			switch prep.Status {
+			case "failed":
+				c.Readiness = "unavailable"
+				prep.Message = "CLI preparation failed; retry connector preparation"
+				c.Authentication.Message = prep.Message
+			case "canceled":
+				c.Readiness = "unavailable"
+				prep.Message = "CLI preparation was canceled; retry connector preparation"
+				c.Authentication.Message = prep.Message
+			}
 			return c, nil
 		}
 	}
@@ -71,6 +81,9 @@ func (m *Manager) Connection(ctx context.Context, id string) (Connection, error)
 	}
 	c.Authentication = auth
 	if !state.Configured {
+		if auth.Status == "pending_verification" || auth.PendingVerification {
+			c.Readiness = "pending_verification"
+		}
 		return c, nil
 	}
 	switch auth.Status {

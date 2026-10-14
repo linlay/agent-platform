@@ -3,6 +3,7 @@ package connectorauth
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"agent-platform/internal/agentconfig"
@@ -40,6 +41,13 @@ func ResolveEnvironment(ctx context.Context, d connector.CredentialEnvironment, 
 			return nil, err
 		}
 		if err := readPrivateJSON(path, &values); err != nil {
+			// Pending values only change this diagnostic. They never become an
+			// execution credential before the explicit Check commits them.
+			dir, stateErr := StateDir(d.Root, d.ID)
+			var pending map[string]string
+			if stateErr == nil && readPrivateJSON(filepath.Join(dir, "pending-credentials.json"), &pending) == nil && len(pending) > 0 {
+				return nil, fmt.Errorf("connector %s credentials have been saved and are awaiting verification; use Check in connector settings; no need to re-enter credentials", d.ID)
+			}
 			return nil, fmt.Errorf("connector %s requires credentials", d.ID)
 		}
 	case connector.AuthOAuth, connector.AuthMCP:

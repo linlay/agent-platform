@@ -2,7 +2,6 @@ package connectorauth
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -105,43 +104,16 @@ func (m *Manager) tokenOperation(ctx context.Context, pkg connector.Package, val
 		if err = savePrivateJSON(filepath.Join(dir, "pending-credentials.json"), values); err != nil {
 			return Session{}, fmt.Errorf("save pending credentials failed")
 		}
-		if _, err = pkg.SetConfigured(true); err != nil {
-			return Session{}, err
-		}
+		// A candidate awaiting a real check cannot establish a new binding or
+		// change an existing one. In particular, an offline first submission
+		// must not become configured before the candidate is accepted.
 		result.Status = "pending_verification"
 		result.PendingVerification = true
 		result.Message = "Credentials saved for later verification; active credentials were preserved"
 		return result, nil
 	}
-	path, err := connector.CredentialsPath(pkg.PersistentRoot(), pkg.ID)
-	if err != nil {
+	if err = m.commitTokenCredentials(pkg, values, status); err != nil {
 		return Session{}, err
-	}
-	var previous json.RawMessage
-	if data, readErr := os.ReadFile(path); readErr == nil {
-		previous = data
-	} else if !os.IsNotExist(readErr) {
-		return Session{}, fmt.Errorf("credential store unavailable")
-	}
-	if err = savePrivateJSON(path, values); err != nil {
-		return Session{}, fmt.Errorf("save connector credentials failed")
-	}
-	if err = m.markConfigured(pkg); err != nil {
-		if previous == nil {
-			_ = os.Remove(path)
-		} else {
-			_ = savePrivateJSON(path, previous)
-		}
-		return Session{}, err
-	}
-	if err = changeAuthState(pkg.PersistentRoot(), pkg.ID, false); err != nil {
-		return Session{}, err
-	}
-	if err = saveVerification(pkg, values, status); err != nil {
-		return Session{}, err
-	}
-	if err = os.Remove(filepath.Join(dir, "pending-credentials.json")); err != nil && !os.IsNotExist(err) {
-		return Session{}, fmt.Errorf("clear pending credentials failed")
 	}
 	// Callbacks run after releasing the manager lock, as they may inspect current state.
 	if m.reload != nil {
@@ -153,7 +125,7 @@ func (m *Manager) tokenOperation(ctx context.Context, pkg connector.Package, val
 		}
 	}
 	if status == "configured" {
-		result.Message = "Credentials configured; this connector has no independent verification command"
+		result.Message = tokenConfiguredMessage
 	}
 	return result, nil
 }

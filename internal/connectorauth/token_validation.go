@@ -17,6 +17,8 @@ var ErrTokenRejected = errors.New("connector credentials were not accepted")
 var ErrCredentialValidatorUnavailable = errors.New("connector credential validation is unavailable")
 var ErrCredentialCheckFailed = errors.New("connector credential check failed; saved credentials were preserved")
 
+const tokenConfiguredMessage = "Credentials configured; account has not been independently verified"
+
 type tokenValidation struct {
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -129,12 +131,16 @@ func (m *Manager) tokenStatus(pkg connector.Package) (Session, error) {
 	if !ready {
 		if pending {
 			result.Status = "pending_verification"
+			result.Message = "Candidate credentials are awaiting verification; no active credentials were changed"
 		}
 		return result, nil
 	}
 	result.Status = cachedVerification(pkg, values)
 	if result.Status == "" {
 		result.Status = "configured"
+	}
+	if result.Status == "configured" {
+		result.Message = tokenConfiguredMessage
 	}
 	return result, nil
 }

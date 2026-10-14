@@ -150,11 +150,26 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 		component = req.Component
 	}
 	status, err := auth.StatusComponent(ctx, req.ConnectorID, component)
-	if err != nil || status.Status == "setup_required" {
+	if err != nil {
 		return result, failure("connector_unavailable", 503)
 	}
-	if status.Status != "authorized" && status.Status != "configured" && status.Status != "delegated" && status.Status != "no_auth" {
+	switch status.Status {
+	case "authorized", "configured", "delegated", "no_auth":
+		// Configured credentials without an independent status command are
+		// usable, but do not assert that the account has been verified.
+	case "unauthorized":
 		return result, failure("connector_auth_required", 401)
+	case "setup_required":
+		return result, failure("connector_setup_required", 409)
+	case "preparing", "pending":
+		return result, failure("connector_authorization_pending", 409)
+	case "pending_verification":
+		return result, failure("connector_verification_required", 409)
+	case "canceled", "expired":
+		return result, failure("connector_auth_failed", 409)
+	default:
+		// A transient or malformed status is not an authentication rejection.
+		return result, failure("connector_unavailable", 503)
 	}
 	// Keep the package stable through dispatch, including cross-process imports.
 	if !pkg.Builtin {
@@ -170,7 +185,7 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 	}
 	revision, err := auth.Revision(req.ConnectorID)
 	if err != nil {
-		return result, failure("connector_auth_required", 401)
+		return result, failure("connector_unavailable", 503)
 	}
 	if req.CredentialRevision != "" && req.CredentialRevision != revision {
 		return result, failure("connector_auth_expired", 401)
