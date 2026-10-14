@@ -39,6 +39,7 @@ Desktop requires the same Run scope, the same page, the same revision and a prev
 ## Results, Errors And Recovery
 
 - Success: use only what the structured result establishes. Do not automatically inspect the DOM or capture a screenshot.
+- Failure or unknown outcome: reconcile through a read-only section of the same manual, such as a page read action. A screenshot is neither reconciliation nor diagnosis of an AWCP error.
 - `invalid_arguments.details.fieldErrors`: page-owned validation failed. For a low-impact operation, correct the named fields against the current schema and make a newly considered call. Do not coerce values such as `"true"` to `true` implicitly.
 - Page `executionStarted:false`: the page reports that its handler did not start. It is page data, not trusted host proof.
 - Host `awcp_preflight_rejected`: only `manual_required`, `page_changed`, `stale_revision` and `action_not_found` are valid reasons. `stage:desktop_preflight` and `executionStarted:false` are trusted host evidence.

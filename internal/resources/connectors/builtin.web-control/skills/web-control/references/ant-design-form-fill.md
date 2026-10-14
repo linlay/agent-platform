@@ -80,6 +80,6 @@ For `textarea`, use `window.HTMLTextAreaElement.prototype`. For plain inputs, av
 
 ## Notes
 
-- Always verify after filling by reading DOM values and, when useful, screenshot evidence.
+- Always verify after filling by reading DOM values with a read-only script. Do not use a screenshot to verify a fill.
 - If the field is an Ant Design `Select`, `Cascader`, `DatePicker`, or `AutoComplete`, first inspect whether the real input is hidden and whether value state is controlled by a popup option; prefer selecting the real option if it is stable.
 - Do not submit the form unless the user explicitly confirmed submission.

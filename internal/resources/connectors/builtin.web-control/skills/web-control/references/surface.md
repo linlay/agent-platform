@@ -21,7 +21,7 @@ Each surface tool acts on one live webpage and takes top-level arguments. Unknow
 
 ## Reading
 
-- `surface_screenshot`: `{surfaceId, fullPage?}`. Captures a PNG. `fullPage: true` captures the whole scrollable page instead of the visible viewport. The image is saved to the current Chat and the result exposes a `referenceName`; inspect it with `vision_recognize`.
+- `surface_screenshot`: `{surfaceId, fullPage?}`. Captures a PNG. `fullPage: true` captures the whole scrollable page instead of the visible viewport. The image is saved to the current Chat and the result exposes a `referenceName`; inspect it with `vision_recognize`. This is the slowest way to read a page: use it only for appearance questions or when the user asks to see the page, never to verify an action or locate an element. See "Text first, screenshots last" in the skill.
 - `surface_evaluate`: `{surfaceId, expression | expressionFile, awaitPromise?}`. Evaluates JavaScript and returns its value.
   - Provide exactly one of `expression` and `expressionFile`.
   - `expression` is a JavaScript expression; use a synchronous IIFE for synchronous reads.
@@ -57,7 +57,7 @@ Each surface tool acts on one live webpage and takes top-level arguments. Unknow
   - action `"fill"` has Desktop write the account and password into the page's login form. Omit `accountId` to use the default account; an `accountId` is valid only on the site whose list returned it. `submit` is a boolean, default true.
   - Status `submitted` means the form was submitted, not that the login succeeded: read the page state afterwards. `loginFormVisible: true` means the page still asks for a password (rejected login, captcha or another verification step); tell the user instead of retrying.
   - Status `username_only` is the first page of a two-step login. Once the password page is shown, call `fill` again.
-  - Status `filled` (`submit: false`) leaves the login for the user to finish. Until they do, every tool on that page fails with `credential_fill_in_progress`; wait rather than retry in a loop. After about two minutes Desktop empties the password field and the page is usable again.
+  - Status `filled` (`submit: false`) leaves the login for the user to finish. Until they do, every tool on that page, including another `fill`, fails with `credential_fill_in_progress`; wait rather than retry in a loop. After about two minutes Desktop empties the password field and the page is usable again.
   - `no_saved_account`, `account_not_found` and `no_login_form` mean nothing was filled. `user_cancelled` means the user declined; do not ask again in the same task. A timeout does not prove nothing happened: read the page state, do not replay.
   - Example: `{"surfaceId": "page:returned-id", "action": "fill"}`.
 - `surface_cdp`: `{surfaceId, method, params | paramsFile}`. Sends one Chrome DevTools Protocol method that has no dedicated tool.

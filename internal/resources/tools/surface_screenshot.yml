@@ -4,7 +4,7 @@ i18n:
     label: "Capture Page"
   zh-CN:
     label: "网页截图"
-description: "Capture a screenshot of a webpage. Read the web-control skill before use."
+description: "Capture a webpage image. Slow; only for visual questions, never to verify actions. Read the web-control skill before use."
 clientVisible: true
 readOnly: true
 inputSchema:
