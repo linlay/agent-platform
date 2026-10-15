@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -111,6 +112,81 @@ func TestRunStreamUsesSessionCurrentMessages(t *testing.T) {
 	current, _ := rawMessages[len(rawMessages)-1].(map[string]any)
 	if current["role"] != "user" || current["content"] != "canonical model-side message" {
 		t.Fatalf("expected request to use session CurrentMessages, got %#v", rawMessages)
+	}
+}
+
+// The model receives Output verbatim while the trace keeps the raw MCP result,
+// including base64 that Output elides.
+func TestLLMMCPToolResultReachesModelRequestAndTrace(t *testing.T) {
+	recordDir := t.TempDir()
+	var calls atomic.Int64
+	var secondBody atomic.Value
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		if calls.Add(1) == 1 {
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"mcp_lookup\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n"))
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		secondBody.Store(body)
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\n"))
+	}))
+	defer server.Close()
+
+	output := "部分数据源查询失败\n\n{\"data\":\"[base64 omitted: 8 chars]\",\"type\":\"image\"}\n\nstructuredContent:\n{\"count\":2}"
+	raw := map[string]any{
+		"structuredContent": map[string]any{"count": float64(2)},
+		"content": []any{
+			map[string]any{"type": "text", "text": "部分数据源查询失败"},
+			map[string]any{"type": "image", "data": "QUJDREVG"},
+		},
+	}
+	executor := &recordingToolExecutor{
+		defs: []api.ToolDetailResponse{{Name: "mcp_lookup", Parameters: map[string]any{"type": "object"}}},
+		result: contracts.ToolExecutionResult{
+			Output:     output,
+			Structured: map[string]any{"count": float64(2)},
+			MCPResult:  raw,
+		},
+	}
+	engine := newTraceTestEngine(t, recordDir, server.URL, executor)
+	req := api.QueryRequest{ChatID: "chat_1", Message: "Use tool"}
+	session := traceTestSession()
+	session.ToolNames = []string{"mcp_lookup"}
+	stream, err := engine.newRunStream(context.Background(), req, traceTestSessionWithSystemCache(t, engine, req, session), true)
+	if err != nil {
+		t.Fatalf("newRunStream: %v", err)
+	}
+	drainTraceTestStream(t, stream)
+
+	body, _ := secondBody.Load().([]byte)
+	var request struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content any    `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &request); err != nil {
+		t.Fatalf("decode second model request: %v body=%s", err, body)
+	}
+	var toolContent any
+	for _, message := range request.Messages {
+		if message.Role == "tool" {
+			toolContent = message.Content
+		}
+	}
+	if toolContent != output {
+		t.Fatalf("model request tool content mismatch\nwant %q\ngot  %#v", output, toolContent)
+	}
+
+	toolResults := readTraceFile(t, recordDir, 1)["toolResults"].([]any)
+	entry := toolResults[0].(map[string]any)
+	if entry["content"] != output {
+		t.Fatalf("trace content mismatch: %#v", entry["content"])
+	}
+	traced := entry["result"].(map[string]any)["MCPResult"]
+	if !reflect.DeepEqual(traced, raw) {
+		t.Fatalf("trace lost raw MCP result\nwant %#v\ngot  %#v", raw, traced)
 	}
 }
 

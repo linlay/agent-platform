@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -411,38 +412,50 @@ func normalizeMCPResult(toolName string, payload any) ToolExecutionResult {
 		return mcpErrorResult(toolName, "mcp_empty_result", "MCP result is empty")
 	}
 	if mapped, ok := payload.(map[string]any); ok {
-		if isError, _ := mapped["isError"].(bool); isError {
-			return mcpToolErrorResult(toolName, mapped)
-		}
-		items, _ := mapped["content"].([]any)
-		contentText := renderMCPContent(items)
-		if structured, ok := mapped["structuredContent"]; ok && structured != nil {
-			result := payloadToToolResult(structured)
-			if contentText == "" || mcpContentDuplicatesStructured(items, structured) {
-				return result
-			}
-			// content is the model-facing channel; structuredContent stays in
-			// Structured for validation and consumers. Append the structured JSON
-			// only when no text block already carries it.
-			result.Output = contentText
-			if !mcpStructuredEmpty(structured) && !mcpContentContainsStructured(items, structured) {
-				result.Output += "\n\nstructuredContent:\n" + MarshalJSON(structured)
-			}
-			return result
-		}
-		if len(items) > 0 {
-			result := ToolExecutionResult{Output: contentText, ExitCode: 0}
-			if !mcpContentPlainText(items) {
-				result.Structured = map[string]any{"content": items}
-				if result.Output == "" {
-					result.Output = MarshalJSON(result.Structured)
-				}
-			}
-			return result
-		}
-		return payloadToToolResult(mapped)
+		// Output is a lossy model view (base64 elided) and Structured keeps the
+		// business root; the untouched result is retained separately.
+		result := convertMCPResult(toolName, mapped)
+		result.MCPResult = mapped
+		return result
 	}
 	return payloadToToolResult(payload)
+}
+
+func convertMCPResult(toolName string, mapped map[string]any) ToolExecutionResult {
+	if isError, _ := mapped["isError"].(bool); isError {
+		return mcpToolErrorResult(toolName, mapped)
+	}
+	items, _ := mapped["content"].([]any)
+	contentText := renderMCPContent(items)
+	if structured, ok := mapped["structuredContent"]; ok && structured != nil {
+		result := payloadToToolResult(structured)
+		if contentText == "" || mcpContentDuplicatesStructured(items, structured) {
+			return result
+		}
+		// content is the model-facing channel; structuredContent stays in
+		// Structured for validation and consumers. Append the structured JSON
+		// only when no text block already carries it.
+		result.Output = contentText
+		if !mcpStructuredEmpty(structured) && !mcpContentContainsStructured(items, structured) {
+			result.Output += "\n\n" + mcpStructuredSection(structured)
+		}
+		return result
+	}
+	if len(items) > 0 {
+		result := ToolExecutionResult{Output: contentText, ExitCode: 0}
+		if !mcpContentPlainText(items) {
+			result.Structured = map[string]any{"content": items}
+			if result.Output == "" {
+				result.Output = MarshalJSON(result.Structured)
+			}
+		}
+		return result
+	}
+	return payloadToToolResult(mapped)
+}
+
+func mcpStructuredSection(structured any) string {
+	return "structuredContent:\n" + MarshalJSON(structured)
 }
 
 // renderMCPContent joins every content block in order for the model. Text
@@ -520,8 +533,10 @@ func mcpContentContainsStructured(items []any, structured any) bool {
 		}
 		decoder := json.NewDecoder(strings.NewReader(AnyStringNode(block["text"])))
 		decoder.UseNumber()
-		var parsed any
-		if decoder.Decode(&parsed) != nil || decoder.More() {
+		var parsed, trailing any
+		// The whole text must be one JSON value: a second Decode has to hit EOF,
+		// otherwise trailing text such as "}\nwarning" would be treated as a copy.
+		if decoder.Decode(&parsed) != nil || decoder.Decode(&trailing) != io.EOF {
 			continue
 		}
 		if MarshalJSON(parsed) == want {
@@ -557,22 +572,24 @@ func mcpToolErrorResult(toolName string, payload map[string]any) ToolExecutionRe
 	resultPayload["code"] = code
 	resultPayload["error"] = code
 	resultPayload["message"] = message
-	// Platform status fields overwrite same-named server fields; keep the
-	// server's original structuredContent when any of them changed.
-	for _, key := range []string{"tool", "ok", "code", "error", "message"} {
-		if original, ok := structured[key]; ok && MarshalJSON(original) != MarshalJSON(resultPayload[key]) {
-			resultPayload["mcpStructuredContent"] = CloneMap(structured)
-			break
-		}
-	}
+	// Structured carries only the platform error contract; server content the
+	// payload does not already represent is appended to the model text instead
+	// of being written into same-named business fields.
+	output := MarshalJSON(resultPayload)
 	items, _ := payload["content"].([]any)
 	if len(items) > 0 && !(len(structured) > 0 && mcpContentDuplicatesStructured(items, structured)) {
 		if text := renderMCPContent(items); text != "" && text != message {
-			resultPayload["mcpContent"] = text
+			output += "\n\n" + text
+		}
+	}
+	for _, key := range []string{"tool", "ok", "code", "error", "message"} {
+		if original, ok := structured[key]; ok && MarshalJSON(original) != MarshalJSON(resultPayload[key]) {
+			output += "\n\n" + mcpStructuredSection(structured)
+			break
 		}
 	}
 	return ToolExecutionResult{
-		Output:     MarshalJSON(resultPayload),
+		Output:     output,
 		Structured: resultPayload,
 		Error:      code,
 		ExitCode:   -1,

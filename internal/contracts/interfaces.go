@@ -610,7 +610,10 @@ type ToolExecutionResult struct {
 	Output string
 	// Structured is the original business payload used by streams, persistence,
 	// and application consumers. Model-output compaction must not mutate it.
-	Structured        map[string]any
+	Structured map[string]any
+	// MCPResult is the complete MCP tools/call result as parsed by the SDK,
+	// kept losslessly for traces and diagnostics. It is never sent to the model.
+	MCPResult         map[string]any
 	RawParams         any
 	HITL              map[string]any
 	Error             string
