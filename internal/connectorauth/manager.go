@@ -189,24 +189,35 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 		return result, nil
 	}
 	release := func() {}
+	// Login means "make this connector usable": an unprepared external CLI is
+	// prepared inside this session, joining a preparation already running.
+	prepare := false
 	if pkg.ManagedCLI() {
-		var err error
-		release, err = connector.AcquireOperation(m.sources.ExternalRoot, id)
-		if err != nil {
-			m.mu.Unlock()
-			return Session{}, err
-		}
-		pkg, err = m.sources.Load(id)
-		if err == nil && !pkg.ManagedCLI() {
-			err = fmt.Errorf("connector does not support interactive login")
-		}
-		if err == nil {
-			err = m.requirePrepared(pkg)
-		}
-		if err != nil {
-			release()
-			m.mu.Unlock()
-			return Session{}, err
+		prepare = !pkg.Builtin && m.preparations[id] != nil
+		if !prepare {
+			var err error
+			release, err = connector.AcquireOperation(m.sources.ExternalRoot, id)
+			if err != nil {
+				m.mu.Unlock()
+				return Session{}, err
+			}
+			pkg, err = m.sources.Load(id)
+			if err == nil && !pkg.ManagedCLI() {
+				err = fmt.Errorf("connector does not support interactive login")
+			}
+			if err == nil && m.needsPreparation(pkg) {
+				// Preparation takes the operation lock itself.
+				prepare = true
+				release()
+				release = func() {}
+			} else if err == nil {
+				err = m.requirePrepared(pkg)
+			}
+			if err != nil {
+				release()
+				m.mu.Unlock()
+				return Session{}, err
+			}
 		}
 	}
 	state, stateErr := readAuthState(m.sources.PersistentRoot(), id)
@@ -220,6 +231,9 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 	s.AuthorizationID = s.ID
 	s.ComponentID = component
 	s.generation = &state.Generation
+	if prepare {
+		s.Message = "Preparing CLI"
+	}
 	if err := m.persistAuthorization(s.Session); err != nil {
 		cancel()
 		release()
@@ -239,10 +253,15 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 			}
 		}()
 		var err error
-		if pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI() {
-			err = m.loginCLI(ctx, pkg, s)
-		} else {
-			err = m.loginOAuth(ctx, pkg, s)
+		if prepare {
+			pkg, release, err = m.prepareForLogin(ctx, id)
+		}
+		if err == nil {
+			if pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI() {
+				err = m.loginCLI(ctx, pkg, s)
+			} else {
+				err = m.loginOAuth(ctx, pkg, s)
+			}
 		}
 		release()
 		released = true
@@ -277,6 +296,16 @@ func (m *Manager) setURL(s *login, u string) {
 	s.Message = "Open the authorization link and complete login"
 }
 
+// activeSession returns the login still preparing or awaiting the user.
+func (m *Manager) activeSession(id string) (Session, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s := m.sessions[id]; s != nil && (s.Status == "preparing" || s.Status == "pending") {
+		return s.Session, true
+	}
+	return Session{}, false
+}
+
 func (m *Manager) Status(ctx context.Context, id string) (Session, error) {
 	return m.StatusComponent(ctx, id, "")
 }
@@ -289,6 +318,11 @@ func (m *Manager) StatusComponent(_ context.Context, id, component string) (Sess
 	}
 	if pkg.AuthMode == connector.AuthNoAuth {
 		return Session{ConnectorID: id, Status: "no_auth", Message: "No authentication required; availability and permissions are checked on invocation"}, nil
+	}
+	// Same state as Connection: neither a cached login nor an earlier failed
+	// login hides a missing CLI.
+	if pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI() && m.needsPreparation(pkg) {
+		return m.unpreparedSession(pkg, m.preparationSnapshot(id)), nil
 	}
 	m.mu.Lock()
 	if s := m.sessions[id]; s != nil && s.Status != "authorized" {

@@ -201,6 +201,8 @@ func (s *Server) writeConnectorError(w http.ResponseWriter, err error) {
 		status, code = http.StatusUnauthorized, "connector_auth_required"
 	case errors.Is(err, connectorauth.ErrOAuthRefreshFailed), errors.Is(err, connectorauth.ErrOAuthCredentialUnavailable), errors.Is(err, connectorauth.ErrCredentialCheckFailed), errors.Is(err, connectorauth.ErrCredentialValidatorUnavailable):
 		status, code = http.StatusServiceUnavailable, "connector_execution_failed"
+	case errors.Is(err, connectorauth.ErrPreparationRequired):
+		status, code = http.StatusConflict, "connector_preparation_required"
 	case errors.Is(err, connectorauth.ErrAuthNotRequired):
 		status, code = http.StatusConflict, "connector_auth_not_required"
 	case errors.Is(err, connector.ErrPackageNotFound):

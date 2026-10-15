@@ -51,26 +51,16 @@ func (m *Manager) Connection(ctx context.Context, id string) (Connection, error)
 		c.Capabilities.CanCheck = false
 	}
 	if pkg.CLI != nil && !pkg.Builtin {
-		prep, err := m.PreparationStatus(id)
-		if err != nil {
-			prep = Preparation{ConnectorID: id, Status: "failed", Message: "Connector preparation unavailable"}
-		}
-		prep.Diagnostic = ""
+		prep := m.preparationSnapshot(id)
 		c.Preparation = &prep
 		// An update being prepared, or one that failed, keeps the previous
-		// installation in use.
-		if prep.Status != "ready" && m.requirePrepared(pkg) != nil {
+		// installation in use; only a missing usable CLI blocks readiness.
+		if m.needsPreparation(pkg) {
 			c.Readiness = "preparing"
-			c.Authentication = Session{ConnectorID: id, Status: "setup_required", AuthBrowser: pkg.AuthorizationBrowser()}
-			switch prep.Status {
-			case "failed":
+			c.Authentication = m.unpreparedSession(pkg, prep)
+			if c.Authentication.Status == "setup_required" && (prep.Status == "failed" || prep.Status == "canceled") {
 				c.Readiness = "unavailable"
-				prep.Message = "CLI preparation failed; retry connector preparation"
-				c.Authentication.Message = prep.Message
-			case "canceled":
-				c.Readiness = "unavailable"
-				prep.Message = "CLI preparation was canceled; retry connector preparation"
-				c.Authentication.Message = prep.Message
+				prep.Message = c.Authentication.Message
 			}
 			return c, nil
 		}

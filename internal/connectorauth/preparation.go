@@ -14,6 +14,19 @@ import (
 	"agent-platform/internal/hostenv"
 )
 
+// ErrPreparationRequired means the connector has no usable CLI installation.
+var ErrPreparationRequired = errors.New("CLI is not prepared; prepare the connector first")
+
+// preparationRequiredError keeps the specific reason while matching
+// ErrPreparationRequired.
+type preparationRequiredError struct{ cause error }
+
+func (e preparationRequiredError) Error() string { return e.cause.Error() }
+func (e preparationRequiredError) Unwrap() error { return e.cause }
+func (e preparationRequiredError) Is(target error) bool {
+	return target == ErrPreparationRequired
+}
+
 // Preparation describes the latest installation attempt independently of
 // authentication. The CLI in use is the active installation, which a failed
 // attempt never replaces; ActiveVersion reports it when it is an older one.
@@ -158,41 +171,48 @@ func (m *Manager) withActiveInstallation(s Preparation) Preparation {
 }
 
 func (m *Manager) StartPreparation(id string) (Preparation, error) {
+	s, _, err := m.startPreparation(id)
+	return s, err
+}
+
+// startPreparation also reports whether this call started the job, rather
+// than joining one already running; only the starter may cancel it.
+func (m *Manager) startPreparation(id string) (Preparation, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if job := m.preparations[id]; job != nil {
-		return job.state, nil
+		return job.state, false, nil
 	}
 	release, err := connector.AcquireOperation(m.sources.ExternalRoot, id)
 	if err != nil {
-		return Preparation{}, err
+		return Preparation{}, false, err
 	}
 	pkg, err := m.sources.Load(id)
 	if err != nil {
 		release()
-		return Preparation{}, err
+		return Preparation{}, false, err
 	}
 	if pkg.CLI == nil || pkg.Builtin {
 		release()
-		return Preparation{}, fmt.Errorf("only external CLI connectors can be prepared")
+		return Preparation{}, false, fmt.Errorf("only external CLI connectors can be prepared")
 	}
 	settings, err := cliSettingsFor(pkg)
 	if err != nil {
 		_ = m.savePreparation(Preparation{ConnectorID: id, Status: "failed", Stage: "validation", Message: err.Error(), UpdatedAt: time.Now().UTC()})
 		release()
-		return Preparation{}, err
+		return Preparation{}, false, err
 	}
 	fingerprint, err := connector.RuntimeFingerprint(pkg.Dir)
 	if err != nil {
 		release()
-		return Preparation{}, err
+		return Preparation{}, false, err
 	}
 	ctx, cancel := context.WithTimeout(m.ctx, 15*time.Minute)
 	s := Preparation{ConnectorID: id, Status: "preparing", Fingerprint: fingerprint, Stage: "prepare", UpdatedAt: time.Now().UTC()}
 	if err = m.savePreparation(s); err != nil {
 		cancel()
 		release()
-		return Preparation{}, err
+		return Preparation{}, false, err
 	}
 	job := &preparationJob{state: s, cancel: cancel, done: make(chan struct{})}
 	m.preparations[id] = job
@@ -251,7 +271,7 @@ func (m *Manager) StartPreparation(id string) (Preparation, error) {
 		delete(m.preparations, id)
 		m.mu.Unlock()
 	}(s)
-	return m.withActiveInstallation(s), nil
+	return m.withActiveInstallation(s), true, nil
 }
 
 func (m *Manager) CancelPreparation(id string) error {
@@ -277,7 +297,8 @@ func (m *Manager) CancelPreparation(id string) error {
 	}
 }
 func (m *Manager) Prepare(ctx context.Context, id string) (Preparation, error) {
-	if _, err := m.StartPreparation(id); err != nil {
+	_, started, err := m.startPreparation(id)
+	if err != nil {
 		return Preparation{}, err
 	}
 	ticker := time.NewTicker(50 * time.Millisecond)
@@ -295,7 +316,10 @@ func (m *Manager) Prepare(ctx context.Context, id string) (Preparation, error) {
 		}
 		select {
 		case <-ctx.Done():
-			_ = m.CancelPreparation(id)
+			// A joined preparation belongs to its starter, such as an import.
+			if started {
+				_ = m.CancelPreparation(id)
+			}
 			return s, ctx.Err()
 		case <-ticker.C:
 		}
@@ -358,7 +382,77 @@ func (m *Manager) verifyInstallation(pkg connector.Package, installation connect
 func (m *Manager) requirePrepared(pkg connector.Package) error {
 	installation, err := connector.ReadInstallation(m.sources.InstallRoot(), pkg.ID)
 	if err != nil {
-		return fmt.Errorf("CLI is not prepared; prepare the connector first")
+		return ErrPreparationRequired
 	}
-	return m.verifyInstallation(pkg, installation)
+	if err := m.verifyInstallation(pkg, installation); err != nil {
+		return preparationRequiredError{err}
+	}
+	return nil
+}
+
+// prepareForLogin prepares the CLI, or waits for the preparation already
+// running, then takes the operation lock the login holds, as StartComponent
+// does for a prepared CLI. The returned release is never nil.
+func (m *Manager) prepareForLogin(ctx context.Context, id string) (connector.Package, func(), error) {
+	noop := func() {}
+	if _, err := m.Prepare(ctx, id); err != nil {
+		return connector.Package{}, noop, err
+	}
+	release, err := connector.AcquireOperation(m.sources.ExternalRoot, id)
+	if err != nil {
+		return connector.Package{}, noop, err
+	}
+	pkg, err := m.sources.Load(id)
+	if err == nil && !pkg.ManagedCLI() {
+		err = fmt.Errorf("connector does not support interactive login")
+	}
+	if err == nil {
+		err = m.requirePrepared(pkg)
+	}
+	if err != nil {
+		release()
+		return connector.Package{}, noop, err
+	}
+	return pkg, release, nil
+}
+
+// needsPreparation reports whether an external CLI has no usable installation.
+// Builtin packages are verified bundles and are never prepared.
+func (m *Manager) needsPreparation(pkg connector.Package) bool {
+	return pkg.CLI != nil && !pkg.Builtin && errors.Is(m.requirePrepared(pkg), ErrPreparationRequired)
+}
+
+// preparationSnapshot is the preparation state that status reads report,
+// without the process diagnostic.
+func (m *Manager) preparationSnapshot(id string) Preparation {
+	prep, err := m.PreparationStatus(id)
+	if err != nil {
+		prep = Preparation{ConnectorID: id, Status: "failed", Message: "Connector preparation unavailable"}
+	}
+	prep.Diagnostic = ""
+	return prep
+}
+
+// unpreparedSession is the authentication state of a CLI without a usable
+// installation. Status and Connection both report it so the two agree: a login
+// preparing the CLI reports its own progress, otherwise the current
+// preparation state decides, not an earlier failed login.
+func (m *Manager) unpreparedSession(pkg connector.Package, prep Preparation) Session {
+	if active, ok := m.activeSession(pkg.ID); ok {
+		return active
+	}
+	s := Session{ConnectorID: pkg.ID, Status: "setup_required", AuthBrowser: pkg.AuthorizationBrowser(), Message: "CLI preparation is required"}
+	switch prep.Status {
+	case "preparing":
+		s.Message = "CLI preparation is in progress"
+	case "failed":
+		s.Message = "CLI preparation failed; retry connector preparation"
+	case "canceled":
+		s.Message = "CLI preparation was canceled; retry connector preparation"
+	default:
+		if pkg.ManagedCLI() {
+			s.Message += "; sign in to prepare it"
+		}
+	}
+	return s
 }

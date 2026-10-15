@@ -167,7 +167,8 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 	case "unauthorized":
 		return result, failure("connector_auth_required", 401)
 	case "setup_required":
-		return result, failure("connector_setup_required", 409)
+		// Only a CLI without a usable installation reports setup_required.
+		return result, failure("connector_preparation_required", 409)
 	case "preparing", "pending":
 		return result, failure("connector_authorization_pending", 409)
 	case "pending_verification":
@@ -321,6 +322,9 @@ func callCLI(ctx context.Context, pkg connector.Package, args []string, revision
 		env = append(env, k+"="+v)
 	}
 	cmd, err := connectorauth.ExecutionCommand(ctx, pkg, args, env)
+	if errors.Is(err, connectorauth.ErrPreparationRequired) {
+		return result, failure("connector_preparation_required", 409)
+	}
 	if err != nil {
 		return result, failure("connector_cli_unavailable", 503)
 	}

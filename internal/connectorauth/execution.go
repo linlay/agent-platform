@@ -33,14 +33,14 @@ func ExecutionCommand(ctx context.Context, pkg connector.Package, args, env []st
 	} else {
 		installation, err := connector.ReadInstallation(pkg.InstallRoot, pkg.ID)
 		if err != nil {
-			return nil, fmt.Errorf("CLI is not prepared; prepare the connector first")
+			return nil, ErrPreparationRequired
 		}
 		if bin := installation.Bin(); bin != "" {
 			env = connector.WithPath(env, []string{bin})
 		}
 		// Run exactly the executable preparation verified, not a PATH lookup.
 		if err := installation.VerifyExecutable(); err != nil {
-			return nil, err
+			return nil, preparationRequiredError{err}
 		}
 		entry = installation.Executable
 	}

@@ -25,6 +25,7 @@ func TestConnectorAuthenticationErrorsPreserveFailureCategory(t *testing.T) {
 		{connectorauth.ErrOAuthCredentialUnavailable, http.StatusServiceUnavailable, "connector_execution_failed"},
 		{connectorauth.ErrCredentialCheckFailed, http.StatusServiceUnavailable, "connector_execution_failed"},
 		{connectorauth.ErrCredentialValidatorUnavailable, http.StatusServiceUnavailable, "connector_execution_failed"},
+		{connectorauth.ErrPreparationRequired, http.StatusConflict, "connector_preparation_required"},
 	} {
 		rec := httptest.NewRecorder()
 		fixture.server.writeConnectorError(rec, tc.err)

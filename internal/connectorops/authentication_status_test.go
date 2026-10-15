@@ -47,11 +47,18 @@ func TestInvocationSeparatesCLIStatusFailureFromConfirmedSignOut(t *testing.T) {
 		status string
 		code   string
 		http   int
+		// unprepared removes the installation after an authorized check.
+		unprepared bool
 	}{
-		{"failed", "failed", "connector_unavailable", 503},
-		{"signed-out", "unauthorized", "connector_auth_required", 401},
+		{"failed", "failed", "connector_unavailable", 503, false},
+		{"signed-out", "unauthorized", "connector_auth_required", 401, false},
+		{"authorized", "authorized", "connector_preparation_required", 409, true},
 	} {
-		t.Run(test.mode, func(t *testing.T) {
+		name := test.mode
+		if test.unprepared {
+			name = "unprepared"
+		}
+		t.Run(name, func(t *testing.T) {
 			sources := connector.Sources{ExternalRoot: t.TempDir(), StateRoot: t.TempDir()}
 			dir := filepath.Join(sources.ExternalRoot, "demo")
 			if err := os.MkdirAll(filepath.Join(dir, "bin"), 0700); err != nil {
@@ -102,6 +109,11 @@ func TestInvocationSeparatesCLIStatusFailureFromConfirmedSignOut(t *testing.T) {
 			checked, err := m.Check(t.Context(), "demo", "")
 			if err != nil || checked.Status != test.status {
 				t.Fatal("unexpected status probe outcome", checked, err)
+			}
+			if test.unprepared {
+				if err := os.RemoveAll(filepath.Join(filepath.Dir(sources.ExternalRoot), "connector-installs", "demo")); err != nil {
+					t.Fatal(err)
+				}
 			}
 			service := Service{Auth: m, Sources: sources}
 			scope := Scope{Subject: "owner", IdempotencyNamespace: "fixture", Execution: []Permission{{ConnectorID: "demo", Adapter: "cli"}}, Check: func() error { return nil }}

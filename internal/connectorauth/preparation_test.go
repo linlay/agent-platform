@@ -194,3 +194,170 @@ func TestGeneratedWorkBuddyCLIContracts(t *testing.T) {
 		}
 	}
 }
+
+// loginCLIPackage writes a self-authenticated CLI whose init installs demo
+// after initDelay; login succeeds by creating a marker file.
+func loginCLIPackage(t *testing.T, initDelay string) (*Manager, connector.Package) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX process integration")
+	}
+	root := t.TempDir()
+	login := filepath.Join(t.TempDir(), "login")
+	cli := simpleCLI()
+	cli["init"] = osCommands(initDelay + `mkdir -p "$npm_config_prefix/bin" && cp demo.sh "$npm_config_prefix/bin/demo" && chmod +x "$npm_config_prefix/bin/demo"`)
+	cli["auth"] = osCommands("demo login")
+	cli["status"] = osCommands("demo status")
+	cli["unAuth"] = osCommands("")
+	cli["statusMatch"] = `(?m)^authorized$`
+	cli["authUrlDomain"] = "example.test"
+	cli["authWaitForExit"] = true
+	pkg := writeCLIPackage(t, root, "demo", cli)
+	script := "#!/bin/sh\ncase \"$1\" in\n--version) echo 1.2.0;;\nstatus) if [ -f '" + login + "' ]; then echo authorized; else echo unauthorized; fi;;\nlogin) echo https://example.test/authorize; sleep 0.3; touch '" + login + "';;\nesac\n"
+	if err := os.WriteFile(filepath.Join(pkg.Dir, "demo.sh"), []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return New(context.Background(), connector.Sources{ExternalRoot: root}, nil), pkg
+}
+
+func waitPreparation(t *testing.T, m *Manager, id string) Preparation {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		s, err := m.PreparationStatus(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Status != "preparing" && s.Status != "pending" {
+			return s
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("preparation timeout")
+	return Preparation{}
+}
+
+// Login converges on a usable CLI from any local state: it prepares an
+// unprepared CLI in the same session, repeated starts join it, and a removed
+// installation is reported and prepared again instead of rejecting login.
+func TestLoginPreparesCLIIdempotently(t *testing.T) {
+	m, pkg := loginCLIPackage(t, "")
+	ctx := context.Background()
+	if err := m.requirePrepared(pkg); !errors.Is(err, ErrPreparationRequired) {
+		t.Fatalf("unprepared: %v", err)
+	}
+	if s, err := m.Status(ctx, "demo"); err != nil || s.Status != "setup_required" {
+		t.Fatalf("status before preparation: %+v %v", s, err)
+	}
+	first, err := m.Start("demo")
+	if err != nil || first.Status != "preparing" || first.Message != "Preparing CLI" {
+		t.Fatalf("start: %+v %v", first, err)
+	}
+	second, err := m.Start("demo")
+	if err != nil || second.ID != first.ID {
+		t.Fatalf("repeated start: %+v %v", second, err)
+	}
+	if pending := waitStatus(t, m, "demo", "pending"); pending.URL != "https://example.test/authorize" {
+		t.Fatalf("pending: %+v", pending)
+	}
+	waitStatus(t, m, "demo", "authorized")
+	if s, err := m.Status(ctx, "demo"); err != nil || s.Status != "authorized" {
+		t.Fatalf("status after login: %+v %v", s, err)
+	}
+	// Removing the installation must not leave a cached login masking it.
+	if err := os.RemoveAll(filepath.Join(m.sources.InstallRoot(), "demo")); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := m.Status(ctx, "demo"); err != nil || s.Status != "setup_required" {
+		t.Fatalf("status without installation: %+v %v", s, err)
+	}
+	if c, err := m.Connection(ctx, "demo"); err != nil || c.Authentication.Status != "setup_required" {
+		t.Fatalf("connection without installation: %+v %v", c, err)
+	}
+	if _, err := m.Start("demo"); err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, m, "demo", "authorized")
+	if err := m.requirePrepared(pkg); err != nil {
+		t.Fatalf("prepared again: %v", err)
+	}
+}
+
+// A preparation a login joined belongs to its starter, such as an import, and
+// keeps running when the login is canceled.
+func TestLoginCancelKeepsJoinedPreparation(t *testing.T) {
+	m, pkg := loginCLIPackage(t, "sleep 1 && ")
+	if _, err := m.StartPreparation(pkg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := m.Start(pkg.ID); err != nil || s.Status != "preparing" {
+		t.Fatalf("join: %+v %v", s, err)
+	}
+	if err := m.Cancel(pkg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if s := waitPreparation(t, m, pkg.ID); s.Status != "ready" {
+		t.Fatalf("joined preparation was canceled: %+v", s)
+	}
+}
+
+// Canceling a login cancels the preparation it started itself.
+func TestLoginCancelStopsOwnPreparation(t *testing.T) {
+	m, pkg := loginCLIPackage(t, "sleep 20 && ")
+	if _, err := m.Start(pkg.ID); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		m.mu.Lock()
+		running := m.preparations[pkg.ID] != nil
+		m.mu.Unlock()
+		if running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("login did not start preparation")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := m.Cancel(pkg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if s := waitPreparation(t, m, pkg.ID); s.Status != "canceled" {
+		t.Fatalf("login-owned preparation survived cancel: %+v", s)
+	}
+}
+
+// After a login whose preparation failed, Status and Connection report the
+// same current preparation state rather than the failed session.
+func TestFailedPreparationStatusMatchesConnection(t *testing.T) {
+	m, pkg := loginCLIPackage(t, "exit 7; ")
+	ctx := context.Background()
+	if _, err := m.Start(pkg.ID); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		m.mu.Lock()
+		status := m.sessions[pkg.ID].Status
+		m.mu.Unlock()
+		if status == "failed" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("login did not fail: %s", status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	status, err := m.Status(ctx, pkg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := m.Connection(ctx, pkg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Status != "setup_required" || status != c.Authentication || c.Readiness != "unavailable" || c.Preparation.Status != "failed" {
+		t.Fatalf("status %+v differs from connection %+v (%s)", status, c.Authentication, c.Readiness)
+	}
+}
