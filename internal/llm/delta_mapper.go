@@ -213,6 +213,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ToolLabel:       toolLabel,
 			ToolDescription: toolDescription,
 			Result:          sseResult,
+			ModelOutput:     toolResultModelOutput(value.Result, sseResult),
 			Hitl:            CloneMap(value.Result.HITL),
 			Error:           resultError,
 			ExitCode:        resultExitCode,

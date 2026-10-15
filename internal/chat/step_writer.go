@@ -237,6 +237,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			Name:         toolName,
 			ToolCallID:   toolID,
 			Content:      textContent(formatResult(event.Value("result"))),
+			ModelOutput:  toolResultModelOutput(event.Payload),
 			ToolID:       toolID,
 			DurationMs:   durationMs,
 			Ts:           &ts,

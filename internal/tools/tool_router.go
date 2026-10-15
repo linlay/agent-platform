@@ -473,7 +473,9 @@ func renderMCPContent(items []any) string {
 			continue
 		}
 		if mcpContentBlockType(block) == "text" {
-			if text := AnyStringNode(block["text"]); strings.TrimSpace(text) != "" {
+			// Emptiness is judged on trimmed text, but the original is kept:
+			// indentation and trailing spaces matter in code and patches.
+			if text, _ := block["text"].(string); strings.TrimSpace(text) != "" {
 				parts = append(parts, text)
 			}
 			continue
@@ -579,7 +581,7 @@ func mcpToolErrorResult(toolName string, payload map[string]any) ToolExecutionRe
 	output := MarshalJSON(resultPayload)
 	items, _ := payload["content"].([]any)
 	if len(items) > 0 && !(len(structured) > 0 && mcpContentDuplicatesStructured(items, structured)) {
-		if text := renderMCPContent(items); text != "" && text != message {
+		if text := renderMCPContent(items); text != "" && strings.TrimSpace(text) != message {
 			output += "\n\n" + text
 		}
 	}

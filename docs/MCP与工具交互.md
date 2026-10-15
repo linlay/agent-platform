@@ -36,13 +36,14 @@ SDK 负责 session ID、协议头、JSON/SSE、初始化通知和标准关闭；
 
 `tools/call` 结果转换不得静默丢弃内容块。`ToolExecutionResult.Output` 是实现最终回送模型的文本，LLM 层不会按 YAML 二次格式化；其规则为：
 
-- `content` 全部块按原顺序以空行分隔进入 `Output`：text 块取原文（空白文本块跳过），其他块（resource_link、resource、image、audio 等）以保留类型与字段的 JSON 表示，其中内联 base64（`data`、`resource.blob`）替换为 `[base64 omitted: N chars]`。资源链接不会被自动访问，图片/音频不作为原生多模态输入发送给模型。
+- `content` 全部块按原顺序以空行分隔进入 `Output`：text 块取原文、保留首尾空白（仅空白的文本块跳过），其他块（resource_link、resource、image、audio 等）以保留类型与字段的 JSON 表示，其中内联 base64（`data`、`resource.blob`）替换为 `[base64 omitted: N chars]`。资源链接不会被自动访问，图片/音频不作为原生多模态输入发送给模型。
 - 存在 `structuredContent` 时，它原样作为 `Structured`（根结构不包装，`outputSchema` 校验仍针对它）。`content` 为空，或仅为一个整段恰好是等价 JSON 的文本块（JSON 后不能再有其他文本）时，`Output` 为 `structuredContent` 的 JSON；否则 `Output` 为 `content` 渲染文本，若没有任何文本块与 `structuredContent` 等价且其非空，再追加 `structuredContent:` 段及其 JSON。不做其他去重。
 - 没有 `structuredContent` 时，纯 text 块结果不设置 `Structured`；含非 text 块或带 `annotations`/`_meta` 等附加字段时，`Structured` 为 `{"content": [...]}`，保留原始块（含 base64）。
 - 每个 MCP 结果都以 SDK 解析后的完整对象保存在 `ToolExecutionResult.MCPResult`，包括内容块顺序、附加字段和未省略的 base64，不发送给模型。`outputSchema` 校验失败、执行错误映射为 `tool_execution_failed` 以及取消映射为 `tool_execution_outcome_unknown` 时仍沿用该字段（取消结果的 `partialResult` 不内嵌它）。它进入可选 LLM trace（`toolResults[].result.MCPResult`），该字段本身不进入 SSE 事件或 Chat 持久化。这里不是网络原始字节。
-- 前端事件仍展示 `Structured`（失败时为 `Output`）。因此没有 `structuredContent` 而含非 text 块的结果，其 `Structured.content` 中的原始 base64 仍会随事件发送和持久化；只有模型侧 `Output` 省略 base64。
+- `tool.result` 的 `result` 仍为业务结果：成功时为 `Structured`（没有时为 `Output`），失败时为平台错误 payload 的 JSON，补充诊断不拼入其中。因此没有 `structuredContent` 而含非 text 块的结果，其 `Structured.content` 中的原始 base64 仍会随事件发送并保存在工具消息的业务内容中。
+- `Output` 与事件 `result` 不同时（补充文本、省略 base64、失败诊断），`tool.result` 增加可选 `modelOutput` 携带实际回送模型的文本；Chat 工具消息另存为内部 `_modelOutput`，加载模型历史时以它替换 `content` 并去除该字段，冷回放的 `tool.result` 同样带回 `modelOutput`。因此重开 Chat 后的模型历史与首次回送一致，不会丢失补充内容或重新带入 base64。旧消息没有该字段时沿用原读取方式，不改写历史。
 
-`isError:true` 会形成失败的工具结果；如果 `structuredContent.error` 或 `structuredContent.code` 存在，平台保留该业务错误码，例如 qiuerscript 的 `last_digest_required`、`method_not_found` 与 `digest_mismatch`，不会统一降级为 `mcp_tool_error`。主错误消息依次取 `structuredContent.message`、顶层 `error`、首个非空文本块。失败结果的 `Structured` 为服务端 `structuredContent` 加平台的 `tool/ok/code/error/message`，不写入其他辅助字段。`Output` 为该 payload 的 JSON，随后依次追加：与主消息不同且不是单块 JSON 副本的 `content` 渲染文本；平台字段覆盖了服务端不同原值时的 `structuredContent:` 原始 JSON 段。
+`isError:true` 会形成失败的工具结果；如果 `structuredContent.error` 或 `structuredContent.code` 存在，平台保留该业务错误码，例如 qiuerscript 的 `last_digest_required`、`method_not_found` 与 `digest_mismatch`，不会统一降级为 `mcp_tool_error`。主错误消息依次取 `structuredContent.message`、顶层 `error`、首个非空文本块。失败结果的 `Structured` 为服务端 `structuredContent` 加平台的 `tool/ok/code/error/message`，不写入其他辅助字段。`Output` 为该 payload 的 JSON，随后依次追加（只进入模型文本与 `modelOutput`，不进入事件 `result`）：与主消息不同且不是单块 JSON 副本的 `content` 渲染文本；平台字段覆盖了服务端不同原值时的 `structuredContent:` 原始 JSON 段。
 
 工具定义可选声明 `outputSchema`。没有 `outputSchema` 的 MCP 或 Desktop action result 按不透明 JSON 透传；平台不会根据 `createdAt`、`timestamp`、`iso` 等字段名猜测时间语义。
 

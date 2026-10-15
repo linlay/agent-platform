@@ -89,6 +89,9 @@ func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent
 		"toolName": input.ToolName,
 		"result":   buildToolResultValue(input),
 	}
+	if input.ModelOutput != nil {
+		payload["modelOutput"] = *input.ModelOutput
+	}
 	if input.View != nil {
 		payload["view"] = input.View.Map()
 	}

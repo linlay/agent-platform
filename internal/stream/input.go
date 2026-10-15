@@ -87,11 +87,14 @@ type ToolResult struct {
 	ToolLabel       string
 	ToolDescription string
 	Result          any
-	Hitl            map[string]any
-	Error           string
-	ExitCode        int
-	FileChange      map[string]any
-	InternalOnly    bool
+	// ModelOutput is set only when the text returned to the model differs from
+	// Result, so persisted history can replay what the model actually saw.
+	ModelOutput  *string
+	Hitl         map[string]any
+	Error        string
+	ExitCode     int
+	FileChange   map[string]any
+	InternalOnly bool
 }
 
 func (ToolResult) streamInputTag() {}

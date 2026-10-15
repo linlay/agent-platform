@@ -134,6 +134,9 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID string, 
 			"toolId": id,
 			"result": text,
 		}
+		if output, ok := msg["_modelOutput"].(string); ok {
+			payload["modelOutput"] = output
+		}
 		if ref := anyMap(msg["view"]); len(ref) > 0 {
 			payload["view"] = cloneStringAnyMap(ref)
 		}

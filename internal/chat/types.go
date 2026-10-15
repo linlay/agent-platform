@@ -300,10 +300,13 @@ type SubmitLine struct {
 // ---------------------------------------------------------------------------
 
 type StoredMessage struct {
-	View             map[string]any   `json:"view,omitempty"`
-	ViewError        string           `json:"viewError,omitempty"`
-	Role             string           `json:"role"`
-	Content          []ContentPart    `json:"content,omitempty"`
+	View      map[string]any `json:"view,omitempty"`
+	ViewError string         `json:"viewError,omitempty"`
+	Role      string         `json:"role"`
+	Content   []ContentPart  `json:"content,omitempty"`
+	// ModelOutput keeps the tool text actually returned to the model when it
+	// differs from Content, which stores the event's business result.
+	ModelOutput      *string          `json:"_modelOutput,omitempty"`
 	Approval         *StepApproval    `json:"approval,omitempty"`
 	ReasoningContent []ContentPart    `json:"reasoning_content,omitempty"`
 	ToolCalls        []StoredToolCall `json:"tool_calls,omitempty"`

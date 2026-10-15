@@ -219,6 +219,7 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 					if parts, ok := m["content"].([]any); ok {
 						msg["content"] = extractTextFromContent(parts)
 					}
+					applyStoredToolModelOutput(msg)
 				}
 				messages = append(messages, msg)
 			}
@@ -377,6 +378,9 @@ func normalizedStepMessages(line map[string]any, runID string) []map[string]any 
 				msg["content"] = extractTextFromContent(parts)
 			}
 		}
+		if role == "tool" {
+			applyStoredToolModelOutput(msg)
+		}
 		if role == "user" || role == "assistant" {
 			if parts, ok := msg["reasoning_content"].([]any); ok {
 				msg["reasoning_content"] = normalizeReasoningContent(parts)
@@ -456,4 +460,13 @@ func extractStoredMessageText(message StoredMessage) string {
 		}
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n"))
+}
+
+// Model history replays the text the model actually received; the stored
+// content stays the business result for application replay.
+func applyStoredToolModelOutput(message map[string]any) {
+	if output, ok := message["_modelOutput"].(string); ok {
+		message["content"] = output
+	}
+	delete(message, "_modelOutput")
 }
