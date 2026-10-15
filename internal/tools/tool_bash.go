@@ -103,7 +103,9 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		return ToolExecutionResult{Output: err.Error(), Error: "run_env_snapshot_failed", ExitCode: -1}, nil
 	}
 	direct := accesspolicy.DirectConnectorInvocation(session, command, workingDir, bashEnvironmentVariables(commandEnv))
-	if direct == nil && rawAccessReview.HasConnector && execCtx != nil && (len(session.ConnectorCredentials) > 0 || len(session.ConnectorEnv) > 0) {
+	// Only credentials require a verified direct child; public cli.json env is
+	// already in every Host Bash command, so composite commands keep working.
+	if direct == nil && execCtx != nil && executesCredentialedConnector(session, rawAccessReview.ConnectorIDs) {
 		return ToolExecutionResult{Output: "Credentialed connector commands must be invoked as a single direct command; split shell pipelines, wrappers and redirects into separate tool calls.", Error: "connector_requires_direct_invocation", ExitCode: -1}, nil
 	}
 	bound := hostenv.BindShellEnvironment(shellExecutable, command, commandEnv, nil)
@@ -223,6 +225,19 @@ func firstBashOutputCaptureError(captures ...*bashOutputCapture) error {
 		}
 	}
 	return nil
+}
+
+// executesCredentialedConnector reports whether the command runs a connector
+// that receives credentials; another connector's credentials do not count.
+func executesCredentialedConnector(session QuerySession, ids []string) bool {
+	for _, binding := range session.ConnectorCredentials {
+		for _, id := range ids {
+			if binding.ID == id {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // directConnectorCommand starts a verified connector entry. Only Windows needs
@@ -482,8 +497,14 @@ func mergeCommandEnvWith(execCtx *ExecutionContext, inherit []string) ([]string,
 			cleanRuntime[key] = value
 		}
 	}
+	var connectorEnv map[string]string
+	if execCtx != nil {
+		connectorEnv = execCtx.Session.ConnectorEnv
+	}
+	// Public cli.json env of mounted connectors, as in the Workspace Terminal.
 	overrides := agentconfig.Merge(
 		cleanRuntime,
+		connectorEnv,
 		agentconfig.HostEnvironment(agentDir, workspaceDir, chatDir),
 	)
 	if len(overrides) > 0 {
@@ -519,17 +540,11 @@ func mergeEnvironmentList(base []string, overrides map[string]string) []string {
 }
 
 func (t *RuntimeToolExecutor) connectorCommandEnvironment(ctx context.Context, execCtx *ExecutionContext, id string, base []string) ([]string, error) {
+	// base already carries every mounted connector's public env.
 	env := append([]string(nil), base...)
 	if execCtx == nil {
 		return env, nil
 	}
-	configEnv := map[string]string{}
-	for key, value := range execCtx.Session.ConnectorEnv {
-		if filepath.Base(value) == "config" && filepath.Base(filepath.Dir(value)) == id {
-			configEnv[key] = value
-		}
-	}
-	env = mergeEnvironmentList(env, configEnv)
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	for _, binding := range execCtx.Session.ConnectorCredentials {

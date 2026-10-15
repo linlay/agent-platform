@@ -39,6 +39,9 @@ func TestInstalledConnectorEntryIsBoundToItsInstallationAndMount(t *testing.T) {
 	if p := ReviewBashCommand(config.AccessPolicyConfig{}, session, "demo-cli docs list", "/", vars); p.Decision != DecisionAllow || !p.ConnectorOnly {
 		t.Fatalf("installed CLI not authorized: %+v", p)
 	}
+	if p := ReviewBashCommand(config.AccessPolicyConfig{}, session, "demo-cli docs list | head -1", "/", vars); len(p.ConnectorIDs) != 1 || p.ConnectorIDs[0] != "demo" {
+		t.Fatalf("composite command did not report its connector: %+v", p.ConnectorIDs)
+	}
 	// An entry is valid only while its connector stays mounted.
 	session.ConnectorDirs = map[string]string{}
 	if p := ReviewBashCommand(config.AccessPolicyConfig{}, session, "demo-cli docs list", "/", vars); p.ConnectorOnly {

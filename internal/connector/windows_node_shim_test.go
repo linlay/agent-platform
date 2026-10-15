@@ -62,3 +62,51 @@ func TestWindowsNodeShimRejectsInstallationEscape(t *testing.T) {
 		t.Fatal("published the escaping Windows shim")
 	}
 }
+
+func TestInstallationPinsWindowsLauncherScript(t *testing.T) {
+	bin := t.TempDir()
+	script := filepath.Join(bin, "node_modules", "@wecom", "cli", "bin", "wecom.js")
+	if err := os.MkdirAll(filepath.Dir(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(script, []byte("fixture script"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	shim := filepath.Join(bin, "wecom-cli.cmd")
+	if err := os.WriteFile(shim, []byte(`@"%_prog%" "%~dp0\node_modules\@wecom\cli\bin\wecom.js" %*`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var installation Installation
+	if err := installation.PinExecutable(shim, "windows"); err != nil || installation.LauncherTarget == "" || installation.LauncherTargetSHA256 == "" {
+		t.Fatalf("launcher script not pinned: %+v %v", installation, err)
+	}
+	if err := installation.VerifyExecutable(); err != nil {
+		t.Fatal(err)
+	}
+	// The launcher is unchanged; only the script it runs differs.
+	if err := os.WriteFile(script, []byte("changed script"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if installation.VerifyExecutable() == nil {
+		t.Fatal("changed launcher script passed verification")
+	}
+}
+
+func TestInstallationWithoutPinnedScriptFailsForWindowsLauncher(t *testing.T) {
+	bin := t.TempDir()
+	shim := filepath.Join(bin, "wecom-cli.cmd")
+	if err := os.WriteFile(shim, []byte(`@"%_prog%" "%~dp0\node_modules\@wecom\cli\bin\wecom.js" %*`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := CLIFileHash(shim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := Installation{Executable: shim, ExecutableSHA256: hash}
+	if legacy.verifyExecutable("windows") == nil {
+		t.Fatal("record without the launcher script passed verification")
+	}
+	if err := legacy.verifyExecutable("linux"); err != nil {
+		t.Fatal(err)
+	}
+}

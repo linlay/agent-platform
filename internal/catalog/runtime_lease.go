@@ -121,9 +121,19 @@ func (r *FileRegistry) retainDefinitionsLocked(defs []AgentDefinition) func() {
 		r.liveConnectorMounts = map[string]connector.AgentRuntime{}
 		r.liveConnectorUsers = map[string]int{}
 	}
-	var mountKeys []string
+	if r.liveInstalls == nil {
+		r.liveInstalls = map[string]string{}
+		r.liveInstallUsers = map[string]int{}
+	}
+	var mountKeys, installKeys []string
 	for _, def := range defs {
 		key := def.Key
+		for _, install := range def.ConnectorInstalls {
+			identity := key + "\x00" + install.Prefix
+			r.liveInstalls[identity] = install.Prefix
+			r.liveInstallUsers[identity]++
+			installKeys = append(installKeys, identity)
+		}
 		for _, mount := range def.ConnectorMounts {
 			identity := key + "\x00" + mount.Dir
 			r.liveConnectorMounts[identity] = connector.AgentRuntime{AgentKey: key, ID: mount.ID, Dir: mount.Dir, Digest: mount.Digest}
@@ -154,6 +164,13 @@ func (r *FileRegistry) retainDefinitionsLocked(defs []AgentDefinition) func() {
 				if r.liveConnectorUsers[identity] == 0 {
 					delete(r.liveConnectorUsers, identity)
 					delete(r.liveConnectorMounts, identity)
+				}
+			}
+			for _, identity := range installKeys {
+				r.liveInstallUsers[identity]--
+				if r.liveInstallUsers[identity] == 0 {
+					delete(r.liveInstallUsers, identity)
+					delete(r.liveInstalls, identity)
 				}
 			}
 			r.mu.Unlock()

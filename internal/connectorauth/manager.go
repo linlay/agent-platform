@@ -49,6 +49,7 @@ type Manager struct {
 	client              *http.Client
 	identityFile        string
 	inheritEnv          []string
+	afterPreparation    func(context.Context) error
 	mu                  sync.Mutex
 	preparations        map[string]*preparationJob
 	sessions            map[string]*login
@@ -68,6 +69,13 @@ func New(ctx context.Context, sources connector.Sources, reload func(context.Con
 // lifecycle check sees the same host environment as the Agent's own commands.
 func (m *Manager) WithInheritEnv(names []string) *Manager {
 	m.inheritEnv = append([]string(nil), names...)
+	return m
+}
+
+// WithPreparationReload republishes Agents after a successful preparation, so
+// their PATH and frozen entries follow the new active installation.
+func (m *Manager) WithPreparationReload(reload func(context.Context) error) *Manager {
+	m.afterPreparation = reload
 	return m
 }
 

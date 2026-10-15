@@ -77,6 +77,9 @@ func TestPreparationInstallsIntoPrivatePrefixAndKeepsLastGoodInstallation(t *tes
 	if err != nil || status.Status != "failed" || status.ActiveVersion != "1.0.0" || !strings.Contains(status.Diagnostic, "404") {
 		t.Fatal("failed update hid the active installation", status, err)
 	}
+	if entries, _ := os.ReadDir(filepath.Join(sources.InstallRoot(), "demo", "1.1.0")); len(entries) != 0 {
+		t.Fatal("failed attempt left its installation directory", entries)
+	}
 	pkg, _ := sources.Load("demo")
 	if err := m.requirePrepared(pkg); err != nil {
 		t.Fatal("previous installation stopped serving", err)
@@ -85,21 +88,33 @@ func TestPreparationInstallsIntoPrivatePrefixAndKeepsLastGoodInstallation(t *tes
 		t.Fatal("failed update made the connector unavailable", c.Readiness, err)
 	}
 
-	// Each success keeps itself and the installation it replaces.
+	// A retry of the same package installs beside the active installation.
 	writeVersionedCLIPackage(t, root, "1.2.0", fakeNPMInit("1.2.0", false))
 	if _, err := m.Prepare(ctx, "demo"); err != nil {
 		t.Fatal(err)
 	}
 	second, _ := connector.ReadInstallation(sources.InstallRoot(), "demo")
-	writeVersionedCLIPackage(t, root, "1.3.0", fakeNPMInit("1.3.0", false))
+	// A Run still using the second installation retains it across updates.
+	release, err := connector.RetainInstallation(second.Prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := m.Prepare(ctx, "demo"); err != nil {
 		t.Fatal(err)
 	}
 	third, _ := connector.ReadInstallation(sources.InstallRoot(), "demo")
+	if third.Prefix == second.Prefix {
+		t.Fatal("retry installed into the active installation")
+	}
 	for prefix, want := range map[string]bool{active.Prefix: false, second.Prefix: true, third.Prefix: true} {
 		if fileExists(prefix) != want {
 			t.Fatalf("installation %s kept=%v, want %v", prefix, !want, want)
 		}
+	}
+	release()
+	sources.CollectInstallations()
+	if fileExists(second.Prefix) || !fileExists(third.Prefix) {
+		t.Fatal("collection kept a released installation or removed the active one")
 	}
 
 	// Deleting the package removes its programs.
@@ -137,5 +152,43 @@ func TestUnpinnedNPMInitAndDiagnosticExcerpt(t *testing.T) {
 	}
 	if !strings.Contains(excerpt, "npm ERR! 404") {
 		t.Fatal("diagnostic lost the failure", excerpt)
+	}
+}
+
+func TestUpdateInProgressKeepsActiveInstallationAndReloadsAfterSuccess(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "connectors-center")
+	sources := connector.Sources{ExternalRoot: root}
+	reloads := 0
+	m := New(t.Context(), sources, nil).WithPreparationReload(func(context.Context) error { reloads++; return nil })
+	writeVersionedCLIPackage(t, root, "1.0.0", fakeNPMInit("1.0.0", false))
+	if _, err := m.Prepare(context.Background(), "demo"); err != nil {
+		t.Fatal(err)
+	}
+	if reloads != 1 {
+		t.Fatalf("successful preparation reloaded the catalog %d times", reloads)
+	}
+	// The update's init blocks until released.
+	cli := fakeNPMInit("1.1.0", false)
+	cli["init"] = osCommands(`while [ ! -f "` + filepath.Join(t.TempDir(), "never") + `" ]; do sleep 0.05; done`)
+	writeVersionedCLIPackage(t, root, "1.1.0", cli)
+	if _, err := m.StartPreparation("demo"); err != nil {
+		t.Fatal(err)
+	}
+	defer m.CancelPreparation("demo")
+	status, err := m.PreparationStatus("demo")
+	if err != nil || status.Status != "preparing" || status.ActiveVersion != "1.0.0" {
+		t.Fatal("preparing status hid the active installation", status, err)
+	}
+	if c, err := m.Connection(context.Background(), "demo"); err != nil || c.Readiness == "preparing" || c.Readiness == "unavailable" {
+		t.Fatal("update in progress blocked the active installation", c.Readiness, err)
+	}
+	// A catalog reload's collection never removes the attempt in progress.
+	attempts, _ := os.ReadDir(filepath.Join(sources.InstallRoot(), "demo", "1.1.0"))
+	if len(attempts) != 1 {
+		t.Fatal("missing attempt directory", attempts)
+	}
+	sources.CollectInstallations()
+	if !fileExists(filepath.Join(sources.InstallRoot(), "demo", "1.1.0", attempts[0].Name())) {
+		t.Fatal("collection removed an installation in progress")
 	}
 }

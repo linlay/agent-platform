@@ -281,7 +281,12 @@ func New(deps Dependencies) (*Server, error) {
 	s.connectorGrants = connectorops.NewGrants(backgroundCtx)
 	s.connectorAuth = deps.ConnectorAuth
 	if s.connectorAuth == nil {
-		s.connectorAuth = connectorauth.New(backgroundCtx, s.connectorSources(), nil).WithInheritEnv(s.deps.Config.Bash.InheritEnv).WithIdentityFile(s.deps.Config.IdentityFile).WithCredentialValidator(func(ctx context.Context, pkg connector.Package, values map[string]string) error {
+		s.connectorAuth = connectorauth.New(backgroundCtx, s.connectorSources(), nil).WithInheritEnv(s.deps.Config.Bash.InheritEnv).WithPreparationReload(func(ctx context.Context) error {
+			if s.deps.CatalogReloader == nil {
+				return nil
+			}
+			return s.deps.CatalogReloader.Reload(ctx, "connectors")
+		}).WithIdentityFile(s.deps.Config.IdentityFile).WithCredentialValidator(func(ctx context.Context, pkg connector.Package, values map[string]string) error {
 			validator, ok := s.deps.MCP.(interface {
 				ValidateConnectorCredentials(context.Context, connector.Package, map[string]string) error
 			})

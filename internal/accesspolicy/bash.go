@@ -18,6 +18,8 @@ type BashPlan struct {
 	ReviewCommand string
 	HasConnector  bool
 	ConnectorOnly bool
+	// ConnectorIDs lists the mounted connectors the command executes.
+	ConnectorIDs []string
 	// Requirements are leaf decisions; a rule approval never approves sibling requirements.
 	Requirements  []BashPlan
 	Decision      Decision

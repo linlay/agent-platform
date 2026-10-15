@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"sort"
 	"strings"
 
 	"agent-platform/internal/bashast"
@@ -102,6 +103,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 		return combineBashPlans(command, accessLevel, plans)
 	}
 	var connectorWords []bashast.WordSpan
+	connectorIDs := map[string]bool{}
 	onlyConnectors := len(parsed.Commands) > 0
 	if len(parsed.Commands) == 0 {
 		pathReview(ReadAccess, workingDir)
@@ -115,6 +117,9 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 				add(bashPlan(command, accessLevel, DecisionBlock, x.BlockReason, "bash-access:temp-escape", cmd.Text))
 			}
 			allConnector = allConnector && x.Connector
+			if x.ConnectorID != "" {
+				connectorIDs[x.ConnectorID] = true
+			}
 			// executes marks code whose file effects are not described by the analysis.
 			executes := x.Connector
 			if !x.Connector {
@@ -248,6 +253,10 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 	}
 	result := combineBashPlans(command, accessLevel, plans)
 	result.UsesSSHAgent = sshAgent
+	for id := range connectorIDs {
+		result.ConnectorIDs = append(result.ConnectorIDs, id)
+	}
+	sort.Strings(result.ConnectorIDs)
 	if len(connectorWords) > 0 {
 		result.HasConnector = true
 		result.ConnectorOnly = onlyConnectors
@@ -452,6 +461,7 @@ func PendingBashPlan(ctx *ExecutionContext, p BashPlan) BashPlan {
 	}
 	result := combineBashPlans(p.CommandText, p.AccessLevel, leaves)
 	result.HasConnector, result.ReviewCommand, result.ConnectorOnly = p.HasConnector, p.ReviewCommand, p.ConnectorOnly
+	result.ConnectorIDs = append([]string(nil), p.ConnectorIDs...)
 	return result
 }
 

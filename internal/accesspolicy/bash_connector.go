@@ -15,43 +15,45 @@ import (
 // connectorExecution checks the actual target, including interpreter script
 // operands, against entries frozen at catalog publication. PATH membership alone
 // is never an execution grant. Container identity comes only from its resolver.
-func connectorExecution(session QuerySession, x BashExecution, vars map[string]string, env *BashEnvironment) bool {
+// connectorExecution returns the ID of the mounted connector whose frozen
+// entry the command executes, or "".
+func connectorExecution(session QuerySession, x BashExecution, vars map[string]string, env *BashEnvironment) string {
 	if len(session.ConnectorCLIEntries) == 0 || x.Uncertain || x.BlockReason != "" || len(x.Argv) == 0 {
-		return false
+		return ""
 	}
 	target := x.Program
 	if x.TrustedInterpreter {
 		target = x.Script
 		if target == "" {
-			return false
+			return ""
 		}
 	} else if target == "" {
 		if shellBuiltins[commandFamily(x.Argv[0])] {
-			return false
+			return ""
 		}
 		if session.AgentHasRuntimeSandbox {
 			if env == nil || env.Resolve == nil {
-				return false
+				return ""
 			}
 			var err error
 			target, err = env.Resolve(x.Argv[0], x.Cwd, vars)
 			if err != nil {
-				return false
+				return ""
 			}
 		} else {
 			target = resolvedProgram(x.Argv[0], x.Cwd, vars)
 		}
 	}
 	if target == "" {
-		return false
+		return ""
 	}
 	if session.AgentHasRuntimeSandbox {
 		if env == nil || env.Canonical == nil || env.Inspect == nil {
-			return false
+			return ""
 		}
 		canonical, err := env.Canonical(target, x.Cwd)
 		if err != nil {
-			return false
+			return ""
 		}
 		for _, entry := range session.ConnectorCLIEntries {
 			// Installed programs are host paths; containers only see packages.
@@ -62,14 +64,16 @@ func connectorExecution(session QuerySession, x BashExecution, vars map[string]s
 			if canonical != expected {
 				continue
 			}
-			_, hash, err := env.Inspect(canonical)
-			return err == nil && hash == entry.SHA256
+			if _, hash, err := env.Inspect(canonical); err == nil && hash == entry.SHA256 {
+				return entry.ConnectorID
+			}
+			return ""
 		}
-		return false
+		return ""
 	}
 	canonical, err := NormalizePath(resolveAgainstCwd(target, x.Cwd))
 	if err != nil {
-		return false
+		return ""
 	}
 	for _, entry := range session.ConnectorCLIEntries {
 		// An installed entry is valid only while its connector stays mounted.
@@ -87,25 +91,26 @@ func connectorExecution(session QuerySession, x BashExecution, vars map[string]s
 		}
 		hash, err := connector.CLIFileHash(canonical)
 		if err != nil || hash != entry.SHA256 {
-			return false
+			return ""
 		}
 		if entry.LauncherTarget != "" {
 			// The launcher text alone is insufficient when Windows actually
 			// executes a different file through the Node argv adapter.
 			target, err := connector.WindowsNodeShimTarget(canonical)
 			if err != nil {
-				return false
+				return ""
 			}
 			script, err := pathutil.Canonicalize(target)
 			if err != nil || script.Key != entry.LauncherTargetKey || !pathutil.WithinRoot(script, r) {
-				return false
+				return ""
 			}
-			hash, err := connector.CLIFileHash(script.Host)
-			return err == nil && hash == entry.LauncherTargetSHA256
+			if hash, err := connector.CLIFileHash(script.Host); err != nil || hash != entry.LauncherTargetSHA256 {
+				return ""
+			}
 		}
-		return true
+		return entry.ConnectorID
 	}
-	return false
+	return ""
 }
 
 // connectorReviewCommand removes only verified CLI words from analysis. The

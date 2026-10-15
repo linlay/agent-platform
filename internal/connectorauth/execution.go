@@ -39,10 +39,10 @@ func ExecutionCommand(ctx context.Context, pkg connector.Package, args, env []st
 			env = connector.WithPath(env, []string{bin})
 		}
 		// Run exactly the executable preparation verified, not a PATH lookup.
-		entry = installation.Executable
-		if hash, err := connector.CLIFileHash(entry); err != nil || hash != installation.ExecutableSHA256 {
-			return nil, fmt.Errorf("CLI executable changed or is missing; prepare again")
+		if err := installation.VerifyExecutable(); err != nil {
+			return nil, err
 		}
+		entry = installation.Executable
 	}
 	entry, err = filepath.EvalSymlinks(entry)
 	if err != nil {

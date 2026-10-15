@@ -342,5 +342,41 @@ func (r *FileRegistry) reconcileSharedPins() error {
 			delete(r.sharedPins, dir)
 		}
 	}
+	return r.reconcileInstallPins()
+}
+
+// reconcileInstallPins retains the installations of published Agents and of
+// versions that Runs still hold, so collection never removes a program in use.
+func (r *FileRegistry) reconcileInstallPins() error {
+	if r.installPins == nil {
+		r.installPins = map[string]func(){}
+	}
+	wanted := map[string]bool{}
+	r.mu.RLock()
+	for _, def := range r.agents {
+		for _, install := range def.ConnectorInstalls {
+			wanted[install.Prefix] = true
+		}
+	}
+	for _, prefix := range r.liveInstalls {
+		wanted[prefix] = true
+	}
+	r.mu.RUnlock()
+	for prefix := range wanted {
+		if r.installPins[prefix] != nil {
+			continue
+		}
+		release, err := connector.RetainInstallation(prefix)
+		if err != nil {
+			return err
+		}
+		r.installPins[prefix] = release
+	}
+	for prefix, release := range r.installPins {
+		if !wanted[prefix] {
+			release()
+			delete(r.installPins, prefix)
+		}
+	}
 	return nil
 }

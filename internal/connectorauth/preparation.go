@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"agent-platform/internal/connector"
@@ -94,7 +95,7 @@ func (m *Manager) PreparationStatus(id string) (Preparation, error) {
 	if job != nil {
 		s := job.state
 		m.mu.Unlock()
-		return s, nil
+		return m.withActiveInstallation(s), nil
 	}
 	m.mu.Unlock()
 	release, lockErr := connector.AcquireOperation(m.sources.ExternalRoot, id)
@@ -110,7 +111,7 @@ func (m *Manager) PreparationStatus(id string) (Preparation, error) {
 	}
 	s, err := m.readPreparation(id)
 	if os.IsNotExist(err) {
-		return Preparation{ConnectorID: id, Status: "pending", Message: "CLI preparation is required"}, nil
+		return m.withActiveInstallation(Preparation{ConnectorID: id, Status: "pending", Message: "CLI preparation is required"}), nil
 	}
 	if err != nil {
 		return Preparation{}, err
@@ -140,10 +141,20 @@ func (m *Manager) PreparationStatus(id string) (Preparation, error) {
 			s.Message = err.Error()
 		}
 	}
-	if activeErr == nil && installation.Fingerprint != s.Fingerprint {
+	return m.withActiveInstallation(s), nil
+}
+
+// withActiveInstallation reports the installation still in use while the
+// latest attempt is pending, preparing, failed or canceled.
+func (m *Manager) withActiveInstallation(s Preparation) Preparation {
+	s.ActiveVersion, s.ActiveFingerprint = "", ""
+	if s.Status == "ready" {
+		return s
+	}
+	if installation, err := connector.ReadInstallation(m.sources.InstallRoot(), s.ConnectorID); err == nil {
 		s.ActiveVersion, s.ActiveFingerprint = installation.Version, installation.Fingerprint
 	}
-	return s, nil
+	return s
 }
 
 func (m *Manager) StartPreparation(id string) (Preparation, error) {
@@ -188,7 +199,9 @@ func (m *Manager) StartPreparation(id string) (Preparation, error) {
 	go func(s Preparation) {
 		defer cancel()
 		defer close(job.done)
-		prefix, err := m.prepareCLI(ctx, pkg, fingerprint)
+		prefix, releaseAttempt, err := m.prepareCLI(ctx, pkg, fingerprint)
+		// Keep the attempt leased until it is recorded as active.
+		defer releaseAttempt()
 		if err == nil {
 			// init runs in the package directory and may write there; the
 			// prepared package is the one after init.
@@ -214,9 +227,6 @@ func (m *Manager) StartPreparation(id string) (Preparation, error) {
 				s.ExitCode = &execution.ExitCode
 				s.Diagnostic = execution.Diagnostic
 			}
-			if previous, err := connector.ReadInstallation(m.sources.InstallRoot(), id); err == nil {
-				s.ActiveVersion, s.ActiveFingerprint = previous.Version, previous.Fingerprint
-			}
 		}
 		if ctx.Err() != nil {
 			s.Status = "canceled"
@@ -227,8 +237,12 @@ func (m *Manager) StartPreparation(id string) (Preparation, error) {
 			s.Message = "Cannot persist preparation result: " + saveErr.Error()
 		}
 		release()
-		if s.Status == "ready" && m.reload != nil {
-			if reloadErr := m.reload(context.WithoutCancel(ctx), id); reloadErr != nil {
+		reload := m.afterPreparation
+		if reload == nil && m.reload != nil {
+			reload = func(ctx context.Context) error { return m.reload(ctx, id) }
+		}
+		if s.Status == "ready" && reload != nil {
+			if reloadErr := reload(context.WithoutCancel(ctx)); reloadErr != nil {
 				s.Message = "CLI ready; catalog reload failed: " + reloadErr.Error()
 			}
 		}
@@ -237,7 +251,7 @@ func (m *Manager) StartPreparation(id string) (Preparation, error) {
 		delete(m.preparations, id)
 		m.mu.Unlock()
 	}(s)
-	return s, nil
+	return m.withActiveInstallation(s), nil
 }
 
 func (m *Manager) CancelPreparation(id string) error {
@@ -297,16 +311,15 @@ func (m *Manager) activateInstallation(pkg connector.Package, settings cliSettin
 		if err != nil {
 			return err
 		}
-		installation.Executable = entry
-		if installation.ExecutableSHA256, err = connector.CLIFileHash(entry); err != nil {
+		if err := installation.PinExecutable(entry, runtime.GOOS); err != nil {
 			return err
 		}
 	}
-	previous, _ := connector.ReadInstallation(m.sources.InstallRoot(), pkg.ID)
 	if err := connector.WriteInstallation(m.sources.InstallRoot(), installation); err != nil {
 		return err
 	}
-	connector.PruneInstallations(m.sources.InstallRoot(), pkg.ID, installation.Prefix, previous.Prefix)
+	// Installations an Agent version or Run still uses stay leased.
+	connector.PruneInstallations(m.sources.InstallRoot(), pkg.ID, installation.Prefix)
 	return nil
 }
 
@@ -334,14 +347,10 @@ func (m *Manager) verifyInstallation(pkg connector.Package, installation connect
 		return nil
 	}
 	entry, err := m.lookupManagedCommand(pkg, settings, installation.Bin())
-	if err != nil {
+	if err != nil || entry != installation.Executable {
 		return fmt.Errorf("CLI executable changed or is missing; prepare again")
 	}
-	hash, err := connector.CLIFileHash(entry)
-	if err != nil || entry != installation.Executable || hash != installation.ExecutableSHA256 {
-		return fmt.Errorf("CLI executable changed or is missing; prepare again")
-	}
-	return nil
+	return installation.VerifyExecutable()
 }
 
 // requirePrepared accepts the active installation even when a newer package

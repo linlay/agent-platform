@@ -296,12 +296,16 @@ type FileRegistry struct {
 	runtimeVersions     map[string]int
 	liveConnectorMounts map[string]connector.AgentRuntime
 	liveConnectorUsers  map[string]int
-	sharedPins          map[string]func()
-	runtimePending      map[string]bool
-	onRuntimeIdle       func()
-	cfg                 config.Config
-	tools               []api.ToolDetailResponse
-	assembler           *runtimeAgentAssembler
+	// Installations used by leased Agent versions, keyed like live mounts.
+	liveInstalls     map[string]string
+	liveInstallUsers map[string]int
+	sharedPins       map[string]func()
+	installPins      map[string]func()
+	runtimePending   map[string]bool
+	onRuntimeIdle    func()
+	cfg              config.Config
+	tools            []api.ToolDetailResponse
+	assembler        *runtimeAgentAssembler
 
 	mu             sync.RWMutex
 	privateSkillMu sync.Mutex
@@ -448,6 +452,7 @@ func (r *FileRegistry) ReloadWithRuntimeBindings(_ context.Context, reason strin
 		releaseAssembly()
 		releaseAssembly = nil
 		_ = r.assembler.connectors.CollectShared()
+		r.assembler.connectors.CollectInstallations()
 	}
 	return nil
 }

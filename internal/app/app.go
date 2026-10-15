@@ -405,7 +405,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 	automationService := &automation.Service{Registry: automationRegistry, Orchestrator: automationOrchestrator, History: automationExecutionHistory, DefaultZoneID: cfg.Automation.DefaultZoneID}
 	controlHandler := platformcontrol.NewToolHandler(cfg, registry, conversationService).ConfigureControl(&adminsource.ControlService{Mutations: adminSourceService, Config: cfg, Registry: registry, Models: modelRegistry, Reload: reloader.Reload, Coordinate: reloader.WithCatalogDirectoryMutation, ValidateLibrary: kbasesService.ValidateBinding, LibraryDefinition: kbasesService.BindingDefinition}, conversationService, modelRegistry).ConfigureAutomation(automationService).ConfigureLibraries(kbasesService)
-	connectorAuth := connectorauth.New(backgroundCtx, cfg.Paths.ConnectorSources(), nil).WithInheritEnv(cfg.Bash.InheritEnv).WithIdentityFile(cfg.IdentityFile).WithCredentialValidator(mcpClient.ValidateConnectorCredentials)
+	connectorAuth := connectorauth.New(backgroundCtx, cfg.Paths.ConnectorSources(), nil).WithInheritEnv(cfg.Bash.InheritEnv).WithPreparationReload(func(ctx context.Context) error { return reloader.Reload(ctx, "connectors") }).WithIdentityFile(cfg.IdentityFile).WithCredentialValidator(mcpClient.ValidateConnectorCredentials)
 	controlHandler.ConfigureConnectors(connectorAuth, mcp.NewConnectorChecker(cfg.Paths.ConnectorSources()))
 	controlHandler.RuntimeSnapshot = func() map[string]any {
 		statuses := []map[string]any{}

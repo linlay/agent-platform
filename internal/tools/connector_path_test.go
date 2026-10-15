@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 )
 
@@ -45,13 +46,15 @@ func TestMountedConnectorPathMatchesExecutionAndApprovalEnvironment(t *testing.T
 	}
 }
 
-func TestOrdinaryShellDoesNotInheritMountedCLIConfiguration(t *testing.T) {
+// Composite commands need the public cli.json env (such as a CLI's config
+// directory) in the ordinary shell; Agent or run env cannot replace it.
+func TestOrdinaryShellInheritsMountedCLIConfiguration(t *testing.T) {
 	ctx := &contracts.ExecutionContext{Session: contracts.QuerySession{ConnectorEnv: map[string]string{"DEMO_CONFIG_DIR": "/platform/config"}}, StaticRuntimeEnv: map[string]string{"DEMO_CONFIG_DIR": "/wrong"}}
 	env, err := mergeCommandEnv(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := bashEnvironmentVariables(env)["DEMO_CONFIG_DIR"]; got != "/wrong" {
+	if got := bashEnvironmentVariables(env)["DEMO_CONFIG_DIR"]; got != "/platform/config" {
 		t.Fatal(got)
 	}
 	other, err := mergeCommandEnv(&contracts.ExecutionContext{})
@@ -59,6 +62,16 @@ func TestOrdinaryShellDoesNotInheritMountedCLIConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := bashEnvironmentVariables(other)["DEMO_CONFIG_DIR"]; got == "/platform/config" {
-		t.Fatal("mounted credentials env leaked")
+		t.Fatal("mounted connector env leaked to another agent")
+	}
+}
+
+func TestOnlyTheInvokedConnectorsCredentialsRequireDirectInvocation(t *testing.T) {
+	session := contracts.QuerySession{ConnectorCredentials: []connector.CredentialEnvironment{{ID: "token-cli"}}}
+	if executesCredentialedConnector(session, []string{"public-cli"}) {
+		t.Fatal("another connector's credentials blocked a public CLI")
+	}
+	if !executesCredentialedConnector(session, []string{"public-cli", "token-cli"}) {
+		t.Fatal("credentialed connector allowed in a composite command")
 	}
 }
