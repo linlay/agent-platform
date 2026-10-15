@@ -34,7 +34,13 @@ SDK 负责 session ID、协议头、JSON/SSE、初始化通知和标准关闭；
 
 工具 YAML 根级不再接受 `type`、`kind`、`toolAction`、`submitResultFormat`。`view` 是展示引用，不决定工具路由、等待或结果格式；旧 `viewportType/viewportKey` 直接拒绝。MCP 工具在 catalog 中固定返回 `sourceType: mcp`、`sourceCategory: mcp` 和对应 `serverKey`；MCP view 元数据也不会自动产生 awaiting。`/api/admin/tools` 不返回 `kind` 或内部 `meta`。MCP `annotations.readOnlyHint:true` 会映射为平台 `meta.readOnly:true`，供 BTW 只读门禁使用。
 
-`tools/call` 优先使用 `structuredContent` 形成 `ToolExecutionResult.Structured`，否则读取 text content。`ToolExecutionResult.Output` 是实现最终回送模型的文本，LLM 层不会按 YAML 二次格式化。`isError:true` 会形成失败的工具结果；如果 `structuredContent.error` 或 `structuredContent.code` 存在，平台保留该业务错误码，例如 qiuerscript 的 `last_digest_required`、`method_not_found` 与 `digest_mismatch`，不会统一降级为 `mcp_tool_error`。
+`tools/call` 结果转换不得静默丢弃内容块。`ToolExecutionResult.Output` 是实现最终回送模型的文本，LLM 层不会按 YAML 二次格式化；其规则为：
+
+- `content` 全部块按原顺序以空行分隔进入 `Output`：text 块取原文（空白文本块跳过），其他块（resource_link、resource、image、audio 等）以保留类型与字段的 JSON 表示，其中内联 base64（`data`、`resource.blob`）替换为 `[base64 omitted: N chars]`。资源链接不会被自动访问，图片/音频不作为原生多模态输入发送给模型。
+- 存在 `structuredContent` 时，它原样作为 `Structured`（根结构不包装，`outputSchema` 校验仍针对它）。`content` 为空，或仅为一个与其等价的 JSON 文本块时，`Output` 为 `structuredContent` 的 JSON；否则 `Output` 为 `content` 渲染文本，若没有任何文本块与 `structuredContent` 等价且其非空，再追加 `structuredContent:` 段及其 JSON。不做其他去重。
+- 没有 `structuredContent` 时，纯 text 块结果不设置 `Structured`；含非 text 块或带 `annotations`/`_meta` 等附加字段时，`Structured` 为 `{"content": [...]}`，保留原始块（含 base64）。与 `structuredContent` 同时出现的非 text 块只按上述规则进入 `Output`。
+
+`isError:true` 会形成失败的工具结果；如果 `structuredContent.error` 或 `structuredContent.code` 存在，平台保留该业务错误码，例如 qiuerscript 的 `last_digest_required`、`method_not_found` 与 `digest_mismatch`，不会统一降级为 `mcp_tool_error`。主错误消息依次取 `structuredContent.message`、顶层 `error`、首个非空文本块。`content` 渲染文本与主消息不同且不是 `structuredContent` 的单块 JSON 副本时，完整诊断写入 `mcpContent`；平台覆盖的 `tool/ok/code/error/message` 若与服务端原值不同，原始 `structuredContent` 保存在 `mcpStructuredContent`。失败结果的 `Output` 为该 payload 的 JSON。
 
 工具定义可选声明 `outputSchema`。没有 `outputSchema` 的 MCP 或 Desktop action result 按不透明 JSON 透传；平台不会根据 `createdAt`、`timestamp`、`iso` 等字段名猜测时间语义。
 

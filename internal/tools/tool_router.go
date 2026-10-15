@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -413,22 +414,126 @@ func normalizeMCPResult(toolName string, payload any) ToolExecutionResult {
 		if isError, _ := mapped["isError"].(bool); isError {
 			return mcpToolErrorResult(toolName, mapped)
 		}
+		items, _ := mapped["content"].([]any)
+		contentText := renderMCPContent(items)
 		if structured, ok := mapped["structuredContent"]; ok && structured != nil {
-			return payloadToToolResult(structured)
-		}
-		if items, ok := mapped["content"].([]any); ok && len(items) > 0 {
-			first := items[0]
-			if contentMap, ok := first.(map[string]any); ok {
-				if strings.EqualFold(strings.TrimSpace(AnyStringNode(contentMap["type"])), "text") {
-					return ToolExecutionResult{Output: AnyStringNode(contentMap["text"]), ExitCode: 0}
-				}
-				return payloadToToolResult(contentMap)
+			result := payloadToToolResult(structured)
+			if contentText == "" || mcpContentDuplicatesStructured(items, structured) {
+				return result
 			}
-			return payloadToToolResult(first)
+			// content is the model-facing channel; structuredContent stays in
+			// Structured for validation and consumers. Append the structured JSON
+			// only when no text block already carries it.
+			result.Output = contentText
+			if !mcpStructuredEmpty(structured) && !mcpContentContainsStructured(items, structured) {
+				result.Output += "\n\nstructuredContent:\n" + MarshalJSON(structured)
+			}
+			return result
+		}
+		if len(items) > 0 {
+			result := ToolExecutionResult{Output: contentText, ExitCode: 0}
+			if !mcpContentPlainText(items) {
+				result.Structured = map[string]any{"content": items}
+				if result.Output == "" {
+					result.Output = MarshalJSON(result.Structured)
+				}
+			}
+			return result
 		}
 		return payloadToToolResult(mapped)
 	}
 	return payloadToToolResult(payload)
+}
+
+// renderMCPContent joins every content block in order for the model. Text
+// blocks contribute their text; other blocks keep their type and fields as JSON
+// with inline base64 payloads replaced by a size marker.
+func renderMCPContent(items []any) string {
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		block, ok := item.(map[string]any)
+		if !ok {
+			if item != nil {
+				parts = append(parts, MarshalJSON(item))
+			}
+			continue
+		}
+		if mcpContentBlockType(block) == "text" {
+			if text := AnyStringNode(block["text"]); strings.TrimSpace(text) != "" {
+				parts = append(parts, text)
+			}
+			continue
+		}
+		parts = append(parts, MarshalJSON(elideMCPBinary(block)))
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func mcpContentBlockType(block map[string]any) string {
+	return strings.ToLower(strings.TrimSpace(AnyStringNode(block["type"])))
+}
+
+func elideMCPBinary(block map[string]any) map[string]any {
+	out := CloneMap(block)
+	if data, ok := out["data"].(string); ok && data != "" {
+		out["data"] = fmt.Sprintf("[base64 omitted: %d chars]", len(data))
+	}
+	if resource := AnyMapNode(out["resource"]); resource != nil {
+		if blob, ok := resource["blob"].(string); ok && blob != "" {
+			resource = CloneMap(resource)
+			resource["blob"] = fmt.Sprintf("[base64 omitted: %d chars]", len(blob))
+			out["resource"] = resource
+		}
+	}
+	return out
+}
+
+// mcpContentPlainText reports whether the blocks are bare text blocks, so the
+// rendered Output already holds everything and no Structured copy is needed.
+func mcpContentPlainText(items []any) bool {
+	for _, item := range items {
+		block, ok := item.(map[string]any)
+		if !ok || mcpContentBlockType(block) != "text" {
+			return false
+		}
+		for key := range block {
+			if key != "type" && key != "text" {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// mcpContentDuplicatesStructured matches the spec-recommended shape: a single
+// text block holding the serialized structuredContent.
+func mcpContentDuplicatesStructured(items []any, structured any) bool {
+	return len(items) == 1 && mcpContentContainsStructured(items, structured)
+}
+
+func mcpContentContainsStructured(items []any, structured any) bool {
+	want := MarshalJSON(structured)
+	for _, item := range items {
+		block, ok := item.(map[string]any)
+		if !ok || mcpContentBlockType(block) != "text" {
+			continue
+		}
+		decoder := json.NewDecoder(strings.NewReader(AnyStringNode(block["text"])))
+		decoder.UseNumber()
+		var parsed any
+		if decoder.Decode(&parsed) != nil || decoder.More() {
+			continue
+		}
+		if MarshalJSON(parsed) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func mcpStructuredEmpty(structured any) bool {
+	mapped, ok := structured.(map[string]any)
+	return ok && len(mapped) == 0
 }
 
 func mcpToolErrorResult(toolName string, payload map[string]any) ToolExecutionResult {
@@ -452,6 +557,20 @@ func mcpToolErrorResult(toolName string, payload map[string]any) ToolExecutionRe
 	resultPayload["code"] = code
 	resultPayload["error"] = code
 	resultPayload["message"] = message
+	// Platform status fields overwrite same-named server fields; keep the
+	// server's original structuredContent when any of them changed.
+	for _, key := range []string{"tool", "ok", "code", "error", "message"} {
+		if original, ok := structured[key]; ok && MarshalJSON(original) != MarshalJSON(resultPayload[key]) {
+			resultPayload["mcpStructuredContent"] = CloneMap(structured)
+			break
+		}
+	}
+	items, _ := payload["content"].([]any)
+	if len(items) > 0 && !(len(structured) > 0 && mcpContentDuplicatesStructured(items, structured)) {
+		if text := renderMCPContent(items); text != "" && text != message {
+			resultPayload["mcpContent"] = text
+		}
+	}
 	return ToolExecutionResult{
 		Output:     MarshalJSON(resultPayload),
 		Structured: resultPayload,
@@ -480,8 +599,9 @@ func extractMCPErrorMessage(payload map[string]any) string {
 	if message := AnyStringNode(payload["error"]); strings.TrimSpace(message) != "" {
 		return message
 	}
-	if items, ok := payload["content"].([]any); ok && len(items) > 0 {
-		if contentMap, ok := items[0].(map[string]any); ok {
+	items, _ := payload["content"].([]any)
+	for _, item := range items {
+		if contentMap, ok := item.(map[string]any); ok {
 			if text := AnyStringNode(contentMap["text"]); strings.TrimSpace(text) != "" {
 				return text
 			}
