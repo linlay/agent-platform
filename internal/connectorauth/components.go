@@ -19,6 +19,15 @@ func OAuthComponent(pkg connector.Package, component string) (connector.Package,
 			component = "cli"
 		}
 	}
+	// TODO(connector-compat): 下个版本移除旧逐组件 OAuth 配置和 CLI grant 选择分支。
+	if settings, grant := pkg.LegacyOAuthBinding(component); grant != "" {
+		if component != "cli" || pkg.MCP[grant] == nil {
+			return pkg, fmt.Errorf("CLI grant references missing MCP component")
+		}
+		return OAuthComponent(pkg, grant)
+	} else if len(settings) != 0 {
+		pkg.OAuth = settings
+	}
 	if component == "cli" {
 		if pkg.CLI == nil {
 			return pkg, fmt.Errorf("CLI component not found")

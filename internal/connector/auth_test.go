@@ -36,16 +36,17 @@ func TestAuthModeValuesAreExplicit(t *testing.T) {
 	}
 }
 
-func TestLegacyManifestFieldsAreRejected(t *testing.T) {
+// TODO(connector-compat): 下个版本恢复为拒绝旧字段的测试。
+func TestLegacyManifestFieldsAreAcceptedForThisRelease(t *testing.T) {
 	for _, fields := range []string{
 		`"auth_mode":"none"`,
-		`"authMode":"none","auth_browser":"system"`,
+		`"authMode":"self","auth_browser":"system"`,
 		`"authMode":"token","token_schema":{"fields":[{"key":"TOKEN"}]}`,
 		`"authMode":"token","tokenSchema":{"fields":[{"key":"TOKEN"}]}`,
 		`"authMode":"self","auth_bindings":{"cli":{"env":{"TOKEN":"x"}}}`,
 	} {
-		if err := ValidateManifest("demo", []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp",`+fields+`}`)); err == nil {
-			t.Fatal("accepted legacy field", fields)
+		if err := ValidateManifest("demo", []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp",`+fields+`}`)); err != nil {
+			t.Fatal("rejected legacy field", fields, err)
 		}
 	}
 	if err := ValidateManifest("demo", []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"self","oauth":{"clientId":"demo"}}`)); err == nil {

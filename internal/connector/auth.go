@@ -6,7 +6,8 @@ import (
 )
 
 // AuthMode describes who supplies authentication, independently of component
-// type. connector.json must declare it explicitly; there is no default.
+// type. New declarations use explicit canonical values; the temporary manifest
+// reader separately translates the previous release's field names and defaults.
 type AuthMode string
 
 const (

@@ -32,8 +32,10 @@ type Manifest struct {
 	Icon                  string                 `json:"icon,omitempty"`
 	I18N                  map[string]Translation `json:"i18n,omitempty"`
 	OAuth                 json.RawMessage        `json:"oauth,omitempty"`
-	// TokenSchema is the package's token-schema.json, never part of connector.json.
+	// TokenSchema comes from token-schema.json (or the temporary legacy reader).
 	TokenSchema json.RawMessage `json:"-"`
+	// TODO(connector-compat): 下个版本删除 legacy 字段，TokenSchema 仅保留独立文件来源。
+	legacy *legacyManifest
 }
 
 // Package is an immutable, secret-free description of an installed package.
@@ -104,6 +106,10 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 	}
 	var tokenSchema json.RawMessage
 	if err := read("token-schema.json", &tokenSchema); err == nil {
+		// TODO(connector-compat): 下个版本移除此内联表单冲突分支。
+		if len(pkg.TokenSchema) != 0 {
+			return Package{}, fmt.Errorf("connector %s declares both inline token schema and token-schema.json", id)
+		}
 		pkg.TokenSchema = tokenSchema
 	} else if !os.IsNotExist(err) {
 		return Package{}, fmt.Errorf("connector %s token-schema.json: %w", id, err)
@@ -160,6 +166,10 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 	if pkg.Type == "cli" && pkg.CLI == nil {
 		return Package{}, fmt.Errorf("connector %s cli.json must be an object", id)
 	}
+	// TODO(connector-compat): 下个版本移除旧组件转换调用。
+	if err := pkg.normalizeLegacyComponents(); err != nil {
+		return Package{}, fmt.Errorf("connector %s: %w", id, err)
+	}
 	if err := validateCLIConfig(pkg); err != nil {
 		return Package{}, fmt.Errorf("connector %s: %w", id, err)
 	}
@@ -193,11 +203,19 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 	return pkg, nil
 }
 
-// ValidateManifest validates connector.json without executing package commands.
+// ValidateManifest validates authored connector.json without executing commands.
+// Installed packages and ZIP imports additionally accept the former omitted
+// authentication default while this release's compatibility layer is present.
 func ValidateManifest(id string, content []byte) error {
 	var manifest Manifest
 	if err := DecodeJSON(content, &manifest); err != nil {
 		return err
+	}
+	// TODO(connector-compat): 下个版本移除此旧字段检查，由 validateManifest 校验必填 authMode。
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(content, &fields)
+	if fields["authMode"] == nil && fields["auth_mode"] == nil {
+		return fmt.Errorf("connector %s authMode is required", id)
 	}
 	return validateManifest(id, manifest)
 }
@@ -242,6 +260,10 @@ func validateManifest(id string, pkg Manifest) error {
 	}
 	if pkg.AuthMode != AuthOAuth && pkg.AuthMode != AuthMCP && len(pkg.OAuth) != 0 {
 		return fmt.Errorf("connector %s oauth requires authMode oauth or mcp", id)
+	}
+	// TODO(connector-compat): 下个版本移除此内联表单校验，保留加载独立文件后的校验。
+	if len(pkg.TokenSchema) != 0 {
+		return validateTokenSchema(id, pkg)
 	}
 	return nil
 }
@@ -438,7 +460,15 @@ func DecodeJSON(data []byte, target any) error {
 	if _, err := decoder.Token(); err != io.EOF {
 		return fmt.Errorf("JSON must contain exactly one value")
 	}
-	decoder = json.NewDecoder(bytes.NewReader(data))
+	// TODO(connector-compat): 下个版本移除 Manifest 特判，恢复统一严格解码。
+	if manifest, ok := target.(*Manifest); ok {
+		return decodeManifest(data, manifest)
+	}
+	return decodeStrictJSON(data, target)
+}
+
+func decodeStrictJSON(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	return decoder.Decode(target)
 }

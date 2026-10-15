@@ -38,6 +38,10 @@ func CLIEnvironment(pkg connector.Package) (connector.CredentialEnvironment, err
 // shares the package's single MCP component grant; plain OAuth uses the
 // package's own OAuth settings.
 func cliOAuthComponent(pkg connector.Package) (connector.Package, error) {
+	// TODO(connector-compat): 下个版本移除旧 CLI OAuth/grant 分支。
+	if settings, grant := pkg.LegacyOAuthBinding("cli"); len(settings) != 0 || grant != "" {
+		return OAuthComponent(pkg, "cli")
+	}
 	if pkg.AuthMode == connector.AuthMCP {
 		return OAuthComponent(pkg, "")
 	}
