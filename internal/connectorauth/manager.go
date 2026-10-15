@@ -316,7 +316,11 @@ func (m *Manager) StatusComponent(_ context.Context, id, component string) (Sess
 			if err != nil {
 				return result, err
 			}
-			if !CredentialReady(m.sources.PersistentRoot(), id, resource, oauthDestination(selected)) {
+			ready, err := credentialReadiness(m.sources.PersistentRoot(), id, resource, oauthDestination(selected))
+			if err != nil {
+				return result, err
+			}
+			if !ready {
 				result.Status = "unauthorized"
 			}
 		}
@@ -331,7 +335,11 @@ func (m *Manager) StatusComponent(_ context.Context, id, component string) (Sess
 	if err != nil {
 		return result, err
 	}
-	if CredentialReady(m.sources.PersistentRoot(), id, resource, oauthDestination(pkg)) {
+	ready, err := credentialReadiness(m.sources.PersistentRoot(), id, resource, oauthDestination(pkg))
+	if err != nil {
+		return result, err
+	}
+	if ready {
 		result.Status = "authorized"
 	}
 	return result, nil

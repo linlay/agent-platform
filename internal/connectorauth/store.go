@@ -185,12 +185,28 @@ func readPrivateJSON(p string, value any) error {
 }
 
 func CredentialReady(root, id, resource string, destinations ...string) bool {
-	// Atomic file replacement allows a local snapshot without waiting for a
-	// token refresh. Catalog reload must never wait on authentication network I/O.
+	ready, err := credentialReadiness(root, id, resource, destinations...)
+	return err == nil && ready
+}
+
+// credentialReadiness separates an absent grant, which requires sign-in, from
+// unreadable storage, which is an availability fault that preserves the grant.
+// Atomic file replacement allows a local snapshot without waiting for a
+// token refresh. Catalog reload must never wait on authentication network I/O.
+func credentialReadiness(root, id, resource string, destinations ...string) (bool, error) {
 	c, err := readCredential(root, id)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, ErrOAuthCredentialUnavailable
+	}
+	s, err := readAuthState(root, id)
+	if err != nil {
+		return false, ErrOAuthCredentialUnavailable
+	}
 	c, matches := selectCredential(c, resource, destinations)
-	s, stateErr := readAuthState(root, id)
-	return err == nil && stateErr == nil && c.Generation == s.Generation && !c.RequiresLogin && matches && c.Token != nil && (c.Token.Valid() || c.Token.RefreshToken != "")
+	return c.Generation == s.Generation && !c.RequiresLogin && matches && c.Token != nil && (c.Token.Valid() || c.Token.RefreshToken != ""), nil
 }
 
 func credentialMatches(c oauthCredential, resource string, destinations []string) bool {
