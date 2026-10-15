@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -114,9 +115,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		if envErr != nil {
 			return ToolExecutionResult{Output: envErr.Error(), Error: "connector_credentials_unavailable", ExitCode: -1}, nil
 		}
-		// Share the connector execution adapter. Windows npm cmd shims become
-		// Node + script argv, so connector payloads never pass through cmd.exe.
-		cmd, err = connectorauth.ExecutionProgramCommand(runCtx, direct.Program, direct.Args, workingDir, childEnv)
+		cmd, err = directConnectorCommand(runCtx, direct.Program, direct.Args, workingDir, childEnv, runtime.GOOS)
 		if err != nil {
 			return ToolExecutionResult{Output: err.Error(), Error: "connector_execution_unavailable", ExitCode: -1}, nil
 		}
@@ -224,6 +223,19 @@ func firstBashOutputCaptureError(captures ...*bashOutputCapture) error {
 		}
 	}
 	return nil
+}
+
+// directConnectorCommand starts a verified connector entry. Only Windows needs
+// the shared adapter: npm cmd shims become Node + script argv, so payloads never
+// pass through cmd.exe. Elsewhere the entry still runs itself, honoring its own
+// shebang and the Bash tool's process handling.
+func directConnectorCommand(ctx context.Context, program string, args []string, dir string, env []string, goos string) (*exec.Cmd, error) {
+	if goos == "windows" {
+		return connectorauth.ExecutionProgramCommand(ctx, program, args, dir, env)
+	}
+	cmd := exec.CommandContext(ctx, program, args...)
+	cmd.Dir, cmd.Env = dir, env
+	return cmd, nil
 }
 
 func normalizeBashCommandError(err error, runCtx context.Context, cmd *exec.Cmd) error {
