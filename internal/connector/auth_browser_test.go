@@ -30,9 +30,11 @@ func TestAuthorizationBrowserManifest(t *testing.T) {
 
 func TestAuthorizationBrowserComesFromManifestOnly(t *testing.T) {
 	for _, tc := range []struct{ manifest, want string }{{"", "system"}, {"system", "system"}, {"embedded", "embedded"}} {
-		pkg := Package{Manifest: Manifest{AuthMode: AuthDelegated, AuthBrowser: tc.manifest}, CLI: map[string]any{"auth": map[string]any{}}}
-		if got := pkg.AuthorizationBrowser(); got != tc.want {
-			t.Fatalf("authBrowser %q: got %s, want %s", tc.manifest, got, tc.want)
+		for _, qrModal := range []bool{false, true} {
+			pkg := Package{Manifest: Manifest{AuthMode: AuthDelegated, AuthBrowser: tc.manifest}, CLI: map[string]any{"auth": map[string]any{}, "authQrModal": qrModal}}
+			if got := pkg.AuthorizationBrowser(); got != tc.want {
+				t.Fatalf("authBrowser %q, authQrModal %t: got %s, want %s", tc.manifest, qrModal, got, tc.want)
+			}
 		}
 	}
 }

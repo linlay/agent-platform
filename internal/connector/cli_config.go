@@ -8,12 +8,15 @@ import (
 	"strings"
 )
 
-// cli.json follows the WorkBuddy field set. Unknown fields are rejected so a
-// removed or misspelled declaration never silently changes behavior.
+// cli.json follows the WorkBuddy field set. authQrModal and platform are accepted
+// but ignored; connector.json authBrowser controls authorization presentation.
+// Other unknown fields are rejected so misspelled declarations never silently
+// change behavior.
 var cliFields = map[string]bool{
 	"runtime": true, "init": true, "npmRegistry": true, "npmRegistries": true, "versionCheck": true,
 	"auth": true, "status": true, "unAuth": true, "statusMatch": true, "statusMatchJson": true, "env": true,
 	"authUrlDomain": true, "authWaitForExit": true, "authSuppressBrowser": true, "authDeviceFlow": true,
+	"authQrModal": true, "platform": true,
 }
 
 // Per-step auth fields override the top-level defaults of the same name.
