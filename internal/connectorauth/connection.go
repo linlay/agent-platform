@@ -57,7 +57,9 @@ func (m *Manager) Connection(ctx context.Context, id string) (Connection, error)
 		}
 		prep.Diagnostic = ""
 		c.Preparation = &prep
-		if prep.Status != "ready" {
+		// An update being prepared, or one that failed, keeps the previous
+		// installation in use.
+		if prep.Status != "ready" && (prep.ActiveFingerprint == "" || m.requirePrepared(pkg) != nil) {
 			c.Readiness = "preparing"
 			c.Authentication = Session{ConnectorID: id, Status: "setup_required", AuthBrowser: pkg.AuthorizationBrowser()}
 			switch prep.Status {

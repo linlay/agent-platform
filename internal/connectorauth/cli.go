@@ -19,6 +19,7 @@ import (
 	"agent-platform/internal/builtins"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/hostenv"
+	"agent-platform/internal/shellenv"
 	"mvdan.cc/sh/v3/shell"
 )
 
@@ -222,11 +223,23 @@ func cliLine(raw any, optional bool) (string, error) {
 	return line, nil
 }
 
+// cliEnvironment is the base of every CLI phase: the same inherited host
+// variables as Host Bash, the package's bin/, the active installation's bin
+// and the public cli.json env. HOME stays the user's own.
 func (m *Manager) cliEnvironment(pkg connector.Package) ([]string, error) {
-	env := builtins.EnsureBinInEnv(os.Environ())
-	if pkg.BinDir != "" {
-		env = connector.WithPath(env, []string{pkg.BinDir})
+	return m.cliEnvironmentWith(pkg, connector.ActiveInstallBin(pkg.InstallRoot, pkg.ID))
+}
+
+func (m *Manager) cliEnvironmentWith(pkg connector.Package, installBin string) ([]string, error) {
+	env := hostenv.WithSystemPaths(shellenv.InheritedEnvironment(os.Environ(), m.inheritEnv...))
+	env = builtins.EnsureBinInEnv(env)
+	var bins []string
+	for _, dir := range []string{pkg.BinDir, installBin} {
+		if dir != "" {
+			bins = append(bins, dir)
+		}
 	}
+	env = connector.WithPath(env, bins)
 	values, err := pkg.CLIConfigEnvironment()
 	if err != nil {
 		return nil, err
@@ -386,48 +399,62 @@ func npmNetworkError(output string) bool {
 }
 
 // prepareCLI obeys init verbatim. Only an explicit preparation may invoke it.
-func (m *Manager) prepareCLI(ctx context.Context, pkg connector.Package) error {
+// npm global installs land in a private prefix keyed by package version and
+// fingerprint; the returned prefix is empty when init did not run.
+func (m *Manager) prepareCLI(ctx context.Context, pkg connector.Package, fingerprint string) (prefix string, err error) {
 	dir, err := StateDir(m.sources.PersistentRoot(), pkg.ID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err = os.MkdirAll(filepath.Join(dir, "config"), 0700); err != nil {
-		return err
+		return "", err
 	}
-	env, err := m.cliEnvironment(pkg)
+	if pkg.BinDir == "" && pkg.CLI["init"] != nil {
+		if prefix, err = connector.InstallPrefix(m.sources.InstallRoot(), pkg.ID, pkg.Version, fingerprint); err != nil {
+			return "", err
+		}
+		if err = os.MkdirAll(prefix, 0o755); err != nil {
+			return "", err
+		}
+	}
+	// The new installation is searched first; the active one stays in use
+	// until this preparation succeeds.
+	env, err := m.cliEnvironmentWith(pkg, connector.InstallBin(prefix))
 	if err != nil {
-		return err
+		return "", err
 	}
 	if requirement, ok := pkg.CLI["runtime"].(map[string]any); ok {
 		required, _ := requirement["version"].(string)
 		major, err := strconv.Atoi(strings.TrimPrefix(required, ">="))
 		if requirement["type"] != "node" || err != nil {
-			return fmt.Errorf("unsupported CLI runtime requirement")
+			return "", fmt.Errorf("unsupported CLI runtime requirement")
 		}
 		node, err := hostenv.LookPath("node", env)
 		if err != nil {
-			return fmt.Errorf("Node.js >=%d is required", major)
+			return "", fmt.Errorf("Node.js >=%d is required", major)
 		}
 		cmd, err := cliExecutable(ctx, node, []string{"--version"}, pkg.Dir, env)
 		if err != nil {
-			return err
+			return "", err
 		}
 		var out boundedOutput
 		cmd.Stdout = &out
 		if err = cmd.Run(); err != nil || !versionAtLeast(out.String(), strconv.Itoa(major)+".0.0") {
-			return fmt.Errorf("Node.js >=%d is required", major)
+			return "", fmt.Errorf("Node.js >=%d is required", major)
 		}
 	}
 	if pkg.BinDir == "" && pkg.CLI["init"] != nil {
 		line, err := cliLine(pkg.CLI["init"], false)
 		if err != nil {
-			return err
+			return "", err
 		}
 		registries := cliRegistries(pkg.CLI)
+		cache := filepath.Join(m.sources.InstallRoot(), ".npm-cache")
 		for i, registry := range registries {
-			runEnv := env
+			runEnv := hostenv.Set(env, "npm_config_prefix", prefix)
+			runEnv = hostenv.Set(runEnv, "npm_config_cache", cache)
 			if registry != "" {
-				runEnv = hostenv.Set(env, "npm_config_registry", registry)
+				runEnv = hostenv.Set(runEnv, "npm_config_registry", registry)
 			}
 			output, cmd, err := runLifecycle(ctx, pkg, line, runEnv)
 			hostenv.Refresh()
@@ -435,47 +462,47 @@ func (m *Manager) prepareCLI(ctx context.Context, pkg connector.Package) error {
 				break
 			}
 			if cmd == nil {
-				return err
+				return "", err
 			}
 			if ctx.Err() == nil && i+1 < len(registries) && npmNetworkError(output) {
 				continue
 			}
-			return &CLIExecutionError{Stage: "init", ExitCode: exitCode(cmd), Diagnostic: output, Cause: err}
+			return "", &CLIExecutionError{Stage: "init", ExitCode: exitCode(cmd), Diagnostic: diagnosticExcerpt(output), Cause: err}
 		}
 	}
 	config, ok := pkg.CLI["versionCheck"].(map[string]any)
 	if !ok {
-		return nil
+		return prefix, nil
 	}
 	line, err := cliLine(config["command"], false)
 	if err != nil {
-		return err
+		return "", err
 	}
 	versionCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	output, cmd, err := runLifecycle(versionCtx, pkg, line, env)
 	if err != nil {
 		if cmd == nil {
-			return err
+			return "", err
 		}
-		return &CLIExecutionError{Stage: "versionCheck", ExitCode: exitCode(cmd), Diagnostic: output, Cause: err}
+		return "", &CLIExecutionError{Stage: "versionCheck", ExitCode: exitCode(cmd), Diagnostic: diagnosticExcerpt(output), Cause: err}
 	}
 	minimum, _ := config["minVersion"].(string)
 	if pattern, _ := config["versionPattern"].(string); pattern != "" {
 		re, err := regexp.Compile(pattern)
 		if err != nil {
-			return err
+			return "", err
 		}
 		match := re.FindStringSubmatch(output)
 		if len(match) < 2 {
-			return fmt.Errorf("CLI versionPattern did not match")
+			return "", fmt.Errorf("CLI versionPattern did not match")
 		}
 		output = match[1]
 	}
 	if !versionAtLeast(output, minimum) {
-		return fmt.Errorf("CLI version is below required %s", minimum)
+		return "", fmt.Errorf("CLI version is below required %s", minimum)
 	}
-	return nil
+	return prefix, nil
 }
 
 func versionAtLeast(output, minimum string) bool {

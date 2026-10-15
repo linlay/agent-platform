@@ -43,7 +43,7 @@ func (s Sources) Load(id string) (Package, error) {
 	}
 	if dir := s.embeddedNativeDir(id); dir != "" {
 		pkg, err := LoadDirectory(dir, id)
-		pkg.Builtin, pkg.StateRoot = true, s.PersistentRoot()
+		pkg.Builtin, pkg.StateRoot, pkg.InstallRoot = true, s.PersistentRoot(), s.InstallRoot()
 		return pkg, err
 	}
 	root := s.Root(id)
@@ -52,7 +52,7 @@ func (s Sources) Load(id string) (Package, error) {
 	}
 	pkg, err := Load(root, id)
 	pkg.Builtin = IsBuiltin(id)
-	pkg.StateRoot = s.PersistentRoot()
+	pkg.StateRoot, pkg.InstallRoot = s.PersistentRoot(), s.InstallRoot()
 	return pkg, err
 }
 

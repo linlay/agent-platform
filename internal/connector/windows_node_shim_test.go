@@ -22,7 +22,7 @@ func TestWindowsCLIEntriesFreezeNodeShimAndActualScript(t *testing.T) {
 	if err := os.WriteFile(shim, []byte(`@"%_prog%" "%~dp0\node_modules\@wecom\cli\bin\wecom.js" %*`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	entries, err := snapshotCLIEntries("wecom", root, "windows")
+	entries, err := snapshotCLIEntries("wecom", root, filepath.Join(root, "bin"), "windows")
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("freeze Windows shim: %v %+v", err, entries)
 	}
@@ -35,7 +35,7 @@ func TestWindowsCLIEntriesFreezeNodeShimAndActualScript(t *testing.T) {
 	if err := os.WriteFile(script, []byte("changed script"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	fresh, err := snapshotCLIEntries("wecom", root, "windows")
+	fresh, err := snapshotCLIEntries("wecom", root, filepath.Join(root, "bin"), "windows")
 	if err != nil || fresh[0].SHA256 != entry.SHA256 || fresh[0].LauncherTargetSHA256 == oldScriptHash || entry.LauncherTargetSHA256 != oldScriptHash {
 		t.Fatalf("script mutation lost its independent entry digest: %+v %v", fresh, err)
 	}
@@ -58,7 +58,7 @@ func TestWindowsNodeShimRejectsInstallationEscape(t *testing.T) {
 	if _, err := WindowsNodeShimTarget(shim); err == nil {
 		t.Fatal("accepted a shim outside the Windows npm prefix")
 	}
-	if _, err := snapshotCLIEntries("wecom", root, "windows"); err == nil {
+	if _, err := snapshotCLIEntries("wecom", root, filepath.Join(root, "bin"), "windows"); err == nil {
 		t.Fatal("published the escaping Windows shim")
 	}
 }

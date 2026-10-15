@@ -27,6 +27,22 @@ type ConnectorMount struct {
 	Digest string
 }
 
+// ConnectorInstall is a mounted CLI's active installation in connector-installs.
+// Programs there are host paths; containers never see them.
+type ConnectorInstall struct {
+	ID     string
+	Prefix string
+}
+
+// ConnectorInstallBinDirs lists the bin directories of active installations.
+func (d AgentDefinition) ConnectorInstallBinDirs() []string {
+	var dirs []string
+	for _, install := range d.ConnectorInstalls {
+		dirs = append(dirs, connector.InstallBin(install.Prefix))
+	}
+	return dirs
+}
+
 func (d AgentDefinition) EffectiveSkills() []string {
 	keys := append([]string(nil), d.Skills...)
 	for _, skill := range d.ConnectorSkills {
@@ -102,6 +118,7 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 	def.ConnectorNativeTools = nil
 	def.ConnectorSkills = nil
 	def.ConnectorBinDirs = nil
+	def.ConnectorInstalls = nil
 	def.ConnectorEnv = map[string]string{}
 	def.ConnectorCredentials = nil
 	credentialNames := map[string]bool{}
@@ -162,6 +179,11 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 
 		if pkg.BinDir != "" && (pkg.CLI != nil || len(pkg.MCP) > 0 || len(pkg.Skills) > 0) {
 			def.ConnectorBinDirs = append(def.ConnectorBinDirs, pkg.BinDir)
+		}
+		if pkg.CLI != nil && !pkg.Builtin {
+			if installation, err := connector.ReadInstallation(pkg.InstallRoot, id); err == nil && connector.ActiveInstallBin(pkg.InstallRoot, id) != "" {
+				def.ConnectorInstalls = append(def.ConnectorInstalls, ConnectorInstall{ID: id, Prefix: installation.Prefix})
+			}
 		}
 		def.ConnectorMounts = append(def.ConnectorMounts, ConnectorMount{ID: id, Dir: pkg.Dir, Digest: filepath.Base(pkg.Dir)})
 		for _, component := range pkg.ServerKeys() {
@@ -243,6 +265,13 @@ func (d *AgentDefinition) bindConnectorRuntime() error {
 			}
 			d.ConnectorCLIEntries = append(d.ConnectorCLIEntries, entries...)
 		}
+	}
+	for _, install := range d.ConnectorInstalls {
+		entries, err := connector.SnapshotInstalledCLIEntries(install.ID, install.Prefix)
+		if err != nil {
+			return err
+		}
+		d.ConnectorCLIEntries = append(d.ConnectorCLIEntries, entries...)
 	}
 	return nil
 }

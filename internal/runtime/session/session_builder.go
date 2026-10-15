@@ -237,6 +237,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		SkillIDs:             append([]string(nil), agentDef.EffectiveSkills()...),
 
 		ConnectorBinDirs:            append([]string(nil), agentDef.ConnectorBinDirs...),
+		ConnectorInstallBinDirs:     agentDef.ConnectorInstallBinDirs(),
 		ConnectorEnv:                agentconfig.Merge(agentDef.ConnectorEnv),
 		ConnectorCredentials:        agentDef.ConnectorCredentials,
 		ContextTags:                 append([]string(nil), agentDef.ContextTags...),

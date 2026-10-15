@@ -217,7 +217,7 @@ func TestConnectorUsageDirectoryDistinguishesIdleAndFailedCLIPreparation(t *test
 		t.Fatal("missing CLI option")
 	}
 	read("configuration_required")
-	stateDir, err := connectorauth.StateDir(f.server.connectorSources().PersistentRoot(), "pending-cli")
+	stateDir, err := connector.InstallDir(f.server.connectorSources().InstallRoot(), "pending-cli")
 	if err != nil {
 		t.Fatal(err)
 	}

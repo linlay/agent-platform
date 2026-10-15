@@ -105,11 +105,12 @@ func terminalEnvironment(def catalog.AgentDefinition, workspaceDir string) []str
 	for key, value := range env {
 		base = hostenv.Set(base, key, value)
 	}
-	actual := connector.WithPath(builtins.EnsureBinInEnv(base), def.ConnectorBinDirs)
+	bins := append(append([]string(nil), def.ConnectorBinDirs...), def.ConnectorInstallBinDirs()...)
+	actual := connector.WithPath(builtins.EnsureBinInEnv(base), bins)
 	if env == nil {
 		env = map[string]string{}
 	}
-	if value := hostenv.Value(actual, "PATH"); value != hostenv.Value(base, "PATH") || len(def.ConnectorBinDirs) > 0 {
+	if value := hostenv.Value(actual, "PATH"); value != hostenv.Value(base, "PATH") || len(bins) > 0 {
 		env["PATH"] = value
 	}
 	for key := range env {

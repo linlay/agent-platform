@@ -48,6 +48,7 @@ type Manager struct {
 	reload              func(context.Context, string) error
 	client              *http.Client
 	identityFile        string
+	inheritEnv          []string
 	mu                  sync.Mutex
 	preparations        map[string]*preparationJob
 	sessions            map[string]*login
@@ -61,6 +62,13 @@ func New(ctx context.Context, sources connector.Sources, reload func(context.Con
 	}
 	go hostenv.WithNPM(os.Environ())
 	return &Manager{ctx: ctx, sources: sources, reload: reload, client: httpclient.NewClient(30 * time.Second), preparations: map[string]*preparationJob{}, sessions: map[string]*login{}}
+}
+
+// WithInheritEnv uses the deployment's bash.inherit-env for CLI processes, so a
+// lifecycle check sees the same host environment as the Agent's own commands.
+func (m *Manager) WithInheritEnv(names []string) *Manager {
+	m.inheritEnv = append([]string(nil), names...)
+	return m
 }
 
 func (m *Manager) WithIdentityFile(path string) *Manager {

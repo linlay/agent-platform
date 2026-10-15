@@ -118,15 +118,23 @@ else {
 			t.Fatalf("status %s: got %v, %v", tt.status, ok, err)
 		}
 	}
-	// Status must not run a package that changed after preparation.
+	// A changed package keeps using the active installation until prepared again.
 	pkg.CLI["statusMatch"] = "identity"
 	pkg = writeCLIPackage(t, root, pkg.ID, pkg.CLI)
-	write(filepath.Join(npm, "cli.js"), `require('fs').writeFileSync(require('path').join(process.env.DEMO_CLI_CONFIG_DIR,'unexpected-run'),'started')`)
+	if ok, err := m.cliStatus(ctx, pkg); err != nil || !ok {
+		t.Fatal("active installation stopped serving a changed package", ok, err)
+	}
+	// Status never runs an executable that changed after preparation.
+	entry, err := exec.LookPath("demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(entry, "#!/bin/sh\ntouch \"$DEMO_CLI_CONFIG_DIR/unexpected-run\"\n")
 	if _, err := m.cliStatus(ctx, pkg); err == nil {
-		t.Fatal("changed package was reported ready")
+		t.Fatal("changed executable was reported ready")
 	}
 	if _, err := os.Stat(filepath.Join(state, "config", "unexpected-run")); !os.IsNotExist(err) {
-		t.Fatal("status executed an unprepared package")
+		t.Fatal("status executed a changed executable")
 	}
 }
 

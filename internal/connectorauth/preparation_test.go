@@ -67,8 +67,8 @@ func TestPreparationRawInitAndBundledPrecedence(t *testing.T) {
 	cli := simpleCLI()
 	bin := t.TempDir()
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
-	t.Setenv("TEST_CLI_BIN", bin)
-	cli["init"] = osCommands("test -f connector.json && { printf '#!/bin/sh\\nprintf 1.2.0\\n' > \"$TEST_CLI_BIN/demo\"; chmod +x \"$TEST_CLI_BIN/demo\"; }\nprintf cwd-ok > initialized")
+	// Lifecycle commands inherit only bash.inherit-env, so the path is literal.
+	cli["init"] = osCommands("test -f connector.json && { printf '#!/bin/sh\\nprintf 1.2.0\\n' > '" + bin + "/demo'; chmod +x '" + bin + "/demo'; }\nprintf cwd-ok > initialized")
 	pkg := writeCLIPackage(t, root, "demo", cli)
 	m := New(context.Background(), connector.Sources{ExternalRoot: root}, nil)
 	s, err := m.Prepare(context.Background(), pkg.ID)

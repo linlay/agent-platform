@@ -442,7 +442,7 @@ func connectorBins(execCtx *ExecutionContext) []string {
 	if execCtx == nil {
 		return nil
 	}
-	return execCtx.Session.ConnectorBinDirs
+	return append(append([]string(nil), execCtx.Session.ConnectorBinDirs...), execCtx.Session.ConnectorInstallBinDirs...)
 }
 
 // mergeCommandEnv builds the host tool environment with the shipped inherit list.

@@ -24,13 +24,25 @@ func ExecutionCommand(ctx context.Context, pkg connector.Package, args, env []st
 	if settings.Command == "" {
 		return nil, fmt.Errorf("connector CLI declares no managed executable")
 	}
-	lookup := env
-	if pkg.BinDir != "" {
-		lookup = hostenv.Set(env, "PATH", pkg.BinDir)
-	}
-	entry, err := hostenv.LookPath(settings.Command, lookup)
-	if err != nil {
-		return nil, err
+	var entry string
+	if pkg.Builtin {
+		// Builtin packages are verified bundles that are never prepared.
+		if entry, err = hostenv.LookPath(settings.Command, hostenv.Set(env, "PATH", pkg.BinDir)); err != nil {
+			return nil, err
+		}
+	} else {
+		installation, err := connector.ReadInstallation(pkg.InstallRoot, pkg.ID)
+		if err != nil {
+			return nil, fmt.Errorf("CLI is not prepared; prepare the connector first")
+		}
+		if bin := installation.Bin(); bin != "" {
+			env = connector.WithPath(env, []string{bin})
+		}
+		// Run exactly the executable preparation verified, not a PATH lookup.
+		entry = installation.Executable
+		if hash, err := connector.CLIFileHash(entry); err != nil || hash != installation.ExecutableSHA256 {
+			return nil, fmt.Errorf("CLI executable changed or is missing; prepare again")
+		}
 	}
 	entry, err = filepath.EvalSymlinks(entry)
 	if err != nil {

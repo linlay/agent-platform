@@ -54,7 +54,8 @@ func connectorExecution(session QuerySession, x BashExecution, vars map[string]s
 			return false
 		}
 		for _, entry := range session.ConnectorCLIEntries {
-			if session.ConnectorDirs[entry.ConnectorID] == "" {
+			// Installed programs are host paths; containers only see packages.
+			if entry.Root != "" || session.ConnectorDirs[entry.ConnectorID] == "" {
 				continue
 			}
 			expected := path.Join("/connectors", entry.ConnectorID, entry.RelativePath)
@@ -71,7 +72,11 @@ func connectorExecution(session QuerySession, x BashExecution, vars map[string]s
 		return false
 	}
 	for _, entry := range session.ConnectorCLIEntries {
+		// An installed entry is valid only while its connector stays mounted.
 		root := session.ConnectorDirs[entry.ConnectorID]
+		if root != "" && entry.Root != "" {
+			root = entry.Root
+		}
 		r, rootErr := pathutil.Canonicalize(root)
 		p, pathErr := pathutil.Canonicalize(canonical)
 		if root == "" || rootErr != nil || pathErr != nil || !pathutil.WithinRoot(p, r) {

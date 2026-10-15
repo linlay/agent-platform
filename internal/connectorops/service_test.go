@@ -141,6 +141,14 @@ func TestCLIUsesSingleJSONArgumentWithoutShellOrAmbientCredentials(t *testing.T)
 		t.Fatal(err)
 	}
 	pkg := connector.Package{Manifest: connector.Manifest{ID: "demo"}, Dir: dir, StateRoot: t.TempDir(), BinDir: bin, CLI: map[string]any{"env": map[string]any{"DEMO_CONFIG_DIR": "${CONNECTOR_CONFIG_DIR}"}, "versionCheck": map[string]any{"command": map[string]any{"darwin": "helper --version", "linux": "helper --version", "win32": "helper.cmd --version"}, "minVersion": "1.0.0"}}}
+	pkg.InstallRoot = t.TempDir()
+	hash, err := connector.CLIFileHash(filepath.Join(dir, entry))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := connector.WriteInstallation(pkg.InstallRoot, connector.Installation{ConnectorID: "demo", Executable: filepath.Join(dir, entry), ExecutableSHA256: hash}); err != nil {
+		t.Fatal(err)
+	}
 	malicious := `$(touch should-not-exist); " %PATH% & | < >`
 	args, _ := json.Marshal(map[string]any{"value": malicious})
 	output, err := callCLI(context.Background(), pkg, []string{"-test.run=^TestCLIHelper$", "--", "connectorops-helper", "--json", string(args)}, "")

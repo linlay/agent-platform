@@ -81,7 +81,6 @@ func TestCLIDeviceFlowPublishesCodeAndWithholdsLinkWhenCLIOpensBrowser(t *testin
 
 func TestCLIInitRetriesNextRegistryOnlyOnNetworkErrors(t *testing.T) {
 	versionCheck := map[string]any{"command": osCommands("sh -c 'echo 1.0.0'"), "minVersion": "1.0.0"}
-	init := osCommands(`echo "$npm_config_registry" >> "$CFG/registries"; [ "$npm_config_registry" = https://b.example.test ] || { echo "$FAILURE"; exit 1; }`)
 	for _, tc := range []struct {
 		failure, want string
 		ok            bool
@@ -89,7 +88,7 @@ func TestCLIInitRetriesNextRegistryOnlyOnNetworkErrors(t *testing.T) {
 		{"npm ERR! code ECONNRESET", "https://a.example.test\nhttps://b.example.test\n", true},
 		{"npm ERR! 404 Not Found", "https://a.example.test\n", false},
 	} {
-		t.Setenv("FAILURE", tc.failure)
+		init := osCommands(`echo "$npm_config_registry" >> "$CFG/registries"; [ "$npm_config_registry" = https://b.example.test ] || { echo "` + tc.failure + `"; exit 1; }`)
 		root := filepath.Join(t.TempDir(), "connectors")
 		cli := map[string]any{"init": init, "versionCheck": versionCheck, "npmRegistries": []any{"https://a.example.test", "https://b.example.test"}, "env": map[string]any{"CFG": "${CONNECTOR_CONFIG_DIR}"}}
 		pkg := writeCLIPackage(t, root, "demo", cli)
@@ -103,8 +102,8 @@ func TestCLIInitRetriesNextRegistryOnlyOnNetworkErrors(t *testing.T) {
 		if string(data) != tc.want {
 			t.Fatalf("%s: registries tried %q", tc.failure, data)
 		}
-		if prepared, err := m.PreparationStatus(pkg.ID); tc.ok && (err != nil || prepared.Executable != "") {
-			t.Fatal("a launcher in versionCheck became the pinned executable", prepared, err)
+		if installation, err := connector.ReadInstallation(pkg.InstallRoot, pkg.ID); tc.ok && (err != nil || installation.Executable != "") {
+			t.Fatal("a launcher in versionCheck became the pinned executable", installation, err)
 		}
 	}
 }

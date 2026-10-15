@@ -39,16 +39,18 @@ type Manifest struct {
 // Package is an immutable, secret-free description of an installed package.
 type Package struct {
 	Manifest
-	Builtin    bool
-	StateRoot  string
-	Dir        string
-	BinDir     string
-	Skills     []Skill
-	MCP        map[string]map[string]any
-	MCPPreAuth string
-	CLI        map[string]any
-	Views      map[string]view.Definition
-	iconSHA256 string
+	Builtin   bool
+	StateRoot string
+	// InstallRoot holds programs that init installs (connector-installs).
+	InstallRoot string
+	Dir         string
+	BinDir      string
+	Skills      []Skill
+	MCP         map[string]map[string]any
+	MCPPreAuth  string
+	CLI         map[string]any
+	Views       map[string]view.Definition
+	iconSHA256  string
 }
 
 type Skill struct {

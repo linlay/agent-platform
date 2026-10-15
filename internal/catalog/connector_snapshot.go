@@ -39,7 +39,7 @@ func (d *AgentDefinition) RestoreConnectors(sources connector.Sources, snapshot 
 	if err := resolveConnectorPackages(d, func(id string) (connector.Package, error) {
 		pkg, err := connector.LoadDirectory(mounts[id].Dir, id)
 		pkg.Builtin = connector.IsBuiltin(id)
-		pkg.StateRoot = sources.PersistentRoot()
+		pkg.StateRoot, pkg.InstallRoot = sources.PersistentRoot(), sources.InstallRoot()
 		return pkg, err
 	}); err != nil {
 		return err
