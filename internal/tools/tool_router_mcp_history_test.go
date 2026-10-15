@@ -184,6 +184,20 @@ func TestMCPErrorEventKeepsParseableJSONWhileModelSeesDiagnostics(t *testing.T) 
 	}
 }
 
+func TestMCPErrorHistoryMatchesModelOutputWithoutDiagnostics(t *testing.T) {
+	got := runMCPHistoryRoundTrip(t, map[string]any{
+		"isError":           true,
+		"structuredContent": map[string]any{"code": "version_conflict", "message": "read current version"},
+	})
+	result := AnyMapNode(got.live.Value("result"))
+	if output, _ := result["output"].(string); output != got.result.Output {
+		t.Fatalf("event error output changed: %q want %q", output, got.result.Output)
+	}
+	if got.history["content"] != got.result.Output {
+		t.Fatalf("restored history differs from the model output:\nhistory=%q\nmodel=%q", got.history["content"], got.result.Output)
+	}
+}
+
 func TestNormalizeMCPResultKeepsTextWhitespace(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

@@ -35,6 +35,12 @@ func toolResultModelOutput(result contracts.ToolExecutionResult, sseResult any) 
 	if result.MCPResult == nil {
 		return nil
 	}
+	// The dispatcher wraps failed results in {output,error,exitCode}, so the
+	// stored result never equals the model text even when sseResult does.
+	if result.Error != "" || result.ExitCode != 0 {
+		output := result.Output
+		return &output
+	}
 	if text, ok := sseResult.(string); ok {
 		if text == result.Output {
 			return nil
