@@ -31,7 +31,7 @@ func putRuntimeFile(t *testing.T, path, content string) {
 
 func TestAgentMaterializationCopiesOnlyMountsAndKeepsState(t *testing.T) {
 	s := runtimeFixture(t)
-	putRuntimeFile(t, filepath.Join(s.ExternalRoot, "search", "connector.json"), `{"id":"search","name":"Search","version":"1.0.0","type":"cli","auth_mode":"none"}`)
+	putRuntimeFile(t, filepath.Join(s.ExternalRoot, "search", "connector.json"), `{"id":"search","name":"Search","version":"1.0.0","type":"cli","authMode":"self"}`)
 	putRuntimeFile(t, filepath.Join(s.ExternalRoot, "search", "cli.json"), `{}`)
 	putRuntimeFile(t, filepath.Join(s.StateRoot, "search", "oauth.json"), "credential")
 	a := filepath.Join(t.TempDir(), "agent-a", "connectors")
@@ -92,8 +92,8 @@ func TestManagedLauncherUsesPersistentStateFromAgentRuntime(t *testing.T) {
 	s := runtimeFixture(t)
 	s.StateRoot = filepath.Join(t.TempDir(), "custom-state")
 	dir := filepath.Join(s.ExternalRoot, "demo")
-	putRuntimeFile(t, filepath.Join(dir, "connector.json"), `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"cli"}`)
-	putRuntimeFile(t, filepath.Join(dir, "cli.json"), `{"platform":{"npmPackage":"demo"},"auth":{},"status":{},"unAuth":{}}`)
+	putRuntimeFile(t, filepath.Join(dir, "connector.json"), `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"self"}`)
+	putRuntimeFile(t, filepath.Join(dir, "cli.json"), `{"auth":{},"status":{},"unAuth":{}}`)
 	launcher := "const fs = require('node:fs'); const path = require('node:path'); const pkgDir = path.resolve(__dirname, '..'); const manifest = {id:'demo'};\nconst state = path.join(path.dirname(pkgDir), '.state', manifest.id);\nconsole.log(state);"
 	putRuntimeFile(t, filepath.Join(dir, "bin", "launcher.cjs"), launcher)
 	runtimeRoot := filepath.Join(t.TempDir(), "agent", "connectors")

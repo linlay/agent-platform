@@ -32,7 +32,7 @@ func TestDisconnectLetsDispatchedConnectorCallFinish(t *testing.T) {
 	sources := connector.Sources{ExternalRoot: t.TempDir(), StateRoot: t.TempDir()}
 	dir := filepath.Join(sources.ExternalRoot, "demo")
 	os.MkdirAll(dir, 0700)
-	for name, value := range map[string]any{"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": nil}, "mcp.json": map[string]any{"mcpServers": map[string]any{"main": map[string]any{"type": "streamableHttp", "url": endpoint.URL}}}} {
+	for name, value := range map[string]any{"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "self"}, "mcp.json": map[string]any{"mcpServers": map[string]any{"main": map[string]any{"type": "streamableHttp", "url": endpoint.URL}}}} {
 		raw, _ := json.Marshal(value)
 		if err := os.WriteFile(filepath.Join(dir, name), raw, 0600); err != nil {
 			t.Fatal(err)
@@ -80,7 +80,8 @@ func TestConfiguredTokenCLIReachesExecution(t *testing.T) {
 	sources := connector.Sources{ExternalRoot: t.TempDir(), StateRoot: t.TempDir()}
 	dir := filepath.Join(sources.ExternalRoot, "demo")
 	os.MkdirAll(dir, 0700)
-	os.WriteFile(filepath.Join(dir, "connector.json"), []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"token","token_schema":{"fields":[{"key":"KEY","required":true}]}}`), 0600)
+	os.WriteFile(filepath.Join(dir, "connector.json"), []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"token"}`), 0600)
+	os.WriteFile(filepath.Join(dir, "token-schema.json"), []byte(`{"fields":[{"key":"KEY","required":true}]}`), 0600)
 	os.WriteFile(filepath.Join(dir, "cli.json"), []byte(`{}`), 0600)
 	m := connectorauth.New(t.Context(), sources, nil)
 	auth, err := m.SetToken(t.Context(), "demo", map[string]string{"KEY": "fixture"})
@@ -109,7 +110,7 @@ func TestNoAuthMCPExecutionWithoutConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, value := range map[string]any{
-		"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "no_auth"},
+		"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "none"},
 		"mcp.json":       map[string]any{"mcpServers": map[string]any{"main": map[string]any{"type": "streamableHttp", "url": endpoint.URL}}},
 	} {
 		raw, _ := json.Marshal(value)

@@ -557,7 +557,7 @@ func TestAgentCreateKBasePreservesExplicitModelAndLibraryBinding(t *testing.T) {
 	}
 }
 
-func TestAgentCreateKBaseRejectsRemovedExplicitEmbeddingConfig(t *testing.T) {
+func TestAgentCreateKBaseRejectsUnsupportedEmbeddingConfig(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,
 			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
@@ -587,7 +587,7 @@ func TestAgentCreateKBaseRejectsRemovedExplicitEmbeddingConfig(t *testing.T) {
 			},
 			"kbaseConfig": map[string]any{
 				"embedding": map[string]any{
-					"modelKey": "old-agent-model",
+					"modelKey": "agent-model",
 				},
 			},
 		},
@@ -600,8 +600,8 @@ func TestAgentCreateKBaseRejectsRemovedExplicitEmbeddingConfig(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "kbaseConfig.embedding was removed") {
-		t.Fatalf("expected removed embedding field error, got %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "kbaseConfig.embedding is not supported") {
+		t.Fatalf("expected unsupported embedding field error, got %s", rec.Body.String())
 	}
 }
 
@@ -644,7 +644,7 @@ func TestAgentCreateKBaseRejectsInvalidChunkUnit(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "kbaseConfig.chunk was removed") {
+	if !strings.Contains(rec.Body.String(), "kbaseConfig.chunk is not supported") {
 		t.Fatalf("expected chunk unit error, got %s", rec.Body.String())
 	}
 }

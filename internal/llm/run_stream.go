@@ -146,6 +146,9 @@ type providerTurnStream struct {
 	usageCommitted     bool
 	requestSentAt      time.Time
 	firstVisibleAt     time.Time
+
+	// anthropicThinkingBlock is the content block index of the latest thinking text.
+	anthropicThinkingBlock int
 }
 
 type pendingModelCall struct {
@@ -175,27 +178,31 @@ type toolCallAccumulator struct {
 }
 
 type preparedToolInvocation struct {
-	toolApprovalChecked   bool
-	toolApproval          *ToolApproval
-	toolApprovalErr       error
-	toolID                string
-	toolName              string
-	args                  map[string]any
-	prelude               []AgentDelta
-	awaitExternalResult   bool
-	toolCallCounted       bool
-	precheckedHITL        *hitl.InterceptResult
-	bashSecurityReview    *bashsec.ReviewResult
-	bashAccessReview      *accesspolicy.BashPlan
-	shownApproval         *approvalRequest // immutable requirements displayed to the user
-	fileAccessPlan        *filetools.AccessPlan
-	fileWritePlan         *filetools.WritePlan
-	approvalDecision      string
-	hostBashAuthorization *hostBashAuthorization
-	hitlDecision          *hitlDecisionState
-	queuedResult          *ToolExecutionResult
-	teamDispatch          *agentteam.Dispatch
-	executionStarted      bool
+	toolApprovalInputChecked bool
+	toolApprovalInputPath    string
+	toolApprovalInputErr     error
+	toolApprovalChecked      bool
+	toolApproval             *ToolApproval
+	toolApprovalErr          error
+	toolID                   string
+	toolName                 string
+	args                     map[string]any
+	prelude                  []AgentDelta
+	awaitExternalResult      bool
+	toolCallCounted          bool
+	precheckedHITL           *hitl.InterceptResult
+	bashSecurityReview       *bashsec.ReviewResult
+	bashAccessReview         *accesspolicy.BashPlan
+	shownApproval            *approvalRequest // immutable requirements displayed to the user
+	fileAccessPlan           *filetools.AccessPlan
+	fileWritePlan            *filetools.WritePlan
+	approvalDecision         string
+	approvalSequence         int
+	hostBashAuthorization    *hostBashAuthorization
+	hitlDecision             *hitlDecisionState
+	queuedResult             *ToolExecutionResult
+	teamDispatch             *agentteam.Dispatch
+	executionStarted         bool
 }
 
 type pendingHITLApprovalBatch struct {

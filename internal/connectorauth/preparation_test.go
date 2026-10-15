@@ -67,8 +67,8 @@ func TestPreparationRawInitAndBundledPrecedence(t *testing.T) {
 	cli := simpleCLI()
 	bin := t.TempDir()
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
-	t.Setenv("TEST_CLI_BIN", bin)
-	cli["init"] = osCommands("test -f connector.json && { printf '#!/bin/sh\\nprintf 1.2.0\\n' > \"$TEST_CLI_BIN/demo\"; chmod +x \"$TEST_CLI_BIN/demo\"; }\nprintf cwd-ok > initialized")
+	// Lifecycle commands inherit only bash.inherit-env, so the path is literal.
+	cli["init"] = osCommands("test -f connector.json && { printf '#!/bin/sh\\nprintf 1.2.0\\n' > '" + bin + "/demo'; chmod +x '" + bin + "/demo'; }\nprintf cwd-ok > initialized")
 	pkg := writeCLIPackage(t, root, "demo", cli)
 	m := New(context.Background(), connector.Sources{ExternalRoot: root}, nil)
 	s, err := m.Prepare(context.Background(), pkg.ID)
@@ -182,12 +182,6 @@ func TestGeneratedWorkBuddyCLIContracts(t *testing.T) {
 		}
 		if err = ValidatePackage(pkg); err != nil {
 			t.Fatalf("%s: %v", id, err)
-		}
-		platform, _ := pkg.CLI["platform"].(map[string]any)
-		for _, key := range []string{"npmPackage", "npmVersion", "entry", "nativeEntry"} {
-			if _, ok := platform[key]; ok {
-				t.Fatalf("%s contains retired install setting %s", id, key)
-			}
 		}
 		var upstream map[string]any
 		if err = connector.ReadJSON(filepath.Join(pkg.Dir, "upstream", "cli.json"), &upstream); err != nil {

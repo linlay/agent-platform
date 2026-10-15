@@ -13,7 +13,7 @@ func TestPureViewMountDoesNotGrantExecution(t *testing.T) {
 	writeRuntimeAssemblerFile(t, filepath.Join(cfg.Paths.AgentsDir, "demo", "agent.yml"), "key: demo\nname: Demo\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors:\n    - forms\n")
 	dir := filepath.Join(cfg.Paths.ConnectorsCenterDir, "forms")
 	for path, data := range map[string]string{
-		"connector.json":  `{"id":"forms","name":"Forms","version":"1.0.0","type":"view","auth_mode":"none"}`,
+		"connector.json":  `{"id":"forms","name":"Forms","version":"1.0.0","type":"view","authMode":"self"}`,
 		"view.json":       `{"views":{"card":{"renderer":"html","usage":["display"],"entry":"views/card.html"}}}`,
 		"views/card.html": "<p>card</p>",
 		"bin/unlisted":    "not an execution capability",

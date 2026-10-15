@@ -1454,7 +1454,7 @@ func kbaseExecutionContext(root string, editing bool) *contracts.ExecutionContex
 			Mode:        "KBASE",
 			EditingMode: editing,
 			ToolNames: []string{
-				"kbase_search", "kbase_files", "kbase_read", "kbase_status", "kbase_refresh", "datetime",
+				"kbase_search", "kbase_files", "kbase_read", "kbase_status", "datetime",
 				"file_read", "file_glob", "file_grep", "file_write", "file_edit",
 			},
 			WorkspaceRoot:     root,

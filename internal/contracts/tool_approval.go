@@ -23,6 +23,15 @@ type ToolApprovalPlanner interface {
 	PrepareToolApproval(context.Context, string, map[string]any, *ExecutionContext) (*ToolApproval, error)
 }
 
+// ToolApprovalInputPlanner declares a file that must be readable before the
+// handler can prepare its business review. It validates arguments but performs
+// no file reads, execution or mutation. An empty path means no input dependency.
+// Permission planning stays in the common file-access layer; business argument
+// shapes and the decision to require this dependency stay with the handler.
+type ToolApprovalInputPlanner interface {
+	ToolApprovalInputPath(string, map[string]any, *ExecutionContext) (string, error)
+}
+
 func ToolApprovalFingerprint(e *ExecutionContext, tool, action, digest string) string {
 	if e == nil {
 		return ""

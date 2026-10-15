@@ -33,6 +33,8 @@ var desktopWebappPageOnlyActions = []string{
 // typed web-control tools either send them (webControlActionNames) or reach
 // the same executor through a CDP method, so desktop_action never exposes them.
 var desktopActionsOwnedByWebControl = []string{
+	"desktop.credentials.fill",
+	"desktop.credentials.list",
 	"desktop.web.activateSurface",
 	"desktop.web.closeTab",
 	"desktop.web.executeScript",

@@ -15,8 +15,8 @@ func TestManualTokenPersistenceValidationAndLogout(t *testing.T) {
 	ctx := context.Background()
 	sources := connector.Sources{ExternalRoot: t.TempDir(), StateRoot: filepath.Join(t.TempDir(), "connectors")}
 	writeAuthPackage(t, sources.ExternalRoot, "demo", map[string]any{
-		"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "token",
-		"token_schema": map[string]any{"fields": []map[string]any{{"key": "API_KEY", "type": "password", "required": true}}},
+		"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "token",
+		"tokenSchema": map[string]any{"fields": []map[string]any{{"key": "API_KEY", "type": "password", "required": true}}},
 	}, map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp", "headers": map[string]any{"X-API-Key": "${API_KEY}"}})
 	reloads := 0
 	m := New(ctx, sources, func(context.Context, string) error { reloads++; return nil }).WithCredentialValidator(acceptTokenForPersistenceTest)

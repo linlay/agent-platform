@@ -17,12 +17,27 @@ import (
 // Exercise the real result adapter, stream mapper, JSONL writer, model-history
 // loader and cold replay together. The MCP boundary is a fake, not a live API.
 func TestMCPContentBlocksSurviveStreamPersistenceAndHistory(t *testing.T) {
-	for _, kind := range []string{"structured", "text", "error"} {
+	for _, kind := range []string{"structured", "text", "error", "single whitespace", "multiple whitespace", "whitespace only"} {
 		t.Run(kind, func(t *testing.T) {
 			blocks := []any{
 				map[string]any{"type": "text", "text": "first note"},
 				map[string]any{"type": "resource_link", "uri": "mcp://docs/source", "name": "source", "_meta": map[string]any{"revision": "v2"}},
 				map[string]any{"type": "text", "text": "second note"},
+			}
+			var wantOutput *string
+			switch kind {
+			case "single whitespace":
+				text := "  first line\r\n\tsecond line  "
+				blocks = []any{map[string]any{"type": "text", "text": text}}
+				wantOutput = &text
+			case "multiple whitespace":
+				text := "  first\n\n\tsecond  "
+				blocks = []any{map[string]any{"type": "text", "text": "  first\n"}, map[string]any{"type": "text", "text": "\tsecond  "}}
+				wantOutput = &text
+			case "whitespace only":
+				text := " \t\r\n\n  "
+				blocks = []any{map[string]any{"type": "text", "text": " \t\r\n"}, map[string]any{"type": "text", "text": "  "}}
+				wantOutput = &text
 			}
 			payload := map[string]any{"content": blocks}
 			if kind == "structured" {
@@ -38,6 +53,9 @@ func TestMCPContentBlocksSurviveStreamPersistenceAndHistory(t *testing.T) {
 			result, err := router.Invoke(context.Background(), toolName, nil, &ExecutionContext{})
 			if err != nil {
 				t.Fatal(err)
+			}
+			if wantOutput != nil && result.Output != *wantOutput {
+				t.Fatalf("model projection changed whitespace: output=%q want=%q", result.Output, *wantOutput)
 			}
 
 			root := t.TempDir()

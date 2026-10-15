@@ -103,3 +103,27 @@ func TestDecodeProxyApprovalDropsOptionDescription(t *testing.T) {
 		})
 	}
 }
+
+func TestWebSocketTargetKeepsTokenOutOfURL(t *testing.T) {
+	target, header, err := WebSocketTarget(&catalog.ProxyConfig{BaseURL: "https://upstream.example/base/", Token: "secret-token"})
+	if err != nil {
+		t.Fatalf("WebSocketTarget: %v", err)
+	}
+	if target != "wss://upstream.example/base/ws" {
+		t.Fatalf("target = %q", target)
+	}
+	if got := header.Get("Authorization"); got != "Bearer secret-token" {
+		t.Fatalf("Authorization = %q", got)
+	}
+	if got := header.Get("Sec-WebSocket-Protocol"); got != "bearer.secret-token" {
+		t.Fatalf("Sec-WebSocket-Protocol = %q", got)
+	}
+
+	direct, header, err := WebSocketTarget(&catalog.ProxyConfig{WebSocketURL: "ws://upstream.example/custom?mode=x"})
+	if err != nil {
+		t.Fatalf("WebSocketTarget direct: %v", err)
+	}
+	if direct != "ws://upstream.example/custom?mode=x" || len(header) != 0 {
+		t.Fatalf("direct target = %q header = %v", direct, header)
+	}
+}

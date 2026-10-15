@@ -31,7 +31,7 @@ func TestEmbeddedNativeConnectors(t *testing.T) {
 	if len(desktop.NativeTools()) != 11 || len(desktop.Skills) != 1 || desktop.Skills[0].Name != "platform-control" {
 		t.Fatalf("desktop capabilities: %v %+v", desktop.NativeTools(), desktop.Skills)
 	}
-	if len(web.NativeTools()) != 15 || len(web.Skills) != 1 || web.Skills[0].Name != "web-control" || web.AuthMode != AuthNoAuth {
+	if len(web.NativeTools()) != 16 || len(web.Skills) != 1 || web.Skills[0].Name != "web-control" || web.AuthMode != AuthNoAuth {
 		t.Fatalf("web-control capabilities: %v %+v", web.NativeTools(), web.Skills)
 	}
 	for _, tool := range web.NativeTools() {
@@ -150,7 +150,7 @@ func TestNativeConnectorPresentation(t *testing.T) {
 			t.Fatal("localization mutated source")
 		}
 	}
-	if err := ValidateManifest("builtin.impostor", []byte(`{"id":"builtin.impostor","name":"impostor","version":"1.0.0","type":"native","auth_mode":"no_auth"}`)); err == nil {
+	if err := ValidateManifest("builtin.impostor", []byte(`{"id":"builtin.impostor","name":"impostor","version":"1.0.0","type":"native","authMode":"none"}`)); err == nil {
 		t.Fatal("accepted unregistered native package")
 	}
 }
@@ -160,7 +160,7 @@ func TestNativeManifestWithoutCapabilityFile(t *testing.T) {
 		t.Run(id, func(t *testing.T) {
 			root := t.TempDir()
 			dir := filepath.Join(root, id)
-			putRuntimeFile(t, filepath.Join(dir, "connector.json"), `{"id":"`+id+`","name":"Native","version":"1.0.0","type":"native","auth_mode":"no_auth"}`)
+			putRuntimeFile(t, filepath.Join(dir, "connector.json"), `{"id":"`+id+`","name":"Native","version":"1.0.0","type":"native","authMode":"none"}`)
 			pkg, err := Load(root, id)
 			if err != nil || len(pkg.NativeTools()) == 0 {
 				t.Fatalf("native manifest must resolve registered tools without native.json: %v %v", pkg.NativeTools(), err)

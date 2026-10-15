@@ -44,6 +44,9 @@ func validateControlEnums(tool, action string, p map[string]any) error {
 	if tool == "catalog_manage" || (tool == "catalog_query" && action == "validate") {
 		enums["resourceType"] = []string{"agent", "team", "skill", "connector"}
 	}
+	if tool == "catalog_manage" && action == "import" {
+		enums["resourceType"] = []string{"skill", "connector"}
+	}
 	if tool == "chat_query" {
 		if action == "list" || action == "search" {
 			enums["scope"] = []string{"", "agent", "instance"}

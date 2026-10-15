@@ -404,14 +404,14 @@ func TestKBXLocalVersionAndTargets(t *testing.T) {
 		t.Fatalf("%s %v", version, err)
 	}
 	component := builtins.Component{Name: "kbx", Version: version}
-	for _, target := range []string{"darwin/arm64", "darwin/amd64", "windows/amd64"} {
+	for _, target := range []string{"darwin/arm64", "darwin/amd64", "windows/amd64", "linux/amd64"} {
 		os, arch, _ := strings.Cut(target, "/")
 		got, err := localTargetTemplate(component, builtins.Target{}, false, os, arch)
 		if err != nil || !strings.HasPrefix(got.Path, "dist/v1.2.3/kbx_v1.2.3_") {
 			t.Fatalf("%+v %v", got, err)
 		}
 	}
-	if _, err := localTargetTemplate(component, builtins.Target{}, false, "linux", "amd64"); err == nil {
+	if _, err := localTargetTemplate(component, builtins.Target{}, false, "linux", "arm64"); err == nil {
 		t.Fatal("unsupported KBX release target accepted")
 	}
 }

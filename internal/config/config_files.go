@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -54,10 +55,24 @@ func (c *Config) applyAuthValues(values map[string]any) {
 	c.Auth.JWKSURI = stringValue(anyValue(values["jwks-uri"], c.Auth.JWKSURI), c.Auth.JWKSURI)
 	c.Auth.Issuer = stringValue(anyValue(values["issuer"], c.Auth.Issuer), c.Auth.Issuer)
 	c.Auth.JWKSCacheSeconds = intValue(anyValue(values["jwks-cache-seconds"], c.Auth.JWKSCacheSeconds), c.Auth.JWKSCacheSeconds)
+	c.Auth.Audience = strings.TrimSpace(stringValue(anyValue(values["audience"], c.Auth.Audience), c.Auth.Audience))
+	c.Auth.AllowedSubjects = listValue(values["allowed-subjects"], c.Auth.AllowedSubjects)
+	c.Auth.RequireExpiry = boolValue(anyValue(values["require-expiry"], c.Auth.RequireExpiry), c.Auth.RequireExpiry)
 }
 
-func (c *Config) applyResourceValues(values map[string]any) {
+func (c *Config) applyResourceValues(values map[string]any) error {
 	c.ResourceTicket.TTLSeconds = int64Value(anyValue(values["ticket-ttl-seconds"], c.ResourceTicket.TTLSeconds), c.ResourceTicket.TTLSeconds)
+	raw := strings.TrimSpace(stringValue(values["public-base-url"], ""))
+	if raw == "" {
+		return nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" ||
+		parsed.User != nil || strings.Trim(parsed.Path, "/") != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("resource.public-base-url must be an http(s) origin without path, query or credentials")
+	}
+	c.Server.PublicBaseURL = parsed.Scheme + "://" + parsed.Host
+	return nil
 }
 
 func (c *Config) applyContainerHubValues(values map[string]any) error {
@@ -163,9 +178,6 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if len(values) == 0 {
 		return nil
 	}
-	if _, exists := values["kbase"]; exists {
-		return fmt.Errorf("runtime.kbase retired; use runtime.kbx for KBX settings")
-	}
 	if raw, exists := values["kbx"]; exists {
 		if err := c.applyKBXValues(raw); err != nil {
 			return err
@@ -194,7 +206,9 @@ func (c *Config) applyRuntimeFile(path string) error {
 		c.applyAuthValues(auth)
 	}
 	if resource, ok := values["resource"].(map[string]any); ok && len(resource) > 0 {
-		c.applyResourceValues(resource)
+		if err := c.applyResourceValues(resource); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
 	}
 	if containerHub, ok := values["container-hub"].(map[string]any); ok && len(containerHub) > 0 {
 		if err := c.applyContainerHubValues(containerHub); err != nil {
@@ -707,6 +721,9 @@ func (c *Config) applyPromptsValues(values map[string]any) {
 	}
 	if planningMode, _ := values["planning-mode"].(map[string]any); len(planningMode) > 0 {
 		c.Prompts.PlanningMode.PlanningPrompt = stringValue(anyValue(planningMode["planning-prompt"], c.Prompts.PlanningMode.PlanningPrompt), c.Prompts.PlanningMode.PlanningPrompt)
+	}
+	if automationPrompts, _ := values["automation"].(map[string]any); len(automationPrompts) > 0 {
+		c.Prompts.Automation.UserPromptTemplate = stringValue(anyValue(automationPrompts["user-prompt-template"], c.Prompts.Automation.UserPromptTemplate), c.Prompts.Automation.UserPromptTemplate)
 	}
 	btwPrompts, _ := values["btw"].(map[string]any)
 	if len(btwPrompts) > 0 {

@@ -91,6 +91,8 @@ func (t *RuntimeToolExecutor) invokeWebControl(ctx context.Context, toolName str
 		return t.webControlSurfaceClick(ctx, args, execCtx)
 	case "surface_element":
 		return t.webControlSurfaceElement(ctx, args, execCtx)
+	case "surface_login":
+		return t.webControlSurfaceLogin(ctx, args, execCtx)
 	case "surface_cdp":
 		return t.webControlSurfaceCDP(ctx, args, execCtx)
 	case "awcp_manual":
@@ -900,6 +902,49 @@ func (t *RuntimeToolExecutor) webControlSurfaceElement(ctx context.Context, args
 		result.Error = "surface_element_failed"
 	}
 	return result, nil
+}
+
+// webControlSurfaceLogin asks Desktop to use a password the user saved for the
+// page's own site. The site is never an argument: Desktop reads it from the
+// page. The result carries masked account names and a status, never a password.
+func (t *RuntimeToolExecutor) webControlSurfaceLogin(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	if failure, failed := webControlFields(args, "surfaceId", "action", "accountId", "submit"); failed {
+		return failure, nil
+	}
+	surfaceID, failure, failed := webControlSurfaceID(args, true)
+	if failed {
+		return failure, nil
+	}
+	action, failure, failed := webControlString(args, "action", true)
+	if failed {
+		return failure, nil
+	}
+	accountID, failure, failed := webControlString(args, "accountId", false)
+	if failed {
+		return failure, nil
+	}
+	submit, submitSet, failure, failed := webControlBool(args, "submit")
+	if failed {
+		return failure, nil
+	}
+	actionArgs := map[string]any{"surfaceId": surfaceID}
+	switch action {
+	case "list":
+		if accountID != "" || submitSet {
+			return webControlInvalidArgs("accountId and submit are valid only with action fill", "action"), nil
+		}
+		return t.webControlAction(ctx, "desktop.credentials.list", actionArgs, execCtx)
+	case "fill":
+		if accountID != "" {
+			actionArgs["accountId"] = strings.TrimSpace(accountID)
+		}
+		if submitSet {
+			actionArgs["submit"] = submit
+		}
+		return t.webControlAction(ctx, "desktop.credentials.fill", actionArgs, execCtx)
+	default:
+		return webControlInvalidArgs("action must be list or fill", "action"), nil
+	}
 }
 
 func (t *RuntimeToolExecutor) webControlSurfaceCDP(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {

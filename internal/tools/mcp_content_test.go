@@ -29,6 +29,37 @@ func TestNormalizeMCPResultRetainsOrderedContentBlocks(t *testing.T) {
 	}
 }
 
+func TestNormalizeMCPResultPreservesTextWhitespace(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		texts []string
+		want  string
+	}{
+		{"single block", []string{"  first line\r\n\tsecond line  "}, "  first line\r\n\tsecond line  "},
+		{"multiple blocks", []string{"  first\n", "\tsecond  ", "\r\n  third\t"}, "  first\n\n\tsecond  \n\r\n  third\t"},
+		{"whitespace only", []string{" \t\r\n", "  "}, " \t\r\n\n  "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			blocks := make([]any, len(tc.texts))
+			for index, text := range tc.texts {
+				blocks[index] = map[string]any{"type": "text", "text": text}
+			}
+			for _, structured := range []map[string]any{nil, {"count": 1}} {
+				payload := map[string]any{"content": blocks}
+				want := tc.want
+				if structured != nil {
+					payload["structuredContent"] = structured
+					want = MarshalJSON(structured) + "\n\n" + want
+				}
+				result := normalizeMCPResult("read", payload)
+				if result.Output != want || !reflect.DeepEqual(result.ContentBlocks, blocks) {
+					t.Fatalf("text whitespace changed: output=%q want=%q blocks=%#v", result.Output, want, result.ContentBlocks)
+				}
+			}
+		})
+	}
+}
+
 func TestNormalizeMCPResultKeepsBinaryContentOutOfModelText(t *testing.T) {
 	blocks := []any{
 		map[string]any{"type": "image", "mimeType": "image/png", "data": "image-base64-body", "_meta": map[string]any{"source": "preview"}},

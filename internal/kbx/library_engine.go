@@ -31,8 +31,8 @@ func (e *LibraryEngine) Update(ctx context.Context, db string, collections []kba
 	return e.UpdatePaths(ctx, db, collections, nil)
 }
 
-// UpdatePaths uses the same structured maintenance contract as the former Agent
-// worker, now scoped to one shared database and explicit collections.
+// UpdatePaths maintains one shared database and its explicit collections
+// through the structured KBX maintenance contract.
 func (e *LibraryEngine) UpdatePaths(ctx context.Context, db string, collections []kbases.Collection, changes map[string][]string) error {
 	return e.UpdateLibrary(ctx, db, kbases.Definition{Collections: collections}, changes)
 }

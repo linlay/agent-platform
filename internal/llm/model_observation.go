@@ -150,6 +150,8 @@ func emptyResponseReason(turn *providerTurnStream) string {
 	switch strings.ToLower(strings.TrimSpace(turn.finishReason)) {
 	case "length", "max_tokens":
 		return "output_limit"
+	case anthropicContextWindowStop:
+		return "context_window_limit"
 	case "content_filter", "refusal":
 		return "content_filter_or_refusal"
 	case "tool_calls", "tool_use":

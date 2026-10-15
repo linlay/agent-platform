@@ -39,8 +39,8 @@ func TestOAuthCancellationDuringTokenExchangeCannotRestoreConnection(t *testing.
 			}()
 			sources := connector.Sources{ExternalRoot: t.TempDir(), StateRoot: t.TempDir()}
 			pkg := writeAuthPackage(t, sources.ExternalRoot, "demo", map[string]any{
-				"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "oauth",
-				"oauth": map[string]any{"client_id": "public-client", "authorization_endpoint": upstream.URL + "/authorize", "token_endpoint": upstream.URL + "/token", "resource": upstream.URL + "/mcp"},
+				"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "oauth",
+				"oauth": map[string]any{"clientId": "public-client", "authorizationEndpoint": upstream.URL + "/authorize", "tokenEndpoint": upstream.URL + "/token", "resource": upstream.URL + "/mcp"},
 			}, map[string]any{"type": "streamableHttp", "url": upstream.URL + "/mcp"})
 			pkg.StateRoot = sources.StateRoot
 			manager := New(t.Context(), sources, nil)

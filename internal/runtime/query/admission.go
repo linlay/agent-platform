@@ -479,7 +479,7 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	if statusErr := s.deps.Proxy.Configure(&agentDef); statusErr != nil {
 		return queryAdmission{}, statusErr
 	}
-	if !sessionbuild.IsProxyAgentMode(agentDef.Mode) && !catalog.AgentIsChannelMode(agentDef.Mode) {
+	if !req.SkipInteractionPolicy && !sessionbuild.IsProxyAgentMode(agentDef.Mode) && !catalog.AgentIsChannelMode(agentDef.Mode) {
 		if err := ValidateInteractionInput(agentDef.Interaction(), req); err != nil {
 			return queryAdmission{}, err
 		}
@@ -490,7 +490,11 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	if req.PlanningMode != nil && *req.PlanningMode && !agentbuiltin.PlanningModeSupported(agentDef.Mode) {
 		return queryAdmission{}, &statusError{Status: 400, Message: "planningMode is only supported for GENERAL, CODER, KBASE and TEAM agents"}
 	}
-	if _, err := s.deps.Sessions.ResolveKbases(agentDef, queryinput.ResourceIDs(req.References, "kbase")); err != nil {
+	referenceDef := agentDef
+	if req.SkipInteractionPolicy {
+		referenceDef = sessionbuild.WithoutAttachmentPolicy(agentDef)
+	}
+	if _, err := s.deps.Sessions.ResolveKbases(referenceDef, queryinput.ResourceIDs(req.References, "kbase")); err != nil {
 		return queryAdmission{}, err
 	}
 	if _, err := s.deps.Sessions.ResolveSkills(agentDef, queryinput.ResourceIDs(req.References, "skill")); err != nil {
@@ -640,6 +644,7 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 	}
 	session, err := s.deps.Sessions.BuildQuerySession(ctx, sessionReq, summary, agentDef, sessionbuild.Options{
 		Created:                created,
+		SkipInteractionPolicy:  req.SkipInteractionPolicy,
 		Locale:                 admission.Locale,
 		IncludeHistory:         !created,
 		IncludeMemory:          true,

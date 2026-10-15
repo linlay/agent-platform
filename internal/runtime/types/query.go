@@ -27,13 +27,17 @@ type ClientTarget struct {
 type QueryCommand struct {
 	// InitialChatName is internal-only and applies to newly created Chats.
 	InitialChatName string `json:"-"`
-	SideQuery       bool
-	SideQueryID     string
-	TrustedGateway  bool
-	RequestID       string
-	RunID           string
-	ChatID          string
-	AgentKey        string
+	// SkipInteractionPolicy is set only by Runtime for a chat_start admission.
+	// interactionConfig gates what a user may select in a conversation; it does
+	// not gate a trusted Agent tool entry. No transport decodes this field.
+	SkipInteractionPolicy bool `json:"-"`
+	SideQuery             bool
+	SideQueryID           string
+	TrustedGateway        bool
+	RequestID             string
+	RunID                 string
+	ChatID                string
+	AgentKey              string
 
 	Role                       string
 	Hidden                     *bool

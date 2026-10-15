@@ -112,10 +112,15 @@ func (v *JWTVerifier) Verify(token string) (*Principal, error) {
 	if iss := strings.TrimSpace(v.cfg.Issuer); iss != "" && stringClaim(payload, "iss") != iss {
 		return nil, fmt.Errorf("jwt issuer mismatch")
 	}
-	if exp, ok := payload["exp"]; ok {
-		if expiration := numericDate(exp); expiration > 0 && time.Now().Unix() >= expiration {
-			return nil, fmt.Errorf("jwt expired")
-		}
+	expiration := numericDate(payload["exp"])
+	if expiration > 0 && time.Now().Unix() >= expiration {
+		return nil, fmt.Errorf("jwt expired")
+	}
+	if v.cfg.RequireExpiry && expiration <= 0 {
+		return nil, fmt.Errorf("jwt expiry required")
+	}
+	if aud := strings.TrimSpace(v.cfg.Audience); aud != "" && !audienceContains(payload["aud"], aud) {
+		return nil, fmt.Errorf("jwt audience mismatch")
 	}
 
 	subject := stringClaim(payload, "sub")
@@ -125,10 +130,40 @@ func (v *JWTVerifier) Verify(token string) (*Principal, error) {
 	if subject == "" {
 		subject = stringClaim(payload, "userId")
 	}
+	if len(v.cfg.AllowedSubjects) > 0 && !subjectAllowed(v.cfg.AllowedSubjects, subject) {
+		return nil, fmt.Errorf("jwt subject not allowed")
+	}
 	return &Principal{
 		Subject: subject,
 		Claims:  payload,
 	}, nil
+}
+
+// audienceContains accepts both forms of the aud claim: one string or a list.
+func audienceContains(claim any, want string) bool {
+	switch v := claim.(type) {
+	case string:
+		return v == want
+	case []any:
+		for _, item := range v {
+			if text, ok := item.(string); ok && text == want {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func subjectAllowed(allowed []string, subject string) bool {
+	if subject == "" {
+		return false
+	}
+	for _, item := range allowed {
+		if strings.TrimSpace(item) == subject {
+			return true
+		}
+	}
+	return false
 }
 
 func (v *JWTVerifier) resolveKey(kid string) (*rsa.PublicKey, error) {

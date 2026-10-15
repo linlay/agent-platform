@@ -29,6 +29,7 @@ var desktopActionNames = [...]string{
 	"desktop.copilot.setPagePreference",
 	"desktop.web.exportArtifact",
 	"desktop.site.list",
+	"desktop.site.setPinned",
 	"desktop.website.list",
 	"desktop.website.add",
 	"desktop.website.update",
@@ -105,6 +106,8 @@ var webControlActionNames = [...]string{
 	"desktop.workpanel.closeTab",
 	"desktop.workpanel.closeWorkpanel",
 	"desktop.web.interactElement",
+	"desktop.credentials.list",
+	"desktop.credentials.fill",
 }
 
 var desktopActionNamePattern = regexp.MustCompile(`^desktop(?:\.[A-Za-z][A-Za-z0-9]*)+$`)

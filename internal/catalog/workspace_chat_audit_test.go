@@ -9,7 +9,7 @@ import (
 	"agent-platform/internal/config"
 )
 
-func TestAuditWorkspaceChatConfigReportsBlockingMigrationIssues(t *testing.T) {
+func TestAuditWorkspaceChatConfigReportsWorkspaceChatIssues(t *testing.T) {
 	root := t.TempDir()
 	agentsDir := filepath.Join(root, "agents")
 	chatsDir := filepath.Join(root, "chats")
@@ -22,7 +22,7 @@ func TestAuditWorkspaceChatConfigReportsBlockingMigrationIssues(t *testing.T) {
 	}
 	writeAuditAgent(t, agentsDir, "reserved", "key: reserved\nmode: GENERAL\nmodelConfig:\n  modelKey: mock\nruntimeConfig:\n  workspaceRoot: "+filepath.ToSlash(workspace)+"\n  sandboxMounts:\n    - source: "+filepath.ToSlash(source)+"\n      destination: /chat/cache\n      mode: rw\n")
 	writeAuditAgent(t, agentsDir, "overlap", "key: overlap\nmode: GENERAL\nmodelConfig:\n  modelKey: mock\nruntimeConfig:\n  workspaceRoot: "+filepath.ToSlash(chatsDir)+"\n")
-	writeAuditAgent(t, agentsDir, "kbase-dual", "key: kbase-dual\nmode: KBASE\nmodelConfig:\n  modelKey: mock\nruntimeConfig:\n  workspaceRoot: "+filepath.ToSlash(workspace)+"\nkbaseConfig:\n  source:\n    root: "+filepath.ToSlash(source)+"\n")
+	writeAuditAgent(t, agentsDir, "sandbox", "key: sandbox\nmode: GENERAL\nmodelConfig:\n  modelKey: mock\nruntimeConfig:\n  environmentId: fixture\n")
 
 	findings, err := AuditWorkspaceChatConfig(config.Config{Paths: config.PathsConfig{
 		AgentsDir: agentsDir,
@@ -38,7 +38,7 @@ func TestAuditWorkspaceChatConfigReportsBlockingMigrationIssues(t *testing.T) {
 	for _, want := range []string{
 		"reserved:reserved_sandbox_mount",
 		"overlap:workspace_chats_overlap",
-		"kbase-dual:invalid_workspace_chat_config",
+		"sandbox:invalid_workspace_chat_config",
 	} {
 		if !got[want] {
 			t.Fatalf("missing finding %q in %#v", want, findings)

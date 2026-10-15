@@ -5,6 +5,18 @@
 <body><div id="review" aria-live="polite"></div><script>/* REVIEW_SCRIPT */</script><script>
 Review.mount(u=>{
  const {t,form:f}=u;
+ if(f.action==='import'){
+  u.title(t('导入资源包','Import resource package'));
+  u.target(f.resourceKey);
+  u.field(t('资源类型','Resource type'),f.kind||f.resourceType);
+  u.field(t('ZIP 文件','ZIP file'),f.archivePath);
+  u.field(t('包版本','Package version'),f.version||t('未声明','Not declared'));
+  u.field(t('安装位置','Installation location'),f.targetPath);
+  u.field(t('覆盖已有资源','Replace existing resource'),f.baseRevision?t('是，替换完整目录','Yes, replace the complete directory'):t('新建资源','Create resource'),{critical:!!f.baseRevision});
+  u.field(t('包内容','Package contents'),f.after);
+  u.notice(t('此审批绑定 ZIP 内容与当前安装版本。连接器导入后可能执行包声明的 CLI 准备命令；登录与智能体挂载分别完成。','Approval binds the ZIP contents and current installed revision. Connector import may execute package-declared CLI preparation commands; login and Agent mounting are separate.'));
+  return;
+ }
  const types={agent:t('智能体','agent'),team:t('团队','team'),skill:t('技能','skill'),connector:t('连接器','connector'),provider:t('服务商','provider'),model:t('模型','model'),knowledge_library:t('知识库','knowledge library')};
  const labels={name:t('名称','Name'),description:t('说明','Description'),model:t('模型','Model'),modelConfig:t('模型设置','Model settings'),mode:t('类型','Type'),engine:t('运行引擎','Engine'),prompt:t('指令','Instructions'),systemPrompt:t('系统指令','System instructions'),instructions:t('指令','Instructions'),toolConfig:t('工具','Tools'),connectorConfig:t('连接器','Connectors'),skillConfig:t('技能','Skills'),hostAccess:t('本机访问','Host access'),accessLevel:t('运行权限','Permissions'),runtimeConfig:t('运行设置','Runtime settings'),enabled:t('启用状态','Enabled'),members:t('团队成员','Team members'),provider:t('服务商','Provider'),baseUrl:t('服务地址','Service URL')};
  const critical=key=>/tool|connector|skill|access|permission|runtime|kbase|library|collections/i.test(key);

@@ -7,16 +7,18 @@
 | 工具 | action | 执行环境 |
 | --- | --- | --- |
 | catalog_query | resourceTypes/list/get/defaults/validate | 普通 native main root |
-| catalog_manage | apply/delete | 普通 native main root |
+| catalog_manage | apply/delete/import | 普通 native main root |
 | platform_inspect | runtimeStatus/securityExplain/checkConnector | 前两项支持受信任子任务/Team；checkConnector 仅普通 native main root |
 | desktop_shell | 9 个外壳动作 | Desktop |
 | desktop_settings | 16 个设置动作 | Desktop |
-| desktop_site | 6 个网站条目动作 | Desktop |
+| desktop_site | 7 个站点发现、网站条目与导航置顶动作 | Desktop |
 | desktop_webapp | 16 个应用动作 | Desktop |
 | desktop_service | 12 个服务动作 | Desktop |
 | desktop_market | 15 个市场动作 | Desktop |
 
 全部工具使用固定 `{action,args}`，action 枚举来自 `internal/connector/control_actions.go`；顶层未知字段拒绝。Catalog/Chat/Automation/Inspect 还严格检查动作参数类型与字段。Desktop 保留动作字段校验；日常管理的确认由 Platform 接管，重影响动作继续使用 Desktop 确认，适配器添加 `desktop.` 传输前缀。`agent.update`、`skill.update` 不再暴露给模型。不同工具的 action 不互相兼容。
+
+Website/WebApp 的名称发现共用 `desktop_site` 的 `site.list`，返回真实 id、entryKey 与 pinned；WebApp 停止运行也仍在列表中。导航置顶使用 `site.setPinned {entryKey,pinned}`，由 Desktop Main 校验现存入口并与 UI 共用导航偏好提交，返回当前目标的置顶状态；回读 `site.list` 验证。新置顶进入主导航最前，取消后恢复原 Sites 顺序，重复同一状态不重排。日常管理审批沿用 Platform 规则，Desktop 只在可信 Platform 调用中豁免重复确认。具体发现与使用流程归连接器 Skill，平台不推测 WebApp id 或替代 Desktop 写本地偏好文件；两端需配套发布。
 
 平台、任务与看板连接器的 `action/args` 管理工具，`description` 只说明能力和对应 Skill 入口，不重复动作清单、参数表、示例或业务约束；`args.description` 只指向对应 Skill 手册。动作参数、类型、默认值、审批边界和重试规则由 Skill 及其 references 说明，模型应先读技能入口，再读本次操作所需章节。静态 Schema 保留现有枚举与类型校验，服务端继续负责执行准入。
 
@@ -27,6 +29,18 @@ Standalone 隐藏七个 Desktop 工具；Catalog/Chat/Automation 在子任务、
 看板工具 `desktop_kanban` 已迁入独立的 `builtin.kanban-control`。Chat 与 Automation 已迁入独立的 `builtin.task-control`，原有服务和审批实现继续复用；本文相关章节保留协议说明，不代表它们仍由 platform-control 挂载。
 
 Agent 发现复用 `catalog_query.list`（resourceType=agent），条目增加 key/name/role/description/mode/invocable，包含当前 Agent，包含公开 TEAM Agent；不按旧候选配置过滤。invocable 复用 agent_invoke 的静态目标校验，不代表调用者权限，chat_start 的目标契约不变。旧候选字段与标签忽略并提供一条非阻断管理 warning，不再常驻注入 prompt。分页默认 20，公共入口校验 limit 为 1–100 整数，内部切片前另做 1–100 防御夹取。管理诊断沿用现有 SourcePath/错误详情契约，可能暴露 Host 源路径，不应宣称为路径脱敏接口；新弃用告警不携带路径或候选值。完整说明见 [Agent 发现](智能体配置说明.md#agent-发现与旧候选配置)。
+
+## ZIP 包导入
+
+`catalog_manage.import` 接受 `{resourceType:"skill"|"connector", archivePath, overwrite?}`，普通 native main root 可用，规划执行策略拒绝。来源 ZIP 先经过通用文件读取权限；审批准备阶段也不读取未授权或受保护的路径。外部来源可能先出现读取审批，再出现包导入审阅，两者使用不同 awaitingId，读取批准不授予发布权限。输入路径属于 Runtime 主机，支持文件别名；目录需由已有文件工具发现并选定单个 ZIP。
+
+导入审阅沿用 apply 的自动批准策略：default 需要人工批准，auto_approve / full_access 允许自动批准，包括带 CLI 的连接器；发布成功后可执行包内声明的 CLI 准备命令。自动批准仍须通过来源读取权限、包校验及审批内容复验，不放宽受保护路径等硬拒绝。
+
+后端从包内定义识别 ID 与版本，Skill 自动区分单技能与技能包；Connector 使用 `connector.json`。目标固定为 `skills-center/<id>/` 或 `connectors-center/<id>/`，不提供 targetDir，连接器技能随原包保留。版本不增加目标目录层。默认拒绝重名，`overwrite:true` 审阅整目录替换。
+
+`internal/platformcontrol` 处理工具准入、文件访问与审批；通过中立的 `ToolApprovalInputPlanner` 向工具路由声明审阅前必需读取的文件，只校验参数、不读取内容。LLM 仅为该声明安排读取授权，再进入业务审阅，不解析 catalog 的 action/args，也不改变普通 file_write/file_edit 的批准后路径。`internal/adminsource` 持有导入应用事务与调用收据，复用 `internal/catalog` 的技能暂存/发布和 `internal/connector` 的连接器校验/发布。解压和完整校验在 Catalog 保护外，发布按 Agent mutation → source mutation → 对应 Catalog directory mutation → 资源操作锁协调。审批绑定规范来源路径、后端解析的目标目录、ZIP SHA-256、解压树摘要、已安装整树版本及调用身份，发布前复验；内置包、符号链接、非法归档仍由现有校验拒绝。包摘要审阅包含连接器声明的 CLI 准备信息，页面直接显示后端 targetPath，不重复判断安装目录。
+
+成功返回 `status:applied`、`executionState:committed`、`installed:true`、`resourceType/resourceKey/kind/id/version/archiveSha256/baseRevision/targetPath`。CLI 另返回异步 `preparation`；准备失败不回滚已导入包，授权及 Agent 挂载独立。相同调用身份重放已记录结果，不再次发布或启动准备；参数变更返回幂等冲突。reload 失败恢复来源，明确区分 not_started/rolled_back/unknown/committed；结果未知时先回读。工具调用收据绑定调用者 Run 的生命周期，结束时等待在途来源 mutation 完成后释放，仅保留进程内去重，不新增持久执行恢复或断电事务承诺。目录摘要按现有格式流式计算，不把单个大文件整体读入内存；审批和执行仍分别解压复验，未承诺大包耗时。客户端按完整 awaitingId 匹配，两次审批独立标识；真实 Desktop/Windows 交互仍需目标环境联调。
 
 ## Catalog 源文件事务
 
@@ -56,11 +70,11 @@ Connector 列表补充 hasMcp/hasCli/hasView/hasNative、mcpKeys 与 editable。
 
 - Agent：agent.yml、SOUL.md、AGENTS.md。
 - Skill：SKILL.md 和相对文本文件；package/member 与 package.json 成员列表一起发布，创建包仍使用现有管理入口。含 package.json 的包根不能作为普通 skill 操作，必须指定 package/member。
-- 外部 Connector：已有包仅编辑 connector.json；新建 HTTP MCP 可额外传 mcpUrl，由平台生成 mcp.json，与清单一起审批、校验及原子发布。不提供 CLI 安装或通用文件写入。需要登录使用 auth_mode=mcp，复用现有 .well-known 发现、PKCE、回调和刷新；公开服务可显式 no_auth。创建候选在审批前复用登录的本地校验：MCP OAuth 地址要求 HTTPS，保留 localhost、127.0.0.1 和 ::1 的 HTTP 例外；no_auth 的 HTTP(S) 范围不变。保存候选不发起远端请求。
+- 外部 Connector：已有包仅编辑 connector.json；新建 HTTP MCP 可额外传 mcpUrl，由平台生成 mcp.json，与清单一起审批、校验及原子发布。不提供 CLI 安装或通用文件写入。需要登录使用 authMode mcp，复用现有 .well-known 发现、PKCE、回调和刷新；公开服务可显式 none。创建候选在审批前复用登录的本地校验：MCP OAuth 地址要求 HTTPS，保留 localhost、127.0.0.1 和 ::1 的 HTTP 例外；no_auth 的 HTTP(S) 范围不变。保存候选不发起远端请求。
 
-用户只提供 HTTP MCP 地址并要求创建连接器时，入口归 `platform-control` Skill：技能描述声明按服务地址创建并检查 HTTP MCP，正文指向随包 `references/catalog.md` 的候选准备、校验、发布、回读和授权工作流。`mcpUrl` 快捷创建入口在 `Prepare` 中将缺失的 `auth_mode` 补为 `mcp`，归一化内容同时进入审批展示、摘要和 connector.json 落盘；显式 `null` 拒绝，显式 `no_auth` 保留，其他模式使用既有授权的包管理流程。无 `mcpUrl` 的通用包省略或 `null` 仍为委托认证。网页访问和截图不是创建前置条件。
+用户只提供 HTTP MCP 地址并要求创建连接器时，入口归 `platform-control` Skill：技能描述声明按服务地址创建并检查 HTTP MCP，正文指向随包 `references/catalog.md` 的候选准备、校验、发布、回读和授权工作流。`mcpUrl` 快捷创建入口在 `Prepare` 中将缺失的 `authMode` 补为 `mcp`，归一化内容同时进入审批展示、摘要和 connector.json 落盘；显式 `null` 拒绝，显式 `no_auth` 保留，其他模式使用既有授权的包管理流程。无 `mcpUrl` 的通用包省略或 `null` 仍为委托认证。网页访问和截图不是创建前置条件。
 
-连接器 `catalog_manage.apply` 成功后及 `catalog_query.get` 追加 `authMode`、本地 `connection` 快照和可用的 `nextAction`。快照由 App 注入的 `connectorauth.Manager.Connection` 窄接口读取，与客户端共享同一授权服务，不发起远端请求；不返回票据、登录 URL 或原始授权错误。需要授权时 nextAction 包含 `authorize` 和 `/connectors/<id>`；仅启用且检查器支持的 main HTTP MCP 组件在无需授权或已就绪时提示 `checkConnector`，stdio、oneid-token 和禁用组件不推荐此动作。快照失败保留已完成的创建结果，并以 unknown 和诊断报告状态。智能体打开授权页后结束本轮，用户完成登录并续问时回读状态及重新检查，不原地等待登录。
+连接器 `catalog_manage.apply` 成功后及 `catalog_query.get` 追加 `authMode`、本地 `connection` 快照和可用的 `nextAction`。快照由 App 注入的 `connectorauth.Manager.Connection` 窄接口读取，与客户端共享同一授权服务，不发起远端请求；不返回票据、登录 URL 或原始授权错误。需要授权时 nextAction 包含 `authorize` 和 `/connectors/<id>`；仅启用且检查器支持的 main HTTP MCP 组件在无需授权或已就绪时提示 `checkConnector`，stdio、oneid 和禁用组件不推荐此动作。快照失败保留已完成的创建结果，并以 unknown 和诊断报告状态。智能体打开授权页后结束本轮，用户完成登录并续问时回读状态及重新检查，不原地等待登录。
 
 `platform_inspect.checkConnector {connectorId,component?}` 默认组件 main，只检查保存的 HTTP MCP，支持 `no_auth/mcp/oauth/token`，无需目标连接器挂载到 Agent。它复用 MCP SDK 创建独立短期会话，校验包、初始化及实际协商版本，再分页读取工具列表并关闭会话；不启动 stdio/CLI、不发起登录、不修改挂载、不注册运行时工具、不调用业务工具。复用已有凭据与 OAuth 刷新，远端阶段限时 30 秒并响应取消。结果区分 passed、authorization_required、failed，并逐阶段标明 passed/failed/not_run；工具摘要最多 100 个名称、每名最多 256 字符，总数和 truncated 分别报告。原始远端错误、地址和凭据不进入返回值。创建并测试的任务止于协议与工具发现验证，Agent 挂载及业务工具测试是独立事项；runtimeStatus.mcp 仍只返回已挂载实例的缓存同步状态。
 

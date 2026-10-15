@@ -34,8 +34,8 @@ func TestLivePlatformPDFAndExistingDataPreservation(t *testing.T) {
 	// Existing unrelated files must remain untouched by maintenance.
 	sentinels := []string{
 		filepath.Join(filepath.Dir(filepath.Dir(library.database)), "docs", "control.db"),
-		filepath.Join(filepath.Dir(filepath.Dir(library.database)), "docs", "generations", "legacy", "manifest.json"),
-		filepath.Join(filepath.Dir(filepath.Dir(library.database)), "docs", "kbx", "previous-scope", "index.sqlite"),
+		filepath.Join(filepath.Dir(filepath.Dir(library.database)), "docs", "nested", "metadata.json"),
+		filepath.Join(filepath.Dir(filepath.Dir(library.database)), "another-library", "index.sqlite"),
 	}
 	for _, path := range sentinels {
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {

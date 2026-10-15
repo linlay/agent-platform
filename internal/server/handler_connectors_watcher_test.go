@@ -34,7 +34,7 @@ func TestConnectorMutationsWithActiveWatcher(t *testing.T) {
 	upload := func(id string, overwrite bool) {
 		t.Helper()
 		archive := serverSkillImportZIP(t, map[string]string{
-			"connector.json":        fmt.Sprintf(`{"id":%q,"name":"Watched MCP","version":"2.0.0","type":"mcp","auth_mode":"none"}`, id),
+			"connector.json":        fmt.Sprintf(`{"id":%q,"name":"Watched MCP","version":"2.0.0","type":"mcp","authMode":"self"}`, id),
 			"mcp.json":              `{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp"}}}`,
 			"assets/nested/new.txt": "new",
 		})

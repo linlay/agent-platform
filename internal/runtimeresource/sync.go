@@ -211,10 +211,23 @@ func readState(statePath string) (State, bool, error) {
 	if state.SchemaVersion != 1 || normalizeVersion(state.DesktopVersion) == "" || strings.TrimSpace(state.TransactionID) == "" {
 		return State{}, false, fmt.Errorf("runtime resource state is invalid or unsupported")
 	}
+	units := make([]string, 0, len(state.ManagedUnits))
+	for _, relative := range state.ManagedUnits {
+		if !isRetiredResourcePath(relative) {
+			units = append(units, relative)
+		}
+	}
+	state.ManagedUnits = units
 	if err := validateManagedPaths(state.ManagedUnits, state.ManagedRegistryFiles); err != nil {
 		return State{}, false, fmt.Errorf("runtime resource state is unsafe: %w", err)
 	}
 	return state, true, nil
+}
+
+// Retired records are ignored before validation and never become filesystem
+// inputs. TEAM definitions now belong to agents; the old teams tree is untouched.
+func isRetiredResourcePath(relative string) bool {
+	return relative == "teams" || strings.HasPrefix(relative, "teams/")
 }
 
 func validateManagedPaths(units, registries []string) error {
@@ -474,6 +487,18 @@ func recoverIncompleteUpgrade(runtimeRoot, stateDir, statePath, journalPath stri
 	var journal upgradeJournal
 	if err := json.Unmarshal(data, &journal); err != nil {
 		return fmt.Errorf("parse unfinished runtime resource transaction: %w", err)
+	}
+	targets := make([]backupTarget, 0, len(journal.Targets))
+	for _, target := range journal.Targets {
+		if !isRetiredResourcePath(target.RelativePath) {
+			targets = append(targets, target)
+		}
+	}
+	journal.Targets = targets
+	for relative := range journal.PathModes {
+		if isRetiredResourcePath(relative) {
+			delete(journal.PathModes, relative)
+		}
 	}
 	if err := validateJournal(journal, runtimeRoot, stateDir); err != nil {
 		return err

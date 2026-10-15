@@ -15,15 +15,17 @@ Before creating or repairing an Agent with knowledge retrieval, read [knowledge 
 
 Knowledge library creation, deletion and updates changing canonical sources or filters always require human review, even in auto_approve/full_access. Only updates preserving the source grants may follow the access level's automatic approval policy. Equivalent library reuse grants no new access.
 
-catalog_manage apply and routine Desktop management use Platform review in default mode and allow server-side auto approval in auto_approve/full_access. New library bindings freeze configuration revision and canonical retrieval sources, but grant no source file editing access and add no mode-specific human approval. catalog_manage delete always requires explicit human approval. Changed baselines require a new review; unknown outcomes require reading state before retrying.
+catalog_manage apply/import and routine Desktop management use Platform review in default mode and allow server-side auto approval in auto_approve/full_access. Import one Skill, Skill-package or Connector ZIP through catalog_manage import; read the [ZIP import workflow](references/catalog.md#import-a-local-zip) first. New library bindings freeze configuration revision and canonical retrieval sources, but grant no source file editing access and add no mode-specific human approval. catalog_manage delete always requires explicit human approval. Changed baselines require a new review; unknown outcomes require reading state before retrying.
 
 platform_inspect: runtimeStatus {component?}, where component is platform/models/mcp/connectors/kbase/containerHub/memory/catalog; omit it to read all components, and an unknown name is rejected with the accepted names; securityExplain {path,access?} or {tool,action?}. These two actions explain cached state and current policy without starting remote probes. checkConnector {connectorId,component?} explicitly checks a saved HTTP MCP component without an Agent mount; it requires an ordinary native root Run. Read [connector checks](references/catalog.md#check-an-http-mcp-connector) for its results and authorization recovery.
 
-For project Agent creation, use each user-supplied project directory as `runtimeConfig.workspaceRoot` in the Agent definition and set `isProject:true` in catalog validate/apply args. `@root` denotes a general root-directory Agent with no specific project workspace; it does not appear in Desktop Projects. Read [catalog](references/catalog.md) for the project checks and post-publication verification.
+Every project Agent, including a knowledge-base project, must have a concrete existing `runtimeConfig.workspaceRoot` and use `isProject:true` in catalog validate/apply args. Use the project directory established by the user's request; resolve a missing directory before submitting the project. Knowledge sources and Workspace are independent, but that does not make a project's Workspace optional. Read [catalog](references/catalog.md) for directory selection, project checks and post-publication verification.
 
 Read [configuration maintenance](references/configuration.md) for explicitly requested Provider/Model YAML and external connector component source changes. Catalog read-only discovery does not grant source writes; this workflow requires independently available file tools and path permissions.
 
 Tool definitions only name a capability. Read the reference for a tool before calling it; action arguments, types, constraints and examples live there, not in the tool schema.
+
+For a website or WebApp identified by its display name, discover it with `desktop_site` action `site.list` first. Read [website entries and navigation pins](references/website.md) for matching and pinning; use the returned real `id` or `entryKey`, never a guessed identity. `site.list` includes installed WebApps even when they are stopped.
 
 | Tool | Reference |
 | --- | --- |

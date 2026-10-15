@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/connector"
+	"agent-platform/internal/connectorauth"
 )
 
 func validateTokenQuery(pkg connector.Package, u *url.URL) error {
@@ -54,12 +55,8 @@ func (t tokenQueryTransport) RoundTrip(req *http.Request) (*http.Response, error
 	if err != nil || req.URL.Scheme != want.Scheme || req.URL.Host != want.Host || req.URL.EscapedPath() != want.EscapedPath() || req.URL.Query().Encode() != want.Query().Encode() {
 		return nil, fmt.Errorf("connector credential destination mismatch")
 	}
-	path, err := connector.CredentialsPath(t.root, t.id)
+	credentials, _, err := connectorauth.ReadTokenCredentials(req.Context(), t.root, t.id)
 	if err != nil {
-		return nil, fmt.Errorf("connector requires credentials")
-	}
-	var credentials map[string]string
-	if err = connector.ReadJSON(path, &credentials); err != nil {
 		return nil, fmt.Errorf("connector requires credentials")
 	}
 	query := want.Query()

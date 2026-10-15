@@ -1,0 +1,30 @@
+name: surface_login
+i18n:
+  en:
+    label: "Log In with a Saved Password"
+  zh-CN:
+    label: "用已保存的密码登录"
+description: "List saved accounts for a webpage or have Desktop fill one into its login form. Read the web-control skill before use."
+clientVisible: true
+inputSchema:
+  type: object
+  properties:
+    surfaceId:
+      type: string
+      description: "Required. Webpage identity."
+    action:
+      type: string
+      enum:
+        - list
+        - fill
+      description: "Required. Login action."
+    accountId:
+      type: string
+      description: "Account to fill, from list."
+    submit:
+      type: boolean
+      description: "Submit after filling."
+  required:
+    - surfaceId
+    - action
+  additionalProperties: false

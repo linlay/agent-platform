@@ -2,65 +2,91 @@ package connector
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestAuthModeCanonicalAndLegacyManifests(t *testing.T) {
+func TestAuthModeValuesAreExplicit(t *testing.T) {
 	for _, tc := range []struct {
 		auth string
 		want AuthMode
 	}{
-		{`,"auth_mode":"no_auth"`, AuthNoAuth},
-		{``, AuthDelegated}, {`,"auth_mode":null`, AuthDelegated},
-		{`,"auth_mode":"none"`, AuthDelegated}, {`,"auth_mode":"cli"`, AuthDelegated},
-		{`,"auth_mode":"oneid-token"`, AuthOneID}, {`,"auth_mode":"mcp"`, AuthMCP},
-		{`,"auth_mode":"oauth","oauth":{"discovery":true}`, AuthMCP},
-		{`,"auth_mode":"oauth","oauth":{"client_id":"demo"}`, AuthOAuth},
-		{`,"auth_mode":"token","token_schema":{"fields":[{"key":"API_KEY","required":true}]}`, AuthToken},
+		{`"none"`, AuthNoAuth}, {`"self"`, AuthDelegated}, {`"token"`, AuthToken},
+		{`"mcp"`, AuthMCP}, {`"oneid"`, AuthOneID}, {`"oneid-token"`, AuthOneID},
 	} {
-		t.Run(tc.auth, func(t *testing.T) {
-			data := []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp"` + tc.auth + `}`)
-			if err := ValidateManifest("demo", data); err != nil {
-				t.Fatal(err)
-			}
-			var manifest Manifest
-			if err := DecodeJSON(data, &manifest); err != nil {
-				t.Fatal(err)
-			}
-			manifest.normalizeAuth()
-			if manifest.AuthMode != tc.want {
-				t.Fatalf("mode=%q want %q", manifest.AuthMode, tc.want)
-			}
-			summary, err := json.Marshal(struct {
-				Manifest
-				Mounted bool `json:"mounted"`
-			}{manifest, true})
-			if err != nil || !strings.Contains(string(summary), `"mounted":true`) {
-				t.Fatal("summary fields lost", err)
-			}
-			if tc.want == AuthDelegated && !strings.Contains(string(summary), `"auth_mode":null`) {
-				t.Fatalf("not canonical: %s", summary)
-			}
-		})
+		data := []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":` + tc.auth + `}`)
+		if err := ValidateManifest("demo", data); err != nil {
+			t.Fatal(tc.auth, err)
+		}
+		var manifest Manifest
+		if err := DecodeJSON(data, &manifest); err != nil || manifest.AuthMode != tc.want {
+			t.Fatalf("%s: mode=%q want %q (%v)", tc.auth, manifest.AuthMode, tc.want, err)
+		}
+		encoded, _ := json.Marshal(manifest)
+		if !strings.Contains(string(encoded), `"authMode":"`+string(tc.want)+`"`) {
+			t.Fatalf("not canonical: %s", encoded)
+		}
 	}
-	for _, auth := range []string{`"null"`, `""`, `true`, `{}`, `"api-key"`} {
-		if err := ValidateManifest("demo", []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":`+auth+`}`)); err == nil {
+	for _, auth := range []string{`,"authMode":null`, ``, `,"authMode":""`, `,"authMode":"no_auth"`, `,"authMode":"cli"`, `,"authMode":"server-side"`, `,"authMode":true`} {
+		if err := ValidateManifest("demo", []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp"`+auth+`}`)); err == nil {
 			t.Fatal("accepted invalid mode", auth)
 		}
 	}
 }
 
-func TestAuthFieldsCannotCrossModes(t *testing.T) {
+func TestLegacyManifestFieldsAreRejected(t *testing.T) {
 	for _, fields := range []string{
-		`"auth_mode":null,"oauth":{"discovery":true}`,
-		`"auth_mode":"oneid-token","token_schema":{"fields":[{"key":"TOKEN"}]}`,
-		`"auth_mode":"mcp","token_schema":{"fields":[{"key":"TOKEN"}]}`,
-		`"auth_mode":"token","token_schema":null`,
-		`"auth_mode":"token","token_schema":{"fields":[{"key":"TOKEN"},{"key":"TOKEN"}]}`,
+		`"auth_mode":"none"`,
+		`"authMode":"none","auth_browser":"system"`,
+		`"authMode":"token","token_schema":{"fields":[{"key":"TOKEN"}]}`,
+		`"authMode":"token","tokenSchema":{"fields":[{"key":"TOKEN"}]}`,
+		`"authMode":"self","auth_bindings":{"cli":{"env":{"TOKEN":"x"}}}`,
 	} {
 		if err := ValidateManifest("demo", []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp",`+fields+`}`)); err == nil {
-			t.Fatal("accepted incompatible fields", fields)
+			t.Fatal("accepted legacy field", fields)
+		}
+	}
+	if err := ValidateManifest("demo", []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"self","oauth":{"clientId":"demo"}}`)); err == nil {
+		t.Fatal("accepted oauth settings for another mode")
+	}
+}
+
+func writeTokenSchemaPackage(t *testing.T, mode, schema string) error {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "demo")
+	os.MkdirAll(dir, 0700)
+	os.WriteFile(filepath.Join(dir, "connector.json"), []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"`+mode+`"}`), 0600)
+	os.WriteFile(filepath.Join(dir, "mcp.json"), []byte(`{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp"}}}`), 0600)
+	if schema != "" {
+		os.WriteFile(filepath.Join(dir, "token-schema.json"), []byte(schema), 0600)
+	}
+	_, err := Load(root, "demo")
+	return err
+}
+
+func TestTokenSchemaFile(t *testing.T) {
+	valid := `{"title":"配置凭证","docLabel":"如何获取？","docUrl":"https://example.test/doc","i18n":{"en":{"title":"Configure"}},` +
+		`"fields":[{"key":"API_KEY","label":"API Key","type":"password","required":true,"placeholder":"sk-","i18n":{"en":{"label":"API Key"}}},` +
+		`{"key":"REGION","label":"Region","type":"text","required":false,"defaultValue":"cn"}]}`
+	if err := writeTokenSchemaPackage(t, "token", valid); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ mode, schema string }{
+		{"token", ""},
+		{"none", valid},
+		{"self", valid},
+		{"token", `{"fields":[]}`},
+		{"token", `{"fields":[{"key":"TOKEN"},{"key":"TOKEN"}]}`},
+		{"token", `{"fields":[{"key":"token"}]}`},
+		{"token", `{"fields":[{"name":"TOKEN"}]}`},
+		{"token", `{"fields":[{"key":"TOKEN","type":"password","defaultValue":"sk-secret"}]}`},
+		{"token", `{"title_en":"Legacy","fields":[{"key":"TOKEN"}]}`},
+	} {
+		if err := writeTokenSchemaPackage(t, tc.mode, tc.schema); err == nil {
+			t.Fatalf("accepted %s with %q", tc.mode, tc.schema)
 		}
 	}
 }

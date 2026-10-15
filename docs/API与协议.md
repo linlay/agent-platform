@@ -126,7 +126,7 @@ TEAM 正常出现在 `/api/agents`，详情 `/api/agent` 带 `teamConfig`；scop
 
 ### Admin
 
-Agent 创建的请求级 `isProject:true` 要求 `definition.runtimeConfig.workspaceRoot` 是具体、现存且非 canonical 文件系统/驱动器/共享根的绝对目录，拒绝 `@root`；失败在写盘前返回 HTTP 400 `invalid_project_workspace`。省略或 false 保留普通 Agent 契约，标志不持久化。具体创建与模型工具的同名校验见 [智能体创建](智能体配置说明.md#智能体创建)。
+Agent 创建的请求级 `isProject:true` 要求 `definition.runtimeConfig.workspaceRoot` 显式为非空字符串，指向具体、现存且非 canonical 文件系统/驱动器/共享根的绝对目录，拒绝缺字段、null、非字符串、空白值与 `@root`；失败在写盘前返回 HTTP 400 `invalid_project_workspace`。模型工具的 validate/apply 携带同名标志时复用后端强校验：validate 返回无效候选，apply 在审批前拒绝，并在实际发布前再次核验目录；知识库绑定及 access level 均不豁免。省略或 false 保留普通 Agent 契约，标志不持久化。具体创建与模型工具的同名校验见 [智能体创建](智能体配置说明.md#智能体创建)。
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
@@ -220,7 +220,7 @@ Agent 创建的请求级 `isProject:true` 要求 `definition.runtimeConfig.works
 
 `/api/admin/registries` 是列表接口，不返回 registry 文件绝对路径、完整 `diagnostics[]` 或文件大小；编辑器应通过 `/api/admin/registries/detail` 获取 `source`、完整诊断、`content`、`parsed` 与 `size`。
 
-使用目录 `GET /api/connectors[?agentKey=...]` 返回 `data.connectors[]` 的 id/name、非空 description/iconUrl/mutuallyExclusiveWith、本地 readiness 和可选 mcp[]（agentKey/serverKey/status/toolCount）；指定 Agent 时返回顶层 agentKey/reloadPending，全局省略。读取使用既有快照，不执行 CLI 或主动探测上游；按当前 Agent 过滤全局与 mode 预置，省略 agentKey 时过滤全部预置并集。`/api/agent.connectors` 提供已保存的非预置关联 ID；`PUT /api/agents/connectors` 只返回 agentKey、非预置 connectorIds 和 reloadPending，旧 GET 保留兼容。管理目录 `GET /api/admin/connectors` 保留完整包清单、`hasMcp/hasCli/hasBin/skills`；`mcp[]` 包含 `serverKey/toolCount/status` 和可选同步时间、脱敏诊断。管理挂载 `GET/PUT /api/admin/agents/connectors` 保留 presetConnectorIds、declaredConnectorIds 和 activeConnectorIds。两套挂载 PUT 都拒绝预置切换（403 `preset_connector_readonly`），不改变运行时自动挂载。读取定义使用 `GET /api/admin/connectors/detail?id=...&file=...`，保存使用同路径 PUT（`id/file/content/baseSha256`，哈希必填，冲突 409）。先校验、原子替换、本地 reload，失败恢复；远端初始化继续后台执行，发送 `catalog.updated(reason=connectors)`。完整契约见 [连接器](连接器.md)。
+使用目录 `GET /api/connectors[?agentKey=...]` 返回 `data.connectors[]` 的 id/name、非空 description/iconUrl/mutuallyExclusiveWith、本地 readiness 和可选 mcp[]（agentKey/serverKey/status/toolCount，只含各 Agent 当前发布版本，每个组件最多一条）；指定 Agent 时返回顶层 agentKey/reloadPending，全局省略。读取使用既有快照，不执行 CLI 或主动探测上游；按当前 Agent 过滤全局与 mode 预置，省略 agentKey 时过滤全部预置并集。`/api/agent.connectors` 提供已保存的非预置关联 ID；`PUT /api/agents/connectors` 只返回 agentKey、非预置 connectorIds 和 reloadPending，旧 GET 保留兼容。管理目录 `GET /api/admin/connectors` 保留完整包清单、`hasMcp/hasCli/hasBin/skills`；`mcp[]` 包含 `serverKey/toolCount/status` 和可选同步时间、脱敏诊断。管理挂载 `GET/PUT /api/admin/agents/connectors` 保留 presetConnectorIds、declaredConnectorIds 和 activeConnectorIds。两套挂载 PUT 都拒绝预置切换（403 `preset_connector_readonly`），不改变运行时自动挂载。读取定义使用 `GET /api/admin/connectors/detail?id=...&file=...`，保存使用同路径 PUT（`id/file/content/baseSha256`，哈希必填，冲突 409）。先校验、原子替换、本地 reload，失败恢复；远端初始化继续后台执行，发送 `catalog.updated(reason=connectors)`。完整契约见 [连接器](连接器.md)。
 
 带图标的连接器在管理目录另返回 `icon`（例如 `assets/icon.svg`）、`iconSha256` 和 `iconUrl`（`/api/connectors/icon?id=<id>&v=<sha256>`）；使用目录仅返回 iconUrl，未声明图标时省略。图标接口成功响应直接为 `image/svg+xml` 或 `image/png` 字节，失败沿用 JSON 错误包裹；仅允许读取该连接器清单声明的图片，不能用 `file` 参数读取其他包文件。启用鉴权时必须携带有效认证。缓存使用 `private, max-age=0, must-revalidate` 和内容 SHA-256 ETag；`If-None-Match` 命中返回 304。客户端通过带认证请求获取 Blob，再用 `<img>` 显示，失败显示默认图标。
 
@@ -259,7 +259,7 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 
 `/api/chats` 的可选 `pinned` 与其他筛选按 AND 组合：`true` 只取置顶组，`false` 只取未置顶组，省略则取全部且置顶组在前。HTTP 只接受单个 `true` / `false`，WebSocket 只接受 JSON boolean；非法值返回 400。筛选和各组排序均在 `limit` 截断之前完成。例如 `mode=GENERAL&pinned=false&limit=8` 返回最多 8 条未置顶的匹配记录，不会让置顶项占用这 8 个位置。获取完整跨 mode 置顶组使用 `/api/chats?pinned=true`，不传 `mode` 或 `limit`。
 
-`/api/chats/order` 管理同一 Platform 实例的展示偏好，不按用户、Agent 或 mode 分开。`pinnedOrder` 是独立的有序 active Chat ID 数组，缺省为空；`sortMode` 只控制未置顶组。`recent` 按 `updatedAt DESC, chatId DESC`；`manual` 先把尚未进入保存序列的新建或恢复 Chat 按 `createdAt DESC, chatId DESC` 放在未置顶组前面，再接保存的 active Chat 顺序，已归档、删除或不存在的 ID 自动忽略。`updatedAt` 是两份展示偏好的较新修改时间，未发生修改时省略。
+`/api/chats/order` 管理同一 Platform 实例的展示偏好，不按用户、Agent 或 mode 分开。没有保存排序配置时默认 `recent`，配置损坏时也回退到 `recent`；已有有效的 `manual` 偏好继续保留。`pinnedOrder` 是独立的有序 active Chat ID 数组，缺省为空；`sortMode` 只控制未置顶组。`recent` 按 `updatedAt DESC, chatId DESC`；`manual` 先把尚未进入保存序列的新建或恢复 Chat 按 `createdAt DESC, chatId DESC` 放在未置顶组前面，再接保存的 active Chat 顺序，已归档、删除或不存在的 ID 自动忽略。`updatedAt` 是两份展示偏好的较新修改时间，未发生修改时省略。
 
 手动顺序首次初始化按 Chat 创建时间倒序，后续内容更新不改变位置；模式切换保留已有手动顺序，新建或恢复且未保存的 Chat 按创建时间倒序补到前面。recent 下直接拖动以当时全量 recent 顺序为基线应用移动并原子保存为 manual；已有手动顺序不因升级重置。
 
@@ -657,7 +657,7 @@ HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attac
 
 库管理 REST `/api/admin/kbases` 与当前 Agent 的检索 status 分开，契约见 [知识库](知识库.md#http-契约)。库 GET 返回配置内容修订 baseRevision；更新在 JSON 中必传，删除在 query 中必传，过期修订返回 409。库管理 status 在首次索引前也返回 state/error/indexedAt/degraded，就绪后附加 statistics；模型通过 builtin.platform-control 的 kbase_library_query/manage 使用同一服务，管理工具的参数和审批顺序见随包 Skill 手册。
 
-KBASE status API 接受有 libraryId 绑定的 Native Agent；未绑定或未知 Agent 返回 404。四个只读工具 search/files/read/status 复用中心库，Agent refresh REST、kbase_refresh 和 kbase.refreshTerminal 已删除。source ID 为 kbase:<libraryId>/<collection>/<relativePath>，事件保留 libraryId 和 agentKey。`POST /api/chat/sources/read` 接收 chatId/sourceId/offset/limit，`POST /api/chat/sources/file` 接收 chatId/sourceId 下载当前源文件；检查 Chat 权限、实际发布记录和当前库绑定，不借 Workspace `/api/resource` 权限。
+KBASE status API 接受有 libraryId 绑定的 Native Agent；未绑定或未知 Agent 返回 404。四个只读工具 search/files/read/status 复用中心库。source ID 为 kbase:<libraryId>/<collection>/<relativePath>，事件保留 libraryId 和 agentKey。`POST /api/chat/sources/read` 接收 chatId/sourceId/offset/limit，`POST /api/chat/sources/file` 接收 chatId/sourceId 下载当前源文件；检查 Chat 权限、实际发布记录和当前库绑定，不借 Workspace `/api/resource` 权限。
 
 启用 KBASE capability 的 Agent 在运行时调用 `kbase_search` 且召回到内容时，会额外通过 live stream 发布 `source.publish` 事件。事件包含 `kind: "kbase"`、`query`、`sourceCount`、`chunkCount` 与按检索来源聚合的 `sources[].chunks[]`，chunk 可携带 `path`、行号、页码、slide、`sourceType`、`matchType`、`score` 等定位字段；chat JSONL 会把该事件作为对应 `react-tool` step 的顶层 `sources.items[]` sidecar 持久化，`/api/chat` replay 时再合成 `source.publish` 事件并保留原始 `liveSeq`，供时间线与 `/api/attach.lastSeq` 使用。当前 `_type:"event"` 的 `source.publish` 也保持可回放。
 
@@ -817,7 +817,8 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 - 入口：`GET /ws`，HTTP upgrade 为 WebSocket。
 - 鉴权：复用 HTTP token 校验链路。
 - Desktop 旁聊连接必须验证 `connected.data.lane` 与预期 `btw`/`explain` 一致后，才发送 `/api/query`。缺少或不匹配时明确拒绝，不回退到主聊天或重发。普通连接返回 `main`，该字段不接受 payload 覆盖。
-- token 可通过 `Sec-WebSocket-Protocol: bearer.<token>` 或 query token 传递；服务端会在握手成功时回写匹配的 subprotocol。
+- token 可通过 `Sec-WebSocket-Protocol: bearer.<token>`、`Authorization: Bearer <token>` 请求头或 query token 传递，按此顺序取第一个；服务端会在握手成功时回写匹配的 subprotocol。URL 会进入代理与访问日志，能设置请求头或子协议的客户端不应使用 query token；PROXY 上游连接只使用请求头与子协议。
+- `runtime.yml` 的 `auth.audience`、`auth.allowed-subjects`、`auth.require-expiry` 可把实例绑定到指定的 `aud` 与 `sub` 并要求 `exp`，对 HTTP 与 WebSocket（含 `auth.refresh`）同样生效，不满足时按未认证处理；默认不启用。`resource.public-base-url` 配置后，资源地址使用该固定值，不读取请求的 `Host` 与 `X-Forwarded-*` 头。
 - 客户端可通过 query 自报监控元数据：`source` 与 `deviceId`，例如 `/ws?source=webclient&deviceId=device-123`。普通 source 转小写后只用于监控和日志展示，不参与权限或能力声明；Desktop 的 `desktop-main` / `desktop-btw` / `desktop-explain` 是三个受限 lane 标识，但仍必须同时通过 app scope、JWT device claim 与握手 deviceId 校验，`source` 本身绝不构成授权。
 - WebClient 控制连接额外携带 `surfaceId`，推荐形式为 `/ws?source=WebClient&deviceId=device-123&surfaceId=surface-123`。Platform 在握手时记录该元数据，不需要注册帧；同一 client boundary 与 `surfaceId` 的新连接替换旧连接。Desktop Broker 不再按 Main Chat、Copilot 或 WebView surface 创建连接：同一设备只登记一个 `desktop-main`，并在首次使用对应能力时分别登记 `desktop-btw`、`desktop-explain`，随后跨 Chat/Run 复用。
 - `desktop-main` 是唯一 Desktop Main 默认 target，接收全局 Push 和反向 Desktop Action/CDP；`desktop-btw` / `desktop-explain` 不参与默认 target replacement，不接收这些 Push/request。第二条相同 Desktop lane 连接只替换该 lane 的旧连接，main、btw、explain 可以同时存活。
@@ -1254,6 +1255,10 @@ steer 与 approve 原子确定先后：steer 先入队时，旧确认的 submit 
 
 本地读取权限变化只阻止后续预览请求，不会实时撤销已签发的公开分享；链接仍受一天有效期约束。配置和副本回收规则见 [配置化说明](配置化说明.md#office-在线预览服务)。
 
+### 连接器 ZIP 导入身份校验
+
+`POST /api/admin/connectors/import` 的 multipart `file` 接收单个 ZIP；可选 `overwrite`、`expectedId`、`expectedVersion`。后两者与包内清单不符时返回 HTTP 409，`data.code: connector_identity_mismatch`，不发布、不准备 CLI。导入目标由 Platform 固定为 `connectors-center/<id>/`。Agent 的 Skill/Connector ZIP 导入复用这些发布机制，通过 `catalog_manage.import {resourceType,archivePath,overwrite?}` 调用；审批、文件权限及进程内收据见 [ZIP 包导入](Platform控制工具设计.md#zip-包导入)。
+
 ### CLI 独立准备
 
 `/api/admin/connectors/prepare?id=<id>` 支持 GET 查询、POST 准备/重试和 DELETE 取消。状态为 pending/preparing/ready/failed/canceled，与 `/api/admin/connectors/auth` 登录状态独立；准备时来源 mutation/登录返回 409。ZIP 导入响应保留 installed（仅表示包已发布），追加 preparation，CLI 初始化异步执行。详情见 [连接器安装与授权](连接器安装与授权.md#cli-准备与隔离)。
@@ -1332,7 +1337,7 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 
 ### 无认证连接器
 
-连接器 `auth_mode="no_auth"` 无需登录或配置完成标记。connection 接口返回 `configurationRequired=false`、`configured=false`、`authentication.status="no_auth"` 和 `canConnect/canDisconnect/canCheck=false`；无需准备或准备完成时 readiness 为 no_auth，并不代表客户端在线。客户端显示“无需配置”，隐藏认证操作。connect/disconnect/check 返回 HTTP 409 和 `connector_auth_not_required`。Desktop 已使用此模式；Agent 挂载、执行授权与客户端能力检查仍有效。完整约束见 [连接器安装与授权](连接器安装与授权.md#no_auth-状态与客户端接入)。
+连接器 `authMode: "none"` 无需登录或配置完成标记。connection 接口返回 `configurationRequired=false`、`configured=false`、`authentication.status="no_auth"` 和 `canConnect/canDisconnect/canCheck=false`；无需准备或准备完成时 readiness 为 no_auth，并不代表客户端在线。客户端显示“无需配置”，隐藏认证操作。connect/disconnect/check 返回 HTTP 409 和 `connector_auth_not_required`。Desktop 已使用此模式；Agent 挂载、执行授权与客户端能力检查仍有效。完整约束见 [连接器安装与授权](连接器安装与授权.md#no_auth-状态与客户端接入)。
 
 技能目录 WebSocket `/api/skills` 的列表和置顶写响应统一使用连接语言。通过 `/api/locale` 切换连接语言，不向业务 payload 添加 `locale`；不支持的语言由 `/api/locale` 返回 400 `invalid_locale`。
 

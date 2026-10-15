@@ -14,6 +14,10 @@ import (
 	"agent-platform/internal/mcp"
 )
 
+type publishedConnectorRuntimeSource interface {
+	PublishedConnectorRuntimes() []connector.AgentRuntime
+}
+
 func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	response, err := s.listSelectableConnectors(r.Context(), r.URL.Query().Get("agentKey"), responseLocale(w))
@@ -38,9 +42,11 @@ func (s *Server) listSelectableConnectors(ctx context.Context, agentKey, locale 
 		}
 		response.AgentKey, response.ReloadPending = agentKey, &state.ReloadPending
 	}
+	// Usage readiness describes the Agent version new Runs will use. Versions
+	// retained by older Runs stay in the management directory only.
 	var mounts []connector.AgentRuntime
-	if provider, ok := s.deps.Registry.(mcp.AgentConnectorSource); ok {
-		mounts = provider.ConnectorRuntimes()
+	if provider, ok := s.deps.Registry.(publishedConnectorRuntimeSource); ok {
+		mounts = provider.PublishedConnectorRuntimes()
 	}
 	for _, item := range catalog.SelectableConnectors(items, presets) {
 		manifest := item.Manifest.Localized(locale)
@@ -69,7 +75,9 @@ func (s *Server) listSelectableConnectors(ctx context.Context, agentKey, locale 
 		if err != nil {
 			entry.Readiness = "unavailable"
 		} else {
-			for _, sourceKey := range pkg.ServerKeys() {
+			// Only components the Agent can use: a disabled one is never synced and
+			// would otherwise stay pending forever.
+			for _, sourceKey := range mcp.EnabledConnectorServerKeys(pkg) {
 				mounted := false
 				for _, mount := range mounts {
 					if mount.ID != item.ID || (agentKey != "" && mount.AgentKey != agentKey) {

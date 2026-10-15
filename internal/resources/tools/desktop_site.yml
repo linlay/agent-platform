@@ -4,7 +4,7 @@ i18n:
     label: "Desktop Websites"
   zh-CN:
     label: "桌面站点"
-description: "Manage and open Desktop websites. Read the platform-control skill before use."
+description: "Discover Desktop websites and WebApps, manage website entries and navigation pins. Read the platform-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -13,6 +13,9 @@ tags:
   - "platform"
   - "management"
 confirmationRules:
+  - when:
+      /action: site.setPinned
+    view: {key: desktop_website_review}
   - when:
       /action: website.add
     view: {key: desktop_website_review}
@@ -29,6 +32,7 @@ inputSchema:
       type: "string"
       enum:
         - "site.list"
+        - "site.setPinned"
         - "website.list"
         - "website.add"
         - "website.update"

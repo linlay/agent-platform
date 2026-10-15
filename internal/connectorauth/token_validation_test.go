@@ -17,18 +17,24 @@ func tokenCLIFixture(t *testing.T, withStatus bool) (*Manager, connector.Package
 	t.Helper()
 	sources := connector.Sources{ExternalRoot: t.TempDir(), StateRoot: filepath.Join(t.TempDir(), "state")}
 	cli := simpleCLI()
+	pkg := writeCLIPackage(t, sources.ExternalRoot, "demo", cli)
+	manifest := pkg.Manifest
+	manifest.AuthMode = connector.AuthToken
+	raw, _ := json.Marshal(manifest)
+	if err := os.WriteFile(filepath.Join(pkg.Dir, "connector.json"), raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg.Dir, "token-schema.json"), []byte(`{"fields":[{"key":"API_KEY","label":"API Key","type":"password","required":true}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// The credential template is valid only once the package declares token mode.
 	cli["env"] = map[string]any{"API_KEY": "${API_KEY}"}
 	if withStatus {
 		cli["status"] = osCommands("demo status")
 		cli["statusMatchJson"] = map[string]any{"authenticated": true}
 	}
-	pkg := writeCLIPackage(t, sources.ExternalRoot, "demo", cli)
-	manifest := pkg.Manifest
-	manifest.AuthMode = connector.AuthToken
-	manifest.AuthBindings = map[string]connector.AuthBinding{"cli": {Env: map[string]string{"API_KEY": "${API_KEY}"}}}
-	manifest.TokenSchema = json.RawMessage(`{"fields":[{"key":"API_KEY","label":"API Key","type":"password","required":true}]}`)
-	raw, _ := json.Marshal(manifest)
-	if err := os.WriteFile(filepath.Join(pkg.Dir, "connector.json"), raw, 0600); err != nil {
+	raw, _ = json.Marshal(cli)
+	if err := os.WriteFile(filepath.Join(pkg.Dir, "cli.json"), raw, 0600); err != nil {
 		t.Fatal(err)
 	}
 	pkg, err := sources.Load("demo")
@@ -85,14 +91,51 @@ func TestTokenCLIWithoutStatusCompletesConfiguration(t *testing.T) {
 		t.Fatal(session, err)
 	}
 	connection, err := m.Connection(t.Context(), pkg.ID)
-	if err != nil || !connection.Configured || connection.Readiness != "ready" || connection.Authentication.Status != "configured" {
+	if err != nil || !connection.Configured || connection.Readiness != "ready" || connection.Authentication.Status != "configured" || connection.Authentication.Message != tokenConfiguredMessage {
 		t.Fatal(connection, err)
+	}
+}
+
+func TestAcceptedTokenPreservesActiveCredentialsWhenMetadataIsInvalid(t *testing.T) {
+	m, pkg := tokenCLIFixture(t, false)
+	if _, err := m.SetToken(t.Context(), pkg.ID, map[string]string{"API_KEY": "old-secret"}); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := pkg.ConnectorStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := map[string]string{}
+	for _, name := range []string{"credentials.json", "connection.json", "verification.json"} {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[name] = string(data)
+	}
+	// A damaged metadata file used to fail after the credential file had been
+	// replaced, exposing the new account despite reporting a failed save.
+	if err := os.WriteFile(filepath.Join(dir, "auth-state.json"), []byte("not-json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SetToken(t.Context(), pkg.ID, map[string]string{"API_KEY": "new-secret"}); err == nil || strings.Contains(err.Error(), "new-secret") {
+		t.Fatal("invalid state accepted or credentials leaked", err)
+	}
+	for name, previous := range before {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil || string(data) != previous {
+			t.Fatal("failed save partially changed active state", name, err)
+		}
+	}
+	values, ready, err := TokenValues(pkg)
+	if err != nil || !ready || values["API_KEY"] != "old-secret" {
+		t.Fatal("failed save replaced active account", err)
 	}
 }
 
 func TestDisconnectCancelsTokenValidationWithoutLateCommit(t *testing.T) {
 	sources := connector.Sources{ExternalRoot: t.TempDir(), StateRoot: filepath.Join(t.TempDir(), "state")}
-	writeAuthPackage(t, sources.ExternalRoot, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "token", "token_schema": map[string]any{"fields": []map[string]any{{"key": "API_KEY", "required": true}}}}, map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp"})
+	writeAuthPackage(t, sources.ExternalRoot, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "token", "tokenSchema": map[string]any{"fields": []map[string]any{{"key": "API_KEY", "required": true}}}}, map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp"})
 	entered := make(chan struct{})
 	var candidateRoot string
 	m := New(t.Context(), sources, nil).WithCredentialValidator(func(ctx context.Context, pkg connector.Package, values map[string]string) error {

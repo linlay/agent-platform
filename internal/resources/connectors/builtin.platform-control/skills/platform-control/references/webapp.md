@@ -4,6 +4,8 @@ Use `desktop_webapp` with `{action,args}`.
 
 Use these flattened actions for local WebApp installation, runtime control, Tunnel publishing, and complete removal.
 
+When the user gives an app name or key rather than its id, use `desktop_site` action `site.list` first. It lists both websites and installed WebApps; match `kind: "webapp"` and `label` or `key`, then use the returned `id` for WebApp actions. Read [website entries and navigation pins](website.md) to pin or unpin the app in Desktop navigation using its returned `entryKey`. A stopped app is still discoverable. Do not guess ids or treat an invalid-id error as proof that an app is absent.
+
 ## Actions
 
 ```text

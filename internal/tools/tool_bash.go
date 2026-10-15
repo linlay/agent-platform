@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -110,12 +111,15 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	cmd.Args = append([]string{shellExecutable}, boundArgs...)
 	cmd.Env = commandEnv
 	if direct != nil {
-		cmd = exec.CommandContext(runCtx, direct.Program, direct.Args...)
-		cmd.WaitDelay, cmd.Dir = bashOutputPipeWaitDelay, workingDir
-		cmd.Env, err = t.connectorCommandEnvironment(runCtx, execCtx, direct.ID, commandEnv)
-		if err != nil {
-			return ToolExecutionResult{Output: err.Error(), Error: "connector_credentials_unavailable", ExitCode: -1}, nil
+		childEnv, envErr := t.connectorCommandEnvironment(runCtx, execCtx, direct.ID, commandEnv)
+		if envErr != nil {
+			return ToolExecutionResult{Output: envErr.Error(), Error: "connector_credentials_unavailable", ExitCode: -1}, nil
 		}
+		cmd, err = directConnectorCommand(runCtx, direct.Program, direct.Args, workingDir, childEnv, runtime.GOOS)
+		if err != nil {
+			return ToolExecutionResult{Output: err.Error(), Error: "connector_execution_unavailable", ExitCode: -1}, nil
+		}
+		cmd.WaitDelay = bashOutputPipeWaitDelay
 	}
 
 	stdoutFile, err := os.CreateTemp("", "agent-platform-bash-stdout-*.log")
@@ -219,6 +223,19 @@ func firstBashOutputCaptureError(captures ...*bashOutputCapture) error {
 		}
 	}
 	return nil
+}
+
+// directConnectorCommand starts a verified connector entry. Only Windows needs
+// the shared adapter: npm cmd shims become Node + script argv, so payloads never
+// pass through cmd.exe. Elsewhere the entry still runs itself, honoring its own
+// shebang and the Bash tool's process handling.
+func directConnectorCommand(ctx context.Context, program string, args []string, dir string, env []string, goos string) (*exec.Cmd, error) {
+	if goos == "windows" {
+		return connectorauth.ExecutionProgramCommand(ctx, program, args, dir, env)
+	}
+	cmd := exec.CommandContext(ctx, program, args...)
+	cmd.Dir, cmd.Env = dir, env
+	return cmd, nil
 }
 
 func normalizeBashCommandError(err error, runCtx context.Context, cmd *exec.Cmd) error {
@@ -425,7 +442,7 @@ func connectorBins(execCtx *ExecutionContext) []string {
 	if execCtx == nil {
 		return nil
 	}
-	return execCtx.Session.ConnectorBinDirs
+	return append(append([]string(nil), execCtx.Session.ConnectorBinDirs...), execCtx.Session.ConnectorInstallBinDirs...)
 }
 
 // mergeCommandEnv builds the host tool environment with the shipped inherit list.

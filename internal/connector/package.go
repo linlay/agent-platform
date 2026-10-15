@@ -26,28 +26,31 @@ type Manifest struct {
 	Name                  string                 `json:"name"`
 	Version               string                 `json:"version"`
 	Type                  string                 `json:"type"`
-	AuthMode              AuthMode               `json:"auth_mode"`
-	AuthBrowser           string                 `json:"auth_browser,omitempty"`
+	AuthMode              AuthMode               `json:"authMode"`
+	AuthBrowser           string                 `json:"authBrowser,omitempty"`
 	Description           string                 `json:"description,omitempty"`
 	Icon                  string                 `json:"icon,omitempty"`
 	I18N                  map[string]Translation `json:"i18n,omitempty"`
-	TokenSchema           json.RawMessage        `json:"token_schema,omitempty"`
 	OAuth                 json.RawMessage        `json:"oauth,omitempty"`
-	AuthBindings          map[string]AuthBinding `json:"auth_bindings,omitempty"`
+	// TokenSchema is the package's token-schema.json, never part of connector.json.
+	TokenSchema json.RawMessage `json:"-"`
 }
 
 // Package is an immutable, secret-free description of an installed package.
 type Package struct {
 	Manifest
-	Builtin    bool
-	StateRoot  string
-	Dir        string
-	BinDir     string
-	Skills     []Skill
-	MCP        map[string]map[string]any
-	CLI        map[string]any
-	Views      map[string]view.Definition
-	iconSHA256 string
+	Builtin   bool
+	StateRoot string
+	// InstallRoot holds programs that init installs (connector-installs).
+	InstallRoot string
+	Dir         string
+	BinDir      string
+	Skills      []Skill
+	MCP         map[string]map[string]any
+	MCPPreAuth  string
+	CLI         map[string]any
+	Views       map[string]view.Definition
+	iconSHA256  string
 }
 
 type Skill struct {
@@ -96,8 +99,16 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 	if err := read("connector.json", &pkg.Manifest); err != nil {
 		return Package{}, fmt.Errorf("connector %s manifest: %w", id, err)
 	}
-	pkg.Manifest.normalizeAuth()
 	if err := validateManifest(id, pkg.Manifest); err != nil {
+		return Package{}, err
+	}
+	var tokenSchema json.RawMessage
+	if err := read("token-schema.json", &tokenSchema); err == nil {
+		pkg.TokenSchema = tokenSchema
+	} else if !os.IsNotExist(err) {
+		return Package{}, fmt.Errorf("connector %s token-schema.json: %w", id, err)
+	}
+	if err := validateTokenSchema(id, pkg.Manifest); err != nil {
 		return Package{}, err
 	}
 	pkg.Dir = dir
@@ -122,6 +133,7 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 		return Package{}, err
 	}
 	var mcpConfig struct {
+		PreAuth string                    `json:"preAuth,omitempty"`
 		Servers map[string]map[string]any `json:"mcpServers"`
 	}
 	if err := read("mcp.json", &mcpConfig); err == nil {
@@ -129,6 +141,7 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 			return Package{}, fmt.Errorf("connector %s mcpServers must not be empty", id)
 		}
 		pkg.MCP = mcpConfig.Servers
+		pkg.MCPPreAuth = mcpConfig.PreAuth
 		seenComponents := map[string]bool{}
 		for key := range pkg.MCP {
 			if !ValidID(strings.ToLower(key)) || seenComponents[strings.ToLower(key)] {
@@ -139,7 +152,6 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 	} else if pkg.Type == "mcp" || !os.IsNotExist(err) {
 		return Package{}, fmt.Errorf("connector %s mcp.json: %w", id, err)
 	}
-	pkg.normalizeLegacyIdentityAuth()
 	if err := read("cli.json", &pkg.CLI); err != nil {
 		if pkg.Type == "cli" || !os.IsNotExist(err) {
 			return Package{}, fmt.Errorf("connector %s cli.json: %w", id, err)
@@ -147,6 +159,12 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 	}
 	if pkg.Type == "cli" && pkg.CLI == nil {
 		return Package{}, fmt.Errorf("connector %s cli.json must be an object", id)
+	}
+	if err := validateCLIConfig(pkg); err != nil {
+		return Package{}, fmt.Errorf("connector %s: %w", id, err)
+	}
+	if err := validateMCPPreAuth(pkg); err != nil {
+		return Package{}, fmt.Errorf("connector %s: %w", id, err)
 	}
 	var viewConfig view.Config
 	if err := read("view.json", &viewConfig); err == nil {
@@ -158,7 +176,7 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 		return Package{}, fmt.Errorf("connector %s view.json: %w", id, err)
 	}
 	if pkg.Type == "native" {
-		if !IsNative(id) || pkg.AuthMode != AuthNoAuth || len(pkg.AuthBindings) != 0 || pkg.CLI != nil || len(pkg.MCP) != 0 || len(pkg.Views) != 0 || pkg.BinDir != "" {
+		if !IsNative(id) || pkg.AuthMode != AuthNoAuth || pkg.CLI != nil || len(pkg.MCP) != 0 || len(pkg.Views) != 0 || pkg.BinDir != "" {
 			return Package{}, fmt.Errorf("native connectors require a registered builtin capability package without executable components")
 		}
 	}
@@ -169,8 +187,8 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 	if err != nil {
 		return Package{}, fmt.Errorf("connector %s skills: %w", id, err)
 	}
-	if err := pkg.ValidateAuthBindings(); err != nil {
-		return Package{}, err
+	if err := pkg.validateAuthDeclarations(); err != nil {
+		return Package{}, fmt.Errorf("connector %s: %w", id, err)
 	}
 	return pkg, nil
 }
@@ -181,7 +199,6 @@ func ValidateManifest(id string, content []byte) error {
 	if err := DecodeJSON(content, &manifest); err != nil {
 		return err
 	}
-	manifest.normalizeAuth()
 	return validateManifest(id, manifest)
 }
 
@@ -200,33 +217,48 @@ func validateManifest(id string, pkg Manifest) error {
 		return fmt.Errorf("connector %s type must be mcp, cli, view or native", id)
 	}
 	if pkg.Type == "native" && (!IsNative(id) || pkg.AuthMode != AuthNoAuth) {
-		return fmt.Errorf("native type requires a registered platform builtin with no_auth")
+		return fmt.Errorf("native type requires a registered platform builtin with authMode none")
 	}
 	if pkg.Icon != "" && !validIconPath(pkg.Icon) {
 		return fmt.Errorf("connector %s icon must be a package-relative SVG or PNG path under assets/", id)
 	}
 	if pkg.AuthBrowser != "" && pkg.AuthBrowser != "system" && pkg.AuthBrowser != "embedded" {
-		return fmt.Errorf("connector %s auth_browser must be system or embedded", id)
+		return fmt.Errorf("connector %s authBrowser must be system or embedded", id)
 	}
 	switch pkg.AuthMode {
 	case AuthNoAuth:
-		if pkg.AuthBrowser != "" || len(pkg.AuthBindings) != 0 {
-			return fmt.Errorf("no_auth does not accept authentication settings")
+		if pkg.AuthBrowser != "" {
+			return fmt.Errorf("connector %s authMode none does not accept authentication settings", id)
 		}
-	case AuthDelegated, AuthOneID, AuthMCP:
-	case "token":
-		if _, err := TokenFields(pkg); err != nil {
-			return fmt.Errorf("connector %s: %w", id, err)
-		}
-	case "oauth":
+	case AuthDelegated, AuthOneID, AuthMCP, AuthToken:
+	case AuthOAuth:
 		if len(pkg.OAuth) == 0 {
 			return fmt.Errorf("connector %s oauth is required", id)
 		}
+	case "":
+		return fmt.Errorf("connector %s authMode is required", id)
 	default:
-		return fmt.Errorf("connector %s has invalid auth_mode", id)
+		return fmt.Errorf("connector %s has invalid authMode", id)
 	}
-	if pkg.AuthMode != AuthToken && len(pkg.TokenSchema) != 0 || (pkg.AuthMode != AuthOAuth && pkg.AuthMode != AuthMCP) && len(pkg.OAuth) != 0 {
-		return fmt.Errorf("connector %s has authentication fields for another mode", id)
+	if pkg.AuthMode != AuthOAuth && pkg.AuthMode != AuthMCP && len(pkg.OAuth) != 0 {
+		return fmt.Errorf("connector %s oauth requires authMode oauth or mcp", id)
+	}
+	return nil
+}
+
+// validateTokenSchema pairs token-schema.json with authMode token only.
+func validateTokenSchema(id string, manifest Manifest) error {
+	if manifest.AuthMode != AuthToken {
+		if len(manifest.TokenSchema) != 0 {
+			return fmt.Errorf("connector %s token-schema.json requires authMode token", id)
+		}
+		return nil
+	}
+	if len(manifest.TokenSchema) == 0 {
+		return fmt.Errorf("connector %s authMode token requires token-schema.json", id)
+	}
+	if _, err := TokenFields(manifest); err != nil {
+		return fmt.Errorf("connector %s: %w", id, err)
 	}
 	return nil
 }
@@ -464,16 +496,7 @@ func (m Manifest) AuthorizationBrowser() string {
 	return "system"
 }
 
-// AuthorizationBrowser prefers the manifest and preserves legacy CLI presentation hints.
+// AuthorizationBrowser is declared only by the manifest.
 func (p Package) AuthorizationBrowser() string {
-	if p.AuthMode == AuthNoAuth {
-		return ""
-	}
-	if p.AuthBrowser != "" {
-		return p.Manifest.AuthorizationBrowser()
-	}
-	if embedded, _ := p.CLI["authQrModal"].(bool); embedded {
-		return "embedded"
-	}
-	return "system"
+	return p.Manifest.AuthorizationBrowser()
 }

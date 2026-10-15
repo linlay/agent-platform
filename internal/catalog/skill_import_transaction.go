@@ -14,6 +14,25 @@ import (
 // succeeds. It shares the successful-move journal used by package transactions.
 type EditableSkillImportMutation struct{ *EditableSkillPackageMutation }
 
+// SkillArchiveMutationError is emitted only after a publication move was
+// attempted. Preflight conflicts retain their ordinary not-started errors.
+type SkillArchiveMutationError struct {
+	State string
+	Err   error
+}
+
+func (e *SkillArchiveMutationError) Error() string { return e.Err.Error() }
+func (e *SkillArchiveMutationError) Unwrap() error { return e.Err }
+
+func rollbackArchiveBegin(m *EditableSkillPackageMutation, cause error) error {
+	err := m.Rollback()
+	state := "rolled_back"
+	if err != nil {
+		state = "unknown"
+	}
+	return &SkillArchiveMutationError{State: state, Err: errors.Join(cause, err)}
+}
+
 // PreparedEditableSkill owns a validated, unpublished candidate. Close must be
 // called even when publication is rejected. It is not safe for concurrent use.
 type PreparedEditableSkill struct {
@@ -22,6 +41,11 @@ type PreparedEditableSkill struct {
 }
 
 func (p *PreparedEditableSkill) Close() { _ = os.RemoveAll(p.stage) }
+
+// Preview reads the statically validated candidate without publishing it.
+func (p *PreparedEditableSkill) Preview() (AdminSkill, error) {
+	return buildAdminSkill(p.stage, p.id, nil, true)
+}
 
 func (r *FileRegistry) PrepareEditableSkillArchive(id string, source io.ReaderAt, size int64) (*PreparedEditableSkill, error) {
 	if r == nil {
@@ -147,7 +171,7 @@ func (p *PreparedEditableSkill) Begin(overwrite bool) (*EditableSkillImportMutat
 	mutation := &EditableSkillImportMutation{&EditableSkillPackageMutation{root: root, stagingRoot: stage, backupRoot: backup, unlock: r.skillPackageMu.Unlock}}
 	owned = true
 	fail := func(cause error) (*EditableSkillImportMutation, AdminSkill, error) {
-		return nil, AdminSkill{}, errors.Join(cause, mutation.Rollback())
+		return nil, AdminSkill{}, rollbackArchiveBegin(mutation.EditableSkillPackageMutation, cause)
 	}
 	if hadPrevious {
 		if err := mutation.backupSkill(key); err != nil {

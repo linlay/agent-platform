@@ -7,6 +7,15 @@ import (
 	proxy "agent-platform/internal/runtime/proxy"
 )
 
+// requestBaseURL prefers the configured public origin: request headers are
+// client-controlled unless a trusted proxy rewrites them.
+func (s *Server) requestBaseURL(r *http.Request) string {
+	if public := s.deps.Config.Server.PublicBaseURL; public != "" {
+		return public
+	}
+	return requestBaseURL(r)
+}
+
 func requestBaseURL(r *http.Request) string {
 	if r == nil {
 		return ""

@@ -18,7 +18,10 @@ func TestConnectorManualTokenHTTPRedactionAndValidation(t *testing.T) {
 	fixture.server.connectorAuth.WithCredentialValidator(func(context.Context, connector.Package, map[string]string) error { return nil })
 	root := fixture.server.deps.Config.Paths.EffectiveConnectorsCenterDir()
 	writeMCPConnectorForTest(t, root, "demo")
-	manifest := `{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":"token","token_schema":{"fields":[{"key":"API_KEY","required":true,"type":"password"}]}}`
+	manifest := `{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"token"}`
+	if err := os.WriteFile(filepath.Join(root, "demo", "token-schema.json"), []byte(`{"fields":[{"key":"API_KEY","required":true,"type":"password"}]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "demo", "connector.json"), []byte(manifest), 0644); err != nil {
 		t.Fatal(err)
 	}

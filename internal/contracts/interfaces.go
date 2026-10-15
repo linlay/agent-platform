@@ -369,11 +369,13 @@ type QuerySession struct {
 	ConfirmedPlanRun bool
 	EditingMode      bool
 
-	Created                     bool
-	Subject                     string
-	SkillIDs                    []string
-	ConnectorCLIEntries         []connector.CLIEntry `json:"-"`
-	ConnectorBinDirs            []string
+	Created             bool
+	Subject             string
+	SkillIDs            []string
+	ConnectorCLIEntries []connector.CLIEntry `json:"-"`
+	ConnectorBinDirs    []string
+	// ConnectorInstallBinDirs are host-only bins of active CLI installations.
+	ConnectorInstallBinDirs     []string
 	ConnectorEnv                map[string]string                 `json:"-"`
 	ConnectorCredentials        []connector.CredentialEnvironment `json:"-"`
 	ContextTags                 []string

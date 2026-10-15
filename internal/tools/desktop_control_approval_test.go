@@ -19,6 +19,7 @@ func TestDesktopControlRequiresExactOneShotApproval(t *testing.T) {
 		{"desktop_settings", "theme.set", map[string]any{"themeMode": "dark"}},
 		{"desktop_settings", "pet.import", map[string]any{"filePath": "/tmp/panda.pet.zip"}},
 		{"desktop_site", "website.add", map[string]any{"label": "Example", "url": "https://example.test"}},
+		{"desktop_site", "site.setPinned", map[string]any{"entryKey": "webapp:webapp-0123456789abcdef", "pinned": true}},
 		{"desktop_kanban", "kanban.createIssue", map[string]any{"input": map[string]any{"title": "Example"}}},
 		{"desktop_webapp", "webapp.stop", map[string]any{"webappId": "app"}},
 		{"desktop_shell", "runtime.diagnostics", map[string]any{}},
@@ -160,7 +161,7 @@ func desktopReviewExpectedKey(action string) string {
 		return "desktop_webapp_review"
 	case len(action) >= 7 && action[:7] == "kanban.":
 		return "desktop_kanban_review"
-	case len(action) >= 8 && action[:8] == "website.":
+	case action == "site.setPinned" || len(action) >= 8 && action[:8] == "website.":
 		return "desktop_website_review"
 	default:
 		return "desktop_appearance_review"
@@ -216,6 +217,8 @@ func TestDesktopReviewNeverPrefetchesDiagnosticsAndSkipsAutoApprovalReads(t *tes
 		{"desktop_shell", "runtime.diagnostics", AccessLevelDefault},
 		{"desktop_settings", "theme.set", AccessLevelAutoApprove},
 		{"desktop_settings", "theme.set", AccessLevelFullAccess},
+		{"desktop_site", "site.setPinned", AccessLevelAutoApprove},
+		{"desktop_site", "site.setPinned", AccessLevelFullAccess},
 	} {
 		e.AccessLevel = tc.level
 		plan, err := executor.PrepareToolApproval(context.Background(), tc.tool, map[string]any{"action": tc.action, "args": map[string]any{}}, e)
@@ -262,5 +265,32 @@ func TestDesktopReviewAppAndSurfaceSnapshotsAreScoped(t *testing.T) {
 				t.Fatalf("missing friendly name: %s", data)
 			}
 		})
+	}
+}
+
+func TestDesktopPinReviewUsesExactEntryAndPreservesFalseState(t *testing.T) {
+	executor, e, _ := desktopCDPParamsTestRuntime(t.TempDir())
+	e.CurrentToolID = "pin-review"
+	executor.clientRequest = &awcpClientRequestInvoker{response: func(request ClientRequest) map[string]any {
+		if request.Type != "desktop.site.list" {
+			t.Fatalf("unexpected read %s", request.Type)
+		}
+		return map[string]any{"ok": true, "result": map[string]any{"items": []any{
+			map[string]any{"entryKey": "website:other", "label": "UNRELATED", "pinned": true},
+			map[string]any{"entryKey": "webapp:webapp-0123456789abcdef", "label": "个人工作台", "kind": "webapp", "pinned": false, "appConfig": map[string]any{"private": "PRIVATE"}},
+		}}}
+	}}
+	args := map[string]any{"action": "site.setPinned", "args": map[string]any{"entryKey": "webapp:webapp-0123456789abcdef", "pinned": true}}
+	plan, err := executor.PrepareToolApproval(context.Background(), "desktop_site", args, e)
+	if err != nil || plan == nil {
+		t.Fatalf("pin review: %#v %v", plan, err)
+	}
+	current, _ := plan.Form["current"].(map[string]any)
+	if current["label"] != "个人工作台" || current["pinned"] != false || current["kind"] != "webapp" {
+		t.Fatalf("selected pin state: %#v", current)
+	}
+	data, _ := json.Marshal(plan.Form)
+	if regexp.MustCompile(`UNRELATED|PRIVATE|appConfig`).Match(data) {
+		t.Fatalf("unrelated configuration leaked: %s", data)
 	}
 }

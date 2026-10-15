@@ -30,7 +30,7 @@ func TestAgentMCPInstancesUseOwnBinariesSessionsAndToolRoutes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(source, "bin", binaryName), data, 0700); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":"none"}`
+	manifest := `{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"self"}`
 	component, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"server": map[string]any{"type": "stdio", "command": binaryName, "args": []string{"-test.run=^TestMCPStdioHelperProcess$"}, "env": map[string]string{"AP_MCP_STDIO_HELPER": "1", "AP_MCP_STDIO_TOOL": "same_tool"}}}})
 	for name, bytes := range map[string][]byte{"connector.json": []byte(manifest), "mcp.json": component} {
 		if err := os.WriteFile(filepath.Join(source, name), bytes, 0600); err != nil {
@@ -124,8 +124,9 @@ func TestAgentMCPReadsSharedTokenWithoutWritingItIntoRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, content := range map[string]string{
-		"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":"token","token_schema":{"fields":[{"name":"TOKEN","label":"Test token","required":true}]}}`,
-		"mcp.json":       `{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp","headers":{"Authorization":"Bearer ${TOKEN}"}}}}`,
+		"connector.json":    `{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"token"}`,
+		"token-schema.json": `{"fields":[{"key":"TOKEN","label":"Test token","required":true}]}`,
+		"mcp.json":          `{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp","headers":{"Authorization":"Bearer ${TOKEN}"}}}}`,
 	} {
 		if err := os.WriteFile(filepath.Join(source, name), []byte(content), 0600); err != nil {
 			t.Fatal(err)
@@ -179,7 +180,7 @@ func TestAgentMCPReadsSharedTokenWithoutWritingItIntoRuntime(t *testing.T) {
 
 func TestAgentRegistryIsolatesUnavailableRunPins(t *testing.T) {
 	for _, tc := range []struct{ name, manifest string }{
-		{"unsupported-native", `{"id":"old-package","name":"Old","version":"1.0.0","type":"native","auth_mode":"no_auth"}`},
+		{"unsupported-native", `{"id":"old-package","name":"Old","version":"1.0.0","type":"native","authMode":"none"}`},
 		{"malformed", `{`},
 		{"missing", ""},
 	} {
@@ -231,8 +232,8 @@ func TestAgentRegistryBindsValidRunPin(t *testing.T) {
 	}
 	dir := t.TempDir()
 	for name, content := range map[string]string{
-		"connector.json": `{"id":"historical","name":"Historical","version":"1.0.0","type":"mcp","auth_mode":"no_auth"}`,
-		"mcp.json":       `{"mcpServers":{"server":{"type":"http","url":"https://example.com/mcp"}}}`,
+		"connector.json": `{"id":"historical","name":"Historical","version":"1.0.0","type":"mcp","authMode":"none"}`,
+		"mcp.json":       `{"mcpServers":{"server":{"type":"streamableHttp","url":"https://example.com/mcp"}}}`,
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0600); err != nil {
 			t.Fatal(err)

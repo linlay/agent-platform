@@ -32,7 +32,7 @@ func archiveFixture(t *testing.T, files map[string]string) []byte {
 func TestImportArchivePublishesWholePackageAndRollsBack(t *testing.T) {
 	root := t.TempDir()
 	sources := Sources{ExternalRoot: root}
-	files := map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`, "cli.json": `{}`, "old.txt": "previous"}
+	files := map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"self"}`, "cli.json": `{}`, "old.txt": "previous"}
 	install := func(overwrite bool, reload func() error) (Package, error) {
 		data := archiveFixture(t, files)
 		return ImportArchive(context.Background(), sources, bytes.NewReader(data), int64(len(data)), overwrite, nil, reload)
@@ -84,7 +84,7 @@ func TestImportArchivePublishesWholePackageAndRollsBack(t *testing.T) {
 func TestImportArchiveRejectsUnsafeAndReservedPackages(t *testing.T) {
 	for _, extra := range []string{"../escape", "/absolute", "bin/../escape", "a\\b", "CON.txt", "a/x", "connector.json/child"} {
 		t.Run(extra, func(t *testing.T) {
-			files := map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`, "cli.json": "{}", extra: "bad"}
+			files := map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"self"}`, "cli.json": "{}", extra: "bad"}
 			if extra == "a/x" {
 				files["A/y"] = "case collision"
 			}
@@ -94,7 +94,7 @@ func TestImportArchiveRejectsUnsafeAndReservedPackages(t *testing.T) {
 			}
 		})
 	}
-	data := archiveFixture(t, map[string]string{"connector.json": `{"id":"builtin.demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`, "cli.json": "{}"})
+	data := archiveFixture(t, map[string]string{"connector.json": `{"id":"builtin.demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"self"}`, "cli.json": "{}"})
 	if _, err := ImportArchive(context.Background(), Sources{ExternalRoot: t.TempDir()}, bytes.NewReader(data), int64(len(data)), true, nil, nil); !errors.Is(err, ErrBuiltinReadOnly) {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestImportArchiveRejectsUnsafeAndReservedPackages(t *testing.T) {
 
 func TestImportArchiveAcceptsSingleWrapperAndValidatesBeforePublish(t *testing.T) {
 	root := t.TempDir()
-	data := archiveFixture(t, map[string]string{"demo/connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`, "demo/cli.json": "{}"})
+	data := archiveFixture(t, map[string]string{"demo/connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"self"}`, "demo/cli.json": "{}"})
 	_, err := ImportArchive(context.Background(), Sources{ExternalRoot: root}, bytes.NewReader(data), int64(len(data)), false, func(packages []Package) error {
 		if len(packages) != 1 || packages[0].ID != "demo" {
 			t.Fatal(packages)
@@ -119,7 +119,7 @@ func TestImportArchiveAcceptsSingleWrapperAndValidatesBeforePublish(t *testing.T
 
 func TestImportArchiveStagesOutsideConnectorRoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "connectors-center")
-	data := archiveFixture(t, map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`, "cli.json": `{}`, "assets/nested/data.txt": "payload"})
+	data := archiveFixture(t, map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"self"}`, "cli.json": `{}`, "assets/nested/data.txt": "payload"})
 	_, err := ImportArchive(context.Background(), Sources{ExternalRoot: root}, bytes.NewReader(data), int64(len(data)), false, func(packages []Package) error {
 		if len(packages) != 1 || filepath.Dir(filepath.Dir(packages[0].Dir)) != filepath.Dir(root) {
 			t.Fatalf("candidate must be outside connector root: %+v", packages)
@@ -133,7 +133,7 @@ func TestImportArchiveStagesOutsideConnectorRoot(t *testing.T) {
 
 func TestPreparedConnectorRechecksLateConflictAndOperationLock(t *testing.T) {
 	sources := Sources{ExternalRoot: filepath.Join(t.TempDir(), "connectors-center")}
-	data := archiveFixture(t, map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`, "cli.json": `{}`})
+	data := archiveFixture(t, map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"self"}`, "cli.json": `{}`})
 	prepared, err := PrepareArchive(context.Background(), sources, bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		t.Fatal(err)

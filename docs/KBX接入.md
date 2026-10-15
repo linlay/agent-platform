@@ -40,7 +40,7 @@ CLI 必须声明维护协议 v1、结构化错误、无扫描注册与文件路�
 
 普通内容更新保持已有索引可读，状态为 `indexing/stale`。KBX 原地提交，读取可能看到已经提交的新内容，**不承诺更新前的固定快照**。全文更新已确认完整而 embedding 失败时，保持全文可读并报告 degraded/refreshError；未知 partial 或中断禁读，等待自动重新对账。首次扫描、集合增删、来源或过滤/切块变更会撤销旧范围的读取。`ErrNotStarted` 仅用于尚未进行索引写入的失败，可保留刷新前状态。
 
-`kbase_refresh`、`POST /api/kbase/{agentKey}/refresh`、`kbase.refreshTerminal` 和 Agent 刷新回执已删除。Agent 可用 `kbase_status` 和显式 libraryId 查看库状态；管理员仍可在知识库管理界面手工刷新。没有 force 工具或自动旧索引迁移。
+Agent 侧没有刷新工具或接口：Agent 可用 `kbase_status` 和显式 libraryId 查看库状态，管理员可在知识库管理界面手工刷新。没有 force 工具。
 
 ## 查询、路径与引用
 
@@ -65,9 +65,9 @@ CLI 必须声明维护协议 v1、结构化错误、无扫描注册与文件路�
 
 ## 升级与验证
 
-这是硬切升级。Agent enabled/storage/include/exclude/chunk/tags/embedding 及非支持 retrieval 字段明确拒绝；`AP_RUNTIME_KBASE_DIR` 拒绝加载。旧 `ru-kbases/libraries/` 与旧 Agent 索引目录 `runtime/kbase` 完全忽略：不进行旧布局检查、不加载、不迁移，也不移动或删除其中数据。知识库服务按 `kbases/<id>/library.yml` 配置自动在 `ru-kbases/<id>/` 生成索引；Agent 通过 `libraryId` 绑定共享库。`libraries` 是保留 ID，runtime 根下非库目录使用点前缀。
+Agent 的 kbaseConfig 只接受 libraryId 与 retrieval，其他字段及非支持的 retrieval 字段明确拒绝。知识库服务按 `kbases/<id>/library.yml` 配置自动在 `ru-kbases/<id>/` 生成索引；Agent 通过 `libraryId` 绑定共享库。runtime 根下非库目录使用点前缀。
 
-沿用受管 builtin 同步与发布链路，不手工改正式 lock。`internal/kbases` 覆盖监听、增量批次保留、重启、旧布局、并发/故障状态与删除保护；`internal/kbx` 覆盖共享库路径、过滤、图证据与源读取；Server 覆盖授权来源 API。真实 CLI 验证入口：
+沿用受管 builtin 同步与发布链路，不手工改正式 lock。`internal/kbases` 覆盖监听、增量批次保留、重启、并发/故障状态与删除保护；`internal/kbx` 覆盖共享库路径、过滤、图证据与源读取；Server 覆盖授权来源 API。真实 CLI 验证入口：
 
 ```sh
 KBX_ACCEPTANCE_BIN=/absolute/managed/bin KBX_KBASES_TEST_BIN=/absolute/managed/bin \

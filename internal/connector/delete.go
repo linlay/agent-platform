@@ -75,5 +75,7 @@ func DeletePackage(ctx context.Context, sources Sources, id string, check func(s
 			return fmt.Errorf("%w: %v; original package restored", ErrDeleteReload, err)
 		}
 	}
+	// Programs go with the package; credentials in .state stay for a re-import.
+	RemoveInstallations(sources.InstallRoot(), id)
 	return nil
 }

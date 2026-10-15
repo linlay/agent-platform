@@ -129,6 +129,7 @@ func strictNumericDateSeconds(value any) (int64, error) {
 func (s *Server) newWSHandler(hub *ws.Hub) *ws.Handler {
 	handler := ws.NewHandler(s.deps.Config.WebSocket, hub, wsTokenAuthenticator{server: s})
 	handler.SetDefaultLocale(i18n.DefaultLocale)
+	handler.SetPublicBaseURL(s.deps.Config.Server.PublicBaseURL)
 	if s.deps.ChannelSessions != nil {
 		handler.SetChannelLifecycleCallbacks(ws.ConnectionLifecycleCallbacks{
 			OnOpened: func(conn *ws.Conn) {

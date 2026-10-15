@@ -37,8 +37,8 @@ func TestGenericOAuthUsesConfiguredClientAndEndpoints(t *testing.T) {
 	defer upstream.Close()
 	sources := connector.Sources{ExternalRoot: t.TempDir()}
 	pkg := writeAuthPackage(t, sources.ExternalRoot, "demo", map[string]any{
-		"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "oauth",
-		"oauth": map[string]any{"client_id": "public-client", "authorization_endpoint": upstream.URL + "/authorize", "token_endpoint": upstream.URL + "/token", "resource": upstream.URL + "/mcp", "scopes": []string{"read"}},
+		"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "oauth",
+		"oauth": map[string]any{"clientId": "public-client", "authorizationEndpoint": upstream.URL + "/authorize", "tokenEndpoint": upstream.URL + "/token", "resource": upstream.URL + "/mcp", "scopes": []string{"read"}},
 	}, map[string]any{"type": "streamableHttp", "url": upstream.URL + "/mcp"})
 	if err := ValidatePackage(pkg); err != nil {
 		t.Fatal(err)
@@ -84,7 +84,7 @@ func TestOAuthModeValidationAndCallbacks(t *testing.T) {
 		}
 	}
 	for _, settings := range []string{
-		`{"client_id":"public"}`, `{"discovery":true}`, `{"client_secret":"private"}`,
+		`{"clientId":"public"}`, `{"discovery":true}`, `{"client_secret":"private"}`,
 	} {
 		pkg := connector.Package{Manifest: connector.Manifest{AuthMode: connector.AuthOAuth, OAuth: json.RawMessage(settings)}}
 		if err := ValidatePackage(pkg); err == nil {

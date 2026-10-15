@@ -194,7 +194,13 @@ func (s *Server) writeConnectorError(w http.ResponseWriter, err error) {
 	}
 	switch {
 	case errors.Is(err, connector.ErrArchiveIdentityMismatch):
-		code = "connector_identity_mismatch"
+		status, code = http.StatusConflict, "connector_identity_mismatch"
+	case errors.Is(err, connectorauth.ErrOAuthClientSetupRequired):
+		status, code = http.StatusConflict, "connector_setup_required"
+	case errors.Is(err, connectorauth.ErrOAuthAuthorizationRequired), errors.Is(err, connectorauth.ErrTokenRejected):
+		status, code = http.StatusUnauthorized, "connector_auth_required"
+	case errors.Is(err, connectorauth.ErrOAuthRefreshFailed), errors.Is(err, connectorauth.ErrOAuthCredentialUnavailable), errors.Is(err, connectorauth.ErrCredentialCheckFailed), errors.Is(err, connectorauth.ErrCredentialValidatorUnavailable):
+		status, code = http.StatusServiceUnavailable, "connector_execution_failed"
 	case errors.Is(err, connectorauth.ErrAuthNotRequired):
 		status, code = http.StatusConflict, "connector_auth_not_required"
 	case errors.Is(err, connector.ErrPackageNotFound):

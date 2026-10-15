@@ -3,7 +3,7 @@
 ## 配置归属
 
 - `configs/agent-settings.yml`：全局及 mode 预置、创建默认值、Workspace 规则文件、顶层 ACP bridges。
-- `configs/agent-prompt.yml`：`shared`（runtime/skill/reference/tool-appendix/plan-execute/btw/planning-mode）、`coder`、`kbase` 提示词。注入时机不变。`shared.skill.instructions-prompt`（技能适用性判断与 SKILL.md 读取规则的唯一来源）、`shared.reference.protocol-prompt`（`[References]` 引用协议）和 `shared.reference.advanced-protocol-prompt`（开启 advanced-user-prompt 时在前者之上追加的 XML 包装协议）没有源码兜底：缺失或为空时对应段落不追加，分发正文见 `configs/agent-prompt.example.yml`。规划、BTW、PLAN-EXECUTE 的指令文本同样只来自本文件：缺失时规划与 BTW 不带指令，PLAN-EXECUTE 模板只保留任务与请求数据；技能目录、披露和工具附录标题仅保留极简标签作为兜底。KBASE 提示词由 `kbase.system-prompt`、`kbase.workspace-prompt` 按此顺序拼接，两项都没有源码兜底。`kbase.editing-prompt` 已删除，出现即拒绝加载；旧部署应删除该键，并按需将通用文件修改要求合并到 `kbase.workspace-prompt`。`editingMode` 不再选择独立的 KBASE stage 或 cache key；模板变量 `{{editing_mode}}` 已删除，配置出现即拒绝加载。`kbase.capability-prompt` 已删除，出现即拒绝加载：kbase_* 工具的检索规则只由工具说明与 `kbase-control` Skill 提供，挂载 `builtin.kbase-control` 不再向 system prompt 追加规则；仅固定绑定库在 system prompt 追加 boundLibraryId，本次引用元数据进入用户引用块。
+- `configs/agent-prompt.yml`：`shared`（runtime/skill/reference/tool-appendix/plan-execute/automation/btw/planning-mode）、`coder`、`kbase` 提示词。注入时机不变。`shared.skill.instructions-prompt`（技能适用性判断与 SKILL.md 读取规则的唯一来源）、`shared.reference.protocol-prompt`（`[References]` 引用协议）和 `shared.reference.advanced-protocol-prompt`（开启 advanced-user-prompt 时在前者之上追加的 XML 包装协议）没有源码兜底：缺失或为空时对应段落不追加，分发正文见 `configs/agent-prompt.example.yml`。规划、BTW、PLAN-EXECUTE 的指令文本同样只来自本文件：缺失时规划与 BTW 不带指令，PLAN-EXECUTE 模板只保留任务与请求数据；技能目录、披露和工具附录标题仅保留极简标签作为兜底。`shared.automation.user-prompt-template` 包装由 Automation（定时或手动触发）启动的 Run 的任务正文，按可信触发来源而非请求 `role` 判定，只进入该条 user 消息，不进入 system prompt、system-init cache key 或 fingerprint；占位符为 `{{message}}`、`{{automation_id}}`，缺失或为空时不包装并保留原有 `[automation request]` 前缀。KBASE 提示词由 `kbase.system-prompt`、`kbase.workspace-prompt` 按此顺序拼接，两项都没有源码兜底。`kbase.editing-prompt` 已删除，出现即拒绝加载；旧部署应删除该键，并按需将通用文件修改要求合并到 `kbase.workspace-prompt`。`editingMode` 不再选择独立的 KBASE stage 或 cache key；模板变量 `{{editing_mode}}` 已删除，配置出现即拒绝加载。`kbase.capability-prompt` 已删除，出现即拒绝加载：kbase_* 工具的检索规则只由工具说明与 `kbase-control` Skill 提供，挂载 `builtin.kbase-control` 不再向 system prompt 追加规则；仅固定绑定库在 system prompt 追加 boundLibraryId，本次引用元数据进入用户引用块。
 - `configs/tools.yml`：访问策略、Bash/FileTools/run-env，以及顶层 vision-recognize/web-fetch/image-generate。AI profile 的 system-prompt 随 profile 保存。
 - `configs/runtime.yml`：平台运行设置、`kbx.embedding`、`memory`。memx 继续由 memory.worker 配置，不新增 memx 节。
 
@@ -52,7 +52,7 @@ kbx:
 
 Platform 从 runtime.yml 读取默认模型选择，并允许 library.yml 的 models.embedding 覆盖，连接仍解析共享模型注册表。知识库服务与 Agent capability 共用 ModelConfigSource；启动时校验默认配置并保存 `<AP_RUNTIME_STATE_DIR>/kbx/index.yml`，实际调用使用同目录 libraries 下的库专属私有配置快照，通过显式 --config 选择。快照携带库级切块和编码，执行后删除；普通工具不能读取受管 StateDir。
 
-默认 model-key 为空且库未覆盖时关闭向量配置，不回退聊天模型；非空无效模型明确失败，纯全文读取不解析模型。每次调用重新解析 registry，密钥和连接参数无需写进 library.yml。有效模型合同变更由知识库服务执行全库 embed --force，不扫描来源或重划 chunk；重建失败/中断保持全文可读，严格向量检索在新合同完成前报未就绪。KBX 不迁移旧布局，维度不匹配明确报告。
+默认 model-key 为空且库未覆盖时关闭向量配置，不回退聊天模型；非空无效模型明确失败，纯全文读取不解析模型。每次调用重新解析 registry，密钥和连接参数无需写进 library.yml。有效模型合同变更由知识库服务执行全库 embed --force，不扫描来源或重划 chunk；重建失败/中断保持全文可读，严格向量检索在新合同完成前报未就绪。维度不匹配明确报告。
 
 知识库 embedding 由 library.yml 的 models.embedding 覆盖 runtime.kbx.embedding 默认，连接与密钥来自共享模型 registry；Agent YAML 不配置 embedding 或检索模型；kbaseConfig.retrieval 只对显式字段覆盖库默认，单次调用参数再覆盖。库模型角色和 defaultQuery 规则见 [知识库](知识库.md#检索默认值可选模型和默认集合)。Agent capability 的维护由 Platform KBX worker 调度，详见 [KBX 接入](KBX接入.md)。
 

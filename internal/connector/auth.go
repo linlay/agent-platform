@@ -1,79 +1,44 @@
 package connector
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 )
 
-// AuthMode describes who supplies authentication, independently of component type.
-// Its zero value delegates authentication to the connector and encodes as JSON null.
+// AuthMode describes who supplies authentication, independently of component
+// type. connector.json must declare it explicitly; there is no default.
 type AuthMode string
 
 const (
-	AuthNoAuth    AuthMode = "no_auth"
-	AuthDelegated AuthMode = ""
+	// AuthNoAuth needs no authentication at all.
+	AuthNoAuth AuthMode = "none"
+	// AuthDelegated leaves authentication to the connector itself, for
+	// example a CLI login command or QR code.
+	AuthDelegated AuthMode = "self"
 	AuthToken     AuthMode = "token"
-	AuthOneID     AuthMode = "oneid-token"
+	AuthOneID     AuthMode = "oneid"
 	AuthOAuth     AuthMode = "oauth"
 	AuthMCP       AuthMode = "mcp"
 )
 
-func (m AuthMode) MarshalJSON() ([]byte, error) {
-	if m == AuthDelegated || m == "none" || m == "cli" {
-		return []byte("null"), nil
-	}
-	return json.Marshal(string(m))
-}
-
 func (m *AuthMode) UnmarshalJSON(data []byte) error {
-	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
-		*m = AuthDelegated
-		return nil
-	}
 	var value string
 	if err := json.Unmarshal(data, &value); err != nil {
-		return fmt.Errorf("auth_mode must be a string or null")
+		return fmt.Errorf("authMode must be none, self, token, oauth, mcp or oneid")
 	}
 	switch AuthMode(value) {
-	case AuthNoAuth, AuthToken, AuthOneID, AuthOAuth, AuthMCP:
+	case AuthNoAuth, AuthDelegated, AuthToken, AuthOneID, AuthOAuth, AuthMCP:
 		*m = AuthMode(value)
-	case "none", "cli": // Read older installed packages without changing their source.
-		*m = AuthDelegated
+	case "oneid-token":
+		*m = AuthOneID
 	default:
-		return fmt.Errorf("auth_mode must be no_auth, token, oneid-token, oauth, mcp or null")
+		return fmt.Errorf("authMode must be none, self, token, oauth, mcp or oneid")
 	}
 	return nil
-}
-
-func (m *Manifest) normalizeAuth() {
-	// The former oauth mode only implemented MCP discovery. Preserve those
-	// packages while giving new oauth declarations their separate meaning.
-	if m.AuthMode == AuthOAuth {
-		var settings struct {
-			Discovery bool `json:"discovery"`
-		}
-		if json.Unmarshal(m.OAuth, &settings) == nil && settings.Discovery {
-			m.AuthMode = AuthMCP
-		}
-	}
 }
 
 // ManagedCLI opts into the existing explicit CLI lifecycle adapter. It is a
 // component capability, not an authentication mode or proof of authorization.
 func (p Package) ManagedCLI() bool {
 	return p.CLI != nil && p.CLI["auth"] != nil
-}
-
-func (p *Package) normalizeLegacyIdentityAuth() {
-	if p.AuthMode != AuthDelegated || len(p.MCP) == 0 {
-		return
-	}
-	for _, component := range p.MCP {
-		platform, _ := component["platform"].(map[string]any)
-		if (component["type"] != "streamableHttp" && component["type"] != "http") || platform["authSource"] != "identity-file" {
-			return
-		}
-	}
-	p.AuthMode = AuthOneID
 }

@@ -1,0 +1,67 @@
+# Rendered by ap-ingress.sh; edit the template and reinstall, not this file.
+# TLS entry for Agent Platform instances: one wildcard certificate, one route
+# line per instance. Hosts without a route are dropped without a response.
+
+map $http_upgrade $ap_ingress_connection {
+    default upgrade;
+    ""      close;
+}
+
+map $host $ap_ingress_upstream {
+    default "";
+    include __AP_ROUTES__;
+}
+
+# No query string and no Authorization: tokens must not reach the access log.
+log_format ap_ingress '$remote_addr [$time_iso8601] $host "$request_method $uri" '
+                      '$status $body_bytes_sent $request_time "$http_user_agent"';
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name *.__AP_DOMAIN__;
+
+    ssl_certificate     __AP_CERT_DIR__/fullchain.pem;
+    ssl_certificate_key __AP_CERT_DIR__/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    access_log /var/log/nginx/agent-platform-ingress.access.log ap_ingress;
+    client_max_body_size 100m;
+
+    if ($ap_ingress_upstream = "") {
+        return 444;
+    }
+
+    location / {
+        proxy_pass http://$ap_ingress_upstream;
+        proxy_http_version 1.1;
+
+        # Forwarding headers are set here and never taken from the client, so
+        # an instance can trust them when its only peer is this proxy.
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header Forwarded "";
+
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $ap_ingress_connection;
+
+        # SSE and long tool runs: no buffering, no short idle timeout.
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+
+        add_header Strict-Transport-Security "max-age=31536000" always;
+    }
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name *.__AP_DOMAIN__;
+    return 301 https://$host$request_uri;
+}

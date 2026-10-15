@@ -39,7 +39,11 @@ func writeConnectorFixture(path string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	for name, value := range map[string]any{"connector.json": manifest, "mcp.json": component} {
+	files := map[string]any{"connector.json": manifest, "mcp.json": component}
+	if len(manifest.TokenSchema) > 0 {
+		files["token-schema.json"] = manifest.TokenSchema
+	}
+	for name, value := range files {
 		bytes, err := json.Marshal(value)
 		if err != nil {
 			return err

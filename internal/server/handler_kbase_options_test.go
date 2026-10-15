@@ -155,4 +155,23 @@ func TestKBaseOptionsHTTPWSAndQueryAdmission(t *testing.T) {
 	if _, err = f.server.prepareQueryAdmissionRequest(context.Background(), request, false, "", ""); err == nil {
 		t.Fatal("disabled nonempty selection accepted")
 	}
+	// chat_start is not gated by the entry switch, through admission and the
+	// session build alike, while an unreadable library is still refused.
+	command := trustedQueryCommand(context.Background(), request)
+	command.SkipInteractionPolicy = true
+	toolAdmission, err := testQueryService(f.server).PrepareQueryAdmissionRequest(context.Background(), command, false, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := testQueryService(f.server).CompleteQueryPreparation(context.Background(), toolAdmission, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := queryinput.ResourceIDs(prepared.Session.ReferencesScope.References(), "kbase"); !reflect.DeepEqual(got, []string{library.ID}) || prepared.Session.InteractionConfig.Attachment.Kbases {
+		t.Fatalf("refs=%v frozen=%+v", got, prepared.Session.InteractionConfig)
+	}
+	command.References = queryinput.MakeReferences("kbase", []string{unreadable.ID})
+	if _, err = testQueryService(f.server).PrepareQueryAdmissionRequest(context.Background(), command, false, "", ""); err == nil || !strings.Contains(err.Error(), unreadable.ID) {
+		t.Fatalf("unreadable library accepted: %v", err)
+	}
 }

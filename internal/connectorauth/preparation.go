@@ -13,25 +13,20 @@ import (
 	"agent-platform/internal/hostenv"
 )
 
-// Preparation describes installation independently of authentication.
+// Preparation describes the latest installation attempt independently of
+// authentication. The CLI in use is the active installation, which a failed
+// attempt never replaces; ActiveVersion reports it when it is an older one.
 type Preparation struct {
-	ConnectorID      string    `json:"connectorId"`
-	Status           string    `json:"status"`
-	Fingerprint      string    `json:"fingerprint,omitempty"`
-	Stage            string    `json:"stage,omitempty"`
-	Message          string    `json:"message,omitempty"`
-	ExitCode         *int      `json:"exitCode,omitempty"`
-	Diagnostic       string    `json:"diagnostic,omitempty"`
-	UpdatedAt        time.Time `json:"updatedAt"`
-	Executable       string    `json:"-"`
-	ExecutableSHA256 string    `json:"-"`
-}
-
-// Keep executable verification data private while persisting it alongside status.
-type preparationRecord struct {
-	Preparation
-	Executable       string `json:"executable,omitempty"`
-	ExecutableSHA256 string `json:"executableSha256,omitempty"`
+	ConnectorID       string    `json:"connectorId"`
+	Status            string    `json:"status"`
+	Fingerprint       string    `json:"fingerprint,omitempty"`
+	Stage             string    `json:"stage,omitempty"`
+	Message           string    `json:"message,omitempty"`
+	ExitCode          *int      `json:"exitCode,omitempty"`
+	Diagnostic        string    `json:"diagnostic,omitempty"`
+	ActiveVersion     string    `json:"activeVersion,omitempty"`
+	ActiveFingerprint string    `json:"activeFingerprint,omitempty"`
+	UpdatedAt         time.Time `json:"updatedAt"`
 }
 type preparationJob struct {
 	state  Preparation
@@ -57,7 +52,7 @@ func exitCode(cmd *exec.Cmd) int {
 }
 
 func (m *Manager) preparationPath(id string) (string, error) {
-	dir, err := StateDir(m.sources.PersistentRoot(), id)
+	dir, err := connector.InstallDir(m.sources.InstallRoot(), id)
 	if err != nil {
 		return "", err
 	}
@@ -68,18 +63,20 @@ func (m *Manager) readPreparation(id string) (Preparation, error) {
 	if err != nil {
 		return Preparation{}, err
 	}
-	var record preparationRecord
-	err = connector.ReadJSON(p, &record)
-	record.Preparation.Executable = record.Executable
-	record.Preparation.ExecutableSHA256 = record.ExecutableSHA256
-	return record.Preparation, err
+	var s Preparation
+	err = connector.ReadJSON(p, &s)
+	return s, err
 }
 func (m *Manager) savePreparation(s Preparation) error {
 	p, err := m.preparationPath(s.ConnectorID)
 	if err != nil {
 		return err
 	}
-	return savePrivateJSON(p, preparationRecord{Preparation: s, Executable: s.Executable, ExecutableSHA256: s.ExecutableSHA256})
+	// Preparation is program state, not a credential: it no longer lives in .state.
+	if dir, err := StateDir(m.sources.PersistentRoot(), s.ConnectorID); err == nil {
+		_ = os.Remove(filepath.Join(dir, "preparation.json"))
+	}
+	return savePrivateJSON(p, s)
 }
 
 // PreparationStatus never executes CLI code. An abandoned job is terminalized
@@ -126,6 +123,7 @@ func (m *Manager) PreparationStatus(id string) (Preparation, error) {
 			return Preparation{}, err
 		}
 	}
+	installation, activeErr := connector.ReadInstallation(m.sources.InstallRoot(), id)
 	if lockErr == nil && s.Status == "ready" {
 		hash, err := connector.RuntimeFingerprint(pkg.Dir)
 		if err != nil {
@@ -134,10 +132,16 @@ func (m *Manager) PreparationStatus(id string) (Preparation, error) {
 		if hash != s.Fingerprint {
 			s.Status = "pending"
 			s.Message = "Connector changed; prepare again"
-		} else if err = m.verifyPreparedEntry(pkg, s); err != nil {
+		} else if activeErr != nil || installation.Fingerprint != s.Fingerprint {
+			s.Status = "failed"
+			s.Message = "CLI installation record is missing; prepare again"
+		} else if err = m.verifyInstallation(pkg, installation); err != nil {
 			s.Status = "failed"
 			s.Message = err.Error()
 		}
+	}
+	if activeErr == nil && installation.Fingerprint != s.Fingerprint {
+		s.ActiveVersion, s.ActiveFingerprint = installation.Version, installation.Fingerprint
 	}
 	return s, nil
 }
@@ -184,26 +188,22 @@ func (m *Manager) StartPreparation(id string) (Preparation, error) {
 	go func(s Preparation) {
 		defer cancel()
 		defer close(job.done)
-		err := m.prepareCLI(ctx, pkg, settings)
+		prefix, err := m.prepareCLI(ctx, pkg, fingerprint)
 		if err == nil {
+			// init runs in the package directory and may write there; the
+			// prepared package is the one after init.
 			s.Fingerprint, err = connector.RuntimeFingerprint(pkg.Dir)
-			if err == nil {
-				env, envErr := m.cliEnvironment(pkg)
-				err = envErr
-				if err == nil {
-					if pkg.BinDir != "" {
-						env = hostenv.Set(env, "PATH", pkg.BinDir)
-					}
-					s.Executable, err = hostenv.LookPath(settings.Command, env)
-					if err == nil {
-						s.ExecutableSHA256, err = connector.CLIFileHash(s.Executable)
-					}
-				}
-			}
+		}
+		if err == nil && ctx.Err() == nil {
+			err = m.activateInstallation(pkg, settings, s.Fingerprint, prefix)
 		}
 		s.UpdatedAt = time.Now().UTC()
 		s.Status = "ready"
 		s.Stage = "versionCheck"
+		s.ActiveVersion, s.ActiveFingerprint = "", ""
+		if err == nil && unpinnedNPMInit(pkg.CLI) {
+			s.Message = "init does not pin exact npm package versions; preparing again may install a different CLI"
+		}
 		if err != nil {
 			s.Stage = "prepare"
 			s.Status = "failed"
@@ -213,6 +213,9 @@ func (m *Manager) StartPreparation(id string) (Preparation, error) {
 				s.Stage = execution.Stage
 				s.ExitCode = &execution.ExitCode
 				s.Diagnostic = execution.Diagnostic
+			}
+			if previous, err := connector.ReadInstallation(m.sources.InstallRoot(), id); err == nil {
+				s.ActiveVersion, s.ActiveFingerprint = previous.Version, previous.Fingerprint
 			}
 		}
 		if ctx.Err() != nil {
@@ -284,39 +287,69 @@ func (m *Manager) Prepare(ctx context.Context, id string) (Preparation, error) {
 		}
 	}
 }
-func (m *Manager) verifyPreparedEntry(pkg connector.Package, s Preparation) error {
-	settings, err := cliSettingsFor(pkg)
-	if err != nil {
+
+// activateInstallation records the verified CLI of a successful preparation
+// and keeps only it and the installation it replaces.
+func (m *Manager) activateInstallation(pkg connector.Package, settings cliSettings, fingerprint, prefix string) error {
+	installation := connector.Installation{ConnectorID: pkg.ID, Version: pkg.Version, Fingerprint: fingerprint, Prefix: prefix, ActivatedAt: time.Now().UTC()}
+	if settings.Command != "" {
+		entry, err := m.lookupManagedCommand(pkg, settings, installation.Bin())
+		if err != nil {
+			return err
+		}
+		installation.Executable = entry
+		if installation.ExecutableSHA256, err = connector.CLIFileHash(entry); err != nil {
+			return err
+		}
+	}
+	previous, _ := connector.ReadInstallation(m.sources.InstallRoot(), pkg.ID)
+	if err := connector.WriteInstallation(m.sources.InstallRoot(), installation); err != nil {
 		return err
 	}
-	env, err := m.cliEnvironment(pkg)
+	connector.PruneInstallations(m.sources.InstallRoot(), pkg.ID, installation.Prefix, previous.Prefix)
+	return nil
+}
+
+// lookupManagedCommand resolves the managed executable: only bin/ for a package
+// that ships one, otherwise the installation's bin before the host PATH.
+func (m *Manager) lookupManagedCommand(pkg connector.Package, settings cliSettings, installBin string) (string, error) {
+	env, err := m.cliEnvironmentWith(pkg, installBin)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if pkg.BinDir != "" {
 		env = hostenv.Set(env, "PATH", pkg.BinDir)
 	}
-	entry, err := hostenv.LookPath(settings.Command, env)
+	return hostenv.LookPath(settings.Command, env)
+}
+
+// verifyInstallation checks that the pinned executable still resolves to the
+// same file with the same content.
+func (m *Manager) verifyInstallation(pkg connector.Package, installation connector.Installation) error {
+	settings, err := cliSettingsFor(pkg)
 	if err != nil {
 		return err
 	}
+	if settings.Command == "" {
+		return nil
+	}
+	entry, err := m.lookupManagedCommand(pkg, settings, installation.Bin())
+	if err != nil {
+		return fmt.Errorf("CLI executable changed or is missing; prepare again")
+	}
 	hash, err := connector.CLIFileHash(entry)
-	if err != nil || entry != s.Executable || hash != s.ExecutableSHA256 {
+	if err != nil || entry != installation.Executable || hash != installation.ExecutableSHA256 {
 		return fmt.Errorf("CLI executable changed or is missing; prepare again")
 	}
 	return nil
 }
+
+// requirePrepared accepts the active installation even when a newer package
+// version has not been prepared yet, so a failed update keeps the CLI usable.
 func (m *Manager) requirePrepared(pkg connector.Package) error {
-	s, err := m.readPreparation(pkg.ID)
+	installation, err := connector.ReadInstallation(m.sources.InstallRoot(), pkg.ID)
 	if err != nil {
 		return fmt.Errorf("CLI is not prepared; prepare the connector first")
 	}
-	fingerprint, err := connector.RuntimeFingerprint(pkg.Dir)
-	if err != nil {
-		return err
-	}
-	if s.Status != "ready" || s.Fingerprint != fingerprint {
-		return fmt.Errorf("CLI is not prepared for this package; prepare the connector first")
-	}
-	return m.verifyPreparedEntry(pkg, s)
+	return m.verifyInstallation(pkg, installation)
 }

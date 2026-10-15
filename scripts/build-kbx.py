@@ -5,6 +5,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import platform
+import struct
 import subprocess
 import sys
 import tempfile
@@ -13,12 +15,28 @@ TARGETS = {
     'darwin/arm64': ('aarch64-apple-darwin', 'macos-arm64'),
     'darwin/amd64': ('x86_64-apple-darwin', 'macos-x64'),
     'windows/amd64': ('x86_64-pc-windows-msvc', 'windows-x64'),
+    'linux/amd64': ('x86_64-unknown-linux-gnu', 'linux-x64'),
 }
+
+
+def native_release_key():
+    machine = {'arm64': 'arm64', 'aarch64': 'arm64', 'x86_64': 'x64', 'amd64': 'x64'}.get(platform.machine().lower())
+    system = {'linux': 'linux', 'darwin': 'macos', 'win32': 'windows'}.get(sys.platform)
+    return '{}-{}'.format(system, machine)
+
+
+def validate_linux_binary(data):
+    """Fallback for the locked KBX 0.1.1, whose release tool predates Linux targets."""
+    if len(data) < 20 or data[:6] != b'\x7fELF\x02\x01':
+        raise ValueError('Expected a 64-bit little-endian ELF executable.')
+    kind, machine = struct.unpack_from('<HH', data, 16)
+    if kind not in (2, 3) or machine != 0x3e:
+        raise ValueError('Executable architecture does not match linux-x64.')
 
 
 def run(args):
     if args.target not in TARGETS:
-        raise ValueError('KBX release currently supports darwin/arm64, darwin/amd64 and windows/amd64; unsupported target: ' + args.target)
+        raise ValueError('KBX release currently supports darwin/arm64, darwin/amd64, windows/amd64 and linux/amd64; unsupported target: ' + args.target)
     source = Path(args.source).resolve()
     target_dir = Path(args.target_dir).resolve()
     triple, release_key = TARGETS[args.target]
@@ -31,6 +49,9 @@ def run(args):
         if sys.platform != 'darwin':
             raise ValueError('KBX macOS artifacts must be built on macOS')
         env['MACOSX_DEPLOYMENT_TARGET'] = '12.0'
+    if args.target == 'linux/amd64' and (sys.platform != 'linux' or platform.machine() not in ('x86_64', 'AMD64')):
+        # glibc-linked; built in the bookworm builder so it matches the runtime image.
+        raise ValueError('KBX Linux artifacts must be built on a native linux/amd64 host')
     command = ['cargo', '+stable']
     if args.target == 'windows/amd64' and sys.platform != 'win32':
         if sys.platform != 'darwin':
@@ -44,9 +65,11 @@ def run(args):
     package = next(p for p in metadata['packages'] if p['name'] == 'kbx' and Path(p['manifest_path']).resolve() == source / 'Cargo.toml')
     binary = 'kbx.exe' if args.target.startswith('windows/') else 'kbx'
     data = (target_dir / triple / 'release' / binary).read_bytes()
-    release.validate_binary(data, release_key)
-    native = (sys.platform == 'win32' and release_key == 'windows-x64') or (sys.platform == 'darwin' and release_key == ('macos-arm64' if release.platform.machine() == 'arm64' else 'macos-x64'))
-    if native:
+    if release_key in release.TARGETS:
+        release.validate_binary(data, release_key)
+    else:
+        validate_linux_binary(data)
+    if release_key == native_release_key():
         subprocess.run([str(target_dir / triple / 'release' / binary), 'search', '--filter-help'], check=True, stdout=subprocess.DEVNULL)
     notices = ['Third-party dependency license inventory (Cargo metadata).', '']
     for p in sorted(metadata['packages'], key=lambda p: (p['name'], p['version'])):

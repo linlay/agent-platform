@@ -23,7 +23,7 @@ func writeMCPConnectorForTest(t *testing.T, root, id string) {
 		t.Fatal(err)
 	}
 	for file, value := range map[string]any{
-		"connector.json": connector.Manifest{ID: id, Name: id, Version: "1.0.0", Type: "mcp", AuthMode: "none"},
+		"connector.json": connector.Manifest{ID: id, Name: id, Version: "1.0.0", Type: "mcp", AuthMode: connector.AuthDelegated},
 		"mcp.json":       map[string]any{"mcpServers": map[string]any{"main": map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp"}}},
 	} {
 		data, _ := json.Marshal(value)

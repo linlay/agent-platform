@@ -90,6 +90,9 @@ func (t *RuntimeToolExecutor) desktopReviewContext(ctx context.Context, action s
 	case "website.update", "website.remove":
 		item := desktopReviewItem(read("website.list", nil), "items", "id", first("websiteId", "id"))
 		current(item, "label", "url", "copilotAgentKey")
+	case "site.setPinned":
+		item := desktopReviewItem(read("site.list", nil), "items", "entryKey", first("entryKey"))
+		current(item, "label", "kind", "pinned")
 	case "kanban.updateIssue", "kanban.deleteIssue", "kanban.moveIssue":
 		if id := first("id"); id != "" {
 			data := read("kanban.getIssue", map[string]any{"id": id})

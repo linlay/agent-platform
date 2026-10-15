@@ -30,6 +30,14 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		if preserveAwaiting {
 			return
 		}
+		// Executing one grant can open a different review for the same tool
+		// invocation. Preserve that new waiting context and clear only this one.
+		if s.hitlPendingCall != nil && s.hitlMatch != match {
+			if s.runControl != nil {
+				s.runControl.ClearExpectedSubmit(awaitingID)
+			}
+			return
+		}
 		s.hitlPendingCall = nil
 		s.hitlMatch = nil
 		s.hitlAwaitingID = ""
@@ -181,6 +189,10 @@ func (s *llmRunStream) tryResolvePendingAccessLevelApproval(invocation *prepared
 		Answer:     s.accessLevelAutoApprovalAnswer(awaitingID, invocation, match, accessLevel),
 	})
 	s.applyHITLDecision(invocation, match, awaitingID, "auto_approved", "accessLevel="+accessLevel, true)
+	if request := invocation.shownApproval; invocation.toolApprovalInputPath != "" && request != nil && request.kind == approvalKindFileAccess && request.fileAccessPlan != nil && request.fileAccessPlan.Mode == filetools.ReadAccess {
+		invocation.approvalDecision = ""
+		return true, s.executeAfterFileAccessApproval(invocation)
+	}
 	return true, s.executeOriginalBash(invocation)
 }
 

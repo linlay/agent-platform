@@ -82,7 +82,7 @@ func TestWecomConnectorSkillUsesOriginalIDAndAgentPath(t *testing.T) {
 					t.Fatal(err)
 				}
 				for path, content := range map[string]string{
-					filepath.Join(pkg, "connector.json"): `{"id":"wecom","name":"WeCom","version":"1.0.0","type":"cli","auth_mode":"none"}`,
+					filepath.Join(pkg, "connector.json"): `{"id":"wecom","name":"WeCom","version":"1.0.0","type":"cli","authMode":"self"}`,
 					filepath.Join(pkg, "cli.json"):       `{}`,
 					filepath.Join(skillDir, "SKILL.md"):  "---\nname: wecomcli-shared\ndescription: WeCom prerequisite\n---\n",
 				} {

@@ -25,7 +25,7 @@ func TestConnectorManagementUsesCurrentStateAndIgnoresLegacyCredentials(t *testi
 				t.Setenv("AP_RUNTIME_STATE_DIR", state)
 			}
 			for path, data := range map[string]string{
-				filepath.Join(center, "demo", "connector.json"):                    `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`,
+				filepath.Join(center, "demo", "connector.json"):                    `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"self"}`,
 				filepath.Join(center, "demo", "cli.json"):                          `{}`,
 				filepath.Join(old, ".credentials", "demo.json"):                    `{"TOKEN":"test-credential"}`,
 				filepath.Join(runtimeRoot, "connectors", "demo", "connector.json"): "invalid ignored legacy package",
@@ -92,7 +92,8 @@ func TestConnectorManageTokenFileDoesNotEchoCredentials(t *testing.T) {
 	dir := filepath.Join(runtimeRoot, "connectors-center", "demo")
 	os.MkdirAll(dir, 0755)
 	files := map[string]string{
-		filepath.Join(dir, "connector.json"):     `{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":"token","token_schema":{"fields":[{"key":"API_KEY","required":true}]}}`,
+		filepath.Join(dir, "connector.json"):     `{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"token"}`,
+		filepath.Join(dir, "token-schema.json"):  `{"fields":[{"key":"API_KEY","required":true}]}`,
 		filepath.Join(dir, "mcp.json"):           fmt.Sprintf(`{"mcpServers":{"main":{"type":"streamableHttp","url":%q,"headers":{"X-API-Key":"${API_KEY}"}}}}`, upstream.URL),
 		filepath.Join(t.TempDir(), "input.json"): `{"API_KEY":"private-token"}`,
 	}
@@ -128,7 +129,7 @@ func TestConnectorManageOneIDUsesIdentityFileAndNeverStoresToken(t *testing.T) {
 	t.Setenv("AP_ACCESS_TOKEN", "untrusted-process-token")
 	dir := filepath.Join(runtimeRoot, "connectors-center", "demo")
 	os.MkdirAll(dir, 0755)
-	os.WriteFile(filepath.Join(dir, "connector.json"), []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"oneid-token"}`), 0644)
+	os.WriteFile(filepath.Join(dir, "connector.json"), []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"oneid-token"}`), 0644)
 	os.WriteFile(filepath.Join(dir, "cli.json"), []byte(`{}`), 0644)
 	explicit := filepath.Join(t.TempDir(), "sso-access-token.txt")
 	os.WriteFile(explicit, []byte("test-private-sso"), 0600)

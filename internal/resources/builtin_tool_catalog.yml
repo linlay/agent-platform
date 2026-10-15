@@ -54,6 +54,7 @@ visibleBuiltinTools:
   - surface_element
   - surface_evaluate
   - surface_list
+  - surface_login
   - surface_navigate
   - surface_screenshot
   - surface_state

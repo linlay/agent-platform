@@ -36,6 +36,18 @@ func TestProjectWorkspaceRequiresSpecificExistingDirectory(t *testing.T) {
 	if err := ValidateProjectWorkspace(nil); err == nil {
 		t.Fatal("missing definition accepted")
 	}
+	for _, definition := range []map[string]any{
+		{},
+		{"runtimeConfig": map[string]any{}},
+		{"runtimeConfig": map[string]any{"workspaceRoot": nil}},
+		{"runtimeConfig": map[string]any{"workspaceRoot": " \t\n"}},
+		{"runtimeConfig": map[string]any{"workspaceRoot": true}},
+		{"runtimeConfig": map[string]any{"workspaceRoot": 123}},
+	} {
+		if err := ValidateProjectWorkspace(definition); err == nil {
+			t.Fatalf("missing or non-string Workspace accepted: %#v", definition)
+		}
+	}
 
 	link := filepath.Join(workspace, "root-link")
 	if err := os.Symlink(root, link); err != nil {

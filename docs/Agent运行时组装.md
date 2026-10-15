@@ -9,8 +9,9 @@ Agent Platform 将可编辑事实源与执行目录分离：
 ├── agents/                         # Agent 定义与 Agent 自有 Skill
 ├── connectors-center/              # 导入、下载的外部连接器原包
 ├── ru-connectors/<id>/<digest>/     # 跨 Agent 共享的完整运行包
+├── connector-installs/<id>/         # init 安装的 CLI 程序、准备记录与当前可用安装；跨重启保留
 ├── .state/                         # 凭据与身份：连接器凭据、身份票据、含密钥的受管配置
-│   └── connectors/<id>/            # 连接器授权与受管 CLI 状态
+│   └── connectors/<id>/            # 连接器授权与 CLI 配置目录
 ├── skills-center/                  # 共享 Skill；.package/ 保存技能包控制状态
 ├── ru-skills/<digest>/             # 普通 Skill 的共享只读内容快照
 └── ru-agents/                      # 仅当前进程使用，禁止人工编辑
@@ -100,7 +101,7 @@ Agent runtimeConfig.env
   < Platform reserved context
 ```
 
-后声明 Skill 覆盖前面的同名键。动态层由 `run_env` 的 `set/unset/update` 修改当前普通 native root run 的进程内 Scope，不写回 Agent、Skill、`ru-agents` 或其他持久化存储；Platform 重启取消未完成 Run；新 Run 从空动态层开始。`references` 中的 skill 引用不合并额外 Skill runtime env，也不会挂载 `run_env` 或 `platform_control`。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN` 都是 Platform 保留变量，Agent、Skill、动态层和调用级 env 不得声明。前三者按 Host/Container 执行上下文最后注入；Workspace Terminal 只注入前两个变量；普通 Host Shell 不自动获得 `AP_ACCESS_TOKEN`；经验证的单条直接 oneid-token CLI 调用在独立子进程中使用该变量，已挂载 oneid-token stdio MCP 也在进程创建前读取有效 identity 文件后注入，默认文件为 `<有效 StateDir>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先。
+后声明 Skill 覆盖前面的同名键。动态层由 `run_env` 的 `set/unset/update` 修改当前普通 native root run 的进程内 Scope，不写回 Agent、Skill、`ru-agents` 或其他持久化存储；Platform 重启取消未完成 Run；新 Run 从空动态层开始。`references` 中的 skill 引用不合并额外 Skill runtime env，也不会挂载 `run_env` 或 `platform_control`。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN` 都是 Platform 保留变量，Agent、Skill、动态层和调用级 env 不得声明。前三者按 Host/Container 执行上下文最后注入；Workspace Terminal 只注入前两个变量；普通 Host Shell 不自动获得 `AP_ACCESS_TOKEN`；经验证的单条直接 oneid CLI 调用在独立子进程中使用该变量，已挂载 oneid stdio MCP 也在进程创建前读取有效 identity 文件后注入，默认文件为 `<有效 StateDir>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先。
 
 ExecutionContext 的同一 root run 并发 clone 共享动态 Scope；构建子任务 session 时即使复用相同 RunID 也禁止取得 root Scope。`chat_start` 新 root、子 Agent、TEAM 成员、Terminal、MCP、ACP、Proxy、Channel、LSP、sidecar 与长期服务都不继承。
 
@@ -145,13 +146,13 @@ AP_WORKSPACE_DIR=<canonical workspace>
 
 Workspace Terminal 是 Agent/Workspace 级长生命周期 PTY，不注入 `AP_CHAT_DIR`。
 
-经验证的单条直接 oneid-token CLI 调用，其独立子进程可获得：
+经验证的单条直接 oneid CLI 调用，其独立子进程可获得：
 
 ```text
 AP_ACCESS_TOKEN=<有效 identity 文件当前非空单行内容>
 ```
 
-该 token 在连接器子进程启动前从有效 identity 文件重新读取，不进入普通 Host Shell、Workspace Terminal、`file_grep/file_glob`、Container、Proxy、ACP、LSP 或 sidecar。身份不可用时不得复用旧 token 或继承父进程 token；连接器凭据解析错误会阻止该调用启动。oneid-token MCP 使用独立身份链路：stdio 在创建进程前注入，HTTP 按请求生成 Bearer Header。
+该 token 在连接器子进程启动前从有效 identity 文件重新读取，不进入普通 Host Shell、Workspace Terminal、`file_grep/file_glob`、Container、Proxy、ACP、LSP 或 sidecar。身份不可用时不得复用旧 token 或继承父进程 token；连接器凭据解析错误会阻止该调用启动。oneid MCP 使用独立身份链路：stdio 在创建进程前注入，HTTP 按请求生成 Bearer Header。
 
 Container 中三个值分别是 `/agent/.config`、`/workspace`、`/chat`。Workspace/Chat 双根和 KBASE 的 `runtimeConfig.workspaceRoot` 契约不受 Agent 组装影响。
 

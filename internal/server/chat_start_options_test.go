@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -244,7 +245,7 @@ func TestChatStartTargetAdmissionForOptions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			data = append(data, []byte("\ninteractionConfig:\n  accessLevel: false\n  attachment:\n    skills: false\n")...)
+			data = append(data, []byte("\ninteractionConfig:\n  model: false\n  accessLevel: false\n  attachment:\n    skills: false\n")...)
 			if err := os.WriteFile(path, data, 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -259,9 +260,10 @@ func TestChatStartTargetAdmissionForOptions(t *testing.T) {
 		request contracts.RunStartRequest
 		code    string
 	}{
-		{contracts.RunStartRequest{AgentKey: "mock-agent"}, "interaction_disabled"},
-		{contracts.RunStartRequest{AgentKey: "mock-agent", AccessLevel: "full_access"}, "interaction_disabled"},
-		{contracts.RunStartRequest{AgentKey: "mock-agent", References: queryinput.MakeReferences("skill", []string{"demo"})}, "interaction_disabled"},
+		// The target's interactionConfig does not gate chat_start, but real
+		// availability and request validation still do.
+		{contracts.RunStartRequest{AgentKey: "mock-agent", ModelKey: "missing-model"}, "invalid_request"},
+		{contracts.RunStartRequest{AgentKey: "mock-agent", References: queryinput.MakeReferences("skill", []string{"missing-skill"})}, "skill_reference_unavailable"},
 		{contracts.RunStartRequest{AgentKey: "mock-agent", ChatID: "existing", ChatName: "name"}, "invalid_request"},
 	} {
 		tc.request.Message = "test"
@@ -276,14 +278,27 @@ func TestChatStartTargetAdmissionForOptions(t *testing.T) {
 	if listErr != nil || len(chats) != 0 {
 		t.Fatalf("rejected options created chats: %#v %v", chats, listErr)
 	}
-	started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
-		AgentKey: "mock-agent", Message: "explicit default remains allowed", AccessLevel: "default",
-		Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "default"}, References: queryinput.MakeReferences("skill", []string{}),
-	})
-	if err != nil || started.AccessLevel != "default" {
-		t.Fatalf("default rejected: %#v %v", started, err)
+	for i, tc := range []struct {
+		request contracts.RunStartRequest
+		level   string
+	}{
+		{contracts.RunStartRequest{AccessLevel: "default"}, "default"},
+		{contracts.RunStartRequest{}, "full_access"},
+		{contracts.RunStartRequest{References: queryinput.MakeReferences("skill", []string{"mock-skill"})}, "full_access"},
+		{contracts.RunStartRequest{AccessLevel: "auto_approve", ModelKey: "mock-model", ReasoningEffort: "LOW"}, "auto_approve"},
+	} {
+		tc.request.AgentKey, tc.request.Message = "mock-agent", "test"
+		tc.request.Origin = contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: fmt.Sprintf("ok-%d", i)}
+		started, err := fixture.server.StartRun(context.Background(), tc.request)
+		if err != nil || started.AccessLevel != tc.level {
+			t.Fatalf("request=%#v started=%#v err=%v", tc.request, started, err)
+		}
+		waitRunTerminal(t, fixture.server, started.RunID)
+		// The frozen snapshot keeps gating what a user does to this Run later.
+		if config, found := fixture.runs.RunInteractionConfig(started.RunID); found && (config.Model || config.AccessLevel || config.Attachment.Skills) {
+			t.Fatalf("start relaxed the frozen interaction policy: %+v", config)
+		}
 	}
-	waitRunTerminal(t, fixture.server, started.RunID)
 
 }
 

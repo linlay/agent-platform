@@ -19,6 +19,11 @@ import (
 	"golang.org/x/oauth2"
 )
 
+var ErrOAuthClientSetupRequired = errors.New("connector OAuth client configuration must be repaired; saved credentials were preserved")
+var ErrOAuthRefreshFailed = errors.New("connector token refresh failed; saved credentials were preserved")
+var ErrOAuthAuthorizationRequired = errors.New("connector authorization has expired; sign in again")
+var ErrOAuthCredentialUnavailable = errors.New("connector authorization storage is unavailable; saved credentials were preserved")
+
 // A file lock also serializes the standalone login process with the runtime.
 // In particular, a refresh must not recreate credentials after logout returns.
 func lockCredentials(ctx context.Context, root, id string) (func(), error) {
@@ -180,12 +185,28 @@ func readPrivateJSON(p string, value any) error {
 }
 
 func CredentialReady(root, id, resource string, destinations ...string) bool {
-	// Atomic file replacement allows a local snapshot without waiting for a
-	// token refresh. Catalog reload must never wait on authentication network I/O.
+	ready, err := credentialReadiness(root, id, resource, destinations...)
+	return err == nil && ready
+}
+
+// credentialReadiness separates an absent grant, which requires sign-in, from
+// unreadable storage, which is an availability fault that preserves the grant.
+// Atomic file replacement allows a local snapshot without waiting for a
+// token refresh. Catalog reload must never wait on authentication network I/O.
+func credentialReadiness(root, id, resource string, destinations ...string) (bool, error) {
 	c, err := readCredential(root, id)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, ErrOAuthCredentialUnavailable
+	}
+	s, err := readAuthState(root, id)
+	if err != nil {
+		return false, ErrOAuthCredentialUnavailable
+	}
 	c, matches := selectCredential(c, resource, destinations)
-	s, stateErr := readAuthState(root, id)
-	return err == nil && stateErr == nil && c.Generation == s.Generation && !c.RequiresLogin && matches && c.Token != nil && (c.Token.Valid() || c.Token.RefreshToken != "")
+	return c.Generation == s.Generation && !c.RequiresLogin && matches && c.Token != nil && (c.Token.Valid() || c.Token.RefreshToken != ""), nil
 }
 
 func credentialMatches(c oauthCredential, resource string, destinations []string) bool {
@@ -210,14 +231,17 @@ func AccessToken(ctx context.Context, root, id, resource string, client *http.Cl
 	c, err := readCredential(root, id)
 	c, matches := selectCredential(c, resource, destinations)
 	s, stateErr := readAuthState(root, id)
-	if err != nil || stateErr != nil || c.Generation != s.Generation || c.RequiresLogin || !matches || c.Token == nil {
-		return "", fmt.Errorf("connector requires login")
+	if err != nil && !os.IsNotExist(err) || stateErr != nil {
+		return "", ErrOAuthCredentialUnavailable
+	}
+	if err != nil || c.Generation != s.Generation || c.RequiresLogin || !matches || c.Token == nil {
+		return "", ErrOAuthAuthorizationRequired
 	}
 	if c.Token.Valid() {
 		return c.Token.AccessToken, nil
 	}
 	if c.Token.RefreshToken == "" {
-		return "", fmt.Errorf("connector login expired")
+		return "", ErrOAuthAuthorizationRequired
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -233,20 +257,28 @@ func AccessToken(ctx context.Context, root, id, resource string, client *http.Cl
 	token, err := c.Config.TokenSource(ctx, c.Token).Token()
 	if err != nil {
 		var rejected *oauth2.RetrieveError
-		if errors.As(err, &rejected) && (rejected.ErrorCode == "invalid_grant" || rejected.ErrorCode == "invalid_client") {
-			c.RequiresLogin = true
-			if persistErr := saveCredential(root, id, c); persistErr != nil {
-				return "", fmt.Errorf("persist authentication failure")
+		if errors.As(err, &rejected) {
+			switch rejected.ErrorCode {
+			case "invalid_client":
+				// A bad client registration is a host configuration problem, not
+				// evidence that the user's authorization was revoked.
+				return "", ErrOAuthClientSetupRequired
+			case "invalid_grant":
+				c.RequiresLogin = true
+				if persistErr := saveCredential(root, id, c); persistErr != nil {
+					return "", ErrOAuthCredentialUnavailable
+				}
+				return "", ErrOAuthAuthorizationRequired
 			}
 		}
-		return "", fmt.Errorf("connector token refresh failed; sign in again")
+		return "", ErrOAuthRefreshFailed
 	}
 	if token.RefreshToken == "" {
 		token.RefreshToken = c.Token.RefreshToken
 	}
 	c.Token = token
 	if err := saveCredential(root, id, c); err != nil {
-		return "", fmt.Errorf("persist refreshed connector credential: %w", err)
+		return "", ErrOAuthCredentialUnavailable
 	}
 	return token.AccessToken, nil
 }

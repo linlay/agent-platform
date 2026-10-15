@@ -18,7 +18,7 @@ func TestConnectorOneIDHTTPUsesConfiguredDesktopIdentity(t *testing.T) {
 	})
 	root := fixture.server.deps.Config.Paths.EffectiveConnectorsCenterDir()
 	writeMCPConnectorForTest(t, root, "demo")
-	raw := `{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":"oneid-token"}`
+	raw := `{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"oneid-token"}`
 	os.WriteFile(filepath.Join(root, "demo", "connector.json"), []byte(raw), 0644)
 	check := func(want string) {
 		t.Helper()

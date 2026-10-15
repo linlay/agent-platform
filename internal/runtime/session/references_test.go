@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -111,11 +112,89 @@ func TestRemoteReferenceAdmissionRejectsLocalResourceIdentities(t *testing.T) {
 	} {
 		for _, steer := range []bool{false, true} {
 			for _, kind := range []string{"skill", "kbase", "chat"} {
-				grant, err := builder.PrepareRunReferences(context.Background(), contracts.QuerySession{}, def, queryinput.MakeReferences(kind, []string{"local-resource"}), steer, true)
+				grant, err := builder.PrepareRunReferences(context.Background(), contracts.QuerySession{}, def, queryinput.MakeReferences(kind, []string{"local-resource"}), steer, true, steer)
 				if err == nil || !strings.Contains(err.Error(), "unsupported") || len(grant.References) != 0 {
 					t.Fatalf("mode=%s engine=%s steer=%v type=%s grant=%+v err=%v", def.Mode, def.Engine, steer, kind, grant, err)
 				}
 			}
 		}
+	}
+}
+
+func TestAgentEntryReferencesSkipInteractionPolicyButKeepFrozenSnapshot(t *testing.T) {
+	builder := New(Dependencies{Config: config.Config{Paths: config.PathsConfig{ChatsDir: filepath.Join(t.TempDir(), "chats")}}, KnowledgeLibrary: func(id string) (api.KBaseOption, error) {
+		return api.KBaseOption{ID: id, Name: id, Readable: true}, nil
+	}})
+	closed := interaction.Defaults("GENERAL")
+	closed.Attachment.Kbases = false
+	def := catalog.AgentDefinition{Key: "general", Mode: "GENERAL", Connectors: []string{connector.KBaseControlConnectorID}, InteractionConfig: &closed}
+	refs := queryinput.MakeReferences("kbase", []string{"docs"})
+	req := runtimetypes.QueryCommand{AgentKey: def.Key, ChatID: "chat", RunID: "run", Message: "read", References: refs}
+	if _, err := builder.BuildQuerySession(context.Background(), req, chat.Summary{ChatID: "chat"}, def, Options{}); err == nil {
+		t.Fatal("a user query bypassed the disabled entry")
+	}
+	session, err := builder.BuildQuerySession(context.Background(), req, chat.Summary{ChatID: "chat"}, def, Options{SkipInteractionPolicy: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(session.ReferencesScope.References()) != 1 || session.InteractionConfig.Attachment.Kbases {
+		t.Fatalf("refs=%v frozen=%+v", session.ReferencesScope.References(), session.InteractionConfig)
+	}
+	steer := queryinput.SteerRequest{RunID: "run", Message: "read", References: refs}
+	if _, err := session.PrepareReferenceSteer(steer); err == nil {
+		t.Fatal("a user steer bypassed the frozen policy")
+	}
+	steer.Source = &queryinput.SteerSource{Type: "agent"}
+	if _, err := session.PrepareReferenceSteer(steer); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type skillCenterOnlyCatalog struct {
+	Catalog
+	skills nestedSkillCatalog
+}
+
+func (c skillCenterOnlyCatalog) SkillIDs() []string { return c.skills.SkillIDs() }
+func (c skillCenterOnlyCatalog) SkillDefinition(id string) (catalog.SkillDefinition, bool) {
+	return c.skills.SkillDefinition(id)
+}
+
+func TestAgentEntrySkillReferenceInSandboxNeedsSkillsCenterOnlyForCenterSkills(t *testing.T) {
+	writeSkill := func(dir string) {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: demo\ndescription: demo\n---\nBody"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	center := t.TempDir()
+	writeSkill(filepath.Join(center, "shared"))
+	runtime := filepath.Join(t.TempDir(), "ru-agents", "agent", "revision")
+	writeSkill(filepath.Join(runtime, "skills", "own"))
+	installRuntimeSkillFixture(t, runtime, "own")
+	builder := New(Dependencies{
+		Config:   config.Config{Paths: config.PathsConfig{SkillsCenterDir: center}},
+		Registry: skillCenterOnlyCatalog{skills: nestedSkillCatalog{"shared": {ID: "shared"}}},
+	})
+	closed := interaction.Defaults("GENERAL")
+	closed.Attachment.Skills = false
+	def := catalog.AgentDefinition{Key: "general", Mode: "GENERAL", RuntimeDir: runtime, Skills: []string{"own"}, InteractionConfig: &closed, Runtime: map[string]any{"environmentId": "env"}}
+	prepare := func(id string) error {
+		_, err := builder.PrepareRunReferences(context.Background(), contracts.QuerySession{}, def, queryinput.MakeReferences("skill", []string{id}), false, false, true)
+		return err
+	}
+	// The Agent's own skill is served from its runtime directory.
+	if err := prepare("own"); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepare("shared"); err == nil || !strings.Contains(err.Error(), "skills-center") {
+		t.Fatalf("err=%v", err)
+	}
+	def.Runtime["sandboxMounts"] = []any{map[string]any{"platform": "skills-center"}}
+	if err := prepare("shared"); err != nil {
+		t.Fatal(err)
 	}
 }

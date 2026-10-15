@@ -18,7 +18,7 @@ func TestConnectorZIPImportHTTPConflictAndAuthContract(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)
 	var archive bytes.Buffer
 	z := zip.NewWriter(&archive)
-	for name, data := range map[string]string{"connector.json": `{"id":"import-demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":"none"}`, "mcp.json": `{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp"}}}`} {
+	for name, data := range map[string]string{"connector.json": `{"id":"import-demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"self"}`, "mcp.json": `{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp"}}}`} {
 		f, _ := z.Create(name)
 		f.Write([]byte(data))
 	}
@@ -65,6 +65,60 @@ func TestConnectorZIPImportHTTPConflictAndAuthContract(t *testing.T) {
 	}
 }
 
+func TestConnectorZIPImportChecksExpectedIdentityBeforePublication(t *testing.T) {
+	fixture := setupAdminRegistriesFixture(t)
+	var archive bytes.Buffer
+	z := zip.NewWriter(&archive)
+	for name, content := range map[string]string{
+		"connector.json": `{"id":"expected-demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"none"}`,
+		"mcp.json":       `{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp"}}}`,
+	} {
+		entry, err := z.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, fields := range []map[string]string{{"expectedId": "other"}, {"expectedVersion": "2.0.0"}, {"expectedId": "expected-demo", "expectedVersion": "1.0.0"}} {
+		var body bytes.Buffer
+		form := multipart.NewWriter(&body)
+		for name, value := range fields {
+			if err := form.WriteField(name, value); err != nil {
+				t.Fatal(err)
+			}
+		}
+		entry, err := form.CreateFormFile("file", "download.zip")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write(archive.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+		if err := form.Close(); err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/admin/connectors/import", &body)
+		req.Header.Set("Content-Type", form.FormDataContentType())
+		rec := httptest.NewRecorder()
+		fixture.server.ServeHTTP(rec, req)
+		if len(fields) == 1 {
+			if rec.Code != http.StatusConflict || !bytes.Contains(rec.Body.Bytes(), []byte("connector_identity_mismatch")) {
+				t.Fatalf("identity mismatch: %d %s", rec.Code, rec.Body.String())
+			}
+			if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.EffectiveConnectorsCenterDir(), "expected-demo")); !os.IsNotExist(err) {
+				t.Fatal("mismatched package published")
+			}
+		} else if rec.Code != http.StatusOK {
+			t.Fatalf("matching identity: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func TestOneIDConnectorZIPAuthorizationTemplateVariants(t *testing.T) {
 	for _, template := range []string{"Bearer ${ONEID_TOKEN}", "Bearer ${AP_ACCESS_TOKEN}", ""} {
 		t.Run(template, func(t *testing.T) {
@@ -76,7 +130,7 @@ func TestOneIDConnectorZIPAuthorizationTemplateVariants(t *testing.T) {
 			data, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"main": component}})
 			var archive bytes.Buffer
 			z := zip.NewWriter(&archive)
-			for name, content := range map[string]string{"connector.json": `{"id":"oneid-templates","name":"OneID Templates","version":"1.0.0","type":"mcp","auth_mode":"oneid-token"}`, "mcp.json": string(data)} {
+			for name, content := range map[string]string{"connector.json": `{"id":"oneid-templates","name":"OneID Templates","version":"1.0.0","type":"mcp","authMode":"oneid-token"}`, "mcp.json": string(data)} {
 				entry, err := z.Create(name)
 				if err != nil {
 					t.Fatal(err)
@@ -113,7 +167,7 @@ func TestOneIDConnectorZIPAuthorizationTemplateVariants(t *testing.T) {
 
 func connectorIdentityTestArchive(t *testing.T, id, version, kind string) []byte {
 	t.Helper()
-	manifest, err := json.Marshal(map[string]string{"id": id, "name": "Identity Test", "version": version, "type": kind, "auth_mode": "no_auth"})
+	manifest, err := json.Marshal(map[string]string{"id": id, "name": "Identity Test", "version": version, "type": kind, "authMode": "none"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,26 +273,27 @@ func TestConnectorZIPImportExpectedIdentityRejectsBeforeOverwrite(t *testing.T) 
 	archive := connectorIdentityTestArchive(t, id, "1.0.0", "cli")
 	for _, test := range []struct {
 		name, code string
+		status     int
 		fields     map[string][]string
 	}{
-		{"different id", "connector_identity_mismatch", map[string][]string{"expectedId": {otherID}, "expectedVersion": {"1.0.0"}}},
-		{"different version", "connector_identity_mismatch", map[string][]string{"expectedId": {id}, "expectedVersion": {"2.0.0"}}},
-		{"different build metadata", "connector_identity_mismatch", map[string][]string{"expectedVersion": {"1.0.0+build.1"}}},
-		{"empty id", "invalid_connector", map[string][]string{"expectedId": {""}}},
-		{"invalid id", "invalid_connector", map[string][]string{"expectedId": {"../identity-actual"}}},
-		{"id whitespace", "invalid_connector", map[string][]string{"expectedId": {" " + id}}},
-		{"empty version", "invalid_connector", map[string][]string{"expectedVersion": {""}}},
-		{"invalid version", "invalid_connector", map[string][]string{"expectedVersion": {"v1.0.0"}}},
-		{"invalid prerelease", "invalid_connector", map[string][]string{"expectedVersion": {"1.0.0-01"}}},
-		{"version whitespace", "invalid_connector", map[string][]string{"expectedVersion": {"1.0.0 "}}},
-		{"duplicate id", "invalid_connector", map[string][]string{"expectedId": {id, id}}},
-		{"duplicate version", "invalid_connector", map[string][]string{"expectedVersion": {"1.0.0", "1.0.0"}}},
+		{"different id", "connector_identity_mismatch", http.StatusConflict, map[string][]string{"expectedId": {otherID}, "expectedVersion": {"1.0.0"}}},
+		{"different version", "connector_identity_mismatch", http.StatusConflict, map[string][]string{"expectedId": {id}, "expectedVersion": {"2.0.0"}}},
+		{"different build metadata", "connector_identity_mismatch", http.StatusConflict, map[string][]string{"expectedVersion": {"1.0.0+build.1"}}},
+		{"empty id", "invalid_connector", http.StatusBadRequest, map[string][]string{"expectedId": {""}}},
+		{"invalid id", "invalid_connector", http.StatusBadRequest, map[string][]string{"expectedId": {"../identity-actual"}}},
+		{"id whitespace", "invalid_connector", http.StatusBadRequest, map[string][]string{"expectedId": {" " + id}}},
+		{"empty version", "invalid_connector", http.StatusBadRequest, map[string][]string{"expectedVersion": {""}}},
+		{"invalid version", "invalid_connector", http.StatusBadRequest, map[string][]string{"expectedVersion": {"v1.0.0"}}},
+		{"invalid prerelease", "invalid_connector", http.StatusBadRequest, map[string][]string{"expectedVersion": {"1.0.0-01"}}},
+		{"version whitespace", "invalid_connector", http.StatusBadRequest, map[string][]string{"expectedVersion": {"1.0.0 "}}},
+		{"duplicate id", "invalid_connector", http.StatusBadRequest, map[string][]string{"expectedId": {id, id}}},
+		{"duplicate version", "invalid_connector", http.StatusBadRequest, map[string][]string{"expectedVersion": {"1.0.0", "1.0.0"}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			test.fields["overwrite"] = []string{"true"}
 			rec := httptest.NewRecorder()
 			fixture.server.ServeHTTP(rec, connectorIdentityTestRequest(t, archive, test.fields))
-			if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte(`"code":"`+test.code+`"`)) {
+			if rec.Code != test.status || !bytes.Contains(rec.Body.Bytes(), []byte(`"code":"`+test.code+`"`)) {
 				t.Fatalf("rejection: %d %s", rec.Code, rec.Body.String())
 			}
 			for packageID, original := range originals {
@@ -246,7 +301,7 @@ func TestConnectorZIPImportExpectedIdentityRejectsBeforeOverwrite(t *testing.T) 
 				if err != nil || got != original {
 					t.Fatalf("package %s changed after rejection: fingerprint=%s error=%v", packageID, got, err)
 				}
-				preparationPath := filepath.Join(fixture.cfg.Paths.EffectiveConnectorStateDir(), packageID, "preparation.json")
+				preparationPath := filepath.Join(sources.InstallRoot(), packageID, "preparation.json")
 				if _, err := os.Stat(preparationPath); !os.IsNotExist(err) {
 					t.Fatalf("rejected import started CLI preparation: %v", err)
 				}
@@ -266,10 +321,10 @@ func TestConnectorZIPImportIdentityMismatchDoesNotInstall(t *testing.T) {
 	archive := connectorIdentityTestArchive(t, id, "1.0.0", "cli")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, connectorIdentityTestRequest(t, archive, map[string][]string{"expectedId": {id}, "expectedVersion": {"2.0.0"}}))
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusConflict || !bytes.Contains(rec.Body.Bytes(), []byte(`"code":"connector_identity_mismatch"`)) {
 		t.Fatalf("rejection: %d %s", rec.Code, rec.Body.String())
 	}
-	for _, dir := range []string{filepath.Join(fixture.cfg.Paths.EffectiveConnectorsCenterDir(), id), filepath.Join(fixture.cfg.Paths.EffectiveConnectorStateDir(), id)} {
+	for _, dir := range []string{filepath.Join(fixture.cfg.Paths.EffectiveConnectorsCenterDir(), id), filepath.Join(fixture.cfg.Paths.EffectiveConnectorStateDir(), id), filepath.Join(fixture.cfg.Paths.ConnectorSources().InstallRoot(), id)} {
 		if _, err := os.Stat(dir); !os.IsNotExist(err) {
 			t.Fatalf("rejected import created installed package or preparation state: %s: %v", dir, err)
 		}

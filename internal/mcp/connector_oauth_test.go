@@ -35,7 +35,7 @@ func TestConnectorOAuthToolCallsUseCurrentCredentials(t *testing.T) {
 	dir := filepath.Join(root, "demo")
 	os.MkdirAll(dir, 0o755)
 	for name, value := range map[string]any{
-		"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "oauth", "oauth": map[string]any{"discovery": true}},
+		"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "mcp"},
 		"mcp.json":       map[string]any{"mcpServers": map[string]any{"main": map[string]any{"type": "streamableHttp", "url": server.URL}}},
 	} {
 		data, _ := json.Marshal(value)

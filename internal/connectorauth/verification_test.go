@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -14,7 +13,7 @@ import (
 
 func TestOfflineTokenCandidatePreservesActiveCredentialsAndListsLocally(t *testing.T) {
 	sources := connector.Sources{ExternalRoot: t.TempDir(), StateRoot: t.TempDir()}
-	writeAuthPackage(t, sources.ExternalRoot, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "token", "token_schema": map[string]any{"fields": []map[string]any{{"key": "KEY", "required": true}}}}, map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp"})
+	writeAuthPackage(t, sources.ExternalRoot, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "token", "tokenSchema": map[string]any{"fields": []map[string]any{{"key": "KEY", "required": true}}}}, map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp"})
 	var calls atomic.Int32
 	var offline atomic.Bool
 	m := New(t.Context(), sources, nil).WithCredentialValidator(func(context.Context, connector.Package, map[string]string) error {
@@ -88,26 +87,39 @@ func TestFirstOfflineTokenCanBeSavedWithoutBecomingAuthorized(t *testing.T) {
 	sources := connector.Sources{ExternalRoot: t.TempDir(), StateRoot: t.TempDir()}
 	m := New(t.Context(), sources, nil)
 	root := sources.ExternalRoot
-	writeAuthPackage(t, root, "remote", map[string]any{"id": "remote", "name": "Remote", "version": "1.0.0", "type": "mcp", "auth_mode": "token", "token_schema": map[string]any{"fields": []map[string]any{{"key": "KEY", "required": true}}}}, map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp"})
+	writeAuthPackage(t, root, "remote", map[string]any{"id": "remote", "name": "Remote", "version": "1.0.0", "type": "mcp", "authMode": "token", "tokenSchema": map[string]any{"fields": []map[string]any{{"key": "KEY", "required": true}}}}, map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp"})
 	m.WithCredentialValidator(func(context.Context, connector.Package, map[string]string) error { return errors.New("offline") })
 	got, err := m.SetToken(t.Context(), "remote", map[string]string{"KEY": "candidate"})
 	if err != nil || got.Status != "pending_verification" {
 		t.Fatal(got, err)
 	}
 	c, err := m.Connection(t.Context(), "remote")
-	if err != nil || c.Authentication.Status != "pending_verification" || c.Readiness == "ready" {
+	if err != nil || c.Configured || c.Authentication.Status != "pending_verification" || c.Readiness == "ready" {
 		t.Fatal(c, err)
 	}
+	pkg, err := sources.Load("remote")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ready, err := TokenValues(pkg); err != nil || ready {
+		t.Fatal("unverified first candidate became active", err)
+	}
+	m.WithCredentialValidator(acceptTokenForPersistenceTest)
+	if checked, err := m.Check(t.Context(), "remote", ""); err != nil || checked.Status != "authorized" {
+		t.Fatal("candidate could not be checked later", checked, err)
+	}
+	if c, err := m.Connection(t.Context(), "remote"); err != nil || !c.Configured || c.Authentication.Status != "authorized" {
+		t.Fatal("accepted candidate did not establish binding", c, err)
+	}
 }
-func TestLegacyCLILogoutDoesNotDeleteConfiguration(t *testing.T) {
+func TestEmptyCLIUnAuthKeepsConfiguration(t *testing.T) {
 	m, pkg := tokenCLIFixture(t, false)
-	pkg.CLI["platform"] = map[string]any{"command": "demo", "configEnv": "DEMO_CONFIG_DIR", "logoutMode": "delete-config"}
+	pkg.CLI["unAuth"] = osCommands("")
 	dir, _ := pkg.ConnectorStateDir()
 	file := filepath.Join(dir, "config", "settings")
 	os.MkdirAll(filepath.Dir(file), 0700)
 	os.WriteFile(file, []byte("keep"), 0600)
-	err := m.logoutCLI(t.Context(), pkg)
-	if err == nil || !strings.Contains(err.Error(), "reset configuration separately") {
+	if err := m.logoutCLI(t.Context(), pkg); err != nil {
 		t.Fatal(err)
 	}
 	if data, err := os.ReadFile(file); err != nil || string(data) != "keep" {

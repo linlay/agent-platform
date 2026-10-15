@@ -1,6 +1,6 @@
 ---
 name: web-control
-description: "Open webpages and file previews in the current Chat's WorkPanel and inspect or operate authorized webpages: navigation, screenshots, website AWCP actions, scripts, input and CDP."
+description: "Open webpages and file previews in the current Chat's WorkPanel and inspect or operate authorized webpages: navigation, website AWCP actions, scripts, input, CDP and screenshots."
 version: 1.0.0
 ---
 
@@ -11,7 +11,7 @@ The tools are grouped by what they act on:
 | Group | Tools | Acts on | Reference |
 | --- | --- | --- | --- |
 | WorkPanel | `workpanel_state`, `workpanel_open`, `workpanel_close` | The current Chat's panel and what is open in it | [WorkPanel](references/workpanel.md) |
-| Surface | `surface_list`, `surface_state`, `surface_navigate`, `surface_activate`, `surface_close`, `surface_screenshot`, `surface_evaluate`, `surface_click`, `surface_element`, `surface_cdp` | One live webpage | [Surface tools](references/surface.md) |
+| Surface | `surface_list`, `surface_state`, `surface_navigate`, `surface_activate`, `surface_close`, `surface_screenshot`, `surface_evaluate`, `surface_click`, `surface_element`, `surface_login`, `surface_cdp` | One live webpage | [Surface tools](references/surface.md) |
 | AWCP | `awcp_manual`, `awcp_invoke` | The business interface a website publishes | [AWCP](references/awcp.md) |
 
 Tool definitions only name a capability. Read the reference for a tool before calling it; arguments, types, constraints and examples live there, not in the tool schema. This file covers how the tools fit together.
@@ -58,15 +58,25 @@ Any authorized HTTP(S) webpage may publish an AWCP manual. Before reading page c
 3. `awcp_invoke` with the same `revision`, the section as `action`, and `args` built from that inputSchema.
 4. Only `awcp_protocol_unavailable`, or a valid directory without a matching section, permits `surface_evaluate`, `surface_click`, `surface_element` or `surface_cdp` for that task. Permission failures, unsupported versions, malformed contracts and unknown outcomes are not absence of AWCP.
 
-Keep the same surfaceId throughout and reuse a manual for the same page and Run; do not probe before every action. Navigation, page replacement or a stale revision requires reading the directory again. Never reuse a manual across Runs. Opening pages, navigation, closing and screenshots do not require a manual. Read [AWCP](references/awcp.md) for results and recovery.
+Keep the same surfaceId throughout and reuse a manual for the same page and Run; do not probe before every action. Navigation, page replacement or a stale revision requires reading the directory again. Never reuse a manual across Runs. Opening pages, navigation and closing do not require a manual. Read [AWCP](references/awcp.md) for results and recovery.
+
+## Text first, screenshots last
+
+A screenshot costs a capture, an upload and image recognition, and returns less exact data than text. Read page state as text:
+
+- AWCP page: the structured result of the action, or a read-only section the site publishes. That result is the verification.
+- Title, URL and load state: `surface_state`.
+- Without AWCP: text, field values, dialogs, errors and element positions through a read-only `surface_evaluate`; the effect of a click through `surface_click` with `waitFor`.
+
+Do not take a screenshot to verify a fill, click, navigation, upload or submit, to find selectors or coordinates, to check that a dialog opened or closed, or to diagnose an AWCP or tool error. Take one only when the user asks to see the page, the question is about appearance itself (layout or rendering defects, canvas, image or chart content, a visual check the user must pass), or text reads have been tried and cannot explain what the user reports seeing. One capture answers one question; if it does not, return to text reads rather than capturing again.
 
 ## Reading and operating without AWCP
 
-- `surface_screenshot` saves the image to the current Chat and returns a `referenceName`; inspect it with `vision_recognize`. Do not repeat image data in conversation or files.
 - `surface_evaluate` returns the script value. Use a synchronous IIFE for synchronous reads. `exceptionDetails` is a script failure even though the call itself succeeded. Use `expressionFile` only for a script too large to pass inline.
 - `surface_click` sends real input events by selector or coordinates. Without `waitFor`, success proves delivery, not business completion. Do not replay a click whose outcome is unknown.
 - `surface_element` fills, selects, focuses or scrolls one element by selector.
 - `surface_cdp` is the last resort for DOM, low-level input and network methods that have no dedicated tool. Use native JSON types.
+- `surface_screenshot` saves the image to the current Chat and returns a `referenceName`; inspect it with `vision_recognize`. Use it only as described above. Do not repeat image data in conversation or files.
 
 After any mutation, read back the expected state; dispatching an event does not prove success. Read selectors and coordinates from the page instead of guessing. For Ant Design forms see [Ant Design form fill](references/ant-design-form-fill.md).
 

@@ -136,7 +136,7 @@ func TestDiscoveryFallsBackToRootMetadata(t *testing.T) {
 
 func TestTokenEnvironmentReadsLatestValueAndPreservesSources(t *testing.T) {
 	root := t.TempDir()
-	writeAuthPackage(t, root, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "token", "token_schema": map[string]any{"fields": []map[string]any{{"key": "API_KEY", "required": true}}}}, map[string]any{"type": "http", "url": "https://example.com/mcp"})
+	writeAuthPackage(t, root, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "token", "tokenSchema": map[string]any{"fields": []map[string]any{{"key": "API_KEY", "required": true}}}}, map[string]any{"type": "streamableHttp", "url": "https://example.com/mcp"})
 	sources := connector.Sources{ExternalRoot: root}
 	m := New(t.Context(), sources, nil).WithCredentialValidator(acceptTokenForPersistenceTest)
 	pkg, err := sources.Load("demo")
@@ -167,11 +167,10 @@ func TestTokenEnvironmentReadsLatestValueAndPreservesSources(t *testing.T) {
 	}
 }
 
-func TestComponentAuthorizationAndLateLoginAfterLogout(t *testing.T) {
+func TestLateOAuthLoginAfterLogoutDoesNotRestoreCredentials(t *testing.T) {
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.ParseForm()
 		if r.Form.Get("code") == "late" {
 			started <- struct{}{}
@@ -188,11 +187,10 @@ func TestComponentAuthorizationAndLateLoginAfterLogout(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "demo")
 	os.MkdirAll(dir, 0755)
-	settings := func(name string) map[string]any {
-		return map[string]any{"client_id": "test", "authorization_endpoint": server.URL + "/authorize", "token_endpoint": server.URL + "/token", "resource": server.URL + "/" + name}
-	}
-	manifest := map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "oauth", "oauth": settings("a"), "auth_bindings": map[string]any{"mcp:b": map[string]any{"oauth": settings("b")}}}
-	for name, value := range map[string]any{"connector.json": manifest, "mcp.json": map[string]any{"mcpServers": map[string]any{"a": map[string]any{"type": "http", "url": server.URL + "/a"}, "b": map[string]any{"type": "http", "url": server.URL + "/b"}}}} {
+	resource := server.URL + "/a"
+	manifest := map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "oauth",
+		"oauth": map[string]any{"clientId": "test", "authorizationEndpoint": server.URL + "/authorize", "tokenEndpoint": server.URL + "/token", "resource": resource}}
+	for name, value := range map[string]any{"connector.json": manifest, "mcp.json": map[string]any{"mcpServers": map[string]any{"a": map[string]any{"type": "streamableHttp", "url": resource}}}} {
 		data, _ := json.Marshal(value)
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0644); err != nil {
 			t.Fatal(err)
@@ -200,9 +198,6 @@ func TestComponentAuthorizationAndLateLoginAfterLogout(t *testing.T) {
 	}
 	sources := connector.Sources{ExternalRoot: root}
 	m := New(t.Context(), sources, nil).WithCredentialValidator(acceptTokenForPersistenceTest)
-	if _, err := m.Start("demo"); err == nil {
-		t.Fatal("ambiguous component accepted")
-	}
 	callback := func(code string) {
 		s := waitStatus(t, m, "demo", "pending")
 		u, _ := url.Parse(s.URL)
@@ -212,31 +207,16 @@ func TestComponentAuthorizationAndLateLoginAfterLogout(t *testing.T) {
 		}
 		response.Body.Close()
 	}
-	for _, name := range []string{"a", "b"} {
-		if _, err := m.StartComponent("demo", name); err != nil {
-			t.Fatal(err)
-		}
-		callback(name)
-		deadline := time.Now().Add(3 * time.Second)
-		for time.Now().Before(deadline) {
-			status, err := m.StatusComponent(t.Context(), "demo", name)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if status.Status == "authorized" {
-				break
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-		value, err := AccessToken(t.Context(), sources.PersistentRoot(), "demo", server.URL+"/"+name, nil, server.URL+"/"+name)
-		if err != nil || value != name {
-			t.Fatal("wrong component grant", err)
-		}
+	if _, err := m.StartComponent("demo", "a"); err != nil {
+		t.Fatal(err)
 	}
-	for _, name := range []string{"a", "b"} {
-		if !CredentialReady(sources.PersistentRoot(), "demo", server.URL+"/"+name, server.URL+"/"+name) {
-			t.Fatal("other grant lost")
-		}
+	callback("first")
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && !CredentialReady(sources.PersistentRoot(), "demo", resource, resource) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if value, err := AccessToken(t.Context(), sources.PersistentRoot(), "demo", resource, nil, resource); err != nil || value != "first" {
+		t.Fatal("first login did not store its grant", err)
 	}
 	if _, err := m.StartComponent("demo", "a"); err != nil {
 		t.Fatal(err)
@@ -253,7 +233,7 @@ func TestComponentAuthorizationAndLateLoginAfterLogout(t *testing.T) {
 		t.Fatal(err)
 	}
 	close(release)
-	deadline := time.Now().Add(3 * time.Second)
+	deadline = time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		status, _ := m.StatusComponent(t.Context(), "demo", "a")
 		if status.Status == "failed" {
@@ -261,7 +241,7 @@ func TestComponentAuthorizationAndLateLoginAfterLogout(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if CredentialReady(sources.PersistentRoot(), "demo", server.URL+"/a") {
+	if CredentialReady(sources.PersistentRoot(), "demo", resource) {
 		t.Fatal("late login recreated credentials")
 	}
 }

@@ -23,7 +23,7 @@ func TestSourcesReserveBuiltinsAndIgnoreLegacyRuntimeCopies(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, data := range map[string]string{
-		"connector.json": `{"id":"remote","name":"Remote","version":"1.0.0","type":"cli","auth_mode":"none"}`,
+		"connector.json": `{"id":"remote","name":"Remote","version":"1.0.0","type":"cli","authMode":"self"}`,
 		"cli.json":       `{}`,
 	} {
 		if err := os.WriteFile(filepath.Join(external, "remote", name), []byte(data), 0o644); err != nil {

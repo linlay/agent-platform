@@ -67,6 +67,8 @@ type AgentDefinition struct {
 	ConnectorMCPServers  []string
 	ConnectorCLIEntries  []connector.CLIEntry
 	ConnectorBinDirs     []string
+	// ConnectorInstalls are the active private installations of mounted CLIs.
+	ConnectorInstalls    []ConnectorInstall
 	ConnectorEnv         map[string]string
 	ConnectorCredentials []connector.CredentialEnvironment
 	ConnectorNativeTools []string
@@ -841,6 +843,7 @@ func cloneAgentDefinitionSnapshot(src AgentDefinition) AgentDefinition {
 	dst.Connectors = append([]string(nil), src.Connectors...)
 	dst.ConnectorMCPServers = append([]string(nil), src.ConnectorMCPServers...)
 	dst.ConnectorBinDirs = append([]string(nil), src.ConnectorBinDirs...)
+	dst.ConnectorInstalls = append([]ConnectorInstall(nil), src.ConnectorInstalls...)
 	dst.ConnectorEnv = make(map[string]string, len(src.ConnectorEnv))
 	dst.ConnectorCredentials = append([]connector.CredentialEnvironment(nil), src.ConnectorCredentials...)
 	for i := range dst.ConnectorCredentials {

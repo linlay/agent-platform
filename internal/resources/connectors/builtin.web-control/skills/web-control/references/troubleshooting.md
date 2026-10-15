@@ -9,7 +9,7 @@
 - `web_action_unavailable`: a host action could not be routed. This does not mean the page is read-only; rediscover the page and use the other surface tools.
 - `desktop_cdp_unsupported_runtime`: the surface and AWCP tools require the Desktop runtime. Only the WorkPanel tools work without it.
 - `exceptionDetails` from `surface_evaluate`: a script failure. Inspect the details and the current page state. A script's return value is not a host execution status.
-- Timeout or cancellation after a mutation: side effects may have happened. Verify state before a deliberate retry.
+- Timeout or cancellation after a mutation: side effects may have happened. Verify state with a text read (AWCP read section, `surface_state` or a read-only `surface_evaluate`), not a screenshot, before a deliberate retry.
 
 ## AWCP
 

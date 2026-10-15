@@ -5,11 +5,33 @@ import (
 	"agent-platform/internal/hitl"
 )
 
+func (s *llmRunStream) prepareToolApprovalInput(invocation *preparedToolInvocation) {
+	if invocation == nil || invocation.toolApprovalInputChecked {
+		return
+	}
+	invocation.toolApprovalInputChecked = true
+	if s.engine == nil || s.execCtx == nil {
+		return
+	}
+	planner, ok := s.engine.tools.(ToolApprovalInputPlanner)
+	if !ok {
+		return
+	}
+	execution := *s.execCtx
+	execution.CurrentToolID, execution.CurrentToolName = invocation.toolID, invocation.toolName
+	invocation.toolApprovalInputPath, invocation.toolApprovalInputErr = planner.ToolApprovalInputPath(invocation.toolName, invocation.args, &execution)
+}
+
 func (s *llmRunStream) prepareToolApproval(invocation *preparedToolInvocation) {
 	if invocation == nil || invocation.toolApprovalChecked {
 		return
 	}
 	invocation.toolApprovalChecked = true
+	s.prepareToolApprovalInput(invocation)
+	if invocation.toolApprovalInputErr != nil {
+		invocation.toolApprovalErr = invocation.toolApprovalInputErr
+		return
+	}
 	if s.engine == nil || s.execCtx == nil {
 		return
 	}

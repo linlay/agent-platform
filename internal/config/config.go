@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -90,6 +89,9 @@ func ParseRuntimeMode(value string) (RuntimeMode, error) {
 
 type ServerConfig struct {
 	Port string
+	// PublicBaseURL is the externally visible origin. When set, it replaces
+	// the request Host and X-Forwarded-* headers wherever a base URL is built.
+	PublicBaseURL string
 }
 
 type PathsConfig struct {
@@ -182,6 +184,7 @@ type PromptsConfig struct {
 	ToolAppendix ToolAppendixPromptsConfig
 	PlanExecute  PlanExecutePromptsConfig
 	BTW          BTWPromptsConfig
+	Automation   AutomationPromptsConfig
 	PlanningMode PlanningModePromptsConfig
 }
 
@@ -220,6 +223,13 @@ type PlanExecutePromptsConfig struct {
 type BTWPromptsConfig struct {
 	UserPromptTemplate string
 	FinalAnswerPrompt  string
+}
+
+// AutomationPromptsConfig wraps the task message of a Run started by an
+// automation. It is a user-level instruction and never contributes to the
+// system-init cache key.
+type AutomationPromptsConfig struct {
+	UserPromptTemplate string
 }
 
 type CoderPromptsConfig struct {
@@ -431,6 +441,12 @@ type AuthConfig struct {
 	Issuer             string
 	JWKSCacheSeconds   int
 	LocalPublicKeyFile string
+	// Audience, when set, must appear in the token's aud claim.
+	Audience string
+	// AllowedSubjects, when non-empty, lists the only subjects this instance accepts.
+	AllowedSubjects []string
+	// RequireExpiry rejects tokens without a valid exp claim.
+	RequireExpiry bool
 }
 
 type ResourceTicketConfig struct {
@@ -655,9 +671,6 @@ const (
 )
 
 func Load(optionValues ...LoadOptions) (Config, error) {
-	if _, exists := os.LookupEnv("AP_RUNTIME_KBASE_DIR"); exists {
-		return Config{}, fmt.Errorf("AP_RUNTIME_KBASE_DIR was removed; use kbases/<id>/library.yml and ru-kbases/<id>")
-	}
 	options := LoadOptions{}
 	if len(optionValues) > 0 {
 		options = optionValues[0]

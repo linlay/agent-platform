@@ -64,7 +64,8 @@ func mcpContentModelText(blocks []any) string {
 	for _, block := range blocks {
 		content, ok := block.(map[string]any)
 		if ok && strings.EqualFold(AnyStringNode(content["type"]), "text") {
-			parts = append(parts, AnyStringNode(content["text"]))
+			text, _ := content["text"].(string)
+			parts = append(parts, text)
 			continue
 		}
 		if ok {

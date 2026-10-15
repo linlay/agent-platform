@@ -21,7 +21,7 @@ func desktopControlReviewAction(tool, action string) bool {
 	switch action {
 	case "theme.set", "locale.set", "skin.import", "skin.set", "skin.remove",
 		"pet.show", "pet.hide", "pet.set", "pet.import", "copilot.setPagePreference",
-		"website.add", "website.update", "website.remove",
+		"site.setPinned", "website.add", "website.update", "website.remove",
 		"kanban.createIssue", "kanban.updateIssue", "kanban.deleteIssue", "kanban.moveIssue",
 		"webapp.start", "webapp.stop", "webapp.restart", "webapp.open", "webapp.updatePreferences", "webapp.unpublish",
 		"web.exportArtifact", "runtime.diagnostics":
@@ -55,6 +55,7 @@ func (t *RuntimeToolExecutor) PrepareToolApproval(ctx context.Context, tool stri
 	if err := toolinput.Validate(args, map[string]string{"action": "s!", "args": "o"}, ""); err != nil {
 		return nil, err
 	}
+	normalizeDesktopControlBooleans(tool, action, args)
 	params, _ := args["args"].(map[string]any)
 	for _, key := range desktopActionReservedArgFields {
 		if _, exists := params[key]; exists {

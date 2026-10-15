@@ -32,6 +32,12 @@ type BuildOptions struct {
 	RequestID          string
 	AgentKey           string
 
+	// AutomationID comes from the trusted chat source of the request, never from
+	// the request role. With a configured template the task message is wrapped
+	// as one execution of that automation.
+	AutomationID                 string
+	AutomationUserPromptTemplate string
+
 	Role     string
 	Scene    *api.Scene
 	Now      time.Time
@@ -43,6 +49,9 @@ func BuildMessagesWithOptions(chatsDir string, chatID string, role string, text 
 		text = EmptyQueryContinuation
 	}
 	providerRole, providerText := api.ProviderSafeQueryMessage(role, text)
+	if wrapped, ok := automationUserMessage(options, text); ok {
+		providerRole, providerText = api.QueryRoleUser, wrapped
+	}
 	options.Role = providerRole
 	options.AdvancedUserPrompt = options.AdvancedUserPrompt && providerRole == api.QueryRoleUser
 	content := BuildContentWithOptions(chatsDir, chatID, providerText, references, isVision, logMedia, options)
@@ -50,6 +59,37 @@ func BuildMessagesWithOptions(chatsDir string, chatID string, role string, text 
 		"role":    providerRole,
 		"content": content,
 	}}
+}
+
+const (
+	automationMessagePlaceholder = "{{message}}"
+	automationIDPlaceholder      = "{{automation_id}}"
+)
+
+// AutomationIDFromChatSource returns the automation that started a request, or
+// "" for any other source.
+func AutomationIDFromChatSource(source string) string {
+	id, ok := strings.CutPrefix(strings.TrimSpace(source), api.ChatSourceAutomationPrefix)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(id)
+}
+
+// automationUserMessage has no source prompt: without a configured template an
+// automation Run keeps the plain role-based message.
+func automationUserMessage(options BuildOptions, message string) (string, bool) {
+	id := strings.TrimSpace(options.AutomationID)
+	template := strings.TrimSpace(options.AutomationUserPromptTemplate)
+	if id == "" || template == "" {
+		return "", false
+	}
+	message = strings.TrimSpace(message)
+	template = strings.ReplaceAll(template, automationIDPlaceholder, id)
+	if !strings.Contains(template, automationMessagePlaceholder) {
+		return template + "\n\n" + message, true
+	}
+	return strings.ReplaceAll(template, automationMessagePlaceholder, message), true
 }
 
 func BuildContentWithOptions(chatsDir string, chatID string, text string, references []api.Reference, isVision bool, logMedia bool, options BuildOptions) any {

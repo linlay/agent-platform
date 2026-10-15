@@ -28,6 +28,19 @@ type PreparedArchive struct {
 	keepStage              bool
 }
 
+// Package describes the validated candidate; its directory remains unpublished.
+func (p *PreparedArchive) Package() Package { return p.pkg }
+
+// ArchiveMutationError preserves the publication outcome for callers that must
+// distinguish a rejected import from a rollback or an uncertain filesystem move.
+type ArchiveMutationError struct {
+	State string
+	Err   error
+}
+
+func (e *ArchiveMutationError) Error() string { return e.Err.Error() }
+func (e *ArchiveMutationError) Unwrap() error { return e.Err }
+
 func (p *PreparedArchive) Close() {
 	if !p.keepStage {
 		_ = os.RemoveAll(p.stage)
@@ -231,8 +244,31 @@ func PrepareArchive(ctx context.Context, sources Sources, source io.ReaderAt, si
 	return &PreparedArchive{sources: sources, root: root, stage: stage, candidate: candidate, pkg: pkg}, nil
 }
 
+func (p *PreparedArchive) Validate(validate func([]Package) error) error {
+	installed, err := p.sources.loadAllExcept(p.pkg.ID)
+	if err != nil {
+		return err
+	}
+	if validate != nil {
+		return validate(append(installed, p.pkg))
+	}
+	return nil
+}
+
 func (p *PreparedArchive) Publish(ctx context.Context, overwrite bool, validate func([]Package) error, reload func() error) (Package, error) {
-	sources, root, stage, candidate, pkg := p.sources, p.root, p.stage, p.candidate, p.pkg
+	return p.PublishConditional(ctx, overwrite, nil, validate, reload)
+}
+
+// PublishConditional checks the reviewed baseline under the same operation lock
+// as HTTP imports, edits, deletion and CLI preparation, immediately before moves.
+func (p *PreparedArchive) PublishConditional(ctx context.Context, overwrite bool, check func() error, validate func([]Package) error, reload func() error) (out Package, err error) {
+	state := "not_started"
+	defer func() {
+		if err != nil {
+			err = &ArchiveMutationError{State: state, Err: err}
+		}
+	}()
+	root, stage, candidate, pkg := p.root, p.stage, p.candidate, p.pkg
 	mutationMu.Lock()
 	defer mutationMu.Unlock()
 	release, err := AcquireOperation(root, pkg.ID)
@@ -243,21 +279,8 @@ func (p *PreparedArchive) Publish(ctx context.Context, overwrite bool, validate 
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return Package{}, err
 	}
-	installed, err := sources.loadAllExcept(pkg.ID)
-	if err != nil {
+	if err := p.Validate(validate); err != nil {
 		return Package{}, err
-	}
-	var all []Package
-	for _, old := range installed {
-		if old.ID != pkg.ID {
-			all = append(all, old)
-		}
-	}
-	all = append(all, pkg)
-	if validate != nil {
-		if err := validate(all); err != nil {
-			return Package{}, err
-		}
 	}
 	target := filepath.Join(root, pkg.ID)
 	backup := filepath.Join(stage, "previous")
@@ -276,10 +299,16 @@ func (p *PreparedArchive) Publish(ctx context.Context, overwrite bool, validate 
 	if err := ctx.Err(); err != nil {
 		return Package{}, err
 	}
+	if check != nil {
+		if err := check(); err != nil {
+			return Package{}, err
+		}
+	}
 	if hadPrevious {
 		if err := renameArchiveDirectory(ctx, "backup_previous", target, backup); err != nil {
 			return Package{}, err
 		}
+		state = "unknown"
 	}
 	if err := renameArchiveDirectory(ctx, "publish", candidate, target); err != nil {
 		if hadPrevious {
@@ -288,8 +317,10 @@ func (p *PreparedArchive) Publish(ctx context.Context, overwrite bool, validate 
 				return Package{}, fmt.Errorf("install: %w; backup retained at %s: %w", err, backup, restoreErr)
 			}
 		}
+		state = "rolled_back"
 		return Package{}, err
 	}
+	state = "unknown"
 	if reload != nil {
 		err = reload()
 	}
@@ -309,8 +340,10 @@ func (p *PreparedArchive) Publish(ctx context.Context, overwrite bool, validate 
 				return Package{}, fmt.Errorf("reload: %v; reload restored catalog: %w", err, restoreErr)
 			}
 		}
+		state = "rolled_back"
 		return Package{}, err
 	}
+	state = "committed"
 	return Load(root, pkg.ID)
 }
 

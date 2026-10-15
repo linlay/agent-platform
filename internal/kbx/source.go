@@ -13,8 +13,8 @@ func (m *Manager) ReadBound(_ string, libraryID string, options knowledge.ReadOp
 	return m.readLibrary(libraryID, options)
 }
 
-// The legacy method name is retained for the Chat API port. Agent binding is
-// not an authorization source: the caller verifies Chat access and publication.
+// Agent binding is not an authorization source: the caller verifies Chat
+// access and publication.
 // OpenBoundSource opens a published document in the selected library, never an
 // arbitrary host path. os.Root enforces the source boundary while opening links.
 func (m *Manager) OpenBoundSource(_ string, libraryID, p string) (*os.File, error) {

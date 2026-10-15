@@ -78,7 +78,7 @@ func (s Sources) InstallShared(pkg Package) (Package, error) {
 				return Package{}, fmt.Errorf("shared connector integrity validation failed: %s", pkg.ID)
 			}
 			mounted, err := LoadDirectory(dest, pkg.ID)
-			mounted.Builtin, mounted.StateRoot = pkg.Builtin, s.PersistentRoot()
+			mounted.Builtin, mounted.StateRoot, mounted.InstallRoot = pkg.Builtin, s.PersistentRoot(), s.InstallRoot()
 			return mounted, err
 		} else if !os.IsNotExist(err) {
 			return Package{}, err
@@ -122,7 +122,7 @@ func (s Sources) InstallShared(pkg Package) (Package, error) {
 		return Package{}, err
 	}
 	mounted, err := LoadDirectory(dest, pkg.ID)
-	mounted.Builtin, mounted.StateRoot = pkg.Builtin, s.PersistentRoot()
+	mounted.Builtin, mounted.StateRoot, mounted.InstallRoot = pkg.Builtin, s.PersistentRoot(), s.InstallRoot()
 	return mounted, err
 }
 

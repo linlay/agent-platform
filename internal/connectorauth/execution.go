@@ -3,10 +3,8 @@ package connectorauth
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 
@@ -23,13 +21,28 @@ func ExecutionCommand(ctx context.Context, pkg connector.Package, args, env []st
 	if err != nil {
 		return nil, err
 	}
-	lookup := env
-	if pkg.BinDir != "" {
-		lookup = hostenv.Set(env, "PATH", pkg.BinDir)
+	if settings.Command == "" {
+		return nil, fmt.Errorf("connector CLI declares no managed executable")
 	}
-	entry, err := hostenv.LookPath(settings.Command, lookup)
-	if err != nil {
-		return nil, err
+	var entry string
+	if pkg.Builtin {
+		// Builtin packages are verified bundles that are never prepared.
+		if entry, err = hostenv.LookPath(settings.Command, hostenv.Set(env, "PATH", pkg.BinDir)); err != nil {
+			return nil, err
+		}
+	} else {
+		installation, err := connector.ReadInstallation(pkg.InstallRoot, pkg.ID)
+		if err != nil {
+			return nil, fmt.Errorf("CLI is not prepared; prepare the connector first")
+		}
+		if bin := installation.Bin(); bin != "" {
+			env = connector.WithPath(env, []string{bin})
+		}
+		// Run exactly the executable preparation verified, not a PATH lookup.
+		entry = installation.Executable
+		if hash, err := connector.CLIFileHash(entry); err != nil || hash != installation.ExecutableSHA256 {
+			return nil, fmt.Errorf("CLI executable changed or is missing; prepare again")
+		}
 	}
 	entry, err = filepath.EvalSymlinks(entry)
 	if err != nil {
@@ -48,30 +61,19 @@ func ExecutionCommand(ctx context.Context, pkg connector.Package, args, env []st
 	return executionCommand(ctx, entry, args, pkg.Dir, env, runtime.GOOS)
 }
 
+// ExecutionProgramCommand adapts a previously resolved trusted connector entry
+// without adding shell interpretation or choosing an arbitrary caller program.
+func ExecutionProgramCommand(ctx context.Context, entry string, args []string, dir string, env []string) (*exec.Cmd, error) {
+	return executionCommand(ctx, entry, args, dir, env, runtime.GOOS)
+}
+
 func executionCommand(ctx context.Context, entry string, args []string, dir string, env []string, goos string) (*exec.Cmd, error) {
 	ext := strings.ToLower(filepath.Ext(entry))
 	if goos == "windows" && (ext == ".cmd" || ext == ".bat") {
 		// Resolve standard Node shims to their script; never transport user argv via cmd.exe.
-		data, err := os.ReadFile(entry)
-		if err != nil || len(data) > 65536 {
-			return nil, fmt.Errorf("unsupported CLI launcher")
-		}
-		script, err := nodeShimScript(string(data))
+		target, err := connector.WindowsNodeShimTarget(entry)
 		if err != nil {
 			return nil, err
-		}
-		target := filepath.Join(filepath.Dir(entry), filepath.FromSlash(strings.ReplaceAll(script, "\\", "/")))
-		target, err = filepath.EvalSymlinks(target)
-		if err != nil {
-			return nil, err
-		}
-		root, err := filepath.EvalSymlinks(filepath.Dir(entry))
-		if err != nil {
-			return nil, err
-		}
-		rel, err := filepath.Rel(root, target)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return nil, fmt.Errorf("CLI shim escapes installation")
 		}
 		entry = target
 		ext = strings.ToLower(filepath.Ext(entry))
@@ -93,19 +95,6 @@ func executionCommand(ctx context.Context, entry string, args []string, dir stri
 	return cmd, nil
 }
 
-var nodeShimPattern = regexp.MustCompile(`(?i)"%(?:~dp0|dp0%)[\\/]?([^"\r\n]+\.(?:js|cjs|mjs))"`)
-
 func nodeShimScript(data string) (string, error) {
-	matches := nodeShimPattern.FindAllStringSubmatch(data, -1)
-	target := ""
-	for _, m := range matches {
-		if strings.ContainsAny(m[1], "%!\x00") || (target != "" && target != m[1]) {
-			return "", fmt.Errorf("ambiguous CLI shim")
-		}
-		target = m[1]
-	}
-	if target == "" {
-		return "", fmt.Errorf("unsupported CLI shim")
-	}
-	return target, nil
+	return connector.WindowsNodeShimScript(data)
 }

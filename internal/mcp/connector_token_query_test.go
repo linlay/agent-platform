@@ -21,8 +21,9 @@ func TestTokenQueryStaysOutOfRegistryAndReadsCurrentCredentials(t *testing.T) {
 	os.MkdirAll(dir, 0755)
 	endpoint := "https://example.test/mcp?key=${API_KEY}&format=0"
 	for file, value := range map[string]any{
-		"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "token", "token_schema": map[string]any{"fields": []map[string]any{{"key": "API_KEY", "required": true}}}},
-		"mcp.json":       map[string]any{"mcpServers": map[string]any{"main": map[string]any{"type": "streamableHttp", "url": endpoint, "headers": map[string]any{"Authorization": "Bearer ${API_KEY}"}, "staticHeaders": map[string]any{"X-Trace": "public"}}}},
+		"connector.json":    map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "token"},
+		"token-schema.json": map[string]any{"fields": []map[string]any{{"key": "API_KEY", "required": true}}},
+		"mcp.json":          map[string]any{"mcpServers": map[string]any{"main": map[string]any{"type": "streamableHttp", "url": endpoint, "headers": map[string]any{"Authorization": "Bearer ${API_KEY}", "X-Trace": "public"}}}},
 	} {
 		b, _ := json.Marshal(value)
 		if err := os.WriteFile(filepath.Join(dir, file), b, 0644); err != nil {

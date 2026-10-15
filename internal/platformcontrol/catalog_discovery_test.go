@@ -100,7 +100,7 @@ func TestProviderDiscoveryAndPagination(t *testing.T) {
 
 func TestMCPComponentsAreNotConnectors(t *testing.T) {
 	root := t.TempDir()
-	discoveryWrite(t, filepath.Join(root, "demo", "connector.json"), `{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":"no_auth"}`)
+	discoveryWrite(t, filepath.Join(root, "demo", "connector.json"), `{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"none"}`)
 	discoveryWrite(t, filepath.Join(root, "demo", "mcp.json"), `{"mcpServers":{"Main":{"url":"https://secret.invalid","headers":{"X-Key":"secret"}},"local":{"transport":"stdio","command":"secret-command","args":["secret"],"env":{"PASSWORD":"secret"},"enabled":false}}}`)
 	h := NewToolHandler(config.Config{Paths: config.PathsConfig{ConnectorsCenterDir: root, NativePlatformControlDir: "../resources/connectors/builtin.platform-control", NativeWebControlDir: "../resources/connectors/builtin.web-control"}}, nil, nil)
 	v := discoveryQuery(t, h, "list", map[string]any{"resourceType": "mcp"})

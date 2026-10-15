@@ -197,7 +197,7 @@ func TestConnectorUsageDirectoryDistinguishesIdleAndFailedCLIPreparation(t *test
 	if err := connectortest.WriteCLI(dir, "pending-cli", "1.0.0"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "connector.json"), []byte(`{"id":"pending-cli","name":"Pending CLI","version":"1.0.0","type":"cli","auth_mode":null}`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "connector.json"), []byte(`{"id":"pending-cli","name":"Pending CLI","version":"1.0.0","type":"cli","authMode":"self"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	read := func(want string) {
@@ -217,7 +217,7 @@ func TestConnectorUsageDirectoryDistinguishesIdleAndFailedCLIPreparation(t *test
 		t.Fatal("missing CLI option")
 	}
 	read("configuration_required")
-	stateDir, err := connectorauth.StateDir(f.server.connectorSources().PersistentRoot(), "pending-cli")
+	stateDir, err := connector.InstallDir(f.server.connectorSources().InstallRoot(), "pending-cli")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,4 +231,104 @@ func TestConnectorUsageDirectoryDistinguishesIdleAndFailedCLIPreparation(t *test
 		}
 		read("unavailable")
 	}
+}
+
+func TestConnectorUsageDirectoryReportsOnlyPublishedAgentVersion(t *testing.T) {
+	f := connectorUsageFixture(t)
+	registry := f.registry.(*catalog.FileRegistry)
+	old, release, ok := registry.AcquireAgentRuntime("mock-agent")
+	if !ok {
+		t.Fatal("missing runtime")
+	}
+	t.Cleanup(release)
+	oldMount := connectorMountForTest(t, old, "meeting")
+	source := filepath.Join(f.cfg.Paths.EffectiveConnectorsCenterDir(), "meeting", "notes.md")
+	if err := os.WriteFile(source, []byte("new version"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Reload(context.Background(), "agents"); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := registry.AgentDefinition("mock-agent")
+	currentMount := connectorMountForTest(t, current, "meeting")
+	if currentMount.Digest == oldMount.Digest {
+		t.Fatal("package change did not publish a new version")
+	}
+	retained := 0
+	for _, mount := range registry.ConnectorRuntimes() {
+		if mount.AgentKey == "mock-agent" && mount.ID == "meeting" {
+			retained++
+		}
+	}
+	if retained < 2 {
+		t.Fatalf("fixture lacks a retained Run version: %d", retained)
+	}
+	// The retained Run's version is healthy; the current version has not synced yet.
+	f.server.deps.MCPToolSyncStatus = stubMCPToolSyncStatusProvider{statuses: map[string]api.MCPServerToolSyncStatus{
+		connector.AgentVersionServerKey("mock-agent", "meeting", oldMount.Digest): {Status: "ready"},
+	}}
+	for _, path := range []string{"/api/connectors?agentKey=mock-agent", "/api/connectors"} {
+		rec := connectorUsageRequest(f.server, http.MethodGet, path, nil)
+		var body api.ApiResponse[api.ConnectorOptionsResponse]
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("%s: %s (%v)", path, rec.Body.String(), err)
+		}
+		for _, item := range body.Data.Connectors {
+			if item.ID != "meeting" {
+				continue
+			}
+			var statuses []string
+			for _, server := range item.MCP {
+				if server.AgentKey == "mock-agent" {
+					statuses = append(statuses, server.Status)
+				}
+			}
+			if !slices.Equal(statuses, []string{"pending"}) {
+				t.Fatalf("%s reported retained or duplicate versions: %+v", path, item.MCP)
+			}
+		}
+	}
+}
+
+func connectorMountForTest(t *testing.T, def catalog.AgentDefinition, id string) catalog.ConnectorMount {
+	t.Helper()
+	for _, mount := range def.ConnectorMounts {
+		if mount.ID == id {
+			return mount
+		}
+	}
+	t.Fatalf("missing connector mount %s", id)
+	return catalog.ConnectorMount{}
+}
+
+func TestConnectorUsageDirectoryOmitsDisabledMCPComponents(t *testing.T) {
+	f := connectorUsageFixture(t)
+	registry := f.registry.(*catalog.FileRegistry)
+	servers := map[string]any{
+		"main":      map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp"},
+		"secondary": map[string]any{"type": "streamableHttp", "url": "https://example.test/secondary", "disabled": true},
+		"legacy":    map[string]any{"type": "streamableHttp", "url": "https://example.test/legacy", "platform": map[string]any{"enabled": false}},
+	}
+	data, _ := json.Marshal(map[string]any{"mcpServers": servers})
+	if err := os.WriteFile(filepath.Join(f.cfg.Paths.EffectiveConnectorsCenterDir(), "meeting", "mcp.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Reload(context.Background(), "agents"); err != nil {
+		t.Fatal(err)
+	}
+	rec := connectorUsageRequest(f.server, http.MethodGet, "/api/connectors?agentKey=mock-agent", nil)
+	var body api.ApiResponse[api.ConnectorOptionsResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("directory: %s (%v)", rec.Body.String(), err)
+	}
+	for _, item := range body.Data.Connectors {
+		if item.ID != "meeting" {
+			continue
+		}
+		if len(item.MCP) != 1 || item.MCP[0].ServerKey != "meeting" {
+			t.Fatalf("disabled components must not wait for synchronization: %+v", item.MCP)
+		}
+		return
+	}
+	t.Fatal("meeting connector missing")
 }

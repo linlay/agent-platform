@@ -22,11 +22,7 @@ func (s *Server) agentConnectorMCPState(def catalog.AgentDefinition) []api.Agent
 			})
 			continue
 		}
-		for component, config := range pkg.MCP {
-			if !mcp.ConnectorComponentEnabled(config) {
-				continue
-			}
-			sourceKey := connector.ServerKey(mount.ID, component)
+		for _, sourceKey := range mcp.EnabledConnectorServerKeys(pkg) {
 			key := connector.AgentVersionServerKey(def.Key, sourceKey, mount.Digest)
 			if !slices.Contains(def.ConnectorMCPServers, key) {
 				continue

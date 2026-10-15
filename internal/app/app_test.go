@@ -49,7 +49,7 @@ func TestAppStartupIgnoresLegacyRuntimeSourcesAndState(t *testing.T) {
 	if err := os.MkdirAll(oldPackage, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(oldPackage, "connector.json"), []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(oldPackage, "connector.json"), []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"self"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(oldPackage, "cli.json"), []byte(`{}`), 0644); err != nil {
@@ -65,11 +65,7 @@ func TestAppStartupIgnoresLegacyRuntimeSourcesAndState(t *testing.T) {
 	// Conflicting and malformed legacy content must neither block startup nor
 	// overwrite the current package or credentials.
 	files := map[string]string{
-		"ru-kbases/libraries/demo/index.sqlite":             "invalid legacy shared index",
-		"ru-kbases/libraries/demo/state.json":               "invalid legacy shared state",
-		"kbase/demo/index.sqlite":                           "invalid legacy Agent index",
-		"kbase/demo/state.json":                             "invalid legacy Agent state",
-		"connectors-center/demo/connector.json":             `{"id":"demo","name":"Current Demo","version":"2.0.0","type":"cli","auth_mode":"none"}`,
+		"connectors-center/demo/connector.json":             `{"id":"demo","name":"Current Demo","version":"2.0.0","type":"cli","authMode":"self"}`,
 		"connectors-center/demo/cli.json":                   `{}`,
 		".state/connectors/demo/credentials.json":           `{"TOKEN":"current-state"}`,
 		"connectors/invalid/connector.json":                 "invalid legacy manifest",

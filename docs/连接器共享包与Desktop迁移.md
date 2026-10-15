@@ -55,6 +55,7 @@ WorkPanel 条目 ID 和页面容器 ID 只在 Platform 内部使用，不出现�
 | Surface | `surface_screenshot` | PNG 截图，保存到当前 Chat 并返回引用名 |
 | Surface | `surface_evaluate` | 执行脚本并返回值；大脚本用 `expressionFile` |
 | Surface | `surface_click` / `surface_element` | 真实点击；按选择器填写、选择、聚焦、滚动 |
+| Surface | `surface_login` | 列出当前网页所属网站的已保存账号（脱敏），或让 Desktop 把账号密码填入登录表单；密码不进入工具结果 |
 | Surface | `surface_cdp` | 没有专用工具的 CDP 方法（DOM、底层输入、Network） |
 | AWCP | `awcp_manual` / `awcp_invoke` | 读取网站手册目录与章节、调用网站声明的业务动作 |
 

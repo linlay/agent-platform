@@ -12,8 +12,8 @@ import (
 	"agent-platform/internal/rootpaths"
 )
 
-// WorkspaceChatAuditFinding describes one configuration that must be fixed
-// before deploying the strict Workspace/Chat container protocol.
+// WorkspaceChatAuditFinding describes a Workspace/Chat configuration issue
+// or an informational requirement for path-sensitive tools.
 type WorkspaceChatAuditFinding struct {
 	AgentKey   string `json:"agentKey,omitempty"`
 	Code       string `json:"code"`
@@ -64,7 +64,7 @@ func AuditWorkspaceChatConfig(cfg config.Config) ([]WorkspaceChatAuditFinding, e
 
 		def, _, parseErr := parseAgentFileRaw(source.Path)
 		if parseErr != nil {
-			if workspaceChatMigrationError(parseErr.Error()) {
+			if workspaceChatConfigurationError(parseErr.Error()) {
 				findings = append(findings, workspaceChatFinding(key, "invalid_workspace_chat_config", parseErr, source.Path))
 			}
 			continue
@@ -235,11 +235,10 @@ func workspaceChatFinding(agentKey string, code string, err error, sourcePath st
 	}
 }
 
-func workspaceChatMigrationError(message string) bool {
+func workspaceChatConfigurationError(message string) bool {
 	message = strings.ToLower(strings.TrimSpace(message))
 	for _, token := range []string{
 		"runtimeconfig.workspaceroot",
-		"kbaseconfig.source",
 		"container hub sandbox agents",
 	} {
 		if strings.Contains(message, token) {

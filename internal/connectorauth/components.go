@@ -19,23 +19,6 @@ func OAuthComponent(pkg connector.Package, component string) (connector.Package,
 			component = "cli"
 		}
 	}
-	target := "mcp:" + component
-	if component == "cli" {
-		target = "cli"
-	}
-	binding := pkg.AuthBindings[target]
-	if binding.Grant != "" {
-		if target != "cli" {
-			return pkg, fmt.Errorf("only CLI may consume another component grant")
-		}
-		if _, ok := pkg.MCP[binding.Grant]; !ok {
-			return pkg, fmt.Errorf("CLI grant references missing MCP component")
-		}
-		return OAuthComponent(pkg, binding.Grant)
-	}
-	if len(binding.OAuth) > 0 {
-		pkg.OAuth = binding.OAuth
-	}
 	if component == "cli" {
 		if pkg.CLI == nil {
 			return pkg, fmt.Errorf("CLI component not found")

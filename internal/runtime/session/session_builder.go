@@ -30,15 +30,18 @@ import (
 type Options struct {
 	// Recovered runs cannot reconstruct their original in-memory script grants.
 	DisableSkillScriptGrants bool
-	Created                  bool
-	SubTaskID                string
-	Locale                   string
-	IncludeHistory           bool
-	IncludeMemory            bool
-	AllowInvokeAgents        bool
-	Identity                 *contracts.AuthIdentity
-	TeamHistoryAgentKey      string
-	TeamCoordinatorHistory   bool
+	// SkipInteractionPolicy exempts the query's own references from the
+	// user-facing interactionConfig; the frozen snapshot is left unchanged.
+	SkipInteractionPolicy  bool
+	Created                bool
+	SubTaskID              string
+	Locale                 string
+	IncludeHistory         bool
+	IncludeMemory          bool
+	AllowInvokeAgents      bool
+	Identity               *contracts.AuthIdentity
+	TeamHistoryAgentKey    string
+	TeamCoordinatorHistory bool
 }
 
 func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryCommand, summary chat.Summary, agentDef catalog.AgentDefinition, options Options) (contracts.QuerySession, error) {
@@ -234,6 +237,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		SkillIDs:             append([]string(nil), agentDef.EffectiveSkills()...),
 
 		ConnectorBinDirs:            append([]string(nil), agentDef.ConnectorBinDirs...),
+		ConnectorInstallBinDirs:     agentDef.ConnectorInstallBinDirs(),
 		ConnectorEnv:                agentconfig.Merge(agentDef.ConnectorEnv),
 		ConnectorCredentials:        agentDef.ConnectorCredentials,
 		ContextTags:                 append([]string(nil), agentDef.ContextTags...),
@@ -337,13 +341,13 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		// Same-Run recovery revalidates each recorded pointer independently.
 		// Invalid resources remain visible, but receive no restored grant.
 		for _, ref := range req.References {
-			grant, err := s.PrepareRunReferences(ctx, session, agentDef, []queryinput.Reference{ref}, false, false)
+			grant, err := s.PrepareRunReferences(ctx, session, agentDef, []queryinput.Reference{ref}, false, false, options.SkipInteractionPolicy)
 			if err == nil {
 				_ = session.ReferencesScope.Commit(grant)
 			}
 		}
 	} else {
-		grant, err := s.PrepareRunReferences(ctx, session, agentDef, req.References, false, true)
+		grant, err := s.PrepareRunReferences(ctx, session, agentDef, req.References, false, true, options.SkipInteractionPolicy)
 		if err != nil {
 			return contracts.QuerySession{}, err
 		}
@@ -434,6 +438,9 @@ func (s *Builder) BuildCurrentMessages(req runtimetypes.QueryCommand, session co
 		RunID:              session.RunID,
 		RequestID:          session.RequestID,
 		AgentKey:           session.AgentKey,
+
+		AutomationID:                 querymessages.AutomationIDFromChatSource(req.ChatSource),
+		AutomationUserPromptTemplate: s.deps.Config.Prompts.Automation.UserPromptTemplate,
 
 		Scene: req.Scene,
 	})

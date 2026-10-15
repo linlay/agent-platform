@@ -25,6 +25,7 @@ inputSchema:
       enum:
         - "apply"
         - "delete"
+        - "import"
     args:
       type: "object"
       description: "See its skill."

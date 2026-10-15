@@ -27,6 +27,22 @@ type ConnectorMount struct {
 	Digest string
 }
 
+// ConnectorInstall is a mounted CLI's active installation in connector-installs.
+// Programs there are host paths; containers never see them.
+type ConnectorInstall struct {
+	ID     string
+	Prefix string
+}
+
+// ConnectorInstallBinDirs lists the bin directories of active installations.
+func (d AgentDefinition) ConnectorInstallBinDirs() []string {
+	var dirs []string
+	for _, install := range d.ConnectorInstalls {
+		dirs = append(dirs, connector.InstallBin(install.Prefix))
+	}
+	return dirs
+}
+
 func (d AgentDefinition) EffectiveSkills() []string {
 	keys := append([]string(nil), d.Skills...)
 	for _, skill := range d.ConnectorSkills {
@@ -102,6 +118,7 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 	def.ConnectorNativeTools = nil
 	def.ConnectorSkills = nil
 	def.ConnectorBinDirs = nil
+	def.ConnectorInstalls = nil
 	def.ConnectorEnv = map[string]string{}
 	def.ConnectorCredentials = nil
 	credentialNames := map[string]bool{}
@@ -155,13 +172,18 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 		}
 		for key, value := range values {
 			if previous, exists := def.ConnectorEnv[key]; exists && previous != value {
-				return fmt.Errorf("connectors have conflicting configEnv %s", key)
+				return fmt.Errorf("connectors have conflicting cli.json env %s", key)
 			}
 			def.ConnectorEnv[key] = value
 		}
 
 		if pkg.BinDir != "" && (pkg.CLI != nil || len(pkg.MCP) > 0 || len(pkg.Skills) > 0) {
 			def.ConnectorBinDirs = append(def.ConnectorBinDirs, pkg.BinDir)
+		}
+		if pkg.CLI != nil && !pkg.Builtin {
+			if installation, err := connector.ReadInstallation(pkg.InstallRoot, id); err == nil && connector.ActiveInstallBin(pkg.InstallRoot, id) != "" {
+				def.ConnectorInstalls = append(def.ConnectorInstalls, ConnectorInstall{ID: id, Prefix: installation.Prefix})
+			}
 		}
 		def.ConnectorMounts = append(def.ConnectorMounts, ConnectorMount{ID: id, Dir: pkg.Dir, Digest: filepath.Base(pkg.Dir)})
 		for _, component := range pkg.ServerKeys() {
@@ -244,18 +266,44 @@ func (d *AgentDefinition) bindConnectorRuntime() error {
 			d.ConnectorCLIEntries = append(d.ConnectorCLIEntries, entries...)
 		}
 	}
+	for _, install := range d.ConnectorInstalls {
+		entries, err := connector.SnapshotInstalledCLIEntries(install.ID, install.Prefix)
+		if err != nil {
+			return err
+		}
+		d.ConnectorCLIEntries = append(d.ConnectorCLIEntries, entries...)
+	}
 	return nil
 }
 
-func (r *FileRegistry) ConnectorRuntimes() []connector.AgentRuntime {
+// PublishedConnectorRuntimes lists only each Agent's current published mounts.
+// Versions retained by Runs remain in ConnectorRuntimes for routing and GC.
+func (r *FileRegistry) PublishedConnectorRuntimes() []connector.AgentRuntime {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	return r.publishedConnectorRuntimesLocked()
+}
+
+func (r *FileRegistry) publishedConnectorRuntimesLocked() []connector.AgentRuntime {
 	var result []connector.AgentRuntime
 	for _, def := range r.agents {
 		for _, mount := range def.ConnectorMounts {
 			result = append(result, connector.AgentRuntime{AgentKey: def.Key, ID: mount.ID, Dir: mount.Dir, Digest: mount.Digest})
 		}
 	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].AgentKey != result[j].AgentKey {
+			return result[i].AgentKey < result[j].AgentKey
+		}
+		return result[i].ID < result[j].ID
+	})
+	return result
+}
+
+func (r *FileRegistry) ConnectorRuntimes() []connector.AgentRuntime {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := r.publishedConnectorRuntimesLocked()
 	if r.assembler != nil {
 		if pins, err := r.assembler.connectors.PinnedRuntimes(); err == nil {
 			result = append(result, pins...)

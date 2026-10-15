@@ -237,7 +237,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 		"desktop_shell": true, "desktop_settings": true, "desktop_site": true, "desktop_webapp": true, "desktop_service": true, "desktop_market": true, "desktop_kanban": true,
 		"workpanel_state": true, "workpanel_open": true, "workpanel_close": true,
 		"surface_list": true, "surface_state": true, "surface_navigate": true, "surface_activate": true, "surface_close": true,
-		"surface_screenshot": true, "surface_evaluate": true, "surface_click": true, "surface_element": true, "surface_cdp": true,
+		"surface_screenshot": true, "surface_evaluate": true, "surface_click": true, "surface_element": true, "surface_login": true, "surface_cdp": true,
 		"awcp_manual": true, "awcp_invoke": true,
 		"file_edit": true, "file_glob": true, "file_grep": true, "file_read": true, "file_write": true,
 		"finalize_planning": true, "image_generate": true,
@@ -748,7 +748,7 @@ func TestPlatformControlSchemaIsFixedAndSimple(t *testing.T) {
 	if !ok {
 		t.Fatalf("platform_control operation schema = %#v", properties["action"])
 	}
-	if got, want := operation["enum"], []any{"apply", "delete"}; !reflect.DeepEqual(got, want) {
+	if got, want := operation["enum"], []any{"apply", "delete", "import"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("platform_control operation enum = %#v, want %#v", got, want)
 	}
 	if got, want := platformControl.Parameters["required"], []any{"action"}; !reflect.DeepEqual(got, want) {

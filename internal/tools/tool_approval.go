@@ -7,6 +7,22 @@ import (
 	"fmt"
 )
 
+func (r *ToolRouter) ToolApprovalInputPath(tool string, args map[string]any, e *ExecutionContext) (string, error) {
+	planner, ok := r.namedHandler(tool).(ToolApprovalInputPlanner)
+	if !ok {
+		planner, ok = r.runtime.(ToolApprovalInputPlanner)
+		if !ok {
+			return "", nil
+		}
+	}
+	if owner, ok := connector.NativeToolConnector(tool); ok {
+		if e == nil || !e.Session.AllowsTool(tool) || e.Session.NativeConnectorTools[tool] != owner || e.Session.ConnectorDirs[owner] == "" {
+			return "", fmt.Errorf("connector_not_mounted")
+		}
+	}
+	return planner.ToolApprovalInputPath(tool, args, e)
+}
+
 func (r *ToolRouter) PrepareToolApproval(ctx context.Context, tool string, args map[string]any, e *ExecutionContext) (*ToolApproval, error) {
 	planner, ok := r.namedHandler(tool).(ToolApprovalPlanner)
 	if !ok {

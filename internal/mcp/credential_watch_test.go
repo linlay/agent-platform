@@ -28,8 +28,9 @@ func TestHTTPBindingAndCredentialWatcherKeepPackageUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, value := range map[string]any{
-		"connector.json": map[string]any{"id": "docx", "name": "DocX", "version": "1.0.0", "type": "mcp", "auth_mode": "token", "token_schema": map[string]any{"fields": []map[string]any{{"key": "API_KEY", "required": true}}}, "auth_bindings": map[string]any{"mcp:DocX": map[string]any{"headers": map[string]string{"X-API-Key": "${API_KEY}"}}}},
-		"mcp.json":       map[string]any{"mcpServers": map[string]any{"DocX": map[string]any{"type": "http", "url": upstream.URL, "disabled": false}}},
+		"connector.json":    map[string]any{"id": "docx", "name": "DocX", "version": "1.0.0", "type": "mcp", "authMode": "token"},
+		"token-schema.json": map[string]any{"fields": []map[string]any{{"key": "API_KEY", "required": true}}},
+		"mcp.json":          map[string]any{"mcpServers": map[string]any{"DocX": map[string]any{"type": "streamableHttp", "url": upstream.URL, "disabled": false, "headers": map[string]string{"X-API-Key": "${API_KEY}"}}}},
 	} {
 		data, _ := json.Marshal(value)
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0644); err != nil {

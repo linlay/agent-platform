@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/url"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbases"
 	"agent-platform/internal/models"
+	"agent-platform/internal/operationstate"
 	"agent-platform/internal/pathutil"
 )
 
@@ -59,6 +61,7 @@ type ControlPlan struct {
 	exists              bool
 }
 type ControlService struct {
+	importReceipts    operationstate.Receipts[archiveImportReceipt]
 	Reload            func(context.Context, string) error
 	Coordinate        func(context.Context, string, func(context.Context) error) error
 	Mutations         *Service
@@ -67,6 +70,7 @@ type ControlService struct {
 	Models            *models.ModelRegistry
 	ValidateLibrary   func(string) error
 	LibraryDefinition func(string) (kbases.Definition, error)
+	PrepareConnector  func(string) (connectorauth.Preparation, error)
 }
 
 func controlHash(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
@@ -162,6 +166,10 @@ func (s *ControlService) resolve(t ControlTarget) (root, rel string, err error) 
 	return root, rel, nil
 }
 func treeRevision(root string) (string, bool, error) {
+	return treeRevisionWithLimit(root, 64<<20)
+}
+
+func treeRevisionWithLimit(root string, maxBytes int64) (string, bool, error) {
 	if _, err := os.Lstat(root); os.IsNotExist(err) {
 		return "", false, nil
 	} else if err != nil {
@@ -187,16 +195,34 @@ func treeRevision(root string) (string, bool, error) {
 			return e
 		}
 		total += info.Size()
-		if total > 64<<20 {
+		if total > maxBytes {
 			return fmt.Errorf("resource exceeds management size limit")
 		}
-		b, e := os.ReadFile(path)
+		file, e := os.Open(path)
 		if e != nil {
 			return e
 		}
+		defer file.Close()
+		opened, e := file.Stat()
+		if e != nil {
+			return e
+		}
+		if !os.SameFile(info, opened) || opened.Size() != info.Size() || opened.Mode() != info.Mode() {
+			return fmt.Errorf("resource changed while computing revision")
+		}
 		rel, _ := filepath.Rel(root, path)
-		fmt.Fprintf(h, "%s\x00%d\x00%d\x00", filepath.ToSlash(rel), info.Mode().Perm(), len(b))
-		h.Write(b)
+		fmt.Fprintf(h, "%s\x00%d\x00%d\x00", filepath.ToSlash(rel), info.Mode().Perm(), info.Size())
+		count, e := io.Copy(h, io.LimitReader(file, info.Size()+1))
+		if e != nil {
+			return e
+		}
+		after, e := file.Stat()
+		if e != nil {
+			return e
+		}
+		if count != info.Size() || after.Size() != info.Size() || after.Mode() != info.Mode() || !after.ModTime().Equal(opened.ModTime()) {
+			return fmt.Errorf("resource changed while computing revision")
+		}
 		return nil
 	})
 	return hex.EncodeToString(h.Sum(nil)), true, err
@@ -692,6 +718,11 @@ func (s *ControlService) applyLocked(ctx context.Context, c ControlChange, calle
 			return nil, fmt.Errorf("approval_stale: bound library definition or source permissions changed")
 		}
 	}
+	if p.Change.IsProject {
+		if e = s.ValidateProject(p.Change.ControlTarget, p.Change.Content); e != nil {
+			return nil, e
+		}
+	}
 	backup := stage + "-backup"
 	state = "unknown"
 	if p.exists {
@@ -838,8 +869,8 @@ func writeControlSource(path string, data []byte) error {
 	return os.WriteFile(path, data, mode)
 }
 
-// Only the URL creation shortcut supplies this default. Ordinary packages retain
-// their delegated-auth semantics, and an explicitly supplied null is not omitted.
+// Only the URL creation shortcut supplies this default. Ordinary packages must
+// declare authMode explicitly.
 func defaultHTTPMCPAuth(content string) (string, error) {
 	if len(content) > maxControlContent {
 		return "", fmt.Errorf("content exceeds 1 MiB")
@@ -852,20 +883,20 @@ func defaultHTTPMCPAuth(content string) (string, error) {
 		return "", fmt.Errorf("connector manifest must be an object")
 	}
 	for key := range manifest {
-		if key != "auth_mode" && strings.EqualFold(key, "auth_mode") {
-			return "", fmt.Errorf("HTTP MCP creation requires the canonical auth_mode field name")
+		if key != "authMode" && strings.EqualFold(strings.ReplaceAll(key, "_", ""), "authMode") {
+			return "", fmt.Errorf("HTTP MCP creation requires the canonical authMode field name")
 		}
 	}
-	if _, present := manifest["auth_mode"]; present {
+	if _, present := manifest["authMode"]; present {
 		return content, nil
 	}
-	manifest["auth_mode"] = json.RawMessage(`"mcp"`)
+	manifest["authMode"] = json.RawMessage(`"mcp"`)
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	return string(data) + "\n", err
 }
 
 // controlMCPFile creates only the standard HTTP component. Authentication remains
-// in connectorauth: auth_mode=mcp uses protected-resource / authorization-server discovery.
+// in connectorauth: authMode mcp uses protected-resource / authorization-server discovery.
 func controlMCPFile(c ControlChange) (string, error) {
 	u, err := url.Parse(c.MCPURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
@@ -879,9 +910,9 @@ func controlMCPFile(c ControlChange) (string, error) {
 		return "", err
 	}
 	if m.Type != "mcp" || (m.AuthMode != connector.AuthMCP && m.AuthMode != connector.AuthNoAuth) {
-		return "", fmt.Errorf("HTTP MCP creation requires type=mcp and auth_mode=mcp (OAuth discovery) or no_auth; explicit null is unsupported; use the connector package workflow for other authentication modes")
+		return "", fmt.Errorf("HTTP MCP creation requires type mcp and authMode mcp (OAuth discovery) or none; use the connector package workflow for other authentication modes")
 	}
-	components := map[string]map[string]any{"main": {"type": "http", "url": c.MCPURL}}
+	components := map[string]map[string]any{"main": {"type": "streamableHttp", "url": c.MCPURL}}
 	// Match login's local validation before asking the user to approve creation.
 	if err := connectorauth.ValidatePackage(connector.Package{Manifest: m, MCP: components}); err != nil {
 		return "", err

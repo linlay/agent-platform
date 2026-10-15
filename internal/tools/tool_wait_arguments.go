@@ -116,8 +116,8 @@ func parseWaitArguments(args map[string]any, now time.Time) (waitArguments, erro
 		if err = decoder.Decode(&a.conditions); err != nil {
 			return a, err
 		}
-		if len(a.conditions) < 1 || len(a.conditions) > 8 {
-			return a, fmt.Errorf("conditions must contain 1 to 8 events")
+		if len(a.conditions) < 1 || len(a.conditions) > 16 {
+			return a, fmt.Errorf("conditions must contain 1 to 16 events")
 		}
 		for _, c := range a.conditions {
 			valid := false

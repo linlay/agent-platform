@@ -21,7 +21,7 @@ crm-views/
 `connector.json`：
 
 ```json
-{"id":"crm-views","name":"CRM Views","version":"1.0.0","type":"view","auth_mode":"none"}
+{"id":"crm-views","name":"CRM Views","version":"1.0.0","type":"view","authMode":"none"}
 ```
 
 `view.json`：

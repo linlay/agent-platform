@@ -264,3 +264,32 @@ func TestEmptyQueryContinuation(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildMessagesWrapsAutomationExecution(t *testing.T) {
+	template := "[AUTOMATION EXECUTION] {{automation_id}}\nTask:\n{{message}}"
+	build := func(role string, options BuildOptions) map[string]any {
+		return BuildMessagesWithOptions("", "chat-1", role, " report indexes ", nil, false, false, options)[0]
+	}
+
+	wrapped := build(api.QueryRoleAutomation, BuildOptions{
+		AutomationID:                 AutomationIDFromChatSource("automation:daily-market"),
+		AutomationUserPromptTemplate: template,
+	})
+	if wrapped["role"] != api.QueryRoleUser || wrapped["content"] != "[AUTOMATION EXECUTION] daily-market\nTask:\nreport indexes" {
+		t.Fatalf("unexpected wrapped automation message: %#v", wrapped)
+	}
+	// The trigger source decides, so a task saved with role user is wrapped too.
+	if got := build(api.QueryRoleUser, BuildOptions{AutomationID: "daily-market", AutomationUserPromptTemplate: template}); got["content"] != wrapped["content"] {
+		t.Fatalf("expected source-based wrapping for role user, got %#v", got)
+	}
+	// A request role alone is not a trusted trigger.
+	if got := build(api.QueryRoleAutomation, BuildOptions{AutomationID: AutomationIDFromChatSource("query:alice"), AutomationUserPromptTemplate: template}); got["content"] != "[automation request]\nreport indexes" {
+		t.Fatalf("expected role-only automation message to stay unwrapped, got %#v", got)
+	}
+	if got := build(api.QueryRoleAutomation, BuildOptions{AutomationID: "daily-market"}); got["content"] != "[automation request]\nreport indexes" {
+		t.Fatalf("expected no wrapper without a template, got %#v", got)
+	}
+	if got := build(api.QueryRoleAutomation, BuildOptions{AutomationID: "daily-market", AutomationUserPromptTemplate: "Header"}); got["content"] != "Header\n\nreport indexes" {
+		t.Fatalf("expected message appended without placeholder, got %#v", got)
+	}
+}

@@ -28,7 +28,7 @@ type ReferencedError struct{ Agents []string }
 func (e *ReferencedError) Error() string {
 	return "knowledge base is referenced by Agents: " + strings.Join(e.Agents, ", ")
 }
-func ValidID(id string) bool { return id != "libraries" && idPattern.MatchString(id) }
+func ValidID(id string) bool { return idPattern.MatchString(id) }
 func (s *Service) libraryLock(id string) *sync.RWMutex {
 	value, _ := s.locks.LoadOrStore(id, &sync.RWMutex{})
 	return value.(*sync.RWMutex)

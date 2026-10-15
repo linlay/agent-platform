@@ -130,7 +130,7 @@ func TestChatOrderCorruptSidecarFallsBackAndCanBeRebuilt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.SortMode != SortModeManual || state.UpdatedAt != 0 {
+	if state.SortMode != SortModeRecent || state.UpdatedAt != 0 {
 		t.Fatalf("fallback state = %+v", state)
 	}
 	state, err = store.SetChatSortMode(SortModeManual)
@@ -216,7 +216,7 @@ func TestChatOrderManualUsesCreationTimeAcrossActivityAndRestart(t *testing.T) {
 	add("a", base, base+100)
 	add("b", base+1, base+50)
 	add("c", base+1, base+10)
-	check("c", "b", "a")
+	check("a", "b", "c")
 	if _, err := store.SetChatSortMode(SortModeManual); err != nil {
 		t.Fatal(err)
 	}
@@ -252,20 +252,20 @@ func TestChatOrderManualUsesCreationTimeAcrossActivityAndRestart(t *testing.T) {
 	check("f", "e", "d", "c", "a", "b")
 }
 
-func TestChatOrderDefaultManualPreservesExplicitRecentAfterRestart(t *testing.T) {
+func TestChatOrderDefaultRecentPreservesExplicitManualAfterRestart(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewFileStore(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	state, err := store.ChatOrder()
-	if err != nil || state.SortMode != SortModeManual || state.UpdatedAt != 0 {
+	if err != nil || state.SortMode != SortModeRecent || state.UpdatedAt != 0 {
 		t.Fatalf("default state=%+v err=%v", state, err)
 	}
 	if _, err := os.Stat(filepath.Join(root, ChatOrderFileName)); !os.IsNotExist(err) {
 		t.Fatalf("default read should not persist preference: %v", err)
 	}
-	if _, err := store.SetChatSortMode(SortModeRecent); err != nil {
+	if _, err := store.SetChatSortMode(SortModeManual); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -277,7 +277,7 @@ func TestChatOrderDefaultManualPreservesExplicitRecentAfterRestart(t *testing.T)
 	}
 	defer store.Close()
 	state, err = store.ChatOrder()
-	if err != nil || state.SortMode != SortModeRecent || state.UpdatedAt == 0 {
-		t.Fatalf("explicit recent state=%+v err=%v", state, err)
+	if err != nil || state.SortMode != SortModeManual || state.UpdatedAt == 0 {
+		t.Fatalf("explicit manual state=%+v err=%v", state, err)
 	}
 }

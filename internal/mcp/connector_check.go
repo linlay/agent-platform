@@ -60,7 +60,7 @@ func SupportsConnectorCheck(pkg connector.Package, component string) bool {
 		return false
 	}
 	definition := pkg.MCP[component]
-	if definition == nil || (definition["type"] != "http" && definition["type"] != "streamableHttp") {
+	if definition == nil || (definition["type"] != "streamableHttp") {
 		return false
 	}
 	enabled := true

@@ -28,8 +28,11 @@ func (b *Builder) RestoreSteerReferences(session *contracts.QuerySession, def ca
 		if json.Unmarshal(raw, &refs) != nil {
 			continue
 		}
+		// A chat_steer reference was accepted outside the interaction policy.
+		source, _ := event.Payload["source"].(map[string]any)
+		fromAgent := source["type"] == "agent"
 		for _, ref := range refs {
-			grant, err := b.PrepareRunReferences(context.Background(), *session, def, []queryinput.Reference{ref}, false, false)
+			grant, err := b.PrepareRunReferences(context.Background(), *session, def, []queryinput.Reference{ref}, false, false, fromAgent)
 			if err == nil {
 				_ = session.ReferencesScope.Commit(grant)
 			}
