@@ -321,7 +321,7 @@ make docker-up
 - 镜像名默认为 `agent-platform:<VERSION>`，`make docker-up` 会读取根目录 `VERSION` 并注入给 Compose
 - 使用 `env_file: .env`
 - 本地 `make run` 使用 `SERVER_PORT` 作为监听端口
-- 宿主机端口映射为 `${SERVER_PORT}:8080`
+- 宿主机端口映射为 `${SERVER_PORT:-8080}:8080`，未设置或为空时默认使用 `8080`
 - 容器内应用监听端口固定为 `8080`
 - 宿主机 runtime 根目录来自 `${AP_RUNTIME_DIR:-./runtime}`
 - `AP_RUNTIME_REGISTRIES_DIR`、`AP_RUNTIME_CHATS_DIR`、`AP_RUNTIME_MEMORY_DIR`、`AP_RUNTIME_PAN_DIR`、`AP_RUNTIME_STATE_DIR` 可单独覆盖宿主机 bind source；未配置时自然落在 `${AP_RUNTIME_DIR}` 下
