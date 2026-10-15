@@ -134,6 +134,12 @@ run-env:
   max-total-bytes: 32768
   deny-keys: []
 
+# MCP tool mode. When true, mounted MCP connectors' tools are not listed for the
+# model; it finds them with mcp_search and calls them with mcp_call. When false,
+# every mounted MCP tool is listed directly and the two tools are omitted.
+mcp:
+  tool-mode: false
+
 vision-recognize:
   enabled: true
   default-profile: general

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -249,7 +250,7 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 			return ToolExecutionResult{Error: "invalid_tool_arguments", Output: err.Error(), ExitCode: -1}, nil
 		}
 	}
-	if execCtx != nil && IsReadOnlyToolExecutionPolicy(execCtx.ToolExecutionPolicy) && !allowsReadOnlyInvocation(def, ok, toolName, args) {
+	if execCtx != nil && IsReadOnlyToolExecutionPolicy(execCtx.ToolExecutionPolicy) && !r.allowsReadOnlyInvocation(def, ok, toolName, args, execCtx) {
 		return toolpolicy.DisabledResult(toolName), nil
 	}
 	if !ok {
@@ -270,6 +271,12 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 	result, err := r.invokeWithPolicy(ctx, def.Name, execCtx, func(callCtx context.Context) (ToolExecutionResult, error) {
 		if strings.EqualFold(strings.TrimSpace(sourceType), "mcp") {
 			return r.invokeMCPTool(callCtx, def, args, execCtx), nil
+		}
+		switch strings.ToLower(strings.TrimSpace(def.Name)) {
+		case MCPSearchToolName:
+			return r.invokeMCPSearch(args, execCtx), nil
+		case MCPCallToolName:
+			return r.invokeMCPCall(callCtx, args, execCtx), nil
 		}
 		if handler := r.namedHandler(def.Name); handler != nil {
 			return handler.Invoke(callCtx, def.Name, args, execCtx)
@@ -295,6 +302,16 @@ func (r *ToolRouter) SupportsToolOutput(toolName string, execCtx *ExecutionConte
 	}
 	support, ok := r.runtime.(ToolOutputStreamingExecutor)
 	return ok && support.SupportsToolOutput(def.Name, execCtx)
+}
+
+// allowsReadOnlyInvocation judges an mcp_call by the MCP tool it reaches.
+// An unresolvable target is left to the gateway, which reports why.
+func (r *ToolRouter) allowsReadOnlyInvocation(def api.ToolDetailResponse, found bool, toolName string, args map[string]any, execCtx *ExecutionContext) bool {
+	if found && strings.EqualFold(strings.TrimSpace(def.Name), MCPCallToolName) {
+		target, resolved := r.ResolveInvocationTarget(def.Name, args, execCtx)
+		return !resolved || toolpolicy.AllowsReadOnly(target.Definition, true)
+	}
+	return allowsReadOnlyInvocation(def, found, toolName, args)
 }
 
 func allowsReadOnlyInvocation(def api.ToolDetailResponse, found bool, toolName string, args map[string]any) bool {
@@ -358,31 +375,46 @@ func (r *ToolRouter) lookup(toolName string) (api.ToolDetailResponse, bool) {
 	return api.ToolDetailResponse{}, false
 }
 
+type mcpCallError struct{ code, message string }
+
+func (e *mcpCallError) Error() string { return e.code + ": " + e.message }
+
 func (r *ToolRouter) invokeMCPTool(ctx context.Context, def api.ToolDetailResponse, args map[string]any, execCtx *ExecutionContext) ToolExecutionResult {
+	payload, err := r.callMCPTool(ctx, def, args, execCtx)
+	if err != nil {
+		var callErr *mcpCallError
+		if errors.As(err, &callErr) {
+			return mcpErrorResult(def.Name, callErr.code, callErr.message)
+		}
+		return mcpErrorResult(def.Name, "mcp_server_unavailable", err.Error())
+	}
+	return normalizeMCPResult(def.Name, payload)
+}
+
+// callMCPTool sends tools/call for an MCP definition after checking that the
+// Agent-scoped instance belongs to the caller. Direct MCP tools and mcp_call
+// share it.
+func (r *ToolRouter) callMCPTool(ctx context.Context, def api.ToolDetailResponse, args map[string]any, execCtx *ExecutionContext) (any, error) {
 	if r.mcp == nil {
-		return mcpErrorResult(def.Name, "mcp_disabled", "MCP is disabled")
+		return nil, &mcpCallError{"mcp_disabled", "MCP is disabled"}
 	}
 	serverKey, _ := def.Meta["serverKey"].(string)
 	if strings.TrimSpace(serverKey) == "" {
 		serverKey, _ = def.Meta["sourceKey"].(string)
 	}
 	if strings.TrimSpace(serverKey) == "" {
-		return mcpErrorResult(def.Name, "mcp_source_key_missing", "MCP server key is missing")
+		return nil, &mcpCallError{"mcp_source_key_missing", "MCP server key is missing"}
 	}
 	if agentKey := AnyStringNode(def.Meta["agentKey"]); agentKey != "" {
 		if execCtx == nil || execCtx.Session.AgentKey != agentKey {
-			return mcpErrorResult(def.Name, "mcp_agent_mismatch", "MCP instance is not mounted by this Agent")
+			return nil, &mcpCallError{"mcp_agent_mismatch", "MCP instance is not mounted by this Agent"}
 		}
 	}
 	wireName := AnyStringNode(def.Meta["mcpToolName"])
 	if wireName == "" {
 		wireName = def.Name
 	}
-	payload, err := r.mcp.CallTool(ctx, serverKey, wireName, args, buildMCPMeta(def.Name, execCtx))
-	if err != nil {
-		return mcpErrorResult(def.Name, "mcp_server_unavailable", err.Error())
-	}
-	return normalizeMCPResult(def.Name, payload)
+	return r.mcp.CallTool(ctx, serverKey, wireName, args, buildMCPMeta(def.Name, execCtx))
 }
 
 func buildMCPMeta(toolName string, execCtx *ExecutionContext) map[string]any {

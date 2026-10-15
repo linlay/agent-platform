@@ -52,6 +52,7 @@ type Config struct {
 	Bash             BashConfig
 	FileTools        FileToolsConfig
 	RunEnv           RunEnvConfig
+	MCP              MCPToolsConfig
 	WebSocket        WebSocketConfig
 	// Gateways 是多 gateway 反向连接列表（wecom / feishu / ding / ...）。
 	Gateways []GatewayEntry
@@ -120,6 +121,12 @@ type PathsConfig struct {
 	RUPreviewsDir            string
 	PanDir                   string
 	SkillsCenterDir          string
+}
+
+// MCPToolsConfig selects how mounted MCP tools reach the model. With ToolMode
+// the model sees only mcp_search and mcp_call instead of every MCP tool.
+type MCPToolsConfig struct {
+	ToolMode bool
 }
 
 type RunEnvConfig struct {

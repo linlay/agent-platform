@@ -28,6 +28,26 @@ Agent 使用 `connectorConfig.connectors: [remote-search]` 挂载。挂载同时
 
 SDK 负责 session ID、协议头、JSON/SSE、初始化通知和标准关闭；stdio session 关闭时回收子进程。已发出的 tools/call 不自动重放。清单 `authMode` 和已准备环境的当前支持范围见连接器专题，部署级 CLI 登录和 MCP OAuth 已实现，按用户绑定凭据和通用 runtime 安装尚未实现。迁移后的 `platform.authSource=identity-file` 归入 oneid，复用 Desktop SSO 的 `AP_ACCESS_TOKEN` 身份环境，不复制 Token 到 `.state/connectors`。stdio MCP 仅该模式注入此变量，身份变化后下次调用重建进程；HTTP MCP 即时生成 Bearer Header，限定 HTTPS 默认端口和完整 endpoint，拒绝跨目的地转发。
 
+## MCP 工具模式
+
+`configs/tools.yml` 的 `mcp.tool-mode`（布尔值，默认 `false`，修改后重启生效）决定已挂载 MCP 工具如何进入模型工具列表：
+
+| | `tool-mode: false`（默认） | `tool-mode: true` |
+| --- | --- | --- |
+| 已挂载连接器的 MCP 工具 | 逐个列入 | 不列入 |
+| `mcp_search` / `mcp_call` | 不列入 | Agent 至少挂载一个 MCP 组件时列入 |
+
+两个工具由平台按开关加入 Run，不能写进 Agent `toolConfig.tools` 或 `preset-tools`（声明即校验失败）；`toolConfig.excludeTools` 可以排除它们。实现和调用语义不随开关变化，开关只决定它们是否出现。工具模式下，Run 冻结 Agent 挂载的 MCP 服务 key，两个工具每次调用都按它限定范围；Run 开始后才完成同步的工具也可以找到。
+
+工具 ID 为 `连接器 ID/MCP 服务名/远程工具名`，例如 `kdocs/main/create_document`、`dingteam-suite/dingteam-okr/list_objectives`。`main` 是 mcp.json 中默认组件名；工具 ID 不含定义摘要，跨 Run 可直接复用，调用时重新核对挂载。
+
+- `mcp_search {query, connectorId?, limit?}`：在本 Agent 已挂载、已同步的工具中按工具名、标签、连接器、说明和参数做 BM25 检索，中文按单字与相邻二字切分，工具名、标签或工具 ID 完全匹配时排在最前。`limit` 默认 3、最大 5。每项返回 `toolId`、`connectorId`、`mcpServer`、`name`、`label`、`description`、完整 `inputSchema` 和 `readOnly`。结果总量超出 32 KiB 时整条省略后面的工具（`omitted` 计数），首条总是返回。`status` 为 `ok`、`no_match`、`partial`（部分组件未就绪，`connectors` 列出其同步状态）或 `unavailable`（没有组件就绪且无结果）。
+- `mcp_call {toolId, arguments}`：先按目标当前的 inputSchema 校验 `arguments`，不通过返回 `invalid_arguments` 并附带当前 `inputSchema`，请求不发往远端；可加载的 schema 才校验，无法解析的交给远端。错误码：`tool_not_found`、`not_mounted`、`invalid_arguments`、`server_unavailable`、`result_unknown`。`result_unknown` 表示请求可能已到达远端但无法确认结果（超时、断连或 SDK 本地传输/关闭错误）；SDK 也用 JSON-RPC 错误类型包装本地传输失败，不能仅凭错误类型认定收到了远端响应。平台不自动重放。成功与远端 `isError` 的结果转换与直连 MCP 工具相同（见下节），大结果按工具结果落盘机制保存并返回摘要和引用。
+
+调度与展示跟随真实目标：`tools` 层提供中立的 `InvocationTargetResolver`，`mcp_call` 的只读门禁（BTW 只读模式）按目标的 `readOnly`（来自 MCP `readOnlyHint`）判断，VIEW 卡片取目标定义。`tool.result` 事件额外带 `toolLabel`（目标标签，缺省为远程工具名）和 `target: {toolId, connectorId, mcpServer, toolName}`，客户端可据此显示真实工具；`tool.start`/`tool.snapshot` 在参数流式到达时仍为 `mcp_call`。这些字段随事件持久化，冷回放一致。
+
+已知范围：规划 Run 的 `exclude-tools` 按工具名生效，工具模式下不能单独排除某个远程工具；`mcp_call` 不并发执行，与直连 MCP 工具一致。
+
 ## 工具来源与结果
 
 本地 platform tools 从 `internal/resources/tools/*.yml` 装载；`<AP_RUNTIME_DIR>/tools` 中的 YAML 只能覆盖已有 Go 实现的 schema、文案、权限和可选 UI 元数据。没有已注册代码实现的名字会使启动或热重载失败；动态新能力必须由 Go handler 或 MCP 提供。`sourceCategory: external` 仍可作为普通工具的来源分类，但不表示执行类型或子进程协议。

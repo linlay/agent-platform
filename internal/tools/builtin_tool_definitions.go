@@ -61,6 +61,8 @@ var requiredBuiltinToolNames = []string{
 	"desktop_market",
 	"desktop_kanban",
 	"run_env",
+	"mcp_search",
+	"mcp_call",
 	"finalize_planning",
 	"regex",
 	"vision_recognize",

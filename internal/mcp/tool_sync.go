@@ -88,6 +88,20 @@ func (s *ToolSync) ServerStatus(serverKey string) (api.MCPServerToolSyncStatus, 
 	return cloneServerSyncStatus(status), ok
 }
 
+// ServerIdentity reports the connector component served by an Agent-scoped
+// server key, including servers whose tools have not synchronized yet.
+func (s *ToolSync) ServerIdentity(serverKey string) (connectorID string, component string, ok bool) {
+	if s == nil || s.registry == nil {
+		return "", "", false
+	}
+	server, found := s.registry.Server(serverKey)
+	if !found || strings.TrimSpace(server.ConnectorID) == "" {
+		return "", "", false
+	}
+	component = ComponentName(server.ConnectorID, server.SourceKey)
+	return server.ConnectorID, component, component != ""
+}
+
 func (s *ToolSync) Definitions() []api.ToolDetailResponse {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -420,6 +434,9 @@ func (s *ToolSync) syncServer(ctx context.Context, server ServerDefinition) (ser
 		def := tool.ToAPITool(server.Key)
 		if server.ConnectorID != "" {
 			def.Meta["connectorId"] = server.ConnectorID
+			if component := ComponentName(server.ConnectorID, server.SourceKey); component != "" {
+				def.Meta["mcpServer"] = component
+			}
 		}
 
 		if server.AgentKey != "" {

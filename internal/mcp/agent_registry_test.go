@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/connector"
+	"agent-platform/internal/contracts"
 )
 
 type fixtureAgentConnectors struct{ mounts []connector.AgentRuntime }
@@ -72,6 +73,14 @@ func TestAgentMCPInstancesUseOwnBinariesSessionsAndToolRoutes(t *testing.T) {
 	}
 	if defs[0].Name == defs[1].Name {
 		t.Fatal("two Agent tool routes collided")
+	}
+	for _, def := range defs {
+		if id, ok := GatewayToolID(def); !ok || id != "demo/server/same_tool" {
+			t.Fatalf("gateway id = %q %v from %#v", id, ok, def.Meta)
+		}
+		if connectorID, component, ok := syncer.ServerIdentity(contracts.AnyStringNode(def.Meta["serverKey"])); !ok || connectorID != "demo" || component != "server" {
+			t.Fatalf("server identity = %q %q %v", connectorID, component, ok)
+		}
 	}
 	pids := map[string]int{}
 	for _, mount := range provider.mounts {

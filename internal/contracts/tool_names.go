@@ -4,6 +4,23 @@ import "strings"
 
 const InvokeAgentsToolName = "agent_invoke"
 
+// MCP tool mode gateway tools. The platform offers them instead of mounted MCP
+// tools when tools.yml mcp.tool-mode is true; Agents cannot declare them.
+const (
+	MCPSearchToolName = "mcp_search"
+	MCPCallToolName   = "mcp_call"
+)
+
+var MCPGatewayToolNames = []string{MCPSearchToolName, MCPCallToolName}
+
+func IsMCPGatewayToolName(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case MCPSearchToolName, MCPCallToolName:
+		return true
+	}
+	return false
+}
+
 const PlanAddTasksToolName = "plan_add_tasks"
 const PlanGetTasksToolName = "plan_get_tasks"
 const PlanUpdateTaskToolName = "plan_update_task"

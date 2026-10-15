@@ -6,6 +6,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/connector"
+	"agent-platform/internal/contracts"
 )
 
 func validatePresetTools(names []string, definitions []api.ToolDetailResponse) error {
@@ -21,6 +22,9 @@ func validatePresetTools(names []string, definitions []api.ToolDetailResponse) e
 		owner, native := connector.NativeToolConnector(name)
 		if native {
 			return fmt.Errorf("preset-tools: tool %q belongs to connector %s; list it under preset-connectors", name, owner)
+		}
+		if contracts.IsMCPGatewayToolName(name) {
+			return fmt.Errorf("preset-tools: tool %q is offered by the platform when tools.yml mcp.tool-mode is true", name)
 		}
 		if strings.HasPrefix(name, "_") || name == "agent_delegate" {
 			return fmt.Errorf("preset-tools: tool %q requires an internal session or connector mount", name)

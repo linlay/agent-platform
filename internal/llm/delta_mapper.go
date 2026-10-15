@@ -202,6 +202,9 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	case DeltaToolResult:
 		m.lastKind = ""
 		toolLabel, toolDescription := m.resolveToolMetadata(value.ToolName)
+		if len(value.Target) > 0 {
+			toolLabel = value.TargetLabel
+		}
 		sseResult := sseResultValue(value.Result)
 		resultError := value.Result.Error
 		resultExitCode := value.Result.ExitCode
@@ -219,6 +222,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ExitCode:        resultExitCode,
 			FileChange:      toolResultFileChange(value.ToolName, value.Result),
 			InternalOnly:    value.InternalOnly,
+			Target:          CloneMap(value.Target),
 		}}
 	case DeltaStageMarker:
 		m.lastKind = ""

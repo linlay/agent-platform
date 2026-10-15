@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/stream"
 )
@@ -97,6 +98,25 @@ func TestRunEnvPolicyAndArgumentsRemainObservable(t *testing.T) {
 		}
 		if !found || len(mapper.sensitiveToolArgs) != 0 {
 			t.Fatalf("buffered or redacted %#v", events)
+		}
+	}
+}
+
+type gatewayTargetTools struct {
+	contracts.ToolExecutor
+	target contracts.InvocationTarget
+}
+
+func (g gatewayTargetTools) ResolveInvocationTarget(toolName string, _ map[string]any, _ *contracts.ExecutionContext) (contracts.InvocationTarget, bool) {
+	return g.target, toolName == contracts.MCPCallToolName
+}
+
+func TestGatewayReadOnlyPolicyFollowsResolvedTarget(t *testing.T) {
+	for _, readOnly := range []bool{true, false} {
+		target := contracts.InvocationTarget{Definition: api.ToolDetailResponse{Name: "mcp_hash_tool", Meta: map[string]any{"sourceType": "mcp", "readOnly": readOnly}}}
+		s := &llmRunStream{engine: &LLMAgentEngine{tools: gatewayTargetTools{target: target}}, execCtx: &contracts.ExecutionContext{ToolExecutionPolicy: "read_only"}}
+		if denied := s.readOnlyToolDenied(contracts.MCPCallToolName, map[string]any{"toolId": "kdocs/main/tool"}); denied == readOnly {
+			t.Fatalf("readOnly target %v: denied=%v", readOnly, denied)
 		}
 	}
 }

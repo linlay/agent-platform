@@ -15,6 +15,10 @@ var (
 	ErrBudgetExceeded                  = errors.New("budget exceeded")
 	ErrMCPCallFailed                   = errors.New("mcp call failed")
 	ErrNotImplemented                  = errors.New("not implemented")
+
+	// ErrMCPCallOutcomeUnknown marks a tools/call that may have reached the
+	// server without a response, such as a timeout or a dropped connection.
+	ErrMCPCallOutcomeUnknown = errors.New("mcp call outcome unknown")
 )
 
 func IsRunInterrupted(err error) bool {

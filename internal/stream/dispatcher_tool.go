@@ -101,6 +101,12 @@ func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent
 	if input.InternalOnly {
 		payload["internalOnly"] = true
 	}
+	if len(input.Target) > 0 {
+		payload["target"] = clonePayload(input.Target)
+		if label := strings.TrimSpace(input.ToolLabel); label != "" {
+			payload["toolLabel"] = label
+		}
+	}
 	if isBashToolResult(input.ToolName) {
 		if input.ExitCode != 0 {
 			payload["exitCode"] = input.ExitCode

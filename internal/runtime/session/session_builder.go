@@ -158,10 +158,9 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		SortedStringKeys(runtimeEnvOverrides),
 	)
 
-	configuredToolNames := append(
-		EffectiveAgentTools(agentDef),
-		McpToolNamesForServers(s.deps.Tools, agentDef.ConnectorMCPServers)...,
-	)
+	configuredToolNames, mcpServerKeys := SessionMCPTools(EffectiveAgentTools(agentDef), agentDef, s.deps.Config.MCP.ToolMode, func() []string {
+		return McpToolNamesForServers(s.deps.Tools, agentDef.ConnectorMCPServers)
+	})
 	toolNames := BuildSessionToolNames(configuredToolNames, options.AllowInvokeAgents)
 	toolNames = RuntimeModeToolNames(toolNames, s.deps.Config.RuntimeMode)
 	if options.SubTaskID != "" {
@@ -229,6 +228,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 
 		Created:              options.Created,
 		ConnectorDirs:        RuntimeConnectorDirs(agentDef),
+		MCPServerKeys:        mcpServerKeys,
 		SkillDirs:            RuntimeSkillDirs(agentDef),
 		SharedSkillsRoot:     s.deps.Config.Paths.EffectiveRUSkillsDir(),
 		SharedConnectorsRoot: s.deps.Config.Paths.ConnectorSources().SharedRoot(),
@@ -535,6 +535,31 @@ func RuntimeModeToolNames(tools []string, mode config.RuntimeMode) []string {
 		}
 	}
 	return kept
+}
+
+// SessionMCPTools adds the Agent's mounted MCP tools. In MCP tool mode they are
+// replaced by mcp_search and mcp_call, offered only when an MCP server is
+// mounted and the Agent does not exclude them; the returned server keys bound
+// what the two tools may reach. Outside tool mode the two tools never appear.
+func SessionMCPTools(agentTools []string, agentDef catalog.AgentDefinition, toolMode bool, mountedTools func() []string) ([]string, []string) {
+	tools := make([]string, 0, len(agentTools)+len(contracts.MCPGatewayToolNames))
+	for _, name := range agentTools {
+		if !contracts.IsMCPGatewayToolName(name) {
+			tools = append(tools, name)
+		}
+	}
+	if !toolMode {
+		return append(tools, mountedTools()...), nil
+	}
+	if len(agentDef.ConnectorMCPServers) == 0 {
+		return tools, nil
+	}
+	for _, name := range contracts.MCPGatewayToolNames {
+		if !ContainsTool(agentDef.ExcludedTools, name) {
+			tools = append(tools, name)
+		}
+	}
+	return tools, append([]string(nil), agentDef.ConnectorMCPServers...)
 }
 
 type McpServerToolResolver interface {

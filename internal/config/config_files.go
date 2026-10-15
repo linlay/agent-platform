@@ -469,7 +469,7 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 	if _, exists := values["speech"]; exists {
 		return fmt.Errorf("%s: speech is not implemented", path)
 	}
-	if _, err := configMap(values, path, "access-policy", "bash", "sandbox-bash", "file-tools", "run-env", "platform-control", "vision-recognize", "web-fetch", "image-generate"); err != nil {
+	if _, err := configMap(values, path, "access-policy", "bash", "sandbox-bash", "file-tools", "run-env", "mcp", "platform-control", "vision-recognize", "web-fetch", "image-generate"); err != nil {
 		return err
 	}
 	if err := c.applyAIToolsValues(values); err != nil {
@@ -518,6 +518,11 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 			return err
 		}
 	}
+	if raw, exists := values["mcp"]; exists {
+		if err := c.applyMCPToolsValues(path, raw); err != nil {
+			return err
+		}
+	}
 	if _, exists := values["platform-control"]; exists {
 		return fmt.Errorf("%s: platform-control was removed; mount builtin.platform-control and use run-env for dynamic environment limits", path)
 	}
@@ -541,6 +546,24 @@ func validateGitBashValues(bash map[string]any) error {
 		if _, ok := value.(bool); !ok {
 			return fmt.Errorf("bash.git-bash.enabled must be a boolean")
 		}
+	}
+	return nil
+}
+
+func (c *Config) applyMCPToolsValues(path string, raw any) error {
+	values, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("%s: mcp must be a mapping", path)
+	}
+	for key, value := range values {
+		if key != "tool-mode" {
+			return fmt.Errorf("%s: unknown mcp.%s", path, key)
+		}
+		enabled, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("%s: mcp.tool-mode must be a boolean", path)
+		}
+		c.MCP.ToolMode = enabled
 	}
 	return nil
 }

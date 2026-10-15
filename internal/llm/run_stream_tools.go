@@ -1561,7 +1561,16 @@ func (s *llmRunStream) emitToolResult(invocation *preparedToolInvocation, result
 		InternalOnly: internalOnly,
 	}
 	if !internalOnly && s.engine != nil {
-		if definition, ok := s.lookupToolDefinition(invocation.toolName); ok {
+		definition, ok := s.lookupToolDefinition(invocation.toolName)
+		if target, resolved := s.invocationTarget(invocation.toolName, invocation.args); resolved {
+			definition, ok = target.Definition, true
+			delta.Target = CloneMap(target.Display)
+			delta.TargetLabel = strings.TrimSpace(definition.Label)
+			if delta.TargetLabel == "" {
+				delta.TargetLabel = AnyStringNode(target.Display["toolName"])
+			}
+		}
+		if ok {
 			delta.View, delta.ViewError = s.resolveView(definition.Meta["view"], "display")
 			if definition.Meta["view"] == nil && definition.Meta["viewError"] == "invalid_view" {
 				delta.ViewError = "invalid_view"
@@ -1867,6 +1876,22 @@ func (s *llmRunStream) readOnlyToolDenied(toolName string, args map[string]any) 
 		descriptor, ok := toolpolicy.InvocationDescriptor(toolName, args)
 		return !ok || !descriptor.ReadOnly
 	}
+	if target, ok := s.invocationTarget(toolName, args); ok {
+		return !toolpolicy.AllowsReadOnly(target.Definition, true)
+	}
 	def, found := s.lookupToolDefinition(toolName)
 	return !toolpolicy.AllowsReadOnly(def, found)
+}
+
+// invocationTarget resolves a gateway call to the tool it reaches, so read-only
+// policy and presentation follow that tool rather than the gateway.
+func (s *llmRunStream) invocationTarget(toolName string, args map[string]any) (InvocationTarget, bool) {
+	if s == nil || s.engine == nil {
+		return InvocationTarget{}, false
+	}
+	resolver, ok := s.engine.tools.(InvocationTargetResolver)
+	if !ok {
+		return InvocationTarget{}, false
+	}
+	return resolver.ResolveInvocationTarget(toolName, args, s.execCtx)
 }

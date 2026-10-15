@@ -1,0 +1,26 @@
+name: mcp_call
+i18n:
+  en:
+    label: "MCP Tool Call"
+  zh-CN:
+    label: "MCP 工具调用"
+description: |
+  Call one MCP tool found by mcp_search. toolId is connectorId/mcpServer/toolName; arguments must follow that tool's inputSchema.
+  Invalid arguments are rejected before the call and the error includes the current inputSchema; fix them and call again.
+  If the result is result_unknown, the remote call may have run: check its effect before repeating it.
+clientVisible: true
+readOnly: false
+inputSchema:
+  type: object
+  properties:
+    toolId:
+      type: string
+      description: "Required. toolId returned by mcp_search."
+    arguments:
+      type: object
+      description: "Required. Arguments for the target tool; use {} when it takes none."
+      additionalProperties: true
+  required:
+    - toolId
+    - arguments
+  additionalProperties: false

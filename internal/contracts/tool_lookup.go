@@ -6,6 +6,20 @@ type ToolDefinitionLookup interface {
 	Tool(name string) (api.ToolDetailResponse, bool)
 }
 
+// InvocationTarget is the tool a gateway invocation actually reaches.
+// Scheduling policy and presentation follow Definition instead of the gateway.
+type InvocationTarget struct {
+	Definition api.ToolDetailResponse
+	// Display identifies the target in tool.result events; never model input.
+	Display map[string]any
+}
+
+// InvocationTargetResolver resolves gateway invocations, such as mcp_call,
+// to their target tool without the caller knowing the gateway's arguments.
+type InvocationTargetResolver interface {
+	ResolveInvocationTarget(toolName string, args map[string]any, execCtx *ExecutionContext) (InvocationTarget, bool)
+}
+
 // CompositeToolLookup checks multiple ToolDefinitionLookup sources in order.
 type CompositeToolLookup struct {
 	sources []ToolDefinitionLookup

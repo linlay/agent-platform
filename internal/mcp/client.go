@@ -29,6 +29,7 @@ import (
 	"agent-platform/internal/httpclient"
 	"agent-platform/internal/observability"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -127,6 +128,15 @@ func (c *Client) CallTool(ctx context.Context, serverKey string, toolName string
 	if err != nil {
 		c.invalidate(server.Key, managed)
 		c.markFailure(server.Key)
+		var wireErr *jsonrpc.Error
+		// SDK v1.6.1 also uses jsonrpc.Error for local failures: -32005
+		// wraps HTTP transport errors (including EOF after dispatch), and
+		// -32003 means the client connection is closing. Neither proves
+		// that a JSON-RPC response arrived, so retain the unknown outcome.
+		if !errors.As(err, &wireErr) || wireErr.Code == -32005 || wireErr.Code == -32003 {
+			// Without a JSON-RPC response the call may already have run remotely.
+			return nil, fmt.Errorf("%w: %w: %v", contracts.ErrMCPCallFailed, contracts.ErrMCPCallOutcomeUnknown, err)
+		}
 		return nil, fmt.Errorf("%w: %v", contracts.ErrMCPCallFailed, err)
 	}
 	c.markSuccess(server.Key)

@@ -11,6 +11,7 @@ import (
 	agentcoder "agent-platform/internal/agent/coder"
 	agentkbase "agent-platform/internal/agent/kbase"
 	agentteam "agent-platform/internal/agent/team"
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/deprecation"
 )
 
@@ -375,6 +376,9 @@ func ValidateOrdinaryAgentTools(tools []string) error {
 		}
 		if normalized == strings.ToLower(agentteam.ToolDelegate) {
 			return fmt.Errorf("tool %s is internal and can only be used by an orchestrated Team coordinator", agentteam.ToolDelegate)
+		}
+		if contracts.IsMCPGatewayToolName(normalized) {
+			return fmt.Errorf("tool %s is offered by the platform when tools.yml mcp.tool-mode is true; remove the declaration", normalized)
 		}
 	}
 	return nil

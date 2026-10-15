@@ -307,6 +307,7 @@ type QuerySession struct {
 	SharedSkillsRoot     string
 	SkillDirs            map[string]string
 	ConnectorDirs        map[string]string `json:"-"` // Frozen mounted connector runtime paths.
+	MCPServerKeys        []string          `json:"-"` // Agent-scoped MCP servers mcp_search/mcp_call may reach; MCP tool mode only.
 	RequestID            string
 	RunID                string
 	// TempRoot and TempRoots are the process-start temporary-directory snapshot

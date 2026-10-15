@@ -95,6 +95,9 @@ type ToolResult struct {
 	ExitCode     int
 	FileChange   map[string]any
 	InternalOnly bool
+	// Target identifies the tool a gateway call reached; with it, ToolLabel is
+	// published so clients show the target instead of the gateway.
+	Target map[string]any
 }
 
 func (ToolResult) streamInputTag() {}

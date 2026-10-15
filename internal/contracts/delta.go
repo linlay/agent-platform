@@ -70,6 +70,9 @@ type DeltaToolResult struct {
 	ToolName     string
 	Result       ToolExecutionResult
 	InternalOnly bool
+	// TargetLabel and Target describe the tool a gateway call reached.
+	TargetLabel string
+	Target      map[string]any
 }
 
 func (DeltaToolResult) agentDeltaTag() {}

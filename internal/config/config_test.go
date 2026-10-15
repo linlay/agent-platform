@@ -2225,3 +2225,32 @@ func TestRunEnvHardCutConfiguration(t *testing.T) {
 		}
 	})
 }
+
+func TestMCPToolModeConfiguration(t *testing.T) {
+	content := "run-env:\n  max-dynamic-keys: 32\n"
+	withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
+		cfg, err := Load()
+		if err != nil || cfg.MCP.ToolMode {
+			t.Fatalf("default tool mode %#v %v", cfg.MCP, err)
+		}
+	})
+	content = "mcp:\n  tool-mode: true\n"
+	withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
+		cfg, err := Load()
+		if err != nil || !cfg.MCP.ToolMode {
+			t.Fatalf("enabled tool mode %#v %v", cfg.MCP, err)
+		}
+	})
+	for content, want := range map[string]string{
+		"mcp:\n  tool-mode: \"true\"\n": "mcp.tool-mode must be a boolean",
+		"mcp:\n  enabled: true\n":       "unknown mcp.enabled",
+		"mcp: true\n":                   "mcp must be a mapping",
+	} {
+		content := content
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("%q: %v", content, err)
+			}
+		})
+	}
+}

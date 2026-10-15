@@ -1,0 +1,30 @@
+name: mcp_search
+i18n:
+  en:
+    label: "MCP Tool Search"
+  zh-CN:
+    label: "MCP 工具搜索"
+description: |
+  Search the MCP tools of this Agent's mounted connectors. MCP tools are not listed directly; find one here, then call it with mcp_call.
+  Each result has toolId (connectorId/mcpServer/toolName), description and the complete inputSchema for mcp_call arguments.
+  A toolId found earlier in this Chat can be called again without searching. Status no_match means nothing matched;
+  partial and unavailable list connectors whose tools are still synchronizing or failed.
+clientVisible: true
+readOnly: true
+inputSchema:
+  type: object
+  properties:
+    query:
+      type: string
+      description: "Required. Keywords or an exact tool name, in English or Chinese."
+    connectorId:
+      type: string
+      description: "Optional. Search only this mounted connector."
+    limit:
+      type: integer
+      description: "Optional. Maximum results, default 3, at most 5."
+      minimum: 1
+      maximum: 5
+  required:
+    - query
+  additionalProperties: false

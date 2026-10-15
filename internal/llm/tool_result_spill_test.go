@@ -196,8 +196,8 @@ func TestMaybeSpillToolResultPreviewPreservesUTF8(t *testing.T) {
 	}
 }
 
-func TestMaybeSpillToolResultIncludesRegexAndVisionRecognize(t *testing.T) {
-	for _, toolName := range []string{"regex", "vision_recognize"} {
+func TestMaybeSpillToolResultIncludesRegexVisionAndMCPCall(t *testing.T) {
+	for _, toolName := range []string{"regex", "vision_recognize", "mcp_call"} {
 		t.Run(toolName, func(t *testing.T) {
 			chatDir := t.TempDir()
 			stream := &llmRunStream{
