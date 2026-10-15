@@ -31,23 +31,12 @@ type ConnectorOptionsResponse struct {
 }
 
 type AdminAgentConnectorsResponse struct {
-	AgentKey             string                    `json:"agentKey"`
-	ConnectorIDs         []string                  `json:"connectorIds"`
-	PresetConnectorIDs   []string                  `json:"presetConnectorIds"`
-	DeclaredConnectorIDs []string                  `json:"declaredConnectorIds"`
-	ActiveConnectorIDs   []string                  `json:"activeConnectorIds"`
-	ReloadPending        bool                      `json:"reloadPending"`
-	RuntimeRevision      string                    `json:"runtimeRevision,omitempty"`
-	MCP                  []AgentConnectorMCPStatus `json:"mcp"`
-}
-
-// AgentConnectorMCPStatus describes only a component in the Agent's current
-// published package version, never a version retained by an older Run.
-type AgentConnectorMCPStatus struct {
-	ConnectorID string `json:"connectorId"`
-	ServerKey   string `json:"serverKey"`
-	Status      string `json:"status"`
-	ToolCount   int    `json:"toolCount"`
+	AgentKey             string   `json:"agentKey"`
+	ConnectorIDs         []string `json:"connectorIds"`
+	PresetConnectorIDs   []string `json:"presetConnectorIds"`
+	DeclaredConnectorIDs []string `json:"declaredConnectorIds"`
+	ActiveConnectorIDs   []string `json:"activeConnectorIds"`
+	ReloadPending        bool     `json:"reloadPending"`
 }
 
 type SetAgentConnectorRequest struct {

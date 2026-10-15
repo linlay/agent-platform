@@ -96,12 +96,8 @@ func (s *Server) agentConnectorSelection(ctx context.Context, req api.SetAgentCo
 		return api.AdminAgentConnectorsResponse{}, mapAdminSourceAgentError(err)
 	}
 	active := []string{}
-	mcpState := []api.AgentConnectorMCPStatus{}
-	runtimeRevision := ""
 	if def, found := s.deps.Registry.AgentDefinition(key); found {
 		active = append(active, def.Connectors...)
-		runtimeRevision = def.RuntimeRevision
-		mcpState = s.agentConnectorMCPState(def)
 	}
 	declared := slices.Clone(ids)
 	presets := []string{}
@@ -124,7 +120,7 @@ func (s *Server) agentConnectorSelection(ctx context.Context, req api.SetAgentCo
 	reloadPending := !slices.Equal(configuredSet, activeSet)
 	return api.AdminAgentConnectorsResponse{
 		AgentKey: key, ConnectorIDs: ids, ActiveConnectorIDs: active, PresetConnectorIDs: presets, DeclaredConnectorIDs: declared,
-		ReloadPending: reloadPending, RuntimeRevision: runtimeRevision, MCP: mcpState,
+		ReloadPending: reloadPending,
 	}, nil
 }
 
