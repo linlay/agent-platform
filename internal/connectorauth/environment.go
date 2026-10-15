@@ -11,23 +11,37 @@ import (
 	"agent-platform/internal/connector"
 )
 
-// CLIEnvironment freezes only the credential locator and public templates.
+// CLIEnvironment freezes only the credential locator and the cli.json env
+// templates that reference credentials; values are read at execution time.
 func CLIEnvironment(pkg connector.Package) (connector.CredentialEnvironment, error) {
-	binding := pkg.AuthBindings["cli"]
-	d := connector.CredentialEnvironment{Root: pkg.PersistentRoot(), ID: pkg.ID, Mode: pkg.AuthMode, Env: binding.Env}
-	if len(binding.Env) > 0 && (pkg.AuthMode == connector.AuthOAuth || pkg.AuthMode == connector.AuthMCP) {
-		var err error
-		pkg, err = OAuthComponent(pkg, "cli")
+	d := connector.CredentialEnvironment{Root: pkg.PersistentRoot(), ID: pkg.ID, Mode: pkg.AuthMode}
+	templates, err := pkg.CLICredentialTemplates()
+	if err != nil {
+		return d, err
+	}
+	d.Env = templates
+	if len(templates) > 0 && (pkg.AuthMode == connector.AuthOAuth || pkg.AuthMode == connector.AuthMCP) {
+		selected, err := cliOAuthComponent(pkg)
 		if err != nil {
 			return d, err
 		}
-		d.Resource, err = OAuthResource(pkg)
+		d.Resource, err = OAuthResource(selected)
 		if err != nil {
 			return d, err
 		}
-		d.Destination = oauthDestination(pkg)
+		d.Destination = oauthDestination(selected)
 	}
 	return d, nil
+}
+
+// cliOAuthComponent selects the grant a CLI uses. With MCP discovery the CLI
+// shares the package's single MCP component grant; plain OAuth uses the
+// package's own OAuth settings.
+func cliOAuthComponent(pkg connector.Package) (connector.Package, error) {
+	if pkg.AuthMode == connector.AuthMCP {
+		return OAuthComponent(pkg, "")
+	}
+	return OAuthComponent(pkg, "cli")
 }
 
 func ResolveEnvironment(ctx context.Context, d connector.CredentialEnvironment, identityFile string) (map[string]string, error) {

@@ -21,7 +21,8 @@ func TestAuthorizationStatusCLIHelper(t *testing.T) {
 	case "version":
 		fmt.Println("1.0.0")
 	case "failed":
-		os.Exit(74)
+		// A shell reports a program it cannot run as 127: not a sign-out.
+		os.Exit(127)
 	case "signed-out":
 		fmt.Println(`{"authenticated":false}`)
 	case "authorized":
@@ -68,7 +69,7 @@ func TestInvocationSeparatesCLIStatusFailureFromConfirmedSignOut(t *testing.T) {
 				return map[string]any{"darwin": line, "linux": line, "win32": line}
 			}
 			files := map[string]any{
-				"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "cli", "auth_mode": nil},
+				"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "cli", "authMode": "self"},
 				"cli.json": map[string]any{
 					"versionCheck":    map[string]any{"command": command("version"), "minVersion": "1.0.0"},
 					"auth":            command("authorized"),

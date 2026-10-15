@@ -155,7 +155,7 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 		}
 		for key, value := range values {
 			if previous, exists := def.ConnectorEnv[key]; exists && previous != value {
-				return fmt.Errorf("connectors have conflicting configEnv %s", key)
+				return fmt.Errorf("connectors have conflicting cli.json env %s", key)
 			}
 			def.ConnectorEnv[key] = value
 		}

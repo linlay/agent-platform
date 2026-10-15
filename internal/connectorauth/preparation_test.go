@@ -183,12 +183,6 @@ func TestGeneratedWorkBuddyCLIContracts(t *testing.T) {
 		if err = ValidatePackage(pkg); err != nil {
 			t.Fatalf("%s: %v", id, err)
 		}
-		platform, _ := pkg.CLI["platform"].(map[string]any)
-		for _, key := range []string{"npmPackage", "npmVersion", "entry", "nativeEntry"} {
-			if _, ok := platform[key]; ok {
-				t.Fatalf("%s contains retired install setting %s", id, key)
-			}
-		}
 		var upstream map[string]any
 		if err = connector.ReadJSON(filepath.Join(pkg.Dir, "upstream", "cli.json"), &upstream); err != nil {
 			t.Fatal(err)

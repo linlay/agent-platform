@@ -17,7 +17,8 @@ func TestFirstPendingTokenInvocationRequestsVerification(t *testing.T) {
 	sources := connector.Sources{ExternalRoot: t.TempDir(), StateRoot: t.TempDir()}
 	dir := filepath.Join(sources.ExternalRoot, "demo")
 	os.MkdirAll(dir, 0700)
-	os.WriteFile(filepath.Join(dir, "connector.json"), []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"token","token_schema":{"fields":[{"key":"KEY","required":true}]}}`), 0600)
+	os.WriteFile(filepath.Join(dir, "connector.json"), []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"token"}`), 0600)
+	os.WriteFile(filepath.Join(dir, "token-schema.json"), []byte(`{"fields":[{"key":"KEY","required":true}]}`), 0600)
 	os.WriteFile(filepath.Join(dir, "cli.json"), []byte(`{}`), 0600)
 	state, err := connectorauth.StateDir(sources.PersistentRoot(), "demo")
 	if err != nil {

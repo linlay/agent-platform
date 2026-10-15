@@ -23,7 +23,7 @@ func writeOneIDFixture(t *testing.T, root string, component map[string]any) conn
 		t.Fatal(err)
 	}
 	for name, value := range map[string]any{
-		"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "oneid-token"},
+		"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "oneid-token"},
 		"mcp.json":       map[string]any{"mcpServers": map[string]any{"main": component}},
 	} {
 		data, _ := json.Marshal(value)
@@ -224,17 +224,15 @@ func TestOneIDLocalValidationAndLegacyClassification(t *testing.T) {
 			t.Fatal("invalid oneid configuration accepted")
 		}
 	}
+	// The former identity-file flag no longer turns another mode into OneID.
 	root := t.TempDir()
 	pkg := writeOneIDFixture(t, root, map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp", "platform": map[string]any{"authSource": "identity-file"}})
-	path := filepath.Join(pkg.Dir, "connector.json")
-	raw := []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":"none"}`)
-	os.WriteFile(path, raw, 0644)
+	os.WriteFile(filepath.Join(pkg.Dir, "connector.json"), []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"self"}`), 0644)
 	loaded, err := connector.Load(root, "demo")
-	if err != nil || loaded.AuthMode != connector.AuthOneID {
-		t.Fatal("legacy identity not classified", err)
+	if err != nil || loaded.AuthMode != connector.AuthDelegated {
+		t.Fatal("legacy identity flag changed the declared mode", err)
 	}
-	current, _ := os.ReadFile(path)
-	if string(current) != string(raw) {
-		t.Fatal("classification rewrote source")
+	if _, err := connectorServer(loaded, "main"); err == nil {
+		t.Fatal("identity-file accepted without authMode oneid")
 	}
 }

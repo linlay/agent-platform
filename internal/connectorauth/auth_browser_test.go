@@ -13,7 +13,7 @@ func TestSessionBrowserPolicyAndStaleCancel(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "demo")
 	os.MkdirAll(dir, 0755)
-	manifest := connector.Manifest{ID: "demo", Name: "Demo", Version: "1.0.0", Type: "cli", AuthBrowser: "embedded"}
+	manifest := connector.Manifest{ID: "demo", Name: "Demo", Version: "1.0.0", Type: "cli", AuthMode: connector.AuthDelegated, AuthBrowser: "embedded"}
 	data, _ := json.Marshal(manifest)
 	os.WriteFile(filepath.Join(dir, "connector.json"), data, 0644)
 	os.WriteFile(filepath.Join(dir, "cli.json"), []byte(`{}`), 0644)

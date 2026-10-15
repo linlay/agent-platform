@@ -21,8 +21,7 @@ func TestManagedCLILoginStatusIsolationAndCancel(t *testing.T) {
 	dir := filepath.Join(root, id)
 	os.MkdirAll(dir, 0o755)
 	manifest := connector.Manifest{ID: id, Name: id, Version: "1.0.0", Type: "cli", AuthMode: connector.AuthDelegated, AuthBrowser: "embedded"}
-	settings := cliSettings{NPMPackage: "demo-cli", NPMVersion: "1.2.0", Entry: "cli.js", Command: "demo", ConfigEnv: "DEMO_CLI_CONFIG_DIR"}
-	cli := map[string]any{"platform": settings, "versionCheck": map[string]any{"minVersion": "1.2.0", "command": osCommands("demo --version")}, "statusMatch": `(?m)^authorized\s*$`, "authUrlDomain": "example.test"}
+	cli := map[string]any{"env": map[string]any{"DEMO_CLI_CONFIG_DIR": "${CONNECTOR_CONFIG_DIR}"}, "authWaitForExit": true, "versionCheck": map[string]any{"minVersion": "1.2.0", "command": osCommands("demo --version")}, "statusMatch": `(?m)^authorized\s*$`, "authUrlDomain": "example.test"}
 	for key, cmd := range map[string]string{"auth": "demo login", "status": "demo status", "unAuth": "demo logout"} {
 		cli[key] = map[string]string{"darwin": cmd, "linux": cmd, "win32": cmd}
 	}
@@ -96,11 +95,22 @@ func TestManagedCLILoginStatusIsolationAndCancel(t *testing.T) {
 	}
 }
 
-func TestLifecycleRejectsShellOperationsAndVersionComparison(t *testing.T) {
-	for _, cmd := range []string{"demo status; touch /tmp/x", "demo $(whoami)", "demo status > x", "A=B demo status", "demo status &", "other status"} {
-		pkg := connector.Package{CLI: map[string]any{"status": map[string]any{"darwin": cmd, "linux": cmd, "win32": cmd}}}
-		if _, err := cliArgs(pkg, "status", "demo"); err == nil {
-			t.Fatalf("accepted %q", cmd)
+func TestCLIStatusMatchersAndVersionComparison(t *testing.T) {
+	for _, tt := range []struct {
+		name           string
+		cli            map[string]any
+		stdout, stderr string
+		want           bool
+	}{
+		{"exit status alone", map[string]any{}, "anything", "", true},
+		{"pattern on stderr", map[string]any{"statusMatch": "Logged in"}, "", "Logged in as demo", true},
+		{"either matcher", map[string]any{"statusMatch": "Logged in", "statusMatchJson": map[string]any{"authenticated": true}}, "Logged in", "", true},
+		{"json when pattern misses", map[string]any{"statusMatch": "Logged in", "statusMatchJson": map[string]any{"authenticated": true}}, `{"authenticated":true}`, "", true},
+		{"string matches printed scalar", map[string]any{"statusMatchJson": map[string]any{"authenticated": "true"}}, `{"authenticated":true}`, "", true},
+		{"neither matcher", map[string]any{"statusMatch": "Logged in", "statusMatchJson": map[string]any{"authenticated": true}}, `{"authenticated":false}`, "", false},
+	} {
+		if got := cliStatusMatches(tt.cli, tt.stdout, tt.stderr); got != tt.want {
+			t.Fatalf("%s: got %v", tt.name, got)
 		}
 	}
 	if !versionAtLeast("v1.0.16", "1.0.16") || versionAtLeast("1.0.9", "1.0.16") {

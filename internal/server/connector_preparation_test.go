@@ -21,7 +21,7 @@ func TestConnectorImportStartsIndependentPreparationAndCanCancel(t *testing.T) {
 	data, _ := json.Marshal(cli)
 	var archive bytes.Buffer
 	z := zip.NewWriter(&archive)
-	for name, content := range map[string]string{"connector.json": `{"id":"prepare-demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":null}`, "cli.json": string(data)} {
+	for name, content := range map[string]string{"connector.json": `{"id":"prepare-demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"self"}`, "cli.json": string(data)} {
 		f, _ := z.Create(name)
 		f.Write([]byte(content))
 	}

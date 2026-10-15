@@ -12,8 +12,8 @@ import (
 func blockingTokenFixture(t *testing.T) (*Manager, connector.Package, chan struct{}, chan struct{}) {
 	t.Helper()
 	sources := connector.Sources{ExternalRoot: t.TempDir(), StateRoot: filepath.Join(t.TempDir(), "state")}
-	writeAuthPackage(t, sources.ExternalRoot, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "token",
-		"token_schema": map[string]any{"fields": []map[string]any{{"key": "API_KEY", "required": true}}}},
+	writeAuthPackage(t, sources.ExternalRoot, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "token",
+		"tokenSchema": map[string]any{"fields": []map[string]any{{"key": "API_KEY", "required": true}}}},
 		map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp", "headers": map[string]any{"X-Key": "${API_KEY}"}})
 	entered, release := make(chan struct{}), make(chan struct{})
 	m := New(t.Context(), sources, nil).WithCredentialValidator(func(_ context.Context, _ connector.Package, values map[string]string) error {

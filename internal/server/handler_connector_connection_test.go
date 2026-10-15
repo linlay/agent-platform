@@ -81,7 +81,7 @@ func TestNoAuthConnectionHTTP(t *testing.T) {
 	if err = json.Unmarshal(data, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	manifest["auth_mode"] = "no_auth"
+	manifest["authMode"] = "none"
 	data, err = json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)

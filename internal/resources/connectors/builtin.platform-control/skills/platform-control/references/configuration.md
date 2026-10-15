@@ -27,7 +27,7 @@ Use connectors_center_dir/<connector-id>, not a mounted @connectors execution pa
 
 - mcp.json contains mcpServers keyed by component. A streamableHttp component uses its full url; a stdio component uses command and optional args. Keep transport fields distinct and preserve existing component configuration.
 - Read the actual component and current package schema before editing. Do not manufacture an independent mcp_servers_dir YAML, use the removed mcp-server catalog resource type, or revive the old connector-migrate command.
-- Component templates, staticHeaders/staticEnv and external connector authorization have distinct boundaries. Never move deployment credentials into package files, read protected connector state with ordinary tools, or modify a shared mounted runtime package.
+- Component templates in headers/env and external connector authorization have distinct boundaries. Never move deployment credentials into package files, read protected connector state with ordinary tools, or modify a shared mounted runtime package.
 - A successful local save or package load is not evidence of remote authentication, MCP availability or discovered tools. Inspect the affected Agent's actual runtime connector status when verification requires it.
 
 ## Verify and report

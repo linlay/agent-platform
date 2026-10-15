@@ -8,10 +8,10 @@ func TestAuthorizationBrowserManifest(t *testing.T) {
 		valid bool
 		want  string
 	}{
-		{``, true, "system"}, {`,"auth_browser":"system"`, true, "system"}, {`,"auth_browser":"embedded"`, true, "embedded"},
-		{`,"auth_browser":"auto"`, false, ""}, {`,"auth_browser":true`, false, ""},
+		{``, true, "system"}, {`,"authBrowser":"system"`, true, "system"}, {`,"authBrowser":"embedded"`, true, "embedded"},
+		{`,"authBrowser":"auto"`, false, ""}, {`,"authBrowser":true`, false, ""},
 	} {
-		data := []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":null` + tc.field + `}`)
+		data := []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"self"` + tc.field + `}`)
 		err := ValidateManifest("demo", data)
 		if (err == nil) != tc.valid {
 			t.Fatalf("%s: %v", tc.field, err)
@@ -28,25 +28,11 @@ func TestAuthorizationBrowserManifest(t *testing.T) {
 	}
 }
 
-func TestAuthorizationBrowserPrecedence(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		manifest string
-		legacy   any
-		want     string
-	}{
-		{"default", "", nil, "system"},
-		{"legacy embedded", "", true, "embedded"},
-		{"legacy system", "", false, "system"},
-		{"legacy string ignored", "", "true", "system"},
-		{"explicit system wins", "system", true, "system"},
-		{"explicit embedded wins", "embedded", false, "embedded"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			pkg := Package{Manifest: Manifest{AuthBrowser: tc.manifest}, CLI: map[string]any{"authQrModal": tc.legacy}}
-			if got := pkg.AuthorizationBrowser(); got != tc.want {
-				t.Fatalf("got %s, want %s", got, tc.want)
-			}
-		})
+func TestAuthorizationBrowserComesFromManifestOnly(t *testing.T) {
+	for _, tc := range []struct{ manifest, want string }{{"", "system"}, {"system", "system"}, {"embedded", "embedded"}} {
+		pkg := Package{Manifest: Manifest{AuthMode: AuthDelegated, AuthBrowser: tc.manifest}, CLI: map[string]any{"auth": map[string]any{}}}
+		if got := pkg.AuthorizationBrowser(); got != tc.want {
+			t.Fatalf("authBrowser %q: got %s, want %s", tc.manifest, got, tc.want)
+		}
 	}
 }

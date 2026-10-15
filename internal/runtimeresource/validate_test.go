@@ -52,7 +52,7 @@ func TestSyncInstallsCurrentConnectorWithoutMigratingLegacyData(t *testing.T) {
 	for relative, data := range untouched {
 		writeTestFile(t, filepath.Join(root, relative), data)
 	}
-	manifest := `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`
+	manifest := `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"self"}`
 	source := writeTestZip(t, map[string]string{
 		"env/VERSION": "1.0.0",
 		"env/connectors-center/demo/connector.json": manifest,

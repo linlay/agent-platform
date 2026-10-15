@@ -21,7 +21,7 @@ func TestViewHTTPMountedScopeAndSnapshotAfterUnmount(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{notifications: ws.NewHub(), setupRuntime: func(_ string, cfg *config.Config) {
 		dir := filepath.Join(cfg.Paths.EffectiveConnectorsCenterDir(), "forms")
 		for name, content := range map[string]string{
-			"connector.json":   `{"id":"forms","name":"Forms","version":"1.0.0","type":"view","auth_mode":"none"}`,
+			"connector.json":   `{"id":"forms","name":"Forms","version":"1.0.0","type":"view","authMode":"self"}`,
 			"view.json":        `{"views":{"edit":{"renderer":"html","entry":"views/index.html","usage":["form","display"]}}}`,
 			"views/index.html": "<p>original</p>",
 		} {

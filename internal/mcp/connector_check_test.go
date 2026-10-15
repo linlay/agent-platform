@@ -28,8 +28,8 @@ func connectorCheckFixture(t *testing.T, endpoint, mode string) (connector.Sourc
 		t.Fatal(err)
 	}
 	for name, value := range map[string]any{
-		"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": mode},
-		"mcp.json":       map[string]any{"mcpServers": map[string]any{"main": map[string]any{"type": "http", "url": endpoint}}},
+		"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": mode},
+		"mcp.json":       map[string]any{"mcpServers": map[string]any{"main": map[string]any{"type": "streamableHttp", "url": endpoint}}},
 	} {
 		data, _ := json.Marshal(value)
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0600); err != nil {
@@ -65,7 +65,7 @@ func TestConnectorCheckWithoutAgentMountUsesSDKAndClosesSession(t *testing.T) {
 		upstream.Config.Handler.ServeHTTP(w, r)
 	}))
 	defer server.Close()
-	sources, pkg := connectorCheckFixture(t, server.URL, "no_auth")
+	sources, pkg := connectorCheckFixture(t, server.URL, "none")
 	result, err := NewConnectorChecker(sources).CheckConnector(t.Context(), "demo", "")
 	if err != nil || result.Status != "passed" || result.Initialize.Status != "passed" || result.ToolDiscovery.Status != "passed" || result.ToolDiscovery.Count != 1 || result.ProtocolVersion != ProtocolVersion {
 		t.Fatalf("check: %+v, %v", result, err)
@@ -129,7 +129,7 @@ func TestConnectorCheckFailuresAreBoundedAndSanitized(t *testing.T) {
 				http.Error(w, "private-remote-error", status)
 			}))
 			defer server.Close()
-			sources, _ := connectorCheckFixture(t, server.URL, "no_auth")
+			sources, _ := connectorCheckFixture(t, server.URL, "none")
 			result, err := NewConnectorChecker(sources).CheckConnector(t.Context(), "demo", "main")
 			output, _ := json.Marshal(result)
 			if err != nil || result.Status != "failed" || result.Initialize.Status != "failed" || strings.Contains(string(output), "private-") || strings.Contains(string(output), server.URL) {
@@ -147,7 +147,7 @@ func TestConnectorCheckFailuresAreBoundedAndSanitized(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	sources, _ := connectorCheckFixture(t, server.URL, "no_auth")
+	sources, _ := connectorCheckFixture(t, server.URL, "none")
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 	result, err := NewConnectorChecker(sources).CheckConnector(ctx, "demo", "main")
@@ -157,7 +157,7 @@ func TestConnectorCheckFailuresAreBoundedAndSanitized(t *testing.T) {
 }
 
 func TestConnectorCheckRejectsInvalidOrUnsupportedComponents(t *testing.T) {
-	sources, pkg := connectorCheckFixture(t, "https://example.test/mcp", "no_auth")
+	sources, pkg := connectorCheckFixture(t, "https://example.test/mcp", "none")
 	checker := NewConnectorChecker(sources)
 	result, _ := checker.CheckConnector(t.Context(), "demo", "absent")
 	if result.Package.Code != "component_not_found" {
@@ -170,7 +170,7 @@ func TestConnectorCheckRejectsInvalidOrUnsupportedComponents(t *testing.T) {
 	if result.Package.Code != "unsupported_component" || result.Initialize.Status != "not_run" {
 		t.Fatalf("stdio execution attempted: %+v", result)
 	}
-	if err := os.WriteFile(filepath.Join(pkg.Dir, "mcp.json"), []byte(`{"mcpServers":{"main":{"type":"http","url":"https://example.test/mcp","disabled":true}}}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(pkg.Dir, "mcp.json"), []byte(`{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp","disabled":true}}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	result, _ = checker.CheckConnector(t.Context(), "demo", "main")
@@ -191,7 +191,7 @@ func TestConnectorCheckBoundsMetadataAndAllowsZeroTools(t *testing.T) {
 			}
 			server := httptest.NewServer(sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return remote }, &sdkmcp.StreamableHTTPOptions{JSONResponse: true}))
 			defer server.Close()
-			sources, _ := connectorCheckFixture(t, server.URL, "no_auth")
+			sources, _ := connectorCheckFixture(t, server.URL, "none")
 			result, err := NewConnectorChecker(sources).CheckConnector(t.Context(), "demo", "main")
 			if err != nil || result.Status != "passed" || result.ToolDiscovery.Count != count || len(result.ToolDiscovery.Tools) != min(count, 100) || result.ToolDiscovery.Truncated != (count > 100) {
 				t.Fatalf("metadata: %+v, %v", result, err)
@@ -215,7 +215,7 @@ func TestConnectorCheckRejectsUnsupportedNegotiatedProtocol(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": body["id"], "result": map[string]any{"protocolVersion": "2099-01-01", "capabilities": map[string]any{}, "serverInfo": map[string]any{"name": "test", "version": "1.0.0"}}})
 	}))
 	defer server.Close()
-	sources, _ := connectorCheckFixture(t, server.URL, "no_auth")
+	sources, _ := connectorCheckFixture(t, server.URL, "none")
 	result, err := NewConnectorChecker(sources).CheckConnector(t.Context(), "demo", "main")
 	if err != nil || result.Status != "failed" || result.Initialize.Code != "unsupported_protocol" || result.ToolDiscovery.Status != "not_run" {
 		t.Fatalf("unsupported protocol passed: %+v, %v", result, err)
@@ -239,7 +239,7 @@ func TestConnectorCheckSeparatesDiscoveryFailureFromInitialization(t *testing.T)
 		upstream.Config.Handler.ServeHTTP(w, r)
 	}))
 	defer server.Close()
-	sources, _ := connectorCheckFixture(t, server.URL, "no_auth")
+	sources, _ := connectorCheckFixture(t, server.URL, "none")
 	result, err := NewConnectorChecker(sources).CheckConnector(t.Context(), "demo", "main")
 	data, _ := json.Marshal(result)
 	if err != nil || result.Status != "failed" || result.Initialize.Status != "passed" || result.ToolDiscovery.Status != "failed" || strings.Contains(string(data), "private-") {

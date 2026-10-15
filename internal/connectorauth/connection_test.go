@@ -12,7 +12,7 @@ import (
 func connectionFixture(t *testing.T) (*Manager, connector.Package) {
 	t.Helper()
 	sources := connector.Sources{ExternalRoot: t.TempDir(), StateRoot: t.TempDir()}
-	writeAuthPackage(t, sources.ExternalRoot, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "none"}, map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp"})
+	writeAuthPackage(t, sources.ExternalRoot, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "self"}, map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp"})
 	m := New(context.Background(), sources, nil)
 	pkg, err := sources.Load("demo")
 	if err != nil {

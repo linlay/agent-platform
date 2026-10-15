@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -26,7 +27,14 @@ func writeAuthPackage(t *testing.T, root, id string, manifest map[string]any, co
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for name, value := range map[string]any{"connector.json": manifest, "mcp.json": map[string]any{"mcpServers": map[string]any{"main": component}}} {
+	files := map[string]any{"connector.json": manifest, "mcp.json": map[string]any{"mcpServers": map[string]any{"main": component}}}
+	// Packages keep the credential form in token-schema.json, not the manifest.
+	if schema, ok := manifest["tokenSchema"]; ok {
+		manifest = maps.Clone(manifest)
+		delete(manifest, "tokenSchema")
+		files["connector.json"], files["token-schema.json"] = manifest, schema
+	}
+	for name, value := range files {
 		data, _ := json.Marshal(value)
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
 			t.Fatal(err)
@@ -140,7 +148,7 @@ func newOAuthRegistrationManager(t *testing.T, supportedGrants []string, registe
 	t.Cleanup(upstream.Close)
 	sources := connector.Sources{ExternalRoot: t.TempDir()}
 	writeAuthPackage(t, sources.ExternalRoot, "demo", map[string]any{
-		"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "mcp",
+		"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "mcp",
 	}, map[string]any{"type": "streamableHttp", "url": upstream.URL + "/mcp"})
 	m := New(t.Context(), sources, nil)
 	t.Cleanup(func() {
@@ -280,7 +288,7 @@ func TestOAuthPKCEPersistenceRefreshLogoutAndDestinationBinding(t *testing.T) {
 	defer upstream.Close()
 	root := t.TempDir()
 	stateRoot := (connector.Sources{ExternalRoot: root}).PersistentRoot()
-	writeAuthPackage(t, root, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "mcp", "oauth": map[string]any{"discovery": true, "resourceMetadataUrl": upstream.URL + "/resource-metadata"}}, map[string]any{"type": "streamableHttp", "url": upstream.URL + "/mcp"})
+	writeAuthPackage(t, root, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "mcp", "oauth": map[string]any{"resourceMetadataUrl": upstream.URL + "/resource-metadata"}}, map[string]any{"type": "streamableHttp", "url": upstream.URL + "/mcp"})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m := New(ctx, connector.Sources{ExternalRoot: root}, nil)

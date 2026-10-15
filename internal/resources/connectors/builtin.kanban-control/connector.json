@@ -4,7 +4,7 @@
   "icon": "assets/icon.svg",
   "version": "0.4.0",
   "type": "native",
-  "auth_mode": "no_auth",
+  "authMode": "none",
   "description": "Manage Desktop kanban issues and workflow",
   "i18n": {
     "en": {

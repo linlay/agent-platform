@@ -2,7 +2,6 @@ package connectorauth
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,8 +20,9 @@ func TestCLIOrderedAuthStepsAndJSONStatus(t *testing.T) {
 	}
 	root := t.TempDir()
 	pkg := connector.Package{Manifest: connector.Manifest{ID: "steps"}, CLI: map[string]any{
-		"platform":     map[string]any{"npmPackage": "demo-cli", "npmVersion": "1.2.0", "entry": "cli.js", "command": "demo", "configEnv": "DEMO_CLI_CONFIG_DIR", "logoutMode": "delete-config"},
-		"versionCheck": map[string]any{"minVersion": "1.2.0", "command": commands("demo --version")},
+		"env":             map[string]any{"DEMO_CLI_CONFIG_DIR": "${CONNECTOR_CONFIG_DIR}"},
+		"authWaitForExit": true,
+		"versionCheck":    map[string]any{"minVersion": "1.2.0", "command": commands("demo --version")},
 		"auth": []any{
 			map[string]any{"command": commands("demo init"), "skipIf": commands("demo configured"), "authUrlDomain": "setup.example.test"},
 			map[string]any{"command": commands("demo login"), "authUrlDomain": "login.example.test"},
@@ -118,30 +118,48 @@ else {
 			t.Fatalf("status %s: got %v, %v", tt.status, ok, err)
 		}
 	}
-	// A version wrapper with a missing native payload must not be started by
-	// read-only status; it could otherwise download a binary implicitly.
-	pkg.CLI["platform"].(map[string]any)["nativeEntry"] = "bin/native-demo"
+	// Status must not run a package that changed after preparation.
+	pkg.CLI["statusMatch"] = "identity"
 	pkg = writeCLIPackage(t, root, pkg.ID, pkg.CLI)
-	write(filepath.Join(npm, "cli.js"), `require('fs').writeFileSync(require('path').join(process.env.DEMO_CLI_CONFIG_DIR,'unexpected-install'),'started')`)
+	write(filepath.Join(npm, "cli.js"), `require('fs').writeFileSync(require('path').join(process.env.DEMO_CLI_CONFIG_DIR,'unexpected-run'),'started')`)
 	if _, err := m.cliStatus(ctx, pkg); err == nil {
-		t.Fatal("missing native CLI was reported ready")
+		t.Fatal("changed package was reported ready")
 	}
-	if _, err := os.Stat(filepath.Join(state, "config", "unexpected-install")); !os.IsNotExist(err) {
-		t.Fatal("status executed an unprepared native installer")
+	if _, err := os.Stat(filepath.Join(state, "config", "unexpected-run")); !os.IsNotExist(err) {
+		t.Fatal("status executed an unprepared package")
 	}
 }
 
-func TestCLIAuthStepsRejectUnsafeCommands(t *testing.T) {
-	for _, line := range []string{"demo init; other", "demo $(whoami)", "npm install demo", "demo status > file"} {
-		for _, field := range []string{"command", "skipIf"} {
-			fields := map[string]any{"command": map[string]any{"darwin": "demo init", "linux": "demo init", "win32": "demo init"}, "authUrlDomain": "example.test"}
-			fields[field] = map[string]any{"darwin": line, "linux": line, "win32": line}
-			pkg := connector.Package{CLI: map[string]any{"auth": []any{fields}}}
-			if _, err := cliAuthSteps(pkg, "demo"); err == nil {
-				encoded, _ := json.Marshal(fields)
-				t.Fatalf("accepted unsafe step %s", encoded)
-			}
-		}
+func TestCLIAuthStepsInheritTopLevelBehavior(t *testing.T) {
+	flow := map[string]any{"uriPattern": `(https://login\.example\.test/device\S*)`, "codePattern": `code: (\S+)`, "defaultExpiresInSeconds": 120.0}
+	pkg := connector.Package{CLI: map[string]any{
+		"authUrlDomain": "example.test", "authSuppressBrowser": true,
+		"auth": []any{
+			map[string]any{"command": osCommands("demo init"), "authWaitForExit": true},
+			map[string]any{"command": osCommands("demo login"), "authUrlDomain": "login.example.test", "authSuppressBrowser": false, "authDeviceFlow": flow},
+		},
+	}}
+	steps, err := cliAuthSteps(pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first := steps[0]; first.domain != "example.test" || !first.waitForExit || !first.suppressBrowser || first.deviceFlow != nil {
+		t.Fatalf("first step did not inherit: %+v", first)
+	}
+	second := steps[1]
+	if second.domain != "login.example.test" || second.waitForExit || second.suppressBrowser || second.deviceFlow == nil || second.deviceFlow.expiresIn != 2*time.Minute {
+		t.Fatalf("second step did not override: %+v", second)
+	}
+	uri, code := second.deviceFlow.extract("open https://login.example.test/device?user_code=AB-12\ncode: AB-12\n")
+	if uri != "https://login.example.test/device?user_code=AB-12" || code != "AB-12" {
+		t.Fatalf("device flow extraction: %q %q", uri, code)
+	}
+	if uri, _ := second.deviceFlow.extract("open javascript:alert(1)"); uri != "" {
+		t.Fatal("accepted a non-HTTP device link")
+	}
+	pkg.CLI["auth"] = []any{map[string]any{"skipIf": osCommands("demo configured")}}
+	if _, err := cliAuthSteps(pkg); err == nil {
+		t.Fatal("accepted a step without command")
 	}
 }
 

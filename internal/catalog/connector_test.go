@@ -124,7 +124,7 @@ func TestConnectorSkillNameConflictsRejectAgent(t *testing.T) {
 			root := t.TempDir()
 			for _, id := range tc.connectors {
 				pkg := filepath.Join(root, "connectors", id)
-				writeRuntimeAssemblerFile(t, filepath.Join(pkg, "connector.json"), `{"id":"`+id+`","name":"Fixture","version":"1.0.0","type":"cli","auth_mode":"none"}`)
+				writeRuntimeAssemblerFile(t, filepath.Join(pkg, "connector.json"), `{"id":"`+id+`","name":"Fixture","version":"1.0.0","type":"cli","authMode":"self"}`)
 				writeRuntimeAssemblerFile(t, filepath.Join(pkg, "cli.json"), `{}`)
 				writeRuntimeAssemblerFile(t, filepath.Join(pkg, "skills", "shared", "SKILL.md"), "---\nname: shared\ndescription: Shared fixture\n---\n")
 			}

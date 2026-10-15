@@ -48,14 +48,14 @@ func connectorControlFixture(t *testing.T) *ToolHandler {
 }
 
 func TestConnectorCreationAndReadbackUseLocalAuthorizationSnapshot(t *testing.T) {
-	for _, mode := range []string{"", "no_auth"} {
+	for _, mode := range []string{"", "none"} {
 		t.Run(mode, func(t *testing.T) {
 			h := connectorControlFixture(t)
 			checker := &fixtureConnectorChecker{}
 			h.connectorChecker = checker
 			content := `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp"}`
 			if mode != "" {
-				content = `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp","auth_mode":"no_auth"}`
+				content = `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp","authMode":"none"}`
 			}
 			params := map[string]any{"resourceType": "connector", "resourceKey": "remote", "mcpUrl": "https://example.test/mcp", "content": content}
 			execution := controlExecution()
@@ -84,7 +84,7 @@ func TestConnectorCreationAndReadbackUseLocalAuthorizationSnapshot(t *testing.T)
 					if result["authMode"] != "mcp" || next["action"] != "authorize" || next["route"] != "/connectors/remote" || connection["authentication"].(map[string]any)["status"] != "unauthorized" {
 						t.Fatalf("OAuth guidance: %#v", result)
 					}
-				} else if result["authMode"] != "no_auth" || next["action"] != "checkConnector" {
+				} else if result["authMode"] != "none" || next["action"] != "checkConnector" {
 					t.Fatalf("no_auth should lead to a check: %#v", result)
 				}
 			}
@@ -176,13 +176,13 @@ func TestConnectorReadbackRecommendsOnlySupportedChecks(t *testing.T) {
 		name, mode, component string
 		check                 bool
 	}{
-		{"HTTP", "no_auth", `{"type":"http","url":"https://example.test/mcp"}`, true},
+		{"HTTP", "none", `{"type":"streamableHttp","url":"https://example.test/mcp"}`, true},
 		{"OAuth", "mcp", `{"type":"streamableHttp","url":"https://example.test/mcp"}`, true},
-		{"stdio", "no_auth", `{"type":"stdio","command":"must-never-run"}`, false},
-		{"OneID", "oneid-token", `{"type":"http","url":"https://example.test/mcp"}`, false},
-		{"disabled", "no_auth", `{"type":"http","url":"https://example.test/mcp","disabled":true}`, false},
-		{"platform-disabled", "no_auth", `{"type":"http","url":"https://example.test/mcp","platform":{"enabled":false}}`, false},
-		{"enabled-override", "no_auth", `{"type":"http","url":"https://example.test/mcp","disabled":false,"platform":{"enabled":false}}`, true},
+		{"stdio", "none", `{"type":"stdio","command":"must-never-run"}`, false},
+		{"OneID", "oneid-token", `{"type":"streamableHttp","url":"https://example.test/mcp"}`, false},
+		{"disabled", "none", `{"type":"streamableHttp","url":"https://example.test/mcp","disabled":true}`, false},
+		{"platform-disabled", "none", `{"type":"streamableHttp","url":"https://example.test/mcp","platform":{"enabled":false}}`, false},
+		{"enabled-override", "none", `{"type":"streamableHttp","url":"https://example.test/mcp","disabled":false,"platform":{"enabled":false}}`, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := connectorControlFixture(t)
@@ -192,7 +192,7 @@ func TestConnectorReadbackRecommendsOnlySupportedChecks(t *testing.T) {
 				t.Fatal(err)
 			}
 			for name, data := range map[string]string{
-				"connector.json": `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp","auth_mode":"` + tc.mode + `"}`,
+				"connector.json": `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp","authMode":"` + tc.mode + `"}`,
 				"mcp.json":       `{"mcpServers":{"main":` + tc.component + `}}`,
 			} {
 				if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0600); err != nil {

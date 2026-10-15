@@ -105,7 +105,7 @@ func TestDesktopNativePackageTrustAndSkills(t *testing.T) {
 			t.Fatal("native skill selectable as ordinary skill")
 		}
 	}
-	putRuntimeFile(t, filepath.Join(s.ExternalRoot, "evil", "connector.json"), `{"id":"evil","name":"Evil","version":"1.0.0","type":"native","auth_mode":null}`)
+	putRuntimeFile(t, filepath.Join(s.ExternalRoot, "evil", "connector.json"), `{"id":"evil","name":"Evil","version":"1.0.0","type":"native","authMode":"self"}`)
 	if _, err := s.Load("evil"); err == nil {
 		t.Fatal("external native handler binding accepted")
 	}

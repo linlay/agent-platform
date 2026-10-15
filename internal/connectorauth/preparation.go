@@ -184,10 +184,10 @@ func (m *Manager) StartPreparation(id string) (Preparation, error) {
 	go func(s Preparation) {
 		defer cancel()
 		defer close(job.done)
-		err := m.prepareCLI(ctx, pkg, settings)
+		err := m.prepareCLI(ctx, pkg)
 		if err == nil {
 			s.Fingerprint, err = connector.RuntimeFingerprint(pkg.Dir)
-			if err == nil {
+			if err == nil && settings.Command != "" {
 				env, envErr := m.cliEnvironment(pkg)
 				err = envErr
 				if err == nil {
@@ -288,6 +288,13 @@ func (m *Manager) verifyPreparedEntry(pkg connector.Package, s Preparation) erro
 	settings, err := cliSettingsFor(pkg)
 	if err != nil {
 		return err
+	}
+	// Without a managed executable only the package fingerprint is pinned.
+	if settings.Command == "" {
+		if s.Executable != "" {
+			return fmt.Errorf("CLI executable changed or is missing; prepare again")
+		}
+		return nil
 	}
 	env, err := m.cliEnvironment(pkg)
 	if err != nil {

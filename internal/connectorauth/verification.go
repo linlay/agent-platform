@@ -41,6 +41,17 @@ func cachedVerification(pkg connector.Package, values map[string]string) string 
 	}
 	return v.Status
 }
+
+// CLIAuthorized reports the cached CLI login state of a self-authenticated package.
+func CLIAuthorized(pkg connector.Package) bool {
+	return cachedVerification(pkg, nil) == "authorized"
+}
+
+// CLIAuthorizationRevision changes whenever the cached CLI login state changes.
+func CLIAuthorizationRevision(pkg connector.Package) string {
+	return cachedVerification(pkg, nil)
+}
+
 func pendingTokenValues(pkg connector.Package) (map[string]string, bool, error) {
 	dir, err := pkg.ConnectorStateDir()
 	if err != nil {

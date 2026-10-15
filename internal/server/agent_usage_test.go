@@ -197,7 +197,7 @@ func TestConnectorUsageDirectoryDistinguishesIdleAndFailedCLIPreparation(t *test
 	if err := connectortest.WriteCLI(dir, "pending-cli", "1.0.0"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "connector.json"), []byte(`{"id":"pending-cli","name":"Pending CLI","version":"1.0.0","type":"cli","auth_mode":null}`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "connector.json"), []byte(`{"id":"pending-cli","name":"Pending CLI","version":"1.0.0","type":"cli","authMode":"self"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	read := func(want string) {

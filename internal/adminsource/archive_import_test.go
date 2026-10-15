@@ -19,7 +19,7 @@ func connectorImportPlan(t *testing.T, s *ControlService) *ArchiveImportPlan {
 	var archive bytes.Buffer
 	writer := zip.NewWriter(&archive)
 	for name, content := range map[string]string{
-		"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":null}`,
+		"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"self"}`,
 		"cli.json":       `{}`,
 	} {
 		entry, err := writer.Create(name)
@@ -136,7 +136,7 @@ func TestArchiveImportRechecksDestinationInsideCatalogCoordination(t *testing.T)
 		if reason != "connectors" {
 			t.Fatal(reason)
 		}
-		putControlFile(t, path, `{"id":"demo","name":"Concurrent source","version":"2.0.0","type":"cli","auth_mode":null}`)
+		putControlFile(t, path, `{"id":"demo","name":"Concurrent source","version":"2.0.0","type":"cli","authMode":"self"}`)
 		return mutate(ctx)
 	}
 	consumed := false

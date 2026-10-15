@@ -114,7 +114,7 @@ func TestArchiveImportPublishesDetectedIdentityToItsCenter(t *testing.T) {
 			switch typ {
 			case "connector":
 				resourceType, target = "connector", h.cfg.Paths.EffectiveConnectorsCenterDir()
-				files["connector.json"] = `{"id":"demo","name":"Demo","version":"0.1.0","type":"cli","auth_mode":null}`
+				files["connector.json"] = `{"id":"demo","name":"Demo","version":"0.1.0","type":"cli","authMode":"self"}`
 				files["cli.json"] = `{}`
 				files["skills/attached/SKILL.md"] = "---\nname: attached\ndescription: Attached\n---\nUse it."
 			case "skill":
@@ -168,7 +168,7 @@ func TestArchiveImportPublishesDetectedIdentityToItsCenter(t *testing.T) {
 					t.Fatal("connector skill was split into skills-center")
 				}
 				manifest, err := os.ReadFile(filepath.Join(target, id, "connector.json"))
-				if err != nil || !bytes.Contains(manifest, []byte(`"auth_mode":null`)) {
+				if err != nil || !bytes.Contains(manifest, []byte(`"authMode":"self"`)) {
 					t.Fatal("delegated authentication changed")
 				}
 			}
@@ -254,7 +254,7 @@ func TestArchiveImportRollbackAndPreparationFailureAreDistinct(t *testing.T) {
 			h, e, path := importFixture(t)
 			files := map[string]string{"SKILL.md": "---\nname: demo\ndescription: Demo\n---\nUse it."}
 			if typ == "connector" {
-				files = map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","auth_mode":null}`, "cli.json": `{}`}
+				files = map[string]string{"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"self"}`, "cli.json": `{}`}
 			}
 			importZIP(t, path, files)
 			args := importArgs(typ, path, false)

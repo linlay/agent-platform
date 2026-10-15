@@ -3,6 +3,7 @@ package connector
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,18 +14,19 @@ import (
 
 type Summary struct {
 	Manifest
-	Builtin     bool          `json:"builtin"`
-	ReadOnly    bool          `json:"readOnly"`
-	CanDelete   bool          `json:"canDelete"`
-	HasMCP      bool          `json:"hasMcp"`
-	HasNative   bool          `json:"hasNative"`
-	NativeTools []string      `json:"nativeTools,omitempty"`
-	HasCLI      bool          `json:"hasCli"`
-	HasView     bool          `json:"hasView"`
-	Views       []ViewSummary `json:"views,omitempty"`
-	HasBin      bool          `json:"hasBin"`
-	IconSHA256  string        `json:"iconSha256,omitempty"`
-	Skills      []string      `json:"skills"`
+	TokenSchema json.RawMessage `json:"tokenSchema,omitempty"`
+	Builtin     bool            `json:"builtin"`
+	ReadOnly    bool            `json:"readOnly"`
+	CanDelete   bool            `json:"canDelete"`
+	HasMCP      bool            `json:"hasMcp"`
+	HasNative   bool            `json:"hasNative"`
+	NativeTools []string        `json:"nativeTools,omitempty"`
+	HasCLI      bool            `json:"hasCli"`
+	HasView     bool            `json:"hasView"`
+	Views       []ViewSummary   `json:"views,omitempty"`
+	HasBin      bool            `json:"hasBin"`
+	IconSHA256  string          `json:"iconSha256,omitempty"`
+	Skills      []string        `json:"skills"`
 }
 
 type ViewSummary struct {
@@ -42,7 +44,7 @@ func (s Sources) Summaries() ([]Summary, error) {
 	}
 	result := make([]Summary, 0, len(packages))
 	for _, pkg := range packages {
-		summary := Summary{Manifest: pkg.Manifest, Builtin: pkg.Builtin, ReadOnly: pkg.Builtin, CanDelete: !pkg.Builtin, HasMCP: len(pkg.MCP) > 0, HasCLI: pkg.CLI != nil, HasBin: pkg.BinDir != "", Skills: []string{}}
+		summary := Summary{Manifest: pkg.Manifest, TokenSchema: pkg.TokenSchema, Builtin: pkg.Builtin, ReadOnly: pkg.Builtin, CanDelete: !pkg.Builtin, HasMCP: len(pkg.MCP) > 0, HasCLI: pkg.CLI != nil, HasBin: pkg.BinDir != "", Skills: []string{}}
 		summary.HasNative = len(pkg.NativeTools()) > 0
 		summary.NativeTools = pkg.NativeTools()
 		for _, skill := range pkg.Skills {
@@ -155,6 +157,6 @@ func SaveDefinition(root string, input File, expected string, validate func(Pack
 }
 
 func definitionFile(file string) bool {
-	return file == "connector.json" || file == "mcp.json" || file == "cli.json" || file == "view.json" || file == "native.json"
+	return file == "connector.json" || file == "token-schema.json" || file == "mcp.json" || file == "cli.json" || file == "view.json" || file == "native.json"
 }
 func digest(data []byte) string { hash := sha256.Sum256(data); return hex.EncodeToString(hash[:]) }

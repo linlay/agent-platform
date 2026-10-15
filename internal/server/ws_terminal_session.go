@@ -12,7 +12,6 @@ import (
 	"agent-platform/internal/builtins"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/connector"
-	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/hostenv"
 	"agent-platform/internal/hostshell"
 	terminalpkg "agent-platform/internal/terminal"
@@ -54,19 +53,8 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 	if shellErr != nil {
 		return terminalpkg.OpenResult{}, &statusError{Status: http.StatusServiceUnavailable, Message: shellErr.Error()}
 	}
-	// Terminal never receives SSO, including aliases of AP_ACCESS_TOKEN.
-	for _, binding := range def.ConnectorCredentials {
-		if binding.Mode == connector.AuthOneID {
-			continue
-		}
-		values, err := connectorauth.ResolveEnvironment(s.backgroundCtx, binding, "")
-		if err != nil {
-			return terminalpkg.OpenResult{}, &statusError{Status: http.StatusServiceUnavailable, Message: err.Error()}
-		}
-		for key, value := range values {
-			launch.Env = hostenv.Set(launch.Env, key, value)
-		}
-	}
+	// Terminal receives the connectors' public env only. Credential templates
+	// are resolved solely for each connector's own verified child process.
 	// Strip chat/identity values from the complete inherited environment, not
 	// only definition overrides. Terminal is never a chat execution channel.
 	filteredEnv := launch.Env[:0]

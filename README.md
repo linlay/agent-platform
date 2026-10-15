@@ -211,7 +211,7 @@ Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 
 
 连接器资源包通过清单声明组件、图标、认证方式与授权页面展示。包内程序、安装脚本和远程服务定义的分发边界见 [连接器打包与分发](./docs/连接器打包与分发.md)。
 
-连接器认证模式包括 `no_auth`、`token`、`oneid-token`、`oauth`、`mcp` 与 `null`。`no_auth` 无需配置；需要凭证的模式使用包外来源，认证操作不触碰连接器定义文件。`auth_bindings` 声明 HTTP Header 或 Host CLI/stdio 环境模板，HTTP 发送前、进程启动前读取票据；自管 CLI 继续通过 `configEnv` 使用独立目录。MCP 支持多资源授权、客户端注册信息落盘、元数据发现回退、PKCE、刷新及追加权限提示，详见 [凭证消费映射与多组件授权](./docs/连接器安装与授权.md#凭证消费映射与多组件授权)。
+连接器清单 `connector.json` 全部使用小驼峰字段，`authMode` 必须显式声明：`none`、`self`、`token`、`oauth`、`mcp`、`oneid`（`oneid-token` 为别名）。`none` 无需配置；`token` 的填写表单放在独立的 `token-schema.json`；需要凭证的模式使用包外来源，认证操作不触碰连接器定义文件。凭据模板直接写在 `mcp.json` 的 headers/env 与 `cli.json` 的 env 中，HTTP 发送前、进程启动前读取票据。MCP 支持多资源授权、客户端注册信息落盘、元数据发现回退、PKCE、刷新及追加权限提示，详见 [凭证消费与多组件授权](./docs/连接器安装与授权.md#凭证消费与多组件授权)。
 
 ### 根 `.env.example`
 
@@ -341,7 +341,7 @@ Container Hub 使用严格双根协议，基础挂载包括：
 
 容器 session 与未显式指定 cwd 的命令固定使用 `/workspace`。协议为 `dual-root-v2`。当 ChatsRoot 位于 Workspace 内时，Platform 下发 `/workspace/<ChatsRoot-relative>` mask，Hub 按 Workspace bind → mask tmpfs → current Chat bind 的顺序创建容器，确保 Chat 只从 `/chat` 可见。`/workspace`、`/chat`、mask 及其子路径是保留挂载目标，`runtimeConfig.sandboxMounts` 不能覆盖。session 复用身份包含 environment、canonical Workspace、canonical Chat、mask 和完整 mount fingerprint。
 
-目录型 agent 可在源目录 `.config/` 保存专属覆盖，Skill `.config/` 提供可分发默认值；Platform 合并到只读的 `ru-agents/<agentKey>/<revision>/.config/`（CLI 缓存和状态必须使用其他目录）。平台冻结四个保留变量：`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN`。Host 注入前三者对应的生成配置目录、真实 Workspace（无 Workspace 时省略）和 Chat；Workspace Terminal 只注入 Agent 配置目录与真实 Workspace，不注入 `AP_CHAT_DIR`；Container 固定为 `/agent/.config`、`/workspace` 与 `/chat`。普通 Host Shell 不自动获得第四个变量；经验证的单条直接 oneid-token CLI 调用在独立子进程中使用该变量，已挂载 oneid-token stdio MCP 也从有效 identity 文件即时读取，默认文件为 `<有效 StateDir>/identity/access-token`，可由最高优先级的 `--identity-file <absolute-path>` 覆盖，不进入 Terminal 或 Container。agent `runtimeConfig.env`、skill `.runtime-env.json`、run dynamic env 与调用级 env 均不得覆盖。动态层只通过 `run_env` 的 `set/unset/update` 修改当前普通 native root run 的进程内 Scope；Host Bash、直接短进程和 Container 新 command 获取快照，子 Agent、Team、Terminal、MCP、ACP、Proxy、Channel、LSP、sidecar 和已启动进程不继承或更新，Platform 重启后的续接 run 从空动态层开始。HTTPX 的 chat state/secret 位于 `$AP_CHAT_DIR/.state/httpx` 与 `$AP_CHAT_DIR/.secret/httpx`，缺少合法 `AP_CHAT_DIR` 时不回退 global。完整组装、冲突和迁移规则见 [Agent 运行时组装](./docs/Agent运行时组装.md)。
+目录型 agent 可在源目录 `.config/` 保存专属覆盖，Skill `.config/` 提供可分发默认值；Platform 合并到只读的 `ru-agents/<agentKey>/<revision>/.config/`（CLI 缓存和状态必须使用其他目录）。平台冻结四个保留变量：`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN`。Host 注入前三者对应的生成配置目录、真实 Workspace（无 Workspace 时省略）和 Chat；Workspace Terminal 只注入 Agent 配置目录与真实 Workspace，不注入 `AP_CHAT_DIR`；Container 固定为 `/agent/.config`、`/workspace` 与 `/chat`。普通 Host Shell 不自动获得第四个变量；经验证的单条直接 oneid CLI 调用在独立子进程中使用该变量，已挂载 oneid stdio MCP 也从有效 identity 文件即时读取，默认文件为 `<有效 StateDir>/identity/access-token`，可由最高优先级的 `--identity-file <absolute-path>` 覆盖，不进入 Terminal 或 Container。agent `runtimeConfig.env`、skill `.runtime-env.json`、run dynamic env 与调用级 env 均不得覆盖。动态层只通过 `run_env` 的 `set/unset/update` 修改当前普通 native root run 的进程内 Scope；Host Bash、直接短进程和 Container 新 command 获取快照，子 Agent、Team、Terminal、MCP、ACP、Proxy、Channel、LSP、sidecar 和已启动进程不继承或更新，Platform 重启后的续接 run 从空动态层开始。HTTPX 的 chat state/secret 位于 `$AP_CHAT_DIR/.state/httpx` 与 `$AP_CHAT_DIR/.secret/httpx`，缺少合法 `AP_CHAT_DIR` 时不回退 global。完整组装、冲突和迁移规则见 [Agent 运行时组装](./docs/Agent运行时组装.md)。
 
 `runtimeConfig.sandboxMounts` 会真实影响 Container Hub session mounts：
 

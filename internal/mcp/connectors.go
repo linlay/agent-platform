@@ -66,30 +66,10 @@ func EnabledConnectorServerKeys(pkg connector.Package) []string {
 // former registry (tool aliases/overrides and the platform identity adapter).
 // It is not a second source of MCP definitions.
 func connectorServer(pkg connector.Package, name string) (ServerDefinition, error) {
-	component := pkg.MCP[name]
-	// Merge public credential mappings into a private in-memory component only.
-	component = cloneAuthComponent(component)
-	if binding, ok := pkg.AuthBindings["mcp:"+name]; ok {
-		for field, entries := range map[string]map[string]string{"headers": binding.Headers, "env": binding.Env} {
-			values, _ := component[field].(map[string]any)
-			if values == nil {
-				values = map[string]any{}
-			}
-			for key, value := range entries {
-				for existing := range values {
-					if strings.EqualFold(existing, key) {
-						return ServerDefinition{}, fmt.Errorf("conflicting credential binding")
-					}
-				}
-				values[key] = value
-			}
-			if len(values) > 0 {
-				component[field] = values
-			}
-		}
-	}
+	// Credential templates live in mcp.json itself; work on a private copy.
+	component := cloneAuthComponent(pkg.MCP[name])
 	allowed := map[string]bool{}
-	for _, key := range []string{"type", "url", "command", "args", "runtime", "timeout", "headers", "staticHeaders", "env", "staticEnv", "disabledTools", "platform", "disabled"} {
+	for _, key := range []string{"type", "url", "command", "args", "runtime", "timeout", "headers", "env", "disabledTools", "platform", "disabled"} {
 		allowed[key] = true
 	}
 	for key := range component {
@@ -118,8 +98,9 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 	} else if _, exists := component["platform"]; exists {
 		return ServerDefinition{}, fmt.Errorf("platform must be an object")
 	}
-	if pkg.AuthMode == connector.AuthToken && tree["authSource"] != nil && tree["authSource"] != "" {
-		return ServerDefinition{}, fmt.Errorf("token authentication cannot combine with platform authSource")
+	// Desktop identity is declared by authMode oneid, never by a component flag.
+	if pkg.AuthMode != connector.AuthOneID && tree["authSource"] != nil && tree["authSource"] != "" {
+		return ServerDefinition{}, fmt.Errorf("platform authSource requires authMode oneid")
 	}
 	tree["serverKey"] = connector.ServerKey(pkg.ID, name)
 	if disabled, exists := component["disabled"]; exists {
@@ -130,8 +111,8 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		tree["enabled"] = !value
 	}
 	switch component["type"] {
-	case "streamableHttp", "http":
-		if hasAnyKey(component, "command", "args", "env", "staticEnv", "runtime") {
+	case "streamableHttp":
+		if hasAnyKey(component, "command", "args", "env", "runtime") {
 			return ServerDefinition{}, fmt.Errorf("HTTP MCP cannot declare stdio fields")
 		}
 		rawURL, _ := component["url"].(string)
@@ -147,7 +128,7 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 				return ServerDefinition{}, err
 			}
 			if value := tree["authSource"]; value != nil && value != "" && value != AuthSourceIdentityFile {
-				return ServerDefinition{}, fmt.Errorf("oneid-token cannot combine with another authSource")
+				return ServerDefinition{}, fmt.Errorf("oneid cannot combine with another authSource")
 			}
 			tree["authSource"] = AuthSourceIdentityFile
 		}
@@ -155,7 +136,7 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		tree["baseUrl"] = component["url"]
 		tree["endpointPath"] = ""
 	case "stdio":
-		if hasAnyKey(component, "url", "headers", "staticHeaders") {
+		if hasAnyKey(component, "url", "headers") {
 			return ServerDefinition{}, fmt.Errorf("stdio MCP cannot declare HTTP fields")
 		}
 		if command, ok := component["command"].(string); !ok || strings.TrimSpace(command) == "" {
@@ -179,10 +160,10 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 	} else {
 		tree["read-timeout"] = 30
 	}
-	for _, pair := range [][2]string{{"headers", "staticHeaders"}, {"env", "staticEnv"}} {
+	for _, field := range []string{"headers", "env"} {
 		values := map[string]any{}
 		seen := map[string]bool{}
-		for _, field := range []string{pair[0], pair[1]} {
+		{
 			raw, exists := component[field]
 			if !exists {
 				continue
@@ -203,33 +184,30 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 					if field == "headers" && strings.EqualFold(key, "Authorization") && value == "Bearer ${ONEID_TOKEN}" {
 						value = "Bearer ${AP_ACCESS_TOKEN}"
 					}
-					if (field == "staticHeaders" || field == "staticEnv") && strings.Contains(value, "${") {
-						return ServerDefinition{}, fmt.Errorf("oneid-token templates belong in headers/env, not static fields")
-					}
 					resolved, err := resolveConnectorCredential(pkg, value, map[string]string{agentconfig.EnvAccessToken: "identity"})
 					if err != nil || strings.Contains(resolved, "${") {
-						return ServerDefinition{}, fmt.Errorf("oneid-token only supplies AP_ACCESS_TOKEN")
+						return ServerDefinition{}, fmt.Errorf("oneid only supplies AP_ACCESS_TOKEN")
 					}
-					if pair[0] == "headers" && strings.EqualFold(key, "Authorization") && (field != "headers" || value != "Bearer ${AP_ACCESS_TOKEN}") {
-						return ServerDefinition{}, fmt.Errorf("oneid-token manages Authorization; omit it or use Bearer ${AP_ACCESS_TOKEN}")
+					if field == "headers" && strings.EqualFold(key, "Authorization") && (field != "headers" || value != "Bearer ${AP_ACCESS_TOKEN}") {
+						return ServerDefinition{}, fmt.Errorf("oneid manages Authorization; omit it or use Bearer ${AP_ACCESS_TOKEN}")
 					}
 				}
 				normalized := key
-				if pair[0] == "headers" {
+				if field == "headers" {
 					normalized = strings.ToLower(key)
 				}
 				if seen[normalized] {
-					return ServerDefinition{}, fmt.Errorf("conflicting %s field %q", pair[0], key)
+					return ServerDefinition{}, fmt.Errorf("conflicting %s field %q", field, key)
 				}
 				seen[normalized] = true
-				if pair[0] == "headers" && strings.ContainsAny(value, "\r\n") {
+				if field == "headers" && strings.ContainsAny(value, "\r\n") {
 					return ServerDefinition{}, fmt.Errorf("header contains newline")
 				}
 				values[key] = value
 			}
 		}
 		if len(values) > 0 {
-			tree[pair[0]] = values
+			tree[field] = values
 		}
 	}
 	// Resolve bare names only from the connector's prepared bin directory.
@@ -321,6 +299,13 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		// Account authorization is deliberately not inferred from process env or
 		// CLI output. These modes require a configured credential provider.
 		server.SetupError = "connector authentication requires setup: " + string(pkg.AuthMode)
+	}
+	if pkg.MCPPreAuth == connector.MCPPreAuthCLI {
+		// The CLI login revision restarts the component once login completes.
+		server.CredentialRevision = connectorauth.CLIAuthorizationRevision(pkg)
+		if !connectorauth.CLIAuthorized(pkg) {
+			server.SetupError = "connector requires CLI login before its MCP components start"
+		}
 	}
 	if _, exists := component["runtime"]; exists {
 		server.SetupError = "connector runtime preparation is not implemented; provide a prepared command without runtime requirements"

@@ -39,20 +39,21 @@ func TestDesktopConnectorBridgeLocal(t *testing.T) {
 	root := fixture.server.deps.Config.Paths.EffectiveConnectorsCenterDir()
 	for _, id := range []string{"bridge-none", "bridge-token", "bridge-oauth"} {
 		writeMCPConnectorForTest(t, root, id)
-		manifest := map[string]any{"id": id, "name": id, "version": "1.0.0", "type": "mcp", "auth_mode": "none"}
+		manifest := map[string]any{"id": id, "name": id, "version": "1.0.0", "type": "mcp", "authMode": "self"}
 		component := map[string]any{"type": "streamableHttp", "url": upstream.URL + "/mcp"}
+		files := map[string]any{"connector.json": manifest, "mcp.json": map[string]any{"mcpServers": map[string]any{"main": component}}}
 		if id == "bridge-token" {
-			manifest["auth_mode"] = "token"
-			manifest["token_schema"] = map[string]any{"fields": []map[string]any{{"key": "API_KEY", "label": "API key", "type": "password", "required": true}}}
+			manifest["authMode"] = "token"
+			files["token-schema.json"] = map[string]any{"fields": []map[string]any{{"key": "API_KEY", "label": "API key", "type": "password", "required": true}}}
 			component["url"] = upstream.URL + "/token-mcp"
 			component["headers"] = map[string]any{"X-API-Key": "${API_KEY}"}
 		}
 		if id == "bridge-oauth" {
-			manifest["auth_mode"] = "oauth"
-			manifest["auth_browser"] = "embedded"
-			manifest["oauth"] = map[string]any{"client_id": "fixture-client", "authorization_endpoint": upstream.URL + "/authorize", "token_endpoint": upstream.URL + "/token", "resource": upstream.URL + "/mcp", "scopes": []string{"read"}}
+			manifest["authMode"] = "oauth"
+			manifest["authBrowser"] = "embedded"
+			manifest["oauth"] = map[string]any{"clientId": "fixture-client", "authorizationEndpoint": upstream.URL + "/authorize", "tokenEndpoint": upstream.URL + "/token", "resource": upstream.URL + "/mcp", "scopes": []string{"read"}}
 		}
-		for name, value := range map[string]any{"connector.json": manifest, "mcp.json": map[string]any{"mcpServers": map[string]any{"main": component}}} {
+		for name, value := range files {
 			raw, err := json.Marshal(value)
 			if err != nil {
 				t.Fatal(err)

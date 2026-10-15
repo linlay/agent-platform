@@ -869,8 +869,8 @@ func writeControlSource(path string, data []byte) error {
 	return os.WriteFile(path, data, mode)
 }
 
-// Only the URL creation shortcut supplies this default. Ordinary packages retain
-// their delegated-auth semantics, and an explicitly supplied null is not omitted.
+// Only the URL creation shortcut supplies this default. Ordinary packages must
+// declare authMode explicitly.
 func defaultHTTPMCPAuth(content string) (string, error) {
 	if len(content) > maxControlContent {
 		return "", fmt.Errorf("content exceeds 1 MiB")
@@ -883,20 +883,20 @@ func defaultHTTPMCPAuth(content string) (string, error) {
 		return "", fmt.Errorf("connector manifest must be an object")
 	}
 	for key := range manifest {
-		if key != "auth_mode" && strings.EqualFold(key, "auth_mode") {
-			return "", fmt.Errorf("HTTP MCP creation requires the canonical auth_mode field name")
+		if key != "authMode" && strings.EqualFold(strings.ReplaceAll(key, "_", ""), "authMode") {
+			return "", fmt.Errorf("HTTP MCP creation requires the canonical authMode field name")
 		}
 	}
-	if _, present := manifest["auth_mode"]; present {
+	if _, present := manifest["authMode"]; present {
 		return content, nil
 	}
-	manifest["auth_mode"] = json.RawMessage(`"mcp"`)
+	manifest["authMode"] = json.RawMessage(`"mcp"`)
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	return string(data) + "\n", err
 }
 
 // controlMCPFile creates only the standard HTTP component. Authentication remains
-// in connectorauth: auth_mode=mcp uses protected-resource / authorization-server discovery.
+// in connectorauth: authMode mcp uses protected-resource / authorization-server discovery.
 func controlMCPFile(c ControlChange) (string, error) {
 	u, err := url.Parse(c.MCPURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
@@ -910,9 +910,9 @@ func controlMCPFile(c ControlChange) (string, error) {
 		return "", err
 	}
 	if m.Type != "mcp" || (m.AuthMode != connector.AuthMCP && m.AuthMode != connector.AuthNoAuth) {
-		return "", fmt.Errorf("HTTP MCP creation requires type=mcp and auth_mode=mcp (OAuth discovery) or no_auth; explicit null is unsupported; use the connector package workflow for other authentication modes")
+		return "", fmt.Errorf("HTTP MCP creation requires type mcp and authMode mcp (OAuth discovery) or none; use the connector package workflow for other authentication modes")
 	}
-	components := map[string]map[string]any{"main": {"type": "http", "url": c.MCPURL}}
+	components := map[string]map[string]any{"main": {"type": "streamableHttp", "url": c.MCPURL}}
 	// Match login's local validation before asking the user to approve creation.
 	if err := connectorauth.ValidatePackage(connector.Package{Manifest: m, MCP: components}); err != nil {
 		return "", err

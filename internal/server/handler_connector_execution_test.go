@@ -22,8 +22,9 @@ func TestTrustedConnectorAuthReusesExistingState(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		"connector.json": `{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":"token","token_schema":{"fields":[{"key":"KEY","type":"password","required":true}]}}`,
-		"mcp.json":       `{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp","headers":{"X-Key":"${KEY}"}}}}`,
+		"connector.json":    `{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"token"}`,
+		"token-schema.json": `{"fields":[{"key":"KEY","type":"password","required":true}]}`,
+		"mcp.json":          `{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp","headers":{"X-Key":"${KEY}"}}}}`,
 	}
 	for name, body := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0600); err != nil {

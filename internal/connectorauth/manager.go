@@ -17,16 +17,19 @@ import (
 )
 
 type Session struct {
-	AuthorizationID     string    `json:"authorizationId,omitempty"`
-	ID                  string    `json:"sessionId"`
-	ConnectorID         string    `json:"connectorId"`
-	ComponentID         string    `json:"componentId,omitempty"`
-	Status              string    `json:"status"`
-	PendingVerification bool      `json:"pendingVerification,omitempty"`
-	URL                 string    `json:"authorizationUrl,omitempty"`
-	AuthBrowser         string    `json:"authBrowser"`
-	Message             string    `json:"message,omitempty"`
-	ExpiresAt           time.Time `json:"expiresAt"`
+	AuthorizationID     string `json:"authorizationId,omitempty"`
+	ID                  string `json:"sessionId"`
+	ConnectorID         string `json:"connectorId"`
+	ComponentID         string `json:"componentId,omitempty"`
+	Status              string `json:"status"`
+	PendingVerification bool   `json:"pendingVerification,omitempty"`
+	URL                 string `json:"authorizationUrl,omitempty"`
+	// UserCode is a CLI device-flow code the user confirms or enters.
+	UserCode          string     `json:"userCode,omitempty"`
+	UserCodeExpiresAt *time.Time `json:"userCodeExpiresAt,omitempty"`
+	AuthBrowser       string     `json:"authBrowser"`
+	Message           string     `json:"message,omitempty"`
+	ExpiresAt         time.Time  `json:"expiresAt"`
 }
 
 type login struct {
@@ -234,7 +237,7 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		s.terminalRevision = terminalState.Revision
-		s.URL = ""
+		s.URL, s.UserCode, s.UserCodeExpiresAt = "", "", nil
 		if ctx.Err() != nil {
 			s.Status = "canceled"
 			s.Message = "Login canceled or expired"

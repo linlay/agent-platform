@@ -32,8 +32,9 @@ func TestTokenValidationChecksAllMCPComponentsAndPreservesLiveCredentials(t *tes
 	dir := filepath.Join(sources.ExternalRoot, "demo")
 	os.MkdirAll(dir, 0700)
 	for name, value := range map[string]any{
-		"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "token", "token_schema": map[string]any{"fields": []map[string]any{{"key": "KEY", "label": "API Key", "type": "password", "required": true}}}},
-		"mcp.json":       map[string]any{"mcpServers": map[string]any{"one": map[string]any{"type": "streamableHttp", "url": endpoint.URL + "/one", "headers": map[string]any{"X-API-Key": "${KEY}"}}, "two": map[string]any{"type": "streamableHttp", "url": endpoint.URL + "/two", "headers": map[string]any{"X-API-Key": "${KEY}"}}}},
+		"connector.json":    map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "token"},
+		"token-schema.json": map[string]any{"fields": []map[string]any{{"key": "KEY", "label": "API Key", "type": "password", "required": true}}},
+		"mcp.json":          map[string]any{"mcpServers": map[string]any{"one": map[string]any{"type": "streamableHttp", "url": endpoint.URL + "/one", "headers": map[string]any{"X-API-Key": "${KEY}"}}, "two": map[string]any{"type": "streamableHttp", "url": endpoint.URL + "/two", "headers": map[string]any{"X-API-Key": "${KEY}"}}}},
 	} {
 		raw, _ := json.Marshal(value)
 		if err := os.WriteFile(filepath.Join(dir, name), raw, 0600); err != nil {

@@ -21,6 +21,9 @@ func ExecutionCommand(ctx context.Context, pkg connector.Package, args, env []st
 	if err != nil {
 		return nil, err
 	}
+	if settings.Command == "" {
+		return nil, fmt.Errorf("connector CLI declares no managed executable")
+	}
 	lookup := env
 	if pkg.BinDir != "" {
 		lookup = hostenv.Set(env, "PATH", pkg.BinDir)

@@ -16,7 +16,7 @@ func TestConnectorZIPImportHTTPConflictAndAuthContract(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)
 	var archive bytes.Buffer
 	z := zip.NewWriter(&archive)
-	for name, data := range map[string]string{"connector.json": `{"id":"import-demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":"none"}`, "mcp.json": `{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp"}}}`} {
+	for name, data := range map[string]string{"connector.json": `{"id":"import-demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"self"}`, "mcp.json": `{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp"}}}`} {
 		f, _ := z.Create(name)
 		f.Write([]byte(data))
 	}
@@ -68,7 +68,7 @@ func TestConnectorZIPImportChecksExpectedIdentityBeforePublication(t *testing.T)
 	var archive bytes.Buffer
 	z := zip.NewWriter(&archive)
 	for name, content := range map[string]string{
-		"connector.json": `{"id":"expected-demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":"no_auth"}`,
+		"connector.json": `{"id":"expected-demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"none"}`,
 		"mcp.json":       `{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp"}}}`,
 	} {
 		entry, err := z.Create(name)
@@ -128,7 +128,7 @@ func TestOneIDConnectorZIPAuthorizationTemplateVariants(t *testing.T) {
 			data, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"main": component}})
 			var archive bytes.Buffer
 			z := zip.NewWriter(&archive)
-			for name, content := range map[string]string{"connector.json": `{"id":"oneid-templates","name":"OneID Templates","version":"1.0.0","type":"mcp","auth_mode":"oneid-token"}`, "mcp.json": string(data)} {
+			for name, content := range map[string]string{"connector.json": `{"id":"oneid-templates","name":"OneID Templates","version":"1.0.0","type":"mcp","authMode":"oneid-token"}`, "mcp.json": string(data)} {
 				entry, err := z.Create(name)
 				if err != nil {
 					t.Fatal(err)

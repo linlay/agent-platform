@@ -20,7 +20,7 @@ func TestConnectorIconZIPCatalogAndHTTP(t *testing.T) {
 		var archive bytes.Buffer
 		z := zip.NewWriter(&archive)
 		for name, data := range map[string]string{
-			"connector.json": `{"id":"brand-demo","name":"Brand","version":"1.1.1","type":"cli","auth_mode":null,"icon":"assets/icon.svg"}`,
+			"connector.json": `{"id":"brand-demo","name":"Brand","version":"1.1.1","type":"cli","authMode":"self","icon":"assets/icon.svg"}`,
 			"cli.json":       `{}`, "assets/icon.svg": icon,
 		} {
 			f, err := z.Create(name)

@@ -39,8 +39,9 @@ func TestInvokeMCPReusesExistingConnectorCredentials(t *testing.T) {
 	dir := filepath.Join(sources.ExternalRoot, "demo")
 	os.MkdirAll(dir, 0700)
 	files := map[string]any{
-		"connector.json": map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "auth_mode": "token", "token_schema": map[string]any{"fields": []map[string]any{{"key": "KEY", "type": "password", "required": true}}}},
-		"mcp.json":       map[string]any{"mcpServers": map[string]any{"main": map[string]any{"type": "streamableHttp", "url": server.URL, "headers": map[string]any{"X-Key": "${KEY}"}}}},
+		"connector.json":    map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "token"},
+		"token-schema.json": map[string]any{"fields": []map[string]any{{"key": "KEY", "type": "password", "required": true}}},
+		"mcp.json":          map[string]any{"mcpServers": map[string]any{"main": map[string]any{"type": "streamableHttp", "url": server.URL, "headers": map[string]any{"X-Key": "${KEY}"}}}},
 	}
 	for name, value := range files {
 		data, _ := json.Marshal(value)
@@ -139,7 +140,7 @@ func TestCLIUsesSingleJSONArgumentWithoutShellOrAmbientCredentials(t *testing.T)
 	if err = os.WriteFile(filepath.Join(dir, entry), data, 0700); err != nil {
 		t.Fatal(err)
 	}
-	pkg := connector.Package{Manifest: connector.Manifest{ID: "demo"}, Dir: dir, StateRoot: t.TempDir(), BinDir: bin, CLI: map[string]any{"platform": map[string]any{"configEnv": "DEMO_CONFIG_DIR", "command": "helper"}, "versionCheck": map[string]any{"command": map[string]any{"darwin": "helper --version", "linux": "helper --version", "win32": "helper.cmd --version"}, "minVersion": "1.0.0"}}}
+	pkg := connector.Package{Manifest: connector.Manifest{ID: "demo"}, Dir: dir, StateRoot: t.TempDir(), BinDir: bin, CLI: map[string]any{"env": map[string]any{"DEMO_CONFIG_DIR": "${CONNECTOR_CONFIG_DIR}"}, "versionCheck": map[string]any{"command": map[string]any{"darwin": "helper --version", "linux": "helper --version", "win32": "helper.cmd --version"}, "minVersion": "1.0.0"}}}
 	malicious := `$(touch should-not-exist); " %PATH% & | < >`
 	args, _ := json.Marshal(map[string]any{"value": malicious})
 	output, err := callCLI(context.Background(), pkg, []string{"-test.run=^TestCLIHelper$", "--", "connectorops-helper", "--json", string(args)}, "")

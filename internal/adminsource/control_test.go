@@ -283,11 +283,11 @@ func TestControlPreservesSourcePermissions(t *testing.T) {
 }
 
 func TestControlCreatesCompleteHTTPMCPPackage(t *testing.T) {
-	for _, mode := range []string{"", "mcp", "no_auth"} {
+	for _, mode := range []string{"", "mcp", "none"} {
 		s := controlFixture(t)
 		auth := ""
 		if mode != "" {
-			auth = `,"auth_mode":"` + mode + `"`
+			auth = `,"authMode":"` + mode + `"`
 		}
 		c := ControlChange{ControlTarget: ControlTarget{ResourceType: "connector", ResourceKey: "remote"}, Action: "apply", MCPURL: "https://example.com/mcp", Content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp"` + auth + `}`}
 		plan, err := s.Prepare(c, "caller")
@@ -297,7 +297,7 @@ func TestControlCreatesCompleteHTTPMCPPackage(t *testing.T) {
 		if !strings.Contains(plan.GeneratedFiles["mcp.json"], c.MCPURL) || !strings.Contains(plan.After, "--- generated mcp.json ---") {
 			t.Fatal("generated component missing from review")
 		}
-		if mode == "" && !strings.Contains(plan.Change.Content, `"auth_mode": "mcp"`) {
+		if mode == "" && !strings.Contains(plan.Change.Content, `"authMode": "mcp"`) {
 			t.Fatal("default did not enter the reviewed source")
 		}
 		if !strings.HasPrefix(plan.After, plan.Change.Content) {
@@ -329,7 +329,7 @@ func TestControlHTTPMCPDefaultRejectsExplicitUnsupportedModes(t *testing.T) {
 	for _, auth := range []string{`null`, `"token"`, `"oauth"`, `"delegated"`, `""`, `false`} {
 		t.Run(auth, func(t *testing.T) {
 			s := controlFixture(t)
-			c := ControlChange{ControlTarget: ControlTarget{ResourceType: "connector", ResourceKey: "remote"}, Action: "apply", MCPURL: "https://example.com/mcp", Content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp","auth_mode":` + auth + `}`}
+			c := ControlChange{ControlTarget: ControlTarget{ResourceType: "connector", ResourceKey: "remote"}, Action: "apply", MCPURL: "https://example.com/mcp", Content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp","authMode":` + auth + `}`}
 			if _, err := s.Prepare(c, "caller"); err == nil {
 				t.Fatal("explicit unsupported authentication was defaulted")
 			}
@@ -337,9 +337,9 @@ func TestControlHTTPMCPDefaultRejectsExplicitUnsupportedModes(t *testing.T) {
 	}
 	s := controlFixture(t)
 	c := ControlChange{ControlTarget: ControlTarget{ResourceType: "connector", ResourceKey: "remote"}, Action: "apply", Content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp"}`}
-	p, err := s.Prepare(c, "caller")
-	if err != nil || p.Change.Content != c.Content {
-		t.Fatalf("ordinary package omission semantics changed: %v", err)
+	// Without mcpUrl nothing supplies a default: authMode is required.
+	if _, err := s.Prepare(c, "caller"); err == nil || !strings.Contains(err.Error(), "authMode is required") {
+		t.Fatalf("ordinary package without authMode accepted: %v", err)
 	}
 }
 
@@ -365,12 +365,12 @@ func TestControlMCPAuthenticationValidatedBeforeApproval(t *testing.T) {
 		{"oauth_ipv6_loopback", "mcp", "http://[::1]:8080/mcp", true},
 		{"oauth_public_http", "mcp", "http://example.test/mcp", false},
 		{"oauth_private_http", "mcp", "http://10.0.0.1/mcp", false},
-		{"no_auth_public_http", "no_auth", "http://example.test/mcp", true},
-		{"no_auth_private_http", "no_auth", "http://10.0.0.1/mcp", true},
+		{"no_auth_public_http", "none", "http://example.test/mcp", true},
+		{"no_auth_private_http", "none", "http://10.0.0.1/mcp", true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := controlFixture(t)
-			c := ControlChange{ControlTarget: ControlTarget{ResourceType: "connector", ResourceKey: "remote"}, Action: "apply", MCPURL: tt.endpoint, Content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp","auth_mode":"` + tt.mode + `"}`}
+			c := ControlChange{ControlTarget: ControlTarget{ResourceType: "connector", ResourceKey: "remote"}, Action: "apply", MCPURL: tt.endpoint, Content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp","authMode":"` + tt.mode + `"}`}
 			plan, err := s.Prepare(c, "caller")
 			if (err == nil) != tt.valid {
 				t.Fatalf("valid=%v: plan=%v err=%v", tt.valid, plan, err)

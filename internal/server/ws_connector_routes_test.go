@@ -70,7 +70,7 @@ func TestWSConnectorUsageCatalogMatchesHTTPAndConnectionLocale(t *testing.T) {
 			t.Fatalf("HTTP/WS catalog mismatch: %+v %s", response, rec.Body.String())
 		}
 		encoded, _ := json.Marshal(response)
-		for _, forbidden := range []string{"builtin", "readOnly", "auth_mode", "skills", "version"} {
+		for _, forbidden := range []string{"builtin", "readOnly", "authMode", "skills", "version"} {
 			if strings.Contains(string(encoded), `"`+forbidden+`"`) {
 				t.Fatalf("management field leaked: %s", encoded)
 			}

@@ -16,7 +16,7 @@ func skillDocumentFixture(t *testing.T, id, layout string) Sources {
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		"connector.json":                  `{"id":"` + id + `","name":"Demo","version":"1.0.0","type":"cli","auth_mode":"none"}`,
+		"connector.json":                  `{"id":"` + id + `","name":"Demo","version":"1.0.0","type":"cli","authMode":"self"}`,
 		"cli.json":                        `{}`,
 		filepath.Join(layout, "SKILL.md"): "---\nname: demo\ndescription: Sample skill\n---\n# Guide\nRead this guide.\n",
 	}

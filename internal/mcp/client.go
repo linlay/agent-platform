@@ -444,7 +444,7 @@ func (c *Client) transportWithIdentity(server ServerDefinition, identity map[str
 			for key, value := range server.Env {
 				resolved, err := resolveConnectorCredential(connector.Package{Manifest: connector.Manifest{ID: server.ConnectorID}}, value, identity)
 				if err != nil {
-					return nil, fmt.Errorf("oneid-token environment requires AP_ACCESS_TOKEN")
+					return nil, fmt.Errorf("oneid environment requires AP_ACCESS_TOKEN")
 				}
 				env[key] = resolved
 			}
@@ -631,7 +631,7 @@ func (t headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 		if t.oneID {
 			want, err := url.Parse(t.identityResource)
 			if err != nil || cloned.URL.Scheme != want.Scheme || cloned.URL.Host != want.Host || cloned.URL.EscapedPath() != want.EscapedPath() || cloned.URL.RawQuery != want.RawQuery {
-				return nil, fmt.Errorf("oneid-token credential destination mismatch")
+				return nil, fmt.Errorf("oneid credential destination mismatch")
 			}
 		}
 	}
@@ -640,7 +640,7 @@ func (t headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 			var err error
 			value, err = resolveConnectorCredential(connector.Package{}, value, identity)
 			if err != nil {
-				return nil, fmt.Errorf("oneid-token header requires AP_ACCESS_TOKEN")
+				return nil, fmt.Errorf("oneid header requires AP_ACCESS_TOKEN")
 			}
 		}
 		cloned.Header.Set(key, value)

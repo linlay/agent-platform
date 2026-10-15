@@ -18,7 +18,7 @@ func iconPackage(t *testing.T, root, icon string, data []byte) Package {
 	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := Manifest{ID: "demo", Name: "Demo", Version: "1.0.0", Type: "cli", Icon: icon}
+	manifest := Manifest{ID: "demo", Name: "Demo", Version: "1.0.0", Type: "cli", AuthMode: AuthDelegated, Icon: icon}
 	content, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
