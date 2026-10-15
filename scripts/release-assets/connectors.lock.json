@@ -4,20 +4,20 @@
   "components": [
     {
       "name": "dbx",
-      "version": "v0.1.5",
+      "version": "v0.1.6",
       "repository": "dbx",
       "source": "https://github.com/linlay/cli-dbx.git",
-      "commit": "1151fa79aa3421965485cc3ccc20000858017f8a",
+      "commit": "e0b0d1172ed968c2ba614cb4c8183e518418e2c7",
       "kind": "archive-tree",
       "required": true,
       "targets": {
         "darwin-arm64": {
-          "version": "v0.1.5",
+          "version": "v0.1.6",
           "source": "https://github.com/linlay/cli-dbx.git",
-          "commit": "1151fa79aa3421965485cc3ccc20000858017f8a",
-          "path": "dist/v0.1.5/builtin.dbx_v0.1.5_darwin_arm64.zip",
+          "commit": "e0b0d1172ed968c2ba614cb4c8183e518418e2c7",
+          "path": "dist/v0.1.6/builtin.dbx_v0.1.6_darwin_arm64.zip",
           "format": "zip",
-          "sha256": "76dbcdd8467ae144b9048ecaed69e81371cfac6d61b53026e858c430cfcab291",
+          "sha256": "f7d9852c95cedd4c9533e781ac5ea5fd289e804b9f89ebfae8177feca6a18134",
           "tree": {
             "root": "runtime",
             "outputs": [
@@ -49,20 +49,20 @@
     },
     {
       "name": "httpx",
-      "version": "v0.1.12",
+      "version": "v0.1.13",
       "repository": "httpx",
       "source": "https://github.com/linlay/cli-httpx.git",
-      "commit": "b65f448747ddbeff6b11634ac882ab9f97c0cb84",
+      "commit": "72ccaf9542ad579995a0c8a459de7c4c9e042e03",
       "kind": "archive-tree",
       "required": true,
       "targets": {
         "darwin-arm64": {
-          "version": "v0.1.12",
+          "version": "v0.1.13",
           "source": "https://github.com/linlay/cli-httpx.git",
-          "commit": "b65f448747ddbeff6b11634ac882ab9f97c0cb84",
-          "path": "dist/v0.1.12/builtin.httpx_v0.1.12_darwin_arm64.zip",
+          "commit": "72ccaf9542ad579995a0c8a459de7c4c9e042e03",
+          "path": "dist/v0.1.13/builtin.httpx_v0.1.13_darwin_arm64.zip",
           "format": "zip",
-          "sha256": "0ef7512a239c4aff4a1b647bb92d309d6c415448a112338f7b6f5bda854f4131",
+          "sha256": "7f1eac654a4bb0539623ae530fb355dec5d076d7acd285c1c9cd94c2a09bb91e",
           "tree": {
             "root": "runtime",
             "outputs": [

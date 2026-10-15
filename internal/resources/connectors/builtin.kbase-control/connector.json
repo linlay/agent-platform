@@ -2,7 +2,7 @@
   "id": "builtin.kbase-control",
   "name": "Knowledge Base",
   "icon": "assets/icon.svg",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "type": "native",
   "authMode": "none",
   "description": "Search, browse and read knowledge libraries by ID",
