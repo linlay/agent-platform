@@ -8,11 +8,15 @@ import (
 
 func modelOutputLimited(turn *providerTurnStream) bool {
 	switch strings.ToLower(strings.TrimSpace(turn.finishReason)) {
-	case "length", "max_tokens":
+	case "length", "max_tokens", anthropicContextWindowStop:
 		return true
 	}
 	return false
 }
+
+// Anthropic stops with this reason when generation fills the context window;
+// the output is truncated exactly like an output-token limit.
+const anthropicContextWindowStop = "model_context_window_exceeded"
 
 // Classify observed termination signals without guessing which upstream layer
 // imposed a limit. These terminal failures must not retry or execute tools.
@@ -33,7 +37,9 @@ func modelResponseFailure(turn *providerTurnStream) map[string]any {
 	case modelOutputLimited(turn):
 		code = apperrors.CodeModelOutputLimit
 		message = "本轮输出额度已用尽，任务未完成。请调整模型或中转服务的输出额度后重试。"
-		if !empty {
+		if strings.EqualFold(strings.TrimSpace(turn.finishReason), anthropicContextWindowStop) {
+			message = "模型上下文窗口已满，本轮输出被截断，任务未完成。请压缩上下文后重试。"
+		} else if !empty {
 			message = "本轮输出额度已用尽，回答可能不完整，任务未完成。已生成的内容和此前已完成的操作已保留。"
 		} else if turn.reasoning.Len() > 0 || turn.observation.RawReasoningBytes > 0 {
 			message = "本轮输出额度已用尽，仅生成了思考内容，尚未产生回答或执行本轮工具。任务未完成。"

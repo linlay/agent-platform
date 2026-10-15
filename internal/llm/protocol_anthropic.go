@@ -73,78 +73,111 @@ func (p *anthropicProtocol) OpenStream(ctx context.Context, params protocolStrea
 	return p.engine.executeProviderRequest(req, params.modelTimeout)
 }
 
+// Anthropic stream events decode into typed fields so provider text reaches
+// the turn verbatim; contracts helpers normalize values and must not read it.
+type anthropicStreamEvent struct {
+	Type    string               `json:"type"`
+	Index   anthropicBlockIndex  `json:"index"`
+	Message anthropicStreamUsage `json:"message"`
+	Block   anthropicStreamBlock `json:"content_block"`
+	Delta   anthropicStreamDelta `json:"delta"`
+	Usage   map[string]any       `json:"usage"`
+	Error   json.RawMessage      `json:"error"`
+}
+
+type anthropicStreamUsage struct {
+	Usage map[string]any `json:"usage"`
+}
+
+type anthropicStreamBlock struct {
+	Type     string         `json:"type"`
+	ID       string         `json:"id"`
+	Name     string         `json:"name"`
+	Text     string         `json:"text"`
+	Thinking string         `json:"thinking"`
+	Input    map[string]any `json:"input"`
+}
+
+type anthropicStreamDelta struct {
+	Type        string `json:"type"`
+	Text        string `json:"text"`
+	Thinking    string `json:"thinking"`
+	PartialJSON string `json:"partial_json"`
+	StopReason  string `json:"stop_reason"`
+}
+
+// anthropicBlockIndex keeps accepting relays that quote the block index.
+type anthropicBlockIndex int
+
+func (i *anthropicBlockIndex) UnmarshalJSON(data []byte) error {
+	var value any
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*i = anthropicBlockIndex(AnyIntNode(value))
+	return nil
+}
+
 func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawChunk string) (bool, error) {
 	s.currentTurn.trace.markStreamEvent("handled")
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(rawChunk), &payload); err != nil {
+	var event anthropicStreamEvent
+	if err := json.Unmarshal([]byte(rawChunk), &event); err != nil {
 		s.currentTurn.observation.DecodeErrors++
 		return false, apperrors.Wrap(apperrors.CodeProviderStreamInvalid, fmt.Errorf("decode provider stream chunk: %w", err))
 	}
 
-	if payload["error"] != nil {
-		raw, _ := json.Marshal(payload["error"])
-		if err := providerEnvelopeError(raw); err != nil {
-			return false, s.annotateProviderError(err)
-		}
+	if err := providerEnvelopeError(event.Error); err != nil {
+		return false, s.annotateProviderError(err)
 	}
-	if eventName == "error" || AnyStringNode(payload["type"]) == "error" {
+	if eventName == "error" || strings.TrimSpace(event.Type) == "error" {
 		return false, s.annotateProviderError(providerReportedError("", "", ""))
 	}
+	index := int(event.Index)
 	switch strings.TrimSpace(eventName) {
 	case "", "ping":
 		s.currentTurn.trace.markStreamEvent("ignored")
 		return false, nil
 	case "message_start":
-		message := AnyMapNode(payload["message"])
-		s.accumulateUsage(mergeAnthropicUsage(s.currentTurn.usage, AnyMapNode(message["usage"])))
+		s.accumulateUsage(mergeAnthropicUsage(s.currentTurn.usage, event.Message.Usage))
 	case "content_block_start":
-		block := AnyMapNode(payload["content_block"])
-		blockType := AnyStringNode(block["type"])
-		text, _ := block["text"].(string)
-		thinking, _ := block["thinking"].(string)
-		s.currentTurn.observation.RawContentBytes += len(text)
-		s.currentTurn.observation.RawReasoningBytes += len(thinking)
-		if blockType == "tool_use" {
+		block := event.Block
+		s.currentTurn.observation.RawContentBytes += len(block.Text)
+		s.currentTurn.observation.RawReasoningBytes += len(block.Thinking)
+		// Anthropic starts text blocks empty, but compatible relays may put the
+		// first fragment here; it belongs to the block like any later delta.
+		s.appendCompatContent(block.Text)
+		s.appendAnthropicThinking(index, block.Thinking)
+		if strings.TrimSpace(block.Type) == "tool_use" {
 			s.currentTurn.observation.RawToolDeltas++
-			index := AnyIntNode(payload["index"])
-			input, _ := block["input"].(map[string]any)
-			toolID := AnyStringNode(block["id"])
-			toolName := AnyStringNode(block["name"])
 			var argsChunk string
-			if len(input) > 0 {
-				data, err := json.Marshal(input)
+			if len(block.Input) > 0 {
+				data, err := json.Marshal(block.Input)
 				if err != nil {
 					return false, err
 				}
 				argsChunk = string(data)
 			}
-			deltas := s.currentTurn.appendToolCallDelta(index, toolID, "function", toolName, argsChunk)
+			deltas := s.currentTurn.appendToolCallDelta(index, strings.TrimSpace(block.ID), "function", strings.TrimSpace(block.Name), argsChunk)
 			if !s.allowToolUse {
 				return false, nil
 			}
 			s.appendToolCallDeltas(deltas)
 		}
 	case "content_block_delta":
-		index := AnyIntNode(payload["index"])
-		delta := AnyMapNode(payload["delta"])
-		switch AnyStringNode(delta["type"]) {
+		delta := event.Delta
+		switch strings.TrimSpace(delta.Type) {
 		case "text_delta":
-			// Payload fragments are verbatim: trimming their boundaries removes
-			// Markdown newlines, word separators and whitespace-only deltas.
-			text, _ := delta["text"].(string)
-			s.currentTurn.observation.RawContentBytes += len(text)
-			s.appendCompatContent(text)
+			s.currentTurn.observation.RawContentBytes += len(delta.Text)
+			s.appendCompatContent(delta.Text)
 		case "thinking_delta":
-			thinking, _ := delta["thinking"].(string)
-			s.currentTurn.observation.RawReasoningBytes += len(thinking)
-			s.appendCompatAnthropicThinking(thinking)
+			s.currentTurn.observation.RawReasoningBytes += len(delta.Thinking)
+			s.appendAnthropicThinking(index, delta.Thinking)
 		case "input_json_delta":
 			s.currentTurn.observation.RawToolDeltas++
-			partialJSON, _ := delta["partial_json"].(string)
-			if partialJSON == "" {
+			if delta.PartialJSON == "" {
 				return false, nil
 			}
-			deltas := s.currentTurn.appendToolCallDelta(index, "", "function", "", partialJSON)
+			deltas := s.currentTurn.appendToolCallDelta(index, "", "function", "", delta.PartialJSON)
 			if !s.allowToolUse {
 				return false, nil
 			}
@@ -158,9 +191,8 @@ func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawC
 	case "message_delta":
 		// Usage is cumulative, and the final delta includes thinking token counts.
 		// Collect it before finishing so both successful and truncated turns retain it.
-		s.accumulateUsage(mergeAnthropicUsage(s.currentTurn.usage, AnyMapNode(payload["usage"])))
-		delta := AnyMapNode(payload["delta"])
-		stopReason := strings.TrimSpace(AnyStringNode(delta["stop_reason"]))
+		s.accumulateUsage(mergeAnthropicUsage(s.currentTurn.usage, event.Usage))
+		stopReason := strings.TrimSpace(event.Delta.StopReason)
 		if stopReason == "" {
 			return false, nil
 		}
@@ -184,6 +216,32 @@ func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawC
 	}
 
 	return false, nil
+}
+
+// A turn keeps one reasoning buffer, so consecutive thinking blocks (such as
+// a reasoning summary followed by a progress update) need a paragraph break;
+// fragments within one block are joined verbatim.
+func (s *llmRunStream) appendAnthropicThinking(index int, thinking string) {
+	if thinking == "" {
+		return
+	}
+	turn := s.currentTurn
+	if turn.anthropicThinkingBlock != index {
+		thinking = anthropicBlockSeparator(turn.reasoning.String()) + thinking
+		turn.anthropicThinkingBlock = index
+	}
+	s.appendCompatAnthropicThinking(thinking)
+}
+
+func anthropicBlockSeparator(previous string) string {
+	switch {
+	case previous == "", strings.HasSuffix(previous, "\n\n"):
+		return ""
+	case strings.HasSuffix(previous, "\n"):
+		return "\n"
+	default:
+		return "\n\n"
+	}
 }
 
 func (p *anthropicProtocol) buildRequestBody(model ModelDefinition, stageSettings StageSettings, messages []openAIMessage, toolSpecs []openAIToolSpec, toolChoice string, protocolConfig protocolRuntimeConfig) (map[string]any, string, error) {
@@ -368,7 +426,7 @@ func convertMessagesToAnthropic(messages []openAIMessage) (string, []map[string]
 				blocks = append(blocks, map[string]any{
 					"type":        "tool_result",
 					"tool_use_id": toolMsg.ToolCallID,
-					"content":     anthropicTextFromContent(toolMsg.Content),
+					"content":     anthropicToolResultContent(toolMsg.Content),
 				})
 				index++
 			}
@@ -386,7 +444,16 @@ func convertMessagesToAnthropic(messages []openAIMessage) (string, []map[string]
 }
 
 func anthropicAssistantBlocks(msg openAIMessage) ([]map[string]any, error) {
-	blocks := anthropicContentBlocks(msg.Content)
+	var blocks []map[string]any
+	// Assistant text is the model's own output; a replayed turn must not end
+	// with whitespace, so only this role keeps the trimmed form.
+	for _, block := range anthropicContentBlocks(msg.Content) {
+		if block["type"] == "text" {
+			text, _ := block["text"].(string)
+			block["text"] = strings.TrimSpace(text)
+		}
+		blocks = append(blocks, block)
+	}
 	for _, toolCall := range msg.ToolCalls {
 		input := map[string]any{}
 		if strings.TrimSpace(toolCall.Function.Arguments) != "" {
@@ -404,55 +471,106 @@ func anthropicAssistantBlocks(msg openAIMessage) ([]map[string]any, error) {
 	return blocks, nil
 }
 
+// User and tool text is sent verbatim: boundary whitespace such as the first
+// line's indentation is content. Anthropic rejects whitespace-only text
+// blocks, so those are omitted.
 func anthropicContentBlocks(content any) []map[string]any {
-	switch value := content.(type) {
-	case []map[string]any:
-		blocks := make([]map[string]any, 0, len(value))
-		for _, block := range value {
-			switch AnyStringNode(block["type"]) {
-			case "text":
-				text := strings.TrimSpace(AnyStringNode(block["text"]))
-				if text != "" {
-					blocks = append(blocks, map[string]any{"type": "text", "text": text})
-				}
-			case "image_url":
-				imageURL := AnyMapNode(block["image_url"])
-				mediaType, data, ok := parseDataImageURL(AnyStringNode(imageURL["url"]))
-				if ok {
-					blocks = append(blocks, map[string]any{
-						"type": "image",
-						"source": map[string]any{
-							"type":       "base64",
-							"media_type": mediaType,
-							"data":       data,
-						},
-					})
-				}
+	parts, ok := anthropicContentParts(content)
+	if !ok {
+		return anthropicTextBlocks(content)
+	}
+	blocks := make([]map[string]any, 0, len(parts))
+	for _, block := range parts {
+		switch AnyStringNode(block["type"]) {
+		case "text":
+			text, _ := block["text"].(string)
+			if strings.TrimSpace(text) != "" {
+				blocks = append(blocks, map[string]any{"type": "text", "text": text})
+			}
+		case "image_url":
+			imageURL := AnyMapNode(block["image_url"])
+			mediaType, data, ok := parseDataImageURL(AnyStringNode(imageURL["url"]))
+			if ok {
+				blocks = append(blocks, map[string]any{
+					"type": "image",
+					"source": map[string]any{
+						"type":       "base64",
+						"media_type": mediaType,
+						"data":       data,
+					},
+				})
 			}
 		}
-		return blocks
+	}
+	return blocks
+}
+
+// Content parts are []map[string]any when built in process and []any after a
+// JSON round trip; both carry the same OpenAI-style blocks.
+func anthropicContentParts(content any) ([]map[string]any, bool) {
+	switch value := content.(type) {
+	case []map[string]any:
+		return value, true
+	case []any:
+		parts := make([]map[string]any, 0, len(value))
+		for _, item := range value {
+			if part, ok := item.(map[string]any); ok {
+				parts = append(parts, part)
+			}
+		}
+		return parts, true
 	default:
-		return anthropicTextBlocks(content)
+		return nil, false
 	}
 }
 
+func anthropicToolResultContent(content any) any {
+	if _, ok := anthropicContentParts(content); ok {
+		if blocks := anthropicContentBlocks(content); len(blocks) > 0 {
+			return blocks
+		}
+		return ""
+	}
+	if text, ok := content.(string); ok && strings.TrimSpace(text) != "" {
+		return text
+	}
+	return anthropicTextFromContent(content)
+}
+
 func anthropicTextBlocks(content any) []map[string]any {
-	text := anthropicTextFromContent(content)
-	if text == "" {
+	text, ok := content.(string)
+	if !ok {
+		text = anthropicTextFromContent(content)
+	}
+	if strings.TrimSpace(text) == "" {
 		return nil
 	}
 	return []map[string]any{{"type": "text", "text": text}}
 }
 
+// anthropicTextFromContent flattens content for the system prompt and for
+// non-text values; it never formats Go maps with %v.
 func anthropicTextFromContent(content any) string {
 	switch value := content.(type) {
 	case string:
 		return strings.TrimSpace(value)
 	case nil:
 		return ""
-	default:
-		return strings.TrimSpace(fmt.Sprintf("%v", value))
 	}
+	if parts, ok := anthropicContentParts(content); ok {
+		var text strings.Builder
+		for _, part := range parts {
+			if value, ok := part["text"].(string); ok {
+				text.WriteString(value)
+			}
+		}
+		return strings.TrimSpace(text.String())
+	}
+	data, err := json.Marshal(content)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 func parseDataImageURL(url string) (string, string, bool) {

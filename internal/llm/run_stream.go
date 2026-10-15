@@ -146,6 +146,9 @@ type providerTurnStream struct {
 	usageCommitted     bool
 	requestSentAt      time.Time
 	firstVisibleAt     time.Time
+
+	// anthropicThinkingBlock is the content block index of the latest thinking text.
+	anthropicThinkingBlock int
 }
 
 type pendingModelCall struct {
