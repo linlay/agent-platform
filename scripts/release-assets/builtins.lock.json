@@ -68,10 +68,10 @@
     },
     {
       "name": "kbx",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "repository": "kbx",
       "source": "agent-platform-builtins/kbx",
-      "commit": "21b0267a04b4c0b4c20628daeaf619e78e35dc47",
+      "commit": "18eae4f86ac8fd311d6025ad2f21a05e653461f1",
       "kind": "archive",
       "required": true,
       "license": "MIT",
@@ -82,14 +82,14 @@
       ],
       "targets": {
         "darwin-arm64": {
-          "version": "0.1.1",
+          "version": "0.1.2",
           "source": "agent-platform-builtins/kbx",
-          "commit": "21b0267a04b4c0b4c20628daeaf619e78e35dc47",
-          "path": "dist/v0.1.1/kbx_v0.1.1_darwin_arm64.tar.gz",
+          "commit": "18eae4f86ac8fd311d6025ad2f21a05e653461f1",
+          "path": "dist/v0.1.2/kbx_v0.1.2_darwin_arm64.tar.gz",
           "format": "tar.gz",
           "entry": "kbx",
           "output": "kbx",
-          "sha256": "f5e6d5bb1e016d0a7ca56f94db8c241d6dac12a13f5a105936da3deeb895b0f2"
+          "sha256": "b60afe084d6bb70c670f1d07e4e0300062f11b8206e5e581f66006889e7dfab8"
         },
         "linux-amd64": {
           "version": "0.1.1",
