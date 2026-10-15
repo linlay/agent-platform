@@ -613,7 +613,7 @@ type ToolExecutionResult struct {
 	Structured map[string]any
 	// MCPResult is the complete MCP tools/call result as parsed by the SDK,
 	// kept losslessly for traces and diagnostics. It is never sent to the model.
-	MCPResult         map[string]any
+	MCPResult         map[string]any `json:",omitempty"`
 	RawParams         any
 	HITL              map[string]any
 	Error             string

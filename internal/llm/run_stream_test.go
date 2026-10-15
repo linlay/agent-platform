@@ -191,6 +191,7 @@ type recordedToolInvocation struct {
 type recordingToolExecutor struct {
 	defs        []api.ToolDetailResponse
 	result      contracts.ToolExecutionResult
+	err         error
 	mu          sync.Mutex
 	invocations []recordedToolInvocation
 }
@@ -206,9 +207,9 @@ func (r *recordingToolExecutor) Invoke(_ context.Context, name string, args map[
 	r.invocations = append(r.invocations, recordedToolInvocation{name: name, args: cloned})
 	r.mu.Unlock()
 	if r.result.Output == "" && r.result.Structured == nil && r.result.Error == "" && r.result.ExitCode == 0 {
-		return contracts.ToolExecutionResult{Output: "ok", ExitCode: 0}, nil
+		return contracts.ToolExecutionResult{Output: "ok", ExitCode: 0}, r.err
 	}
-	return r.result, nil
+	return r.result, r.err
 }
 
 type blockingToolExecutor struct {

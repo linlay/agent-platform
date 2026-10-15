@@ -115,9 +115,61 @@ func TestRunStreamUsesSessionCurrentMessages(t *testing.T) {
 	}
 }
 
+var traceTestRawMCPResult = map[string]any{
+	"structuredContent": map[string]any{"count": float64(2)},
+	"content": []any{
+		map[string]any{"type": "text", "text": "部分数据源查询失败"},
+		map[string]any{"type": "image", "data": "QUJDREVG"},
+	},
+}
+
 // The model receives Output verbatim while the trace keeps the raw MCP result,
 // including base64 that Output elides.
 func TestLLMMCPToolResultReachesModelRequestAndTrace(t *testing.T) {
+	output := "部分数据源查询失败\n\n{\"data\":\"[base64 omitted: 8 chars]\",\"type\":\"image\"}\n\nstructuredContent:\n{\"count\":2}"
+	toolContent, entry := runMCPToolTraceLoop(t, &recordingToolExecutor{
+		result: contracts.ToolExecutionResult{
+			Output:     output,
+			Structured: map[string]any{"count": float64(2)},
+			MCPResult:  traceTestRawMCPResult,
+		},
+	})
+	if toolContent != output || entry["content"] != output {
+		t.Fatalf("tool content mismatch\nwant %q\nrequest %#v\ntrace   %#v", output, toolContent, entry["content"])
+	}
+	if traced := entry["result"].(map[string]any)["MCPResult"]; !reflect.DeepEqual(traced, traceTestRawMCPResult) {
+		t.Fatalf("trace lost raw MCP result\nwant %#v\ngot  %#v", traceTestRawMCPResult, traced)
+	}
+}
+
+// An executor error (e.g. outputSchema violation) is remapped to
+// tool_execution_failed; the raw MCP result must survive that remapping.
+func TestLLMMCPToolExecutionErrorKeepsRawResultInTrace(t *testing.T) {
+	toolContent, entry := runMCPToolTraceLoop(t, &recordingToolExecutor{
+		result: contracts.ToolExecutionResult{
+			Output:    "time contract violation",
+			MCPResult: traceTestRawMCPResult,
+			Error:     "time_contract_violation",
+			ExitCode:  -1,
+		},
+		err: errors.New("tool.result.mcp_lookup.count: expected epoch milliseconds"),
+	})
+	if toolContent != "tool.result.mcp_lookup.count: expected epoch milliseconds" {
+		t.Fatalf("unexpected model tool content: %#v", toolContent)
+	}
+	result := entry["result"].(map[string]any)
+	if result["Error"] != "tool_execution_failed" {
+		t.Fatalf("unexpected traced error: %#v", result)
+	}
+	if !reflect.DeepEqual(result["MCPResult"], traceTestRawMCPResult) {
+		t.Fatalf("trace lost raw MCP result on error\nwant %#v\ngot  %#v", traceTestRawMCPResult, result["MCPResult"])
+	}
+}
+
+// runMCPToolTraceLoop runs one mcp_lookup tool call and returns the tool
+// message content sent in the follow-up model request plus the trace entry.
+func runMCPToolTraceLoop(t *testing.T, executor *recordingToolExecutor) (any, map[string]any) {
+	t.Helper()
 	recordDir := t.TempDir()
 	var calls atomic.Int64
 	var secondBody atomic.Value
@@ -133,22 +185,7 @@ func TestLLMMCPToolResultReachesModelRequestAndTrace(t *testing.T) {
 	}))
 	defer server.Close()
 
-	output := "部分数据源查询失败\n\n{\"data\":\"[base64 omitted: 8 chars]\",\"type\":\"image\"}\n\nstructuredContent:\n{\"count\":2}"
-	raw := map[string]any{
-		"structuredContent": map[string]any{"count": float64(2)},
-		"content": []any{
-			map[string]any{"type": "text", "text": "部分数据源查询失败"},
-			map[string]any{"type": "image", "data": "QUJDREVG"},
-		},
-	}
-	executor := &recordingToolExecutor{
-		defs: []api.ToolDetailResponse{{Name: "mcp_lookup", Parameters: map[string]any{"type": "object"}}},
-		result: contracts.ToolExecutionResult{
-			Output:     output,
-			Structured: map[string]any{"count": float64(2)},
-			MCPResult:  raw,
-		},
-	}
+	executor.defs = []api.ToolDetailResponse{{Name: "mcp_lookup", Parameters: map[string]any{"type": "object"}}}
 	engine := newTraceTestEngine(t, recordDir, server.URL, executor)
 	req := api.QueryRequest{ChatID: "chat_1", Message: "Use tool"}
 	session := traceTestSession()
@@ -175,19 +212,8 @@ func TestLLMMCPToolResultReachesModelRequestAndTrace(t *testing.T) {
 			toolContent = message.Content
 		}
 	}
-	if toolContent != output {
-		t.Fatalf("model request tool content mismatch\nwant %q\ngot  %#v", output, toolContent)
-	}
-
 	toolResults := readTraceFile(t, recordDir, 1)["toolResults"].([]any)
-	entry := toolResults[0].(map[string]any)
-	if entry["content"] != output {
-		t.Fatalf("trace content mismatch: %#v", entry["content"])
-	}
-	traced := entry["result"].(map[string]any)["MCPResult"]
-	if !reflect.DeepEqual(traced, raw) {
-		t.Fatalf("trace lost raw MCP result\nwant %#v\ngot  %#v", raw, traced)
-	}
+	return toolContent, toolResults[0].(map[string]any)
 }
 
 func TestLLMChatTraceWritesToolLoopFiles(t *testing.T) {

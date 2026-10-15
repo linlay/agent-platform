@@ -39,7 +39,8 @@ SDK 负责 session ID、协议头、JSON/SSE、初始化通知和标准关闭；
 - `content` 全部块按原顺序以空行分隔进入 `Output`：text 块取原文（空白文本块跳过），其他块（resource_link、resource、image、audio 等）以保留类型与字段的 JSON 表示，其中内联 base64（`data`、`resource.blob`）替换为 `[base64 omitted: N chars]`。资源链接不会被自动访问，图片/音频不作为原生多模态输入发送给模型。
 - 存在 `structuredContent` 时，它原样作为 `Structured`（根结构不包装，`outputSchema` 校验仍针对它）。`content` 为空，或仅为一个整段恰好是等价 JSON 的文本块（JSON 后不能再有其他文本）时，`Output` 为 `structuredContent` 的 JSON；否则 `Output` 为 `content` 渲染文本，若没有任何文本块与 `structuredContent` 等价且其非空，再追加 `structuredContent:` 段及其 JSON。不做其他去重。
 - 没有 `structuredContent` 时，纯 text 块结果不设置 `Structured`；含非 text 块或带 `annotations`/`_meta` 等附加字段时，`Structured` 为 `{"content": [...]}`，保留原始块（含 base64）。
-- 每个 MCP 结果都以 SDK 解析后的完整对象保存在 `ToolExecutionResult.MCPResult`，包括内容块顺序、附加字段和未省略的 base64，不发送给模型。它进入可选 LLM trace（`toolResults[].result.MCPResult`），不进入 SSE 事件或 Chat 持久化；前端事件仍展示 `Structured`（失败时为 `Output`）。这里不是网络原始字节。
+- 每个 MCP 结果都以 SDK 解析后的完整对象保存在 `ToolExecutionResult.MCPResult`，包括内容块顺序、附加字段和未省略的 base64，不发送给模型。`outputSchema` 校验失败、执行错误映射为 `tool_execution_failed` 以及取消映射为 `tool_execution_outcome_unknown` 时仍沿用该字段（取消结果的 `partialResult` 不内嵌它）。它进入可选 LLM trace（`toolResults[].result.MCPResult`），该字段本身不进入 SSE 事件或 Chat 持久化。这里不是网络原始字节。
+- 前端事件仍展示 `Structured`（失败时为 `Output`）。因此没有 `structuredContent` 而含非 text 块的结果，其 `Structured.content` 中的原始 base64 仍会随事件发送和持久化；只有模型侧 `Output` 省略 base64。
 
 `isError:true` 会形成失败的工具结果；如果 `structuredContent.error` 或 `structuredContent.code` 存在，平台保留该业务错误码，例如 qiuerscript 的 `last_digest_required`、`method_not_found` 与 `digest_mismatch`，不会统一降级为 `mcp_tool_error`。主错误消息依次取 `structuredContent.message`、顶层 `error`、首个非空文本块。失败结果的 `Structured` 为服务端 `structuredContent` 加平台的 `tool/ok/code/error/message`，不写入其他辅助字段。`Output` 为该 payload 的 JSON，随后依次追加：与主消息不同且不是单块 JSON 副本的 `content` 渲染文本；平台字段覆盖了服务端不同原值时的 `structuredContent:` 原始 JSON 段。
 

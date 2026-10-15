@@ -314,9 +314,10 @@ func validateDeclaredOutputSchema(def api.ToolDetailResponse, result ToolExecuti
 	}
 	if err := timecontract.ValidateOutputSchema(result.Structured, def.OutputSchema, "tool.result."+strings.TrimSpace(def.Name)); err != nil {
 		return ToolExecutionResult{
-			Output:   "time contract violation",
-			Error:    "time_contract_violation",
-			ExitCode: -1,
+			Output:    "time contract violation",
+			MCPResult: result.MCPResult,
+			Error:     "time_contract_violation",
+			ExitCode:  -1,
 		}, err
 	}
 	return result, nil

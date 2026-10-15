@@ -103,12 +103,17 @@ func completedToolResult(completed batchToolCallResult) ToolExecutionResult {
 		result := unknownToolOutcome("executor_canceled")
 		result.Structured["cause"] = completed.err.Error()
 		if completed.result.Output != "" || len(completed.result.Structured) > 0 {
-			result.Structured["partialResult"] = completed.result
+			// partialResult is serialized into model Output; the raw MCP result
+			// stays on the side channel only.
+			partial := completed.result
+			partial.MCPResult = nil
+			result.Structured["partialResult"] = partial
 		}
 		result.Output = MarshalJSON(result.Structured)
+		result.MCPResult = completed.result.MCPResult
 		return result
 	}
-	return ToolExecutionResult{Output: completed.err.Error(), Error: "tool_execution_failed", ExitCode: -1}
+	return ToolExecutionResult{Output: completed.err.Error(), MCPResult: completed.result.MCPResult, Error: "tool_execution_failed", ExitCode: -1}
 }
 
 // This is a platform cancellation observation, not a claimed tool return. In

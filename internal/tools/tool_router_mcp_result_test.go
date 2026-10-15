@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/timecontract"
 )
 
 func mcpText(text string) map[string]any {
@@ -276,5 +277,24 @@ func TestToolRouterMCPResultReachesModelOutput(t *testing.T) {
 	}
 	if !reflect.DeepEqual(result.Structured, map[string]any{"count": json.Number("2")}) {
 		t.Fatalf("structured root must stay the business payload: %#v", result.Structured)
+	}
+}
+
+func TestToolRouterMCPOutputSchemaViolationKeepsRawResult(t *testing.T) {
+	raw := map[string]any{"structuredContent": map[string]any{"publishedAt": "2026-07-14T08:00:00Z"}}
+	def := api.ToolDetailResponse{
+		Name: "mcp-result",
+		Meta: map[string]any{"sourceType": "mcp", "serverKey": "remote"},
+		OutputSchema: map[string]any{"type": "object", "properties": map[string]any{
+			"publishedAt": map[string]any{"x-platform-time": timecontract.OutputSchemaEpochMillis},
+		}},
+	}
+	router := mustNewToolRouter(t, stubBackendToolExecutor{}, outputSchemaMCPClient{payload: raw}, outputSchemaToolCatalog{def: def}, nil)
+	result, err := router.Invoke(context.Background(), def.Name, nil, nil)
+	if !timecontract.IsViolation(err) || result.Error != "time_contract_violation" {
+		t.Fatalf("expected schema violation, got result=%#v err=%v", result, err)
+	}
+	if !reflect.DeepEqual(result.MCPResult, raw) {
+		t.Fatalf("raw result lost on schema violation: %#v", result.MCPResult)
 	}
 }
