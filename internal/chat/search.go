@@ -156,20 +156,14 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 			if strings.TrimSpace(stringValue(line["taskId"])) != "" || lineTaskAgentKey(line) != "" {
 				continue
 			}
+			// Automation input, historical system input and the platform start
+			// of an approved plan are not conversation text.
+			origin := lineOrigin(line)
+			if line["query"] == nil || origin == nil || origin.Type == queryinput.OriginAutomation {
+				continue
+			}
 			payload := requestPayloadFromLine(line)
 			role := api.QueryRoleUser
-			if lineHasCurrentLayout(line) {
-				// Automation input and the platform start of an approved plan are
-				// not conversation text.
-				if origin := lineOrigin(line); line["query"] == nil || (origin != nil && origin.Type == queryinput.OriginAutomation) {
-					continue
-				}
-			} else {
-				role = defaultSearchRole(stringValue(payload["role"]))
-				if !api.QueryRoleVisible(role) {
-					continue
-				}
-			}
 			message := stringValue(payload["message"])
 			if score := sessionSearchScore(message, needle); score > 0 {
 				appendHit(SearchHit{
@@ -410,14 +404,6 @@ func buildSnippet(text string, needle string) string {
 		snippet += "..."
 	}
 	return snippet
-}
-
-func defaultSearchRole(role string) string {
-	role = strings.TrimSpace(role)
-	if role == "" {
-		return "user"
-	}
-	return role
 }
 
 func minInt(a, b int) int {

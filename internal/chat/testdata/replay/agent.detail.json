@@ -110,9 +110,12 @@
     {
       "seq": 2,
       "type": "request.query",
+      "runId": "run-1",
       "chatId": "chat-replay",
-      "role": "user",
       "message": "第一轮问题",
+      "origin": {
+        "type": "user"
+      },
       "liveSeq": 10,
       "timestamp": 1700000000010
     },
@@ -282,8 +285,10 @@
     {
       "seq": 18,
       "type": "request.query",
+      "runId": "run-1",
       "chatId": "chat-replay",
       "message": "检查子任务",
+      "agentKey": "member-a",
       "taskId": "task-1",
       "timestamp": 1700000000065
     },
@@ -336,9 +341,12 @@
     {
       "seq": 24,
       "type": "request.query",
+      "runId": "run-2",
       "chatId": "chat-replay",
-      "role": "user",
       "message": "第2轮问题",
+      "origin": {
+        "type": "user"
+      },
       "timestamp": 1700000000210
     },
     {
@@ -375,9 +383,12 @@
     {
       "seq": 28,
       "type": "request.query",
+      "runId": "run-3",
       "chatId": "chat-replay",
-      "role": "user",
       "message": "第3轮问题",
+      "origin": {
+        "type": "user"
+      },
       "timestamp": 1700000000310
     },
     {
@@ -405,9 +416,12 @@
     {
       "seq": 32,
       "type": "request.query",
+      "runId": "run-4",
       "chatId": "chat-replay",
-      "role": "user",
       "message": "第4轮问题",
+      "origin": {
+        "type": "user"
+      },
       "timestamp": 1700000000410
     },
     {

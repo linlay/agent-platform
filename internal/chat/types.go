@@ -113,7 +113,9 @@ type QueryLine struct {
 	AgentKey  string `json:"agentKey,omitempty"`
 
 	// Task lines record one agent_invoke or agent_delegate task of this Run.
-	TaskID       string `json:"taskId,omitempty"`
+	TaskID string `json:"taskId,omitempty"`
+	// TaskName is the effective display name, including the platform default.
+	TaskName     string `json:"taskName,omitempty"`
 	TaskToolID   string `json:"taskToolId,omitempty"`
 	TaskAgentKey string `json:"taskAgentKey,omitempty"`
 
@@ -123,7 +125,10 @@ type QueryLine struct {
 	// AccessGrant audits how a chat_start Run obtained its access level.
 	AccessGrant map[string]any `json:"accessGrant,omitempty"`
 	// PlanRunID links a Run started by approving a plan to its planning Run.
-	PlanRunID    string `json:"planRunId,omitempty"`
+	PlanRunID string `json:"planRunId,omitempty"`
+	// Hidden is the effective visibility of the input, including platform
+	// defaults; it is omitted when the input is shown.
+	Hidden       bool   `json:"hidden,omitempty"`
 	AccessLevel  string `json:"accessLevel,omitempty"`
 	PlanningMode bool   `json:"planningMode,omitempty"`
 	EditingMode  *bool  `json:"editingMode,omitempty"`

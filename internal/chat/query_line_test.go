@@ -126,7 +126,12 @@ func TestSideLaneQueryLineRecordsOnlyTheLane(t *testing.T) {
 	if line["lane"] != SideLaneExplain {
 		t.Fatalf("expected the explain lane beside the query: %#v", line)
 	}
-	for _, key := range []string{"sideId", "btwId", "parentChatId", "hidden", "kind"} {
+	// The side lane's platform-decided visibility is stored like any other
+	// computed value; the branch identity lives in the file name.
+	if line["hidden"] != true {
+		t.Fatalf("side query line must record its effective visibility: %#v", line)
+	}
+	for _, key := range []string{"sideId", "btwId", "parentChatId", "kind"} {
 		if _, ok := line[key]; ok {
 			t.Fatalf("side query line must not record %s: %#v", key, line)
 		}
@@ -136,7 +141,7 @@ func TestSideLaneQueryLineRecordsOnlyTheLane(t *testing.T) {
 	}
 }
 
-func TestQueryLineReplaysAutomationHiddenDefault(t *testing.T) {
+func TestQueryLineStoresAutomationHiddenDefault(t *testing.T) {
 	for _, tc := range []struct {
 		input string
 		want  bool
@@ -155,28 +160,14 @@ func TestQueryLineReplaysAutomationHiddenDefault(t *testing.T) {
 				"requestId": "run-1", "message": "nightly", "hidden": tc.want,
 				"origin": (&queryinput.Origin{Type: queryinput.OriginAutomation}).Payload(),
 			})
-			if got := requestPayloadFromLine(line)["hidden"]; got != tc.want {
+			// The platform default is stored, not recomputed when reading.
+			if stored, _ := line["hidden"].(bool); stored != tc.want {
+				t.Fatalf("stored hidden=%#v, live hidden=%v", line["hidden"], tc.want)
+			}
+			if got, _ := requestPayloadFromLine(line)["hidden"].(bool); got != tc.want {
 				t.Fatalf("replayed hidden=%#v, live hidden=%v", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestQueryLineReplaysCaseInsensitiveContent(t *testing.T) {
-	store, err := NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	line := writeClientQueryForTest(t, store, "query-case", `{"Message":"hello","Hidden":false,"IncludeUsage":true}`, map[string]any{
-		"requestId": "run-1", "message": "hello", "hidden": false, "includeUsage": true,
-		"origin": (&queryinput.Origin{Type: queryinput.OriginUser}).Payload(),
-	})
-	if got := requestPayloadFromLine(line); got["message"] != "hello" || got["hidden"] != false || got["includeUsage"] != true {
-		t.Fatalf("replay lost accepted request fields: %#v", got)
-	}
-	if query := anyMap(line["query"]); query["Message"] != "hello" || query["message"] != nil {
-		t.Fatalf("caller spelling was changed: %#v", query)
 	}
 }
 
@@ -219,8 +210,17 @@ func TestLegacyQueryLinesKeepReading(t *testing.T) {
 	legacy := map[string]any{"_type": "query", "chatId": "chat", "runId": "run", "query": map[string]any{
 		"requestId": "req", "runId": "run", "chatId": "chat", "role": "automation", "message": "nightly", "accessLevel": "auto_approve",
 	}}
-	if payload := requestPayloadFromLine(legacy); payload["accessLevel"] != "auto_approve" || payload["role"] != "automation" {
-		t.Fatalf("legacy query is the resolved request: %#v", payload)
+	// Older lines kept decisions inside query; they are shown, not resumed, so
+	// only what display needs is read from there.
+	payload := requestPayloadFromLine(legacy)
+	if payload["message"] != "nightly" || payload["requestId"] != "req" || anyMap(payload["origin"])["type"] != "automation" {
+		t.Fatalf("legacy query must stay displayable: %#v", payload)
+	}
+	if payload["accessLevel"] != "auto_approve" {
+		t.Fatalf("clients restore the access level of an older Run: %#v", payload)
+	}
+	if _, ok := requestPayloadFromLine(map[string]any{"_type": "query", "query": map[string]any{"message": "plan", "planningMode": true}})["planningMode"]; ok {
+		t.Fatal("decisions that steer a resumed Run are read only from the top level")
 	}
 	if origin := lineOrigin(legacy); origin == nil || origin.Type != queryinput.OriginAutomation {
 		t.Fatalf("legacy automation role maps to its origin: %#v", origin)
@@ -231,9 +231,6 @@ func TestLegacyQueryLinesKeepReading(t *testing.T) {
 	agentLine := map[string]any{"_type": "query", "query": map[string]any{"message": "child", "runOrigin": map[string]any{"agentKey": "caller"}}}
 	if _, ok := lineUserMessage(agentLine); ok {
 		t.Fatal("legacy chat_start input is not user memory evidence")
-	}
-	if _, ok := lineUserMessage(map[string]any{"_type": "query", "query": map[string]any{"message": "nightly", "source": "automation"}}); ok {
-		t.Fatal("legacy automation source is not user memory evidence")
 	}
 	snapshot := map[string]any{"_type": "query", "query": map[string]any{"kind": "system-init", "role": "system"}}
 	if !lineIsSystemInitQuery(snapshot) {

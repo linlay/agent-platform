@@ -318,9 +318,6 @@ func loadRunQueryFromLines(lines []map[string]any, chatID string, runID string) 
 		if strings.TrimSpace(stringValue(line["runId"])) != runID {
 			continue
 		}
-		if line["query"] == nil && !lineHasCurrentLayout(line) {
-			continue
-		}
 		return queryLineFromMap(line, chatID)
 	}
 	return nil

@@ -369,11 +369,6 @@ func (s *FileStore) nextDerivedRunIDLocked(assigned map[string]string) (string, 
 func rewriteDerivedLine(line map[string]any, ctx deriveRewriteContext) (map[string]any, bool) {
 	rewritten := rewriteDerivedValue(line, "", ctx)
 	out, ok := rewritten.(map[string]any)
-	if ok && lineHasCurrentLayout(line) && line["query"] != nil {
-		// The copied query remains a record of what the caller sent. Only the
-		// platform fields beside it are rebound to the derived Chat/Run.
-		out["query"] = line["query"]
-	}
 	return out, ok && len(out) > 0
 }
 

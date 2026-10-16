@@ -328,15 +328,13 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 	liveStartedAt := testEpochMillis + 10_003
 	startServerFixtureRun(t, chats, "chat-live", "run-live", liveStartedAt)
 	if err := chats.AppendQueryLine("chat-live", chat.QueryLine{
-		ChatID:    "chat-live",
-		RunID:     "run-live",
-		UpdatedAt: liveStartedAt,
-		Query: map[string]any{
-			"chatId":       "chat-live",
-			"message":      "still running",
-			"planningMode": true,
-		},
-		Type: "query",
+		ChatID:       "chat-live",
+		RunID:        "run-live",
+		UpdatedAt:    liveStartedAt,
+		RequestID:    "req-planning",
+		PlanningMode: true,
+		Query:        map[string]any{"message": "still running"},
+		Type:         "query",
 	}); err != nil {
 		t.Fatalf("append live query line: %v", err)
 	}
@@ -443,7 +441,7 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 }
 
 func TestActiveRunInPlanningStage(t *testing.T) {
-	planningQuery := &chat.QueryLine{Query: map[string]any{"planningMode": true}}
+	planningQuery := &chat.QueryLine{RequestID: "req-planning", PlanningMode: true, Query: map[string]any{"message": "plan"}}
 	plainQuery := &chat.QueryLine{Query: map[string]any{"message": "plain"}}
 	planningAnswer := func(runID string, decision string) stream.EventData {
 		return stream.EventData{
@@ -552,15 +550,13 @@ func TestLoadChatDetailActiveRunPlanningModeReflectsPlanningDecision(t *testing.
 	startedAt := testEpochMillis + 20_001
 	startServerFixtureRun(t, chats, chatID, runID, startedAt)
 	if err := chats.AppendQueryLine(chatID, chat.QueryLine{
-		ChatID:    chatID,
-		RunID:     runID,
-		UpdatedAt: startedAt,
-		Query: map[string]any{
-			"chatId":       chatID,
-			"message":      "plan then execute",
-			"planningMode": true,
-		},
-		Type: "query",
+		ChatID:       chatID,
+		RunID:        runID,
+		UpdatedAt:    startedAt,
+		RequestID:    "req-planning",
+		PlanningMode: true,
+		Query:        map[string]any{"message": "plan then execute"},
+		Type:         "query",
 	}); err != nil {
 		t.Fatalf("append query line: %v", err)
 	}

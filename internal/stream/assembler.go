@@ -116,35 +116,7 @@ func (a *StreamEventAssembler) SetRunStartedAtMillis(value int64) {
 }
 
 func (a *StreamEventAssembler) BootstrapEmissions() []EventEmission {
-	queryPayload := map[string]any{
-		"requestId": a.request.RequestID,
-		"runId":     a.request.RunID,
-		"chatId":    a.request.ChatID,
-		"agentKey":  a.request.AgentKey,
-		"message":   a.request.Message,
-	}
-	if a.request.Hidden != nil {
-		queryPayload["hidden"] = *a.request.Hidden
-	}
-	if !isEmptyValue(a.request.Params) {
-		queryPayload["params"] = a.request.Params
-	}
-	if scene := a.request.Scene.ToMap(); scene != nil {
-		queryPayload["scene"] = scene
-	}
-	if a.request.IncludeUsage {
-		queryPayload["includeUsage"] = true
-	}
-	if a.request.IncludeFullText {
-		queryPayload["includeFullText"] = true
-	}
-	a.addRunDecisions(queryPayload)
-	if a.request.PlanningMode {
-		queryPayload["planningMode"] = true
-	}
-	// Persist the resolved request intent, including false, for Run recovery
-	// and execution after plan approval.
-	queryPayload["editingMode"] = a.request.EditingMode
+	queryPayload := RequestQueryPayload(a.request)
 	events := []StreamEvent{}
 	if !a.request.ContinueRun && a.request.Created {
 		events = append(events, NewEvent("chat.start", map[string]any{
@@ -173,10 +145,40 @@ func (a *StreamEventAssembler) BootstrapEmissions() []EventEmission {
 	return a.emit(events)
 }
 
-// addRunDecisions adds what admission decided for the Run. Side lanes are
-// always hidden from the main conversation.
-func (a *StreamEventAssembler) addRunDecisions(payload map[string]any) {
-	addRunDecisions(a.request, payload)
+// RequestQueryPayload is the request.query event of a Run that starts from a
+// caller's input. Native and proxied Runs both build it here so the persisted
+// line records the same decisions.
+func RequestQueryPayload(request StreamRequest) map[string]any {
+	payload := map[string]any{
+		"requestId": request.RequestID,
+		"runId":     request.RunID,
+		"chatId":    request.ChatID,
+		"agentKey":  request.AgentKey,
+		"message":   request.Message,
+	}
+	if request.Hidden != nil {
+		payload["hidden"] = *request.Hidden
+	}
+	if !isEmptyValue(request.Params) {
+		payload["params"] = request.Params
+	}
+	if scene := request.Scene.ToMap(); scene != nil {
+		payload["scene"] = scene
+	}
+	if request.IncludeUsage {
+		payload["includeUsage"] = true
+	}
+	if request.IncludeFullText {
+		payload["includeFullText"] = true
+	}
+	addRunDecisions(request, payload)
+	if request.PlanningMode {
+		payload["planningMode"] = true
+	}
+	// Persist the resolved request intent, including false, for Run recovery
+	// and execution after plan approval.
+	payload["editingMode"] = request.EditingMode
+	return payload
 }
 
 func addRunDecisions(request StreamRequest, payload map[string]any) {

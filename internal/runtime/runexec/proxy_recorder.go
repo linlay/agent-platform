@@ -70,48 +70,26 @@ func NewProxyEventRecorder(
 		return nil
 	}
 	stepWriter.SetOriginalQuery(req.OriginalQuery)
-	queryPayload := map[string]any{
-		"requestId": req.RequestID,
-		"runId":     req.RunID,
-		"chatId":    req.ChatID,
-		"agentKey":  req.AgentKey,
-		"message":   req.Message,
-	}
-	if req.AccessLevel != "" {
-		queryPayload["accessLevel"] = req.AccessLevel
-	}
 	editingMode := agentbuiltin.WorkspaceEditingDefault(agentDef.Mode)
 	if req.EditingMode != nil {
 		editingMode = *req.EditingMode
 	}
-	queryPayload["editingMode"] = editingMode
+	var scene *stream.SceneRef
+	if req.Scene != nil {
+		scene = &stream.SceneRef{URL: req.Scene.URL, Title: req.Scene.Title}
+	}
+	var model any
 	if req.Model != nil {
-		queryPayload["model"] = req.Model
+		model = req.Model
 	}
-	if len(req.References) > 0 {
-		queryPayload["references"] = req.References
-	}
-	if req.PlanRunID != "" {
-		queryPayload["planRunId"] = req.PlanRunID
-	}
-	if req.Hidden != nil {
-		queryPayload["hidden"] = *req.Hidden
-	}
-	if req.IncludeUsage {
-		queryPayload["includeUsage"] = true
-	}
-	if req.IncludeFullText {
-		queryPayload["includeFullText"] = true
-	}
-	if req.PlanningMode != nil {
-		queryPayload["planningMode"] = *req.PlanningMode
-	}
-	if origin := req.Origin.Payload(); origin != nil {
-		queryPayload["origin"] = origin
-	}
-	if len(req.AccessGrant) > 0 {
-		queryPayload["accessGrant"] = req.AccessGrant
-	}
+	queryPayload := stream.RequestQueryPayload(stream.StreamRequest{
+		RequestID: req.RequestID, RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey,
+		Message: req.Message, Hidden: req.Hidden, Scene: scene, References: req.References,
+		Params: req.Params, Model: model, PlanningMode: req.PlanningMode != nil && *req.PlanningMode,
+		EditingMode: editingMode, IncludeUsage: req.IncludeUsage, IncludeFullText: req.IncludeFullText,
+		AccessLevel: req.AccessLevel, Lane: req.Lane, Origin: req.Origin, AccessGrant: req.AccessGrant,
+		PlanRunID: req.PlanRunID,
+	})
 	stepWriter.OnEvent(stream.EventData{
 		Type:      "request.query",
 		Timestamp: startedAtMillis,

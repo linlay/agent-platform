@@ -943,6 +943,7 @@ func (o *Coordinator) WriteChildTaskQueryAndSystem(subReq runtimetypes.QueryComm
 		LiveSeq:      liveSeq,
 		RequestID:    task.RequestID,
 		TaskID:       task.TaskID,
+		TaskName:     task.Spec.TaskName,
 		TaskToolID:   task.MainToolID,
 		TaskAgentKey: task.Spec.TaskAgentKey,
 		References:   childTaskReferences(subReq.References),

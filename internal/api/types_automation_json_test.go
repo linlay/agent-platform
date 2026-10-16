@@ -47,3 +47,25 @@ func TestAutomationRemainingRunsUpdatePresenceAndRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestRequestsRejectNonCanonicalFieldNames(t *testing.T) {
+	for _, body := range []string{
+		`{"Message":"hi"}`,
+		`{"message":"hi","IncludeUsage":true}`,
+		`{"message":"hi","model":{"Key":"a"}}`,
+		`{"message":"hi","references":[{"Type":"selection","id":"s","text":"t"}]}`,
+	} {
+		var req QueryRequest
+		if err := json.Unmarshal([]byte(body), &req); err == nil {
+			t.Fatalf("non-canonical field name accepted: %s", body)
+		}
+	}
+	var req QueryRequest
+	if err := json.Unmarshal([]byte(`{"message":"hi","role":"automation","model":{"key":"a"}}`), &req); err != nil {
+		t.Fatalf("canonical request rejected: %v", err)
+	}
+	var create CreateAutomationRequest
+	if err := json.Unmarshal([]byte(`{"query":{"Message":"task"}}`), &create); err == nil {
+		t.Fatal("non-canonical Automation query field accepted")
+	}
+}
