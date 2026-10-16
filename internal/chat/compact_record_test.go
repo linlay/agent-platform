@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agent-platform/internal/stream"
@@ -141,5 +142,35 @@ func TestHistoryCompactLeavesAuditLinesUnmarked(t *testing.T) {
 	}
 	if !found || marked == 0 {
 		t.Fatalf("found audit=%t marked=%d", found, marked)
+	}
+}
+
+func TestHistoryCompactBoundaryIgnoresAuditLinesOfCompactedRuns(t *testing.T) {
+	store := newCompactTestStore(t)
+	chatID := "chat-compact-record-boundary"
+	ensureCompactTestChat(t, store, chatID)
+	appendCompactTestRun(t, store, chatID, "r1", "user r1", "assistant r1")
+	if err := store.AppendCompactRecord(chatID, CompactRecordLine{RunID: "r1", CompactID: "compact-r1", Level: "l1_tools", Scope: "run", Status: "completed", StartedAt: testEpochMillis(102), UpdatedAt: testEpochMillis(103)}); err != nil {
+		t.Fatalf("AppendCompactRecord: %v", err)
+	}
+	appendCompactTestRun(t, store, chatID, "r2", "user r2", "assistant r2")
+	appendCompactTestRun(t, store, chatID, "r3", "user r3", "assistant r3")
+	first, err := store.BuildCompactSnapshot(chatID, 2)
+	if err != nil {
+		t.Fatalf("first snapshot: %v", err)
+	}
+	if err := store.CommitCompactCheckpoint(chatID, first, CompactCheckpointLine{CompactID: "compact-first", UpdatedAt: testEpochMillis(500), Summary: "summary r1"}); err != nil {
+		t.Fatalf("first commit: %v", err)
+	}
+	second, err := store.BuildCompactSnapshot(chatID, 2)
+	if err != nil {
+		t.Fatalf("second snapshot: %v", err)
+	}
+	covered := ""
+	for _, message := range second.CoveredMessages {
+		covered += stringFromAny(message["content"]) + "\n"
+	}
+	if !strings.Contains(covered, "user r2") || strings.Contains(covered, "user r3") {
+		t.Fatalf("second snapshot covered = %q", covered)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
@@ -159,7 +160,11 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 			return baseResp, err
 		}
 	}
-	return conversation.CompactHistory(store, baseResp, window, overhead, compactID, func(prompt string, output int) (string, map[string]any, error) {
+	modelKey := ""
+	if agentOK {
+		modelKey = agentDef.ModelKey
+	}
+	return conversation.CompactHistory(store, baseResp, modelKey, window, overhead, compactID, func(prompt string, output int) (string, map[string]any, error) {
 		if !agentOK || s.deps.Agent == nil {
 			return "", nil, fmt.Errorf("summary agent unavailable")
 		}
@@ -342,6 +347,9 @@ func (s *Server) generateCompactSummary(ctx context.Context, req api.CompactRequ
 			if d.Error["code"] == "model_empty_response" {
 				// Preserve the compact API's existing summary_empty result.
 				return "", usage, nil
+			}
+			if appErr := apperrors.FromPayload(d.Error); appErr != nil {
+				return strings.TrimSpace(b.String()), usage, appErr
 			}
 			return strings.TrimSpace(b.String()), usage, fmt.Errorf("compact summary model error: %v", d.Error)
 		}

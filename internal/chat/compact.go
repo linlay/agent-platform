@@ -104,7 +104,7 @@ func (s *FileStore) BuildCompactSnapshot(chatID string, keptRunCount int) (Compa
 	coveredLineCount := 0
 	for i := 0; i < boundaryIndex; i++ {
 		line := records[i].Value
-		if lineIsCompacted(line) {
+		if lineIsCompacted(line) || line["_type"] == CompactRecordLineType {
 			continue
 		}
 		coveredLineCount++
@@ -315,7 +315,7 @@ func compactRootRunID(line map[string]any) string {
 		return ""
 	}
 	lineType := strings.TrimSpace(stringFromAny(line["_type"]))
-	if lineType == CompactCheckpointLineType || lineType == RunCompactCheckpointLineType {
+	if lineType == CompactCheckpointLineType || lineType == RunCompactCheckpointLineType || lineType == CompactRecordLineType {
 		return ""
 	}
 	runID := strings.TrimSpace(stringFromAny(line["runId"]))

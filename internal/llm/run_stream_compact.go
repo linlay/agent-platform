@@ -582,6 +582,9 @@ func (s *llmRunStream) failContextCompact(work *contextCompactWork, detail strin
 	if work == nil {
 		return nil
 	}
+	if cause != nil {
+		retryable = apperrors.RetryableOr(cause, retryable)
+	}
 	s.pending = append(s.pending, s.failedCompactDelta(work, detail, retryable, cause))
 	s.compactWork = nil
 	s.restoreContextCompactState(work)
@@ -595,22 +598,25 @@ func (s *llmRunStream) failContextCompact(work *contextCompactWork, detail strin
 }
 
 func (s *llmRunStream) failedCompactDelta(work *contextCompactWork, detail string, retryable bool, cause error) DeltaContextCompact {
+	postTokens, _ := work.diagnostics["postCompactEstimatedTokens"].(int)
 	return DeltaContextCompact{
-		CycleID:          work.cycleID,
-		CycleComplete:    true,
-		Status:           "failed",
-		RequestID:        work.request.RequestID,
-		CompactID:        work.request.CompactID,
-		ChatID:           work.request.ChatID,
-		RunID:            s.session.RunID,
-		Trigger:          work.request.Trigger,
-		Level:            work.request.Level,
-		Scope:            "run",
-		Detail:           detail,
-		Retryable:        retryable,
-		PreviousRunState: string(work.previousState),
-		AwaitingID:       work.awaitingID,
-		Record:           s.compactRecord(work, cause),
+		PreCompactEstimatedTokens:  work.preTokens,
+		PostCompactEstimatedTokens: postTokens,
+		CycleID:                    work.cycleID,
+		CycleComplete:              true,
+		Status:                     "failed",
+		RequestID:                  work.request.RequestID,
+		CompactID:                  work.request.CompactID,
+		ChatID:                     work.request.ChatID,
+		RunID:                      s.session.RunID,
+		Trigger:                    work.request.Trigger,
+		Level:                      work.request.Level,
+		Scope:                      "run",
+		Detail:                     detail,
+		Retryable:                  retryable,
+		PreviousRunState:           string(work.previousState),
+		AwaitingID:                 work.awaitingID,
+		Record:                     s.compactRecord(work, cause),
 	}
 }
 
@@ -685,8 +691,8 @@ func (s *llmRunStream) compactFailureError(work *contextCompactWork, detail stri
 		if text, _ := causePayload["message"].(string); strings.TrimSpace(text) != "" {
 			message += ": " + text
 		}
-		if causeRetryable, ok := causePayload["retryable"].(bool); ok && code == apperrors.CodeContextCompactFailed {
-			retryable = causeRetryable
+		if code == apperrors.CodeContextCompactFailed {
+			retryable = apperrors.RetryableOr(cause, retryable)
 		}
 	}
 	return apperrors.Payload(code, message, apperrors.WithRetryable(retryable), apperrors.WithDiagnostics(diagnostics))
@@ -872,17 +878,8 @@ func (s *llmRunStream) checkpointMessages(messages []openAIMessage) []map[string
 // compactSummaryDeltaError keeps the structured provider error of the summary
 // call instead of flattening it to text.
 func compactSummaryDeltaError(payload map[string]any) error {
-	code, _ := payload["code"].(string)
-	message, _ := payload["message"].(string)
-	if strings.TrimSpace(code) == "" {
-		return fmt.Errorf("compact summary model error: %v", payload)
+	if err := apperrors.FromPayload(payload); err != nil {
+		return err
 	}
-	opts := []apperrors.Option{}
-	if diagnostics, ok := payload["diagnostics"].(map[string]any); ok {
-		opts = append(opts, apperrors.WithDiagnostics(diagnostics))
-	}
-	if retryable, ok := payload["retryable"].(bool); ok {
-		opts = append(opts, apperrors.WithRetryable(retryable))
-	}
-	return apperrors.New(apperrors.Code(code), message, opts...)
+	return fmt.Errorf("compact summary model error: %v", payload)
 }

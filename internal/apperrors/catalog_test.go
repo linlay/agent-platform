@@ -1,6 +1,9 @@
 package apperrors
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestCatalogDefinitionsAreCompleteAndUnique(t *testing.T) {
 	seen := map[Code]bool{}
@@ -85,5 +88,19 @@ func TestPayloadContextOverridesRemainStable(t *testing.T) {
 				t.Fatalf("unexpected payload %#v", payload)
 			}
 		})
+	}
+}
+
+func TestFromPayloadKeepsStructuredError(t *testing.T) {
+	err := FromPayload(map[string]any{"code": "provider_content_filter", "message": "blocked", "retryable": false, "status": 400, "diagnostics": map[string]any{"upstreamCode": "content_filter"}})
+	if err == nil || err.Code() != CodeProviderContentFilter || err.Error() != "blocked" {
+		t.Fatalf("FromPayload = %#v", err)
+	}
+	payload := err.Payload()
+	if payload["retryable"] != false || payload["status"] != 400 || payload["diagnostics"].(map[string]any)["upstreamCode"] != "content_filter" {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if RetryableOr(err, true) || !RetryableOr(errors.New("plain"), true) || FromPayload(map[string]any{"message": "no code"}) != nil {
+		t.Fatal("retryability fallback is wrong")
 	}
 }

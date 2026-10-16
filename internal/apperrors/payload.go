@@ -214,6 +214,51 @@ func FromError(err error, fallback Code, opts ...Option) map[string]any {
 	return Payload(fallback, message, opts...)
 }
 
+// FromPayload rebuilds a structured error from a run.error style payload so a
+// consumer of DeltaError keeps its code, retryability and diagnostics. It
+// returns nil when the payload carries no code.
+func FromPayload(payload map[string]any) *Error {
+	code, _ := payload["code"].(string)
+	if code == "" {
+		return nil
+	}
+	message, _ := payload["message"].(string)
+	opts := []Option{}
+	if value, ok := payload["category"].(string); ok && value != "" {
+		opts = append(opts, WithCategory(Category(value)))
+	}
+	if value, ok := payload["scope"].(string); ok && value != "" {
+		opts = append(opts, WithScope(Scope(value)))
+	}
+	switch status := payload["status"].(type) {
+	case int:
+		opts = append(opts, WithStatus(status))
+	case float64:
+		opts = append(opts, WithStatus(int(status)))
+	}
+	if retryable, ok := payload["retryable"].(bool); ok {
+		opts = append(opts, WithRetryable(retryable))
+	}
+	if diagnostics, ok := payload["diagnostics"].(map[string]any); ok {
+		opts = append(opts, WithDiagnostics(diagnostics))
+	}
+	return New(Code(code), message, opts...)
+}
+
+// RetryableOr reports the retryability carried by a structured error, or
+// fallback when err has none.
+func RetryableOr(err error, fallback bool) bool {
+	var appErr *Error
+	if !errors.As(err, &appErr) {
+		return fallback
+	}
+	retryable, ok := appErr.Payload()["retryable"].(bool)
+	if !ok {
+		return fallback
+	}
+	return retryable
+}
+
 func applyOptions(opts []Option) options {
 	var applied options
 	for _, opt := range opts {

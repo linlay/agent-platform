@@ -584,7 +584,7 @@ func TestAutomaticSummaryFailureReportsProviderCause(t *testing.T) {
 	if l1Complete == nil || contracts.AnyIntNode(l1Complete.Record["startedAt"]) <= 0 || l1Complete.Record["modelKey"] != "summary-model" {
 		t.Fatalf("l1 complete record = %#v", l1Complete)
 	}
-	if failed == nil || failed.Detail != "summary_model_failed" || !failed.Retryable {
+	if failed == nil || failed.Detail != "summary_model_failed" || !failed.Retryable || failed.PreCompactEstimatedTokens != work.preTokens || work.preTokens <= 0 {
 		t.Fatalf("failed delta = %#v", failed)
 	}
 	recordErr, _ := failed.Record["error"].(map[string]any)
@@ -632,6 +632,32 @@ func TestAutomaticCompactWithoutHistoryRecordsFailure(t *testing.T) {
 	}
 	if runError["code"] != string(apperrors.CodeContextWindowUncompactable) || !strings.Contains(fmt.Sprint(runError["message"]), "no history left to compact") {
 		t.Fatalf("run error = %#v", runError)
+	}
+}
+
+func TestAutomaticSummaryFailureFollowsNonRetryableCause(t *testing.T) {
+	stream := &llmRunStream{
+		session: contracts.QuerySession{RunID: "run-bad", ChatID: "chat-bad"},
+		execCtx: &contracts.ExecutionContext{RunLoopState: contracts.RunLoopStateIdle},
+		model:   models.ModelDefinition{ContextWindow: 2000},
+	}
+	work := &contextCompactWork{request: contracts.CompactControlRequest{CompactID: "compact-bad", Trigger: "auto", Level: "summary"}, preTokens: 1900, startedAt: time.Now()}
+	cause := apperrors.New(apperrors.CodeProviderBadRequest, "bad request")
+	if err := stream.failContextCompact(work, "summary_model_failed", true, cause); err != nil {
+		t.Fatalf("fail compact: %v", err)
+	}
+	var failed contracts.DeltaContextCompact
+	var runError map[string]any
+	for _, delta := range stream.pending {
+		switch value := delta.(type) {
+		case contracts.DeltaContextCompact:
+			failed = value
+		case contracts.DeltaError:
+			runError = value.Error
+		}
+	}
+	if failed.Retryable || failed.PreCompactEstimatedTokens != 1900 || runError["retryable"] != false {
+		t.Fatalf("failed = %#v run error = %#v", failed, runError)
 	}
 }
 
