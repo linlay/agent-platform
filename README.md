@@ -411,6 +411,7 @@ docker compose logs -f
 ### 常见排查
 
 - 服务无法启动：先检查当前配置文件、鉴权公钥与 JWKS 配置是否完整。
+- 单个连接器配置损坏：启动与热重载记录带连接器 ID 和原因的 warning 并隔离该包/MCP 路由，其他服务继续加载；修正包后自动重载。包读取、保存和导入仍严格校验，详见 [连接器](docs/连接器.md)。
 - Query 无法调用模型：检查 `AP_RUNTIME_REGISTRIES_DIR/providers`、`AP_RUNTIME_REGISTRIES_DIR/models` 是否存在，并确认 provider `apiKey` / `baseUrl` 可用。
 - Automation 看起来没有触发：先确认服务进程本身正在运行；如果是本地 `make run`，日志不会出现在 `docker compose logs` 里。随后检查 stdout 中是否有 `automation orchestrator started`、`[automation] registered ...`、`[automation] dispatch ...`。
 - Query 看起来不像真流式：默认 SSE writer 会逐事件 flush；优先检查代理、浏览器、网关或调用方是否缓冲。

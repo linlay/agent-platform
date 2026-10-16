@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"fmt"
+	"log"
 	"net/url"
 	"path/filepath"
 	"sort"
@@ -18,27 +19,49 @@ func loadConnectorServers(sources connector.Sources) (map[string]ServerDefinitio
 		return nil, err
 	}
 	servers := map[string]ServerDefinition{}
+	seen := map[string]bool{}
 	for _, pkg := range packages {
-		if err := connectorauth.ValidatePackage(pkg); err != nil {
-			return nil, fmt.Errorf("connector %s authentication: %w", pkg.ID, err)
+		components, err := connectorPackageServers(pkg)
+		if err == nil {
+			for _, key := range pkg.ServerKeys() {
+				if seen[key] {
+					err = fmt.Errorf("duplicate connector MCP server key %q", key)
+					break
+				}
+			}
 		}
-		names := make([]string, 0, len(pkg.MCP))
-		for name := range pkg.MCP {
-			names = append(names, name)
+		if err != nil {
+			log.Printf("[mcp] warning: skipping invalid connector %q: %v", pkg.ID, err)
+			continue
 		}
-		sort.Strings(names)
-		for _, name := range names {
-			server, err := connectorServer(pkg, name)
-			if err != nil {
-				return nil, fmt.Errorf("connector %s MCP %s: %w", pkg.ID, name, err)
-			}
-			if !server.Enabled() {
-				continue
-			}
-			if _, exists := servers[server.Key]; exists {
-				return nil, fmt.Errorf("duplicate connector MCP server key %q", server.Key)
-			}
+		for _, key := range pkg.ServerKeys() {
+			seen[key] = true
+		}
+		for _, server := range components {
 			servers[server.Key] = server
+		}
+	}
+	return servers, nil
+}
+
+// Build every component before publishing any routes from this package.
+func connectorPackageServers(pkg connector.Package) ([]ServerDefinition, error) {
+	if err := connectorauth.ValidatePackage(pkg); err != nil {
+		return nil, fmt.Errorf("authentication: %w", err)
+	}
+	names := make([]string, 0, len(pkg.MCP))
+	for name := range pkg.MCP {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	servers := make([]ServerDefinition, 0, len(names))
+	for _, name := range names {
+		server, err := connectorServer(pkg, name)
+		if err != nil {
+			return nil, fmt.Errorf("MCP %s: %w", name, err)
+		}
+		if server.Enabled() {
+			servers = append(servers, server)
 		}
 	}
 	return servers, nil
@@ -327,15 +350,8 @@ func cloneAuthComponent(original map[string]any) map[string]any {
 }
 
 func ValidateConnectorPackage(pkg connector.Package) error {
-	if err := connectorauth.ValidatePackage(pkg); err != nil {
-		return err
-	}
-	for name := range pkg.MCP {
-		if _, err := connectorServer(pkg, name); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := connectorPackageServers(pkg)
+	return err
 }
 
 func ValidateConnectorPackages(packages []connector.Package) error {

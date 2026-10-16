@@ -223,11 +223,12 @@ func TestAgentRegistryIsolatesUnavailableRunPins(t *testing.T) {
 					t.Fatalf("historical package changed: %v", err)
 				}
 			}
-			// The same package must fail when also mounted by a current/live Agent.
+			// Current mounts are isolated too; they must never publish routes from
+			// an invalid package or prevent healthy Agents from being rebound.
 			mount.FromRunPin = false
 			provider.mounts = append(provider.mounts, mount)
-			if err := registry.Reload(); err == nil || !strings.Contains(err.Error(), "Agent old-agent connector old-package") {
-				t.Fatalf("current mount must fail with context: %v", err)
+			if err := registry.Reload(); err != nil || len(registry.Servers()) != 0 {
+				t.Fatalf("invalid current mount blocked reload or created routes: %v", err)
 			}
 		})
 	}

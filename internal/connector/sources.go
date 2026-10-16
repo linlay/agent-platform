@@ -3,6 +3,7 @@ package connector
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -56,21 +57,38 @@ func (s Sources) Load(id string) (Package, error) {
 	return pkg, err
 }
 
+// LoadAll isolates invalid packages so one connector cannot make the runtime or
+// the healthy connector catalog unavailable. Source-root traversal still fails.
 func (s Sources) LoadAll() ([]Package, error) {
-	return s.loadAllExcept("")
+	return s.loadAll("", true)
 }
 
+// Import validation remains strict, including checks against installed packages.
 func (s Sources) loadAllExcept(exclude string) ([]Package, error) {
+	return s.loadAll(exclude, false)
+}
+
+func (s Sources) loadAll(exclude string, skipInvalid bool) ([]Package, error) {
 	packages := []Package{}
+	load := func(id string) error {
+		pkg, err := s.Load(id)
+		if err != nil {
+			if !skipInvalid {
+				return err
+			}
+			log.Printf("[connectors] warning: skipping invalid connector %q: %v", id, err)
+			return nil
+		}
+		packages = append(packages, pkg)
+		return nil
+	}
 	for _, id := range NativeConnectorIDs() {
 		if s.embeddedNativeDir(id) == "" || id == exclude {
 			continue
 		}
-		pkg, err := s.Load(id)
-		if err != nil {
+		if err := load(id); err != nil {
 			return nil, err
 		}
-		packages = append(packages, pkg)
 	}
 	for _, source := range []struct {
 		root    string
@@ -108,11 +126,9 @@ func (s Sources) loadAllExcept(exclude string) ([]Package, error) {
 			if source.builtin && !IsBuiltin(id) {
 				return nil, fmt.Errorf("platform connector %q must use the builtin namespace", id)
 			}
-			pkg, err := s.Load(id)
-			if err != nil {
+			if err := load(id); err != nil {
 				return nil, err
 			}
-			packages = append(packages, pkg)
 		}
 	}
 	sort.Slice(packages, func(i, j int) bool { return packages[i].ID < packages[j].ID })

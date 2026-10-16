@@ -132,8 +132,18 @@ func TestMCPComponentsAreNotConnectors(t *testing.T) {
 		}
 	}
 	discoveryWrite(t, filepath.Join(root, "broken", "connector.json"), `{}`)
-	if _, err := h.catalogQuery(context.Background(), "list", map[string]any{"resourceType": "mcp"}); err == nil {
-		t.Fatal("incomplete enumeration reported success")
+	available := discoveryQuery(t, h, "list", map[string]any{"resourceType": "mcp"})
+	if available["total"] != float64(2) {
+		t.Fatalf("invalid package hid healthy MCP components: %v", available)
+	}
+	invalid := discoveryQuery(t, h, "list", map[string]any{"resourceType": "connector", "status": "invalid"})
+	found := false
+	for _, raw := range invalid["items"].([]any) {
+		item := raw.(map[string]any)
+		found = found || item["resourceKey"] == "broken"
+	}
+	if !found {
+		t.Fatalf("invalid connector lost its discovery diagnostics: %v", invalid)
 	}
 }
 

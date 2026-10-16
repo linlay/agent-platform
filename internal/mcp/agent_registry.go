@@ -13,8 +13,8 @@ type AgentConnectorSource interface {
 	ConnectorRuntimes() []connector.AgentRuntime
 }
 
-// NewAgentRegistry validates source definitions synchronously. Transports are
-// created only for Agent-mounted instances, after the catalog is assembled.
+// NewAgentRegistry validates source definitions synchronously, warning and
+// skipping invalid connectors. Transports are created only for Agent mounts.
 func NewAgentRegistry(sources connector.Sources) (*Registry, error) {
 	r := &Registry{sources: sources, agentScoped: true, servers: map[string]ServerDefinition{}}
 	if err := r.Reload(); err != nil {
@@ -31,16 +31,8 @@ func (r *Registry) BindAgents(source AgentConnectorSource) error {
 }
 
 func (r *Registry) loadAgentServers() (map[string]ServerDefinition, error) {
-	packages, err := r.sources.LoadAll()
-	if err != nil {
+	if _, err := loadConnectorServers(r.sources); err != nil {
 		return nil, err
-	}
-	if err := ValidateConnectorPackages(packages); err != nil {
-		return nil, err
-	}
-	sourceDirs := map[string]string{}
-	for _, pkg := range packages {
-		sourceDirs[pkg.ID] = pkg.Dir
 	}
 	r.mu.RLock()
 	agents := r.agents
@@ -55,13 +47,8 @@ func (r *Registry) loadAgentServers() (map[string]ServerDefinition, error) {
 		}
 		pkg, err := connector.LoadDirectory(mount.Dir, mount.ID)
 		if err != nil {
-			// Historical pins preserve packages for Run restoration, but are
-			// not current Agent configuration. Restoration validates them again.
-			if mount.FromRunPin {
-				log.Printf("[mcp] skip unavailable Run pin: agent=%s connector=%s: %v", mount.AgentKey, mount.ID, err)
-				continue
-			}
-			return nil, fmt.Errorf("Agent %s connector %s: %w", mount.AgentKey, mount.ID, err)
+			log.Printf("[mcp] warning: skipping invalid Agent connector: agent=%s connector=%s: %v", mount.AgentKey, mount.ID, err)
+			continue
 		}
 		pkg.StateRoot = r.sources.PersistentRoot()
 		if len(pkg.MCP) == 0 {
@@ -69,16 +56,21 @@ func (r *Registry) loadAgentServers() (map[string]ServerDefinition, error) {
 		}
 		digest, err := connector.RuntimeFingerprint(pkg.Dir)
 		if err != nil {
-			return nil, err
+			log.Printf("[mcp] warning: skipping unavailable Agent connector: agent=%s connector=%s: %v", mount.AgentKey, mount.ID, err)
+			continue
 		}
-		for name := range pkg.MCP {
-			server, err := connectorServer(pkg, name)
-			if err != nil {
-				return nil, err
-			}
-			if !server.Enabled() {
-				continue
-			}
+		components, err := connectorPackageServers(pkg)
+		if err != nil {
+			log.Printf("[mcp] warning: skipping invalid Agent connector: agent=%s connector=%s: %v", mount.AgentKey, mount.ID, err)
+			continue
+		}
+		// Derive the source directory even when its current definition is invalid
+		// or deleted: frozen last-good mounts must still rebase absolute paths.
+		sourceDir := ""
+		if root := r.sources.Root(pkg.ID); root != "" {
+			sourceDir = filepath.Join(root, pkg.ID)
+		}
+		for _, server := range components {
 			server.SourceKey = server.Key
 			server.AgentKey = mount.AgentKey
 			server.RuntimeDigest = digest
@@ -87,8 +79,8 @@ func (r *Registry) loadAgentServers() (map[string]ServerDefinition, error) {
 			if server.Transport == TransportStdio {
 				// Explicit paths into the original package must also use the Agent
 				// copy. Truly external commands retained by migration stay explicit.
-				server.Command = rebasePackagePath(server.Command, sourceDirs[pkg.ID], pkg.Dir)
-				server.WorkingDir = rebasePackagePath(server.WorkingDir, sourceDirs[pkg.ID], pkg.Dir)
+				server.Command = rebasePackagePath(server.Command, sourceDir, pkg.Dir)
+				server.WorkingDir = rebasePackagePath(server.WorkingDir, sourceDir, pkg.Dir)
 			}
 			if _, exists := servers[server.Key]; exists {
 				continue

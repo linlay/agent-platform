@@ -112,11 +112,17 @@ func TestRegistryReloaderPublishesLocalStateWithoutRemoteSync(t *testing.T) {
 	}
 
 	writeMCPRegistryFile(t, path, "serverKey: demo\ntransport: websocket\nbaseUrl: http://127.0.0.1\n")
-	if err := reloader.Reload(context.Background()); err == nil {
-		t.Fatal("invalid local MCP config unexpectedly reloaded")
+	if err := reloader.Reload(context.Background()); err != nil {
+		t.Fatalf("invalid local MCP config blocked isolation: %v", err)
 	}
-	if scheduler.Calls() != 1 {
-		t.Fatalf("invalid config scheduled remote work: %d", scheduler.Calls())
+	if len(registry.Servers()) != 0 || len(syncer.Definitions()) != 0 {
+		t.Fatal("invalid connector retained routes or stale tools")
+	}
+	if _, ok := syncer.ServerStatus("demo"); ok {
+		t.Fatal("invalid connector retained synchronization status")
+	}
+	if scheduler.Calls() != 2 {
+		t.Fatalf("connector isolation did not reconcile registry version: %d", scheduler.Calls())
 	}
 }
 

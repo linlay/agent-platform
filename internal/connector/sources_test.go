@@ -2,9 +2,12 @@ package connector
 
 import (
 	"agent-platform/internal/connectortest"
+	"bytes"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agent-platform/internal/catalogorder"
@@ -114,9 +117,70 @@ func TestSourcesStillValidatePackageRootsBesideOrderMetadata(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if _, err := (Sources{ExternalRoot: root}).LoadAll(); err == nil {
-				t.Fatal("invalid package root silently ignored")
+			sources := Sources{ExternalRoot: root}
+			var warnings bytes.Buffer
+			previous := log.Writer()
+			log.SetOutput(&warnings)
+			t.Cleanup(func() { log.SetOutput(previous) })
+			if packages, err := sources.LoadAll(); err != nil || len(packages) != 0 {
+				t.Fatalf("invalid package blocked enumeration: %v %v", packages, err)
+			}
+			if !strings.Contains(warnings.String(), "warning: skipping invalid connector") {
+				t.Fatalf("missing warning: %s", warnings.String())
+			}
+			if _, err := sources.loadAllExcept(""); err == nil {
+				t.Fatal("import validation ignored an invalid installed package")
 			}
 		})
+	}
+}
+
+func TestSourcesKeepHealthyPackagesBesideInvalidTokenSchema(t *testing.T) {
+	root := t.TempDir()
+	healthy := filepath.Join(root, "healthy")
+	if err := os.MkdirAll(healthy, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		"connector.json": `{"id":"healthy","name":"Healthy","version":"1.0.0","type":"cli","authMode":"none"}`,
+		"cli.json":       `{}`,
+	} {
+		if err := os.WriteFile(filepath.Join(healthy, name), []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir := filepath.Join(root, "tencent-map")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		"connector.json":    `{"id":"tencent-map","name":"Map","version":"1.0.0","type":"mcp","authMode":"token"}`,
+		"token-schema.json": `{"title_en":"Map","fields":[{"key":"TOKEN"}]}`,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sources := Sources{ExternalRoot: root}
+	packages, err := sources.LoadAll()
+	if err != nil || len(packages) != 1 || packages[0].ID != "healthy" {
+		t.Fatalf("healthy packages unavailable: %v %v", packages, err)
+	}
+	if _, err := sources.Load("tencent-map"); err == nil || !strings.Contains(err.Error(), `unknown field "title_en"`) {
+		t.Fatalf("direct loading must still validate schema: %v", err)
+	}
+	items, err := sources.Summaries()
+	if err != nil || len(items) != 1 || items[0].ID != "healthy" {
+		t.Fatalf("healthy catalog unavailable: %v %v", items, err)
+	}
+}
+
+func TestSourcesRootTraversalStillFails(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(root, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Sources{ExternalRoot: root}).LoadAll(); err == nil {
+		t.Fatal("source-root traversal error ignored")
 	}
 }

@@ -18,16 +18,14 @@ type RegistryReloader struct {
 	lastAppliedVersion int64
 }
 
-// ValidateSources checks local contracts before any Agent files are replaced.
+// ValidateSources checks source-root availability before Agent files are replaced.
+// Invalid individual packages are warned and isolated, as they are at startup.
 func (r *RegistryReloader) ValidateSources() error {
 	if r == nil || r.registry == nil {
 		return nil
 	}
-	packages, err := r.registry.sources.LoadAll()
-	if err != nil {
-		return err
-	}
-	return ValidateConnectorPackages(packages)
+	_, err := loadConnectorServers(r.registry.sources)
+	return err
 }
 
 func NewRegistryReloader(registry *Registry, syncer *ToolSync, schedulers ...SyncScheduler) *RegistryReloader {
