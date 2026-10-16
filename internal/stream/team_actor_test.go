@@ -23,7 +23,7 @@ func TestTeamMemberContentCarriesActorAndPresentation(t *testing.T) {
 }
 
 func TestTeamBootstrapUsesPublicOwnerWithoutExecutionAgentKey(t *testing.T) {
-	assembler := NewAssembler(StreamRequest{RunID: "run-team", ChatID: "chat-team", AgentKey: "research", Message: "hello", Role: "user"})
+	assembler := NewAssembler(StreamRequest{RunID: "run-team", ChatID: "chat-team", AgentKey: "research", Message: "hello"})
 	events := assembler.Bootstrap()
 	if len(events) < 2 {
 		t.Fatalf("events=%#v", events)
@@ -56,8 +56,8 @@ func TestTeamTaskTerminalCarriesActorAndPresentation(t *testing.T) {
 
 func TestParallelMemberAwaitingUsesExecutorIdentity(t *testing.T) {
 	d := NewDispatcher(StreamRequest{AgentKey: "research", RunID: "run"})
-	d.Dispatch(TaskStart{TaskID: "a", SubAgentKey: "writer"})
-	d.Dispatch(TaskStart{TaskID: "b", SubAgentKey: "reviewer"})
+	d.Dispatch(TaskStart{TaskID: "a", TaskAgentKey: "writer"})
+	d.Dispatch(TaskStart{TaskID: "b", TaskAgentKey: "reviewer"})
 	for task, key := range map[string]string{"a": "writer", "b": "reviewer"} {
 		events := d.Dispatch(AwaitAsk{AwaitingID: task, TaskID: task, RunID: "run", Mode: "approval"})
 		if len(events) != 1 || events[0].Payload["agentKey"] != key {

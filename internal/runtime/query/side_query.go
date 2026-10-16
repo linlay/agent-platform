@@ -22,7 +22,7 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 		}
 	}
 	input.ChatID = strings.TrimSpace(input.ChatID)
-	input.SideQueryID = strings.TrimSpace(input.SideQueryID)
+	input.SideID = strings.TrimSpace(input.SideID)
 	input.Message = strings.TrimSpace(input.Message)
 	if input.ChatID == "" || !chat.ValidChatID(input.ChatID) {
 		return preparedQuery{}, btwStatusError(400, "invalid_chat_id", "valid chatId is required")
@@ -30,8 +30,11 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 	if input.Message == "" {
 		return preparedQuery{}, btwStatusError(400, "message_required", "message is required")
 	}
-	if input.SideQueryID != "" && !chat.ValidBTWID(input.SideQueryID) {
-		return preparedQuery{}, btwStatusError(400, "invalid_btw_id", "invalid btwId")
+	if !chat.IsSideLane(input.Lane) {
+		return preparedQuery{}, btwStatusError(400, "invalid_lane", "side queries require the btw or explain lane")
+	}
+	if input.SideID != "" && !chat.ValidSideID(input.SideID) {
+		return preparedQuery{}, btwStatusError(400, "invalid_side_id", "invalid sideId")
 	}
 	accessLevel, ok := contracts.NormalizeAccessLevel(input.AccessLevel)
 	if !ok {
@@ -91,23 +94,23 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 		return preparedQuery{}, btwStatusError(400, "invalid_model", err.Error())
 	}
 
-	repository, ok := s.deps.Chats.(chat.BTWRepository)
+	repository, ok := s.deps.Chats.(chat.SideRepository)
 	if !ok {
-		return preparedQuery{}, btwStatusError(500, "btw_store_unavailable", "BTW store is not configured")
+		return preparedQuery{}, btwStatusError(500, "btw_store_unavailable", "side branch store is not configured")
 	}
-	btwID := input.SideQueryID
-	created := btwID == ""
+	sideID := input.SideID
+	created := sideID == ""
 	if created {
-		btwID = "btw_" + newChatID()
+		sideID = "side_" + newChatID()
 	}
-	var branch *chat.BTWBranchStore
+	var branch *chat.SideBranchStore
 	if created {
-		branch, err = repository.CreateBTWBranch(input.ChatID, btwID)
+		branch, err = repository.CreateSideBranch(input.ChatID, input.Lane, sideID)
 	} else {
-		branch, err = repository.OpenBTWBranch(input.ChatID, btwID)
+		branch, err = repository.OpenSideBranch(input.ChatID, input.Lane, sideID)
 	}
-	if errors.Is(err, chat.ErrBTWNotFound) {
-		return preparedQuery{}, btwStatusError(404, "btw_not_found", "BTW branch not found")
+	if errors.Is(err, chat.ErrSideNotFound) {
+		return preparedQuery{}, btwStatusError(404, "btw_not_found", "side branch not found")
 	}
 	if err != nil {
 		if statusErr := timeContractStatusError(err); statusErr != nil {
@@ -119,7 +122,7 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 	if created {
 		defer func() {
 			if !keepBranch {
-				_ = repository.DeleteBTWBranch(input.ChatID, btwID)
+				_ = repository.DeleteSideBranch(input.ChatID, input.Lane, sideID)
 			}
 		}()
 	}
@@ -133,10 +136,13 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 		requestID = runID
 	}
 	req := runtimetypes.QueryCommand{
-		RequestID: requestID,
-		RunID:     runID,
-		ChatID:    input.ChatID,
-		AgentKey:  agentKey,
+		OriginalQuery: append([]byte(nil), input.OriginalQuery...),
+		RequestID:     requestID,
+		RunID:         runID,
+		ChatID:        input.ChatID,
+		AgentKey:      agentKey,
+		Lane:          input.Lane,
+		Origin:        &queryinput.Origin{Type: queryinput.OriginUser, UserID: querySourceUser(ctx, input)},
 
 		Role:            queryinput.QueryRoleUser,
 		Message:         input.Message,
@@ -174,7 +180,7 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 	session.HistoryMessages = history
 	ApplyQueryModelOptionsToSession(req.Model, &session)
 	session.PlanningMode = false
-	session.RunScopeID = "btw:" + input.ChatID + ":" + btwID
+	session.RunScopeID = input.Lane + ":" + input.ChatID + ":" + sideID
 	session.SupportsContextCompaction = false
 	session.ToolExecutionPolicy = contracts.ToolExecutionPolicyReadOnly
 	session.RunLimits = contracts.RunLimits{
@@ -216,14 +222,8 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 			StepLineStore:   branch,
 			CompletionStore: nil,
 			HiddenRun:       true,
-			BTWID:           btwID,
+			SideID:          sideID,
 			ParentChatID:    input.ChatID,
-			QueryMetadata: map[string]any{
-				"kind":         "btw",
-				"btwId":        btwID,
-				"parentChatId": input.ChatID,
-				"hidden":       true,
-			},
 		},
 	}, nil
 }

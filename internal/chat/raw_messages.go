@@ -171,7 +171,7 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 			// conversation. Replaying them as user messages leaks internal
 			// orchestration instructions into later root-agent turns.
 			if strings.TrimSpace(stringValue(line["taskId"])) != "" ||
-				strings.TrimSpace(stringValue(line["subAgentKey"])) != "" {
+				strings.TrimSpace(lineTaskAgentKey(line)) != "" {
 				continue
 			}
 			if rawMsgs, _ := line["messages"].([]any); len(rawMsgs) > 0 {
@@ -187,7 +187,7 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 			}
 
 		case StepLineTypeReact, StepLineTypeReactTool:
-			if strings.TrimSpace(stringValue(line["taskSubAgentKey"])) != "" {
+			if strings.TrimSpace(lineTaskAgentKey(line)) != "" {
 				continue
 			}
 			rawMsgs, _ := line["messages"].([]any)
@@ -250,7 +250,7 @@ func teamMemberRawMessagesFromJSONLLines(lines []map[string]any, memberAgentKey 
 			// histories remain isolated from coordinator-private messages.
 			continue
 		case "query":
-			if lineIsSystemInitQuery(line) || strings.TrimSpace(stringValue(line["taskId"])) != "" || strings.TrimSpace(stringValue(line["subAgentKey"])) != "" {
+			if lineIsSystemInitQuery(line) || strings.TrimSpace(stringValue(line["taskId"])) != "" || strings.TrimSpace(lineTaskAgentKey(line)) != "" {
 				continue
 			}
 			for _, raw := range anyMessageSlice(line["messages"]) {
@@ -260,7 +260,7 @@ func teamMemberRawMessagesFromJSONLLines(lines []map[string]any, memberAgentKey 
 				messages = append(messages, msg)
 			}
 		case StepLineTypeReact, StepLineTypeReactTool:
-			taskAgentKey := strings.TrimSpace(stringValue(line["taskSubAgentKey"]))
+			taskAgentKey := strings.TrimSpace(lineTaskAgentKey(line))
 			if taskAgentKey != "" && strings.EqualFold(taskAgentKey, memberAgentKey) {
 				messages = append(messages, normalizedStepMessages(line, runID)...)
 				continue
@@ -320,7 +320,7 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 				messages = append(messages, msg)
 			}
 		case "query":
-			if lineIsSystemInitQuery(line) || strings.TrimSpace(stringValue(line["taskId"])) != "" || strings.TrimSpace(stringValue(line["subAgentKey"])) != "" {
+			if lineIsSystemInitQuery(line) || strings.TrimSpace(stringValue(line["taskId"])) != "" || strings.TrimSpace(lineTaskAgentKey(line)) != "" {
 				continue
 			}
 			for _, raw := range anyMessageSlice(line["messages"]) {
@@ -330,7 +330,7 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 				messages = append(messages, msg)
 			}
 		case StepLineTypeReact, StepLineTypeReactTool:
-			taskAgentKey := strings.TrimSpace(stringValue(line["taskSubAgentKey"]))
+			taskAgentKey := strings.TrimSpace(lineTaskAgentKey(line))
 			if taskAgentKey != "" {
 				if final := finalAssistantMessageFromStep(line, runID, taskAgentKey); final != nil {
 					messages = append(messages, final)

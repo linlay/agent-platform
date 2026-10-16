@@ -132,7 +132,7 @@ func ProjectL1(messages []map[string]any, keepRecent, pinnedStart, pinnedEnd int
 func compactLineSource(line map[string]any) string {
 	switch stringFromAny(line["_type"]) {
 	case StepLineTypeReact, StepLineTypeReactTool:
-		return fmt.Sprintf("%s:%s:%v", stringFromAny(line["runId"]), stringFromAny(line["taskSubAgentKey"]), line["seq"])
+		return fmt.Sprintf("%s:%s:%v", stringFromAny(line["runId"]), lineTaskAgentKey(line), line["seq"])
 	case CompactCheckpointLineType, RunCompactCheckpointLineType:
 		return "checkpoint:" + stringFromAny(line["compactId"])
 	}
@@ -158,7 +158,7 @@ func buildL1Policies(records []jsonLineRecord, keepRecent int, preserveReasoning
 	var locations []int
 	for i, record := range records {
 		line := record.Value
-		if lineIsCompacted(line) || stringFromAny(line["taskSubAgentKey"]) != "" {
+		if lineIsCompacted(line) || lineTaskAgentKey(line) != "" {
 			continue
 		}
 		kind := stringFromAny(line["_type"])

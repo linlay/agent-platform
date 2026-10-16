@@ -183,7 +183,7 @@ func marshalJSON(value any) string {
 
 func NewSteerDelta(req api.SteerRequest) DeltaRequestSteer {
 	return DeltaRequestSteer{
-		Source:     req.Source.Clone(),
+		Origin:     req.Origin.Clone(),
 		RequestID:  req.RequestID,
 		ChatID:     req.ChatID,
 		RunID:      req.RunID,

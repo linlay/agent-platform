@@ -1,6 +1,8 @@
 package chat
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -22,8 +24,9 @@ type StepWriter struct {
 	runID  string
 	mode   string // "GENERAL" / "PLAN_EXECUTE" / "ONESHOT" / "CODER"
 
-	queryWritten bool
-	seqCounter   int
+	queryWritten  bool
+	originalQuery map[string]any
+	seqCounter    int
 
 	currentStage string
 
@@ -105,6 +108,19 @@ func (w *StepWriter) SetPendingSystemInit(line *QueryLineSystem) {
 // SetRunLocale records the Run's prompt language on its query line.
 func (w *StepWriter) SetRunLocale(locale string) {
 	w.runLocale = strings.TrimSpace(locale)
+}
+
+// SetOriginalQuery captures the caller's input as received. UseNumber keeps
+// large integers and numeric syntax intact even inside opaque params/meta.
+func (w *StepWriter) SetOriginalQuery(raw json.RawMessage) {
+	if w == nil || len(raw) == 0 {
+		return
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&w.originalQuery); err != nil {
+		w.recordPersistenceError(fmt.Errorf("decode original query: %w", err))
+	}
 }
 
 func (w *StepWriter) SetPendingQueryMessages(messages []map[string]any) {
@@ -287,7 +303,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			buffer.taskStage = w.currentStage
 		}
 		buffer.taskStatus = ""
-		buffer.taskSubAgentKey = event.String("subAgentKey")
+		buffer.taskAgentKey = event.String("taskAgentKey")
 
 		buffer.presentation = event.String("presentation")
 		buffer.liveSeq = maxLiveSeq(buffer.liveSeq, event.Seq)
@@ -552,14 +568,6 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 		w.flushCurrentStep()
 	}
 
-	query := map[string]any{}
-	// Copy all payload fields into query, excluding seq/type/timestamp
-	for key, val := range event.Payload {
-		if key == "liveSeq" || key == "seq" || key == "messages" || key == "system" {
-			continue
-		}
-		query[key] = val
-	}
 	messages := cloneMessageMaps(w.pendingQueryMessages)
 	var system *QueryLineSystem
 	if w.pendingSystemInit != nil {
@@ -576,17 +584,28 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 	}
 	stampQueryMessages(messages, event.Timestamp)
 
-	if err := w.store.AppendQueryLine(w.chatID, QueryLine{
-		Type:      "query",
-		ChatID:    w.chatID,
-		RunID:     w.runID,
-		UpdatedAt: event.Timestamp,
-		LiveSeq:   event.Seq,
-		Locale:    w.runLocale,
-		Query:     query,
-		Messages:  messages,
-		System:    system,
-	}); err != nil {
+	line := queryLineDecisionsFromPayload(event.Payload)
+	if line.RequestID == "" {
+		// Admission defaults requestId to the Run; the line layout relies on it.
+		line.RequestID = w.runID
+	}
+	line.Type = "query"
+	line.ChatID = w.chatID
+	line.RunID = w.runID
+	line.UpdatedAt = event.Timestamp
+	line.LiveSeq = event.Seq
+	line.Locale = w.runLocale
+	line.Messages = messages
+	line.System = system
+	if !bootstrapQuery {
+		// A bootstrap query is platform-made (a system snapshot or the start of
+		// an approved plan); only a caller's input has a query.
+		line.Query = w.originalQuery
+		if line.Query == nil {
+			line.Query = requestContentFromPayload(event.Payload)
+		}
+	}
+	if err := w.store.AppendQueryLine(w.chatID, line); err != nil {
 		w.recordPersistenceError(err)
 		return
 	}
@@ -625,7 +644,7 @@ func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredM
 		}
 		buffer := w.ensureTaskBuffer(taskID)
 		if agentKey := strings.TrimSpace(event.String("agentKey")); agentKey != "" {
-			buffer.taskSubAgentKey = agentKey
+			buffer.taskAgentKey = agentKey
 		}
 		if presentation := strings.TrimSpace(event.String("presentation")); presentation != "" {
 			buffer.presentation = presentation
@@ -828,7 +847,7 @@ func (w *StepWriter) captureTaskLLMRequestData(buffer *taskStepBuffer, event str
 		return
 	}
 	if agentKey := strings.TrimSpace(event.String("agentKey")); agentKey != "" {
-		buffer.taskSubAgentKey = agentKey
+		buffer.taskAgentKey = agentKey
 	}
 	if presentation := strings.TrimSpace(event.String("presentation")); presentation != "" {
 		buffer.presentation = presentation

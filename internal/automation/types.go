@@ -2,12 +2,14 @@ package automation
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 )
 
 const (
@@ -100,10 +102,14 @@ type Environment struct {
 }
 
 type Query struct {
+	// OriginalInput retains the configured fields before normalization.
+	OriginalInput map[string]any
+	// Role is kept as configured; execution ignores it and marks the input by
+	// its automation origin instead.
+	Role        string
 	AccessLevel string
 	RequestID   string
 	ChatID      string
-	Role        string
 	Hidden      *bool
 	Message     string
 	References  []api.Reference
@@ -119,13 +125,15 @@ func (d Definition) ToQueryRequest() api.QueryRequest {
 		chatSource = api.ChatSourceAutomationPrefix + id
 	}
 
+	originalQuery, _ := json.Marshal(d.Query.Input())
 	return api.QueryRequest{
-		AccessLevel: d.Query.AccessLevel,
-		RequestID:   d.Query.RequestID,
-		ChatID:      d.Query.ChatID,
-		AgentKey:    d.AgentKey,
+		OriginalQuery: originalQuery,
+		AccessLevel:   d.Query.AccessLevel,
+		RequestID:     d.Query.RequestID,
+		ChatID:        d.Query.ChatID,
+		AgentKey:      d.AgentKey,
+		Origin:        &queryinput.Origin{Type: queryinput.OriginAutomation, AutomationID: strings.TrimSpace(d.ID)},
 
-		Role:       EffectiveQueryRole(d.Query.Role),
 		Hidden:     &hidden,
 		Message:    d.Query.Message,
 		References: append([]api.Reference(nil), d.Query.References...),
@@ -139,15 +147,38 @@ func EffectiveQueryHidden(hidden *bool) bool {
 	return hidden == nil || *hidden
 }
 
-func EffectiveQueryRole(role string) string {
-	if strings.TrimSpace(role) == "" {
-		return api.QueryRoleAutomation
+// Input is the query exactly as the definition configures it: omitted fields
+// stay omitted, so the recorded input carries no computed defaults.
+func (q Query) Input() map[string]any {
+	if q.OriginalInput != nil {
+		return contracts.CloneAnyMap(q.OriginalInput)
 	}
-	normalized, ok := api.NormalizeQueryRole(role)
-	if ok {
-		return normalized
+	input := map[string]any{"message": q.Message}
+	if q.Role != "" {
+		input["role"] = q.Role
 	}
-	return strings.TrimSpace(role)
+	if q.AccessLevel != "" {
+		input["accessLevel"] = q.AccessLevel
+	}
+	if q.RequestID != "" {
+		input["requestId"] = q.RequestID
+	}
+	if q.ChatID != "" {
+		input["chatId"] = q.ChatID
+	}
+	if q.Hidden != nil {
+		input["hidden"] = *q.Hidden
+	}
+	if len(q.References) > 0 {
+		input["references"] = q.References
+	}
+	if len(q.Params) > 0 {
+		input["params"] = q.Params
+	}
+	if q.Scene != nil {
+		input["scene"] = q.Scene
+	}
+	return input
 }
 
 func cloneScene(src *api.Scene) *api.Scene {

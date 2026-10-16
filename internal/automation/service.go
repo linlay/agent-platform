@@ -364,7 +364,7 @@ func automationQueryFromRequest(req api.AutomationQueryRequest) Query {
 		AccessLevel: strings.TrimSpace(req.AccessLevel),
 		References:  append([]api.Reference(nil), req.References...),
 		ChatID:      strings.TrimSpace(req.ChatID),
-		Role:        strings.TrimSpace(req.Role),
+		Role:        req.Role,
 		Hidden:      cloneAutomationBoolPtr(req.Hidden),
 		Message:     req.Message,
 		Params:      contracts.CloneAnyMap(req.Params),
@@ -395,10 +395,11 @@ func applyAutomationUpdate(def *Definition, req api.UpdateAutomationRequest) {
 		def.RemainingRuns = cloneIntPtr(req.RemainingRuns)
 	}
 	if req.Query != nil {
+		def.Query.OriginalInput = nil
 		def.Query.References = append([]api.Reference(nil), req.Query.References...)
 		def.Query.AccessLevel = strings.TrimSpace(req.Query.AccessLevel)
 		def.Query.ChatID = strings.TrimSpace(req.Query.ChatID)
-		def.Query.Role = strings.TrimSpace(req.Query.Role)
+		def.Query.Role = req.Query.Role
 		def.Query.Hidden = cloneAutomationBoolPtr(req.Query.Hidden)
 		def.Query.Message = req.Query.Message
 		def.Query.Params = contracts.CloneAnyMap(req.Query.Params)

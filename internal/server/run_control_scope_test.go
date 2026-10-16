@@ -185,16 +185,18 @@ func TestDesktopLanesRunInParallelAndRejectCrossControls(t *testing.T) {
 	if after != parentJSONL {
 		t.Fatal("side steer changed parent JSONL")
 	}
-	entries, err := os.ReadDir(filepath.Join(fixture.chats.ChatDir(parent), chat.BTWRootDirName))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 2 {
-		t.Fatalf("expected two hidden branches: %v", entries)
-	}
+	// Each lane keeps its own branch directory; the selection must reach only
+	// the branch of the lane it was sent on.
 	found := map[string]bool{}
-	for _, entry := range entries {
-		branch, err := fixture.chats.(*chat.FileStore).OpenBTWBranch(parent, strings.TrimSuffix(entry.Name(), ".jsonl"))
+	for _, branchLane := range []string{chat.SideLaneBTW, chat.SideLaneExplain} {
+		entries, err := os.ReadDir(filepath.Join(fixture.chats.ChatDir(parent), "."+branchLane))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 1 {
+			t.Fatalf("expected one hidden %s branch: %v", branchLane, entries)
+		}
+		branch, err := fixture.chats.(*chat.FileStore).OpenSideBranch(parent, branchLane, strings.TrimSuffix(entries[0].Name(), ".jsonl"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -207,10 +209,8 @@ func TestDesktopLanesRunInParallelAndRejectCrossControls(t *testing.T) {
 			contents = append(contents, message["content"])
 		}
 		raw, _ := json.Marshal(contents)
-		for _, lane := range []string{"btw", "explain"} {
-			if bytes.Count(raw, []byte("selected "+lane)) == 1 {
-				found[lane] = true
-			}
+		if bytes.Count(raw, []byte("selected "+branchLane)) == 1 {
+			found[branchLane] = true
 		}
 		persisted, err := os.ReadFile(branch.Path())
 		if err != nil {

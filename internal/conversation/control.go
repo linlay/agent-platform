@@ -27,13 +27,13 @@ type ControlCaller struct {
 	ReferencedChats                          []string
 }
 type ControlMessage struct {
-	SteerID   string                  `json:"steerId,omitempty"`
-	Source    *queryinput.SteerSource `json:"source,omitempty"`
-	RunID     string                  `json:"runId"`
-	Role      string                  `json:"role"`
-	Content   string                  `json:"content"`
-	Offset    int                     `json:"offset,omitempty"`
-	Continued bool                    `json:"continued,omitempty"`
+	SteerID   string             `json:"steerId,omitempty"`
+	Origin    *queryinput.Origin `json:"origin,omitempty"`
+	RunID     string             `json:"runId"`
+	Role      string             `json:"role"`
+	Content   string             `json:"content"`
+	Offset    int                `json:"offset,omitempty"`
+	Continued bool               `json:"continued,omitempty"`
 }
 type controlCursor struct {
 	Fingerprint string `json:"f"`
@@ -235,7 +235,7 @@ func (s *Service) controlMessages(c ControlCaller, id string, archived bool, ref
 				continue
 			}
 			if n.Text != "" {
-				messages = append(messages, ControlMessage{RunID: turn.RunID, Role: n.Role, Content: n.Text, SteerID: n.SteerID, Source: n.Source.Clone()})
+				messages = append(messages, ControlMessage{RunID: turn.RunID, Role: n.Role, Content: n.Text, SteerID: n.SteerID, Origin: n.Origin.Clone()})
 			}
 		}
 	}
@@ -482,8 +482,8 @@ func (s *Service) ControlSearch(c ControlCaller, args map[string]any) (map[strin
 				end = min(end, len(original))
 				start = min(start, end)
 				hit := map[string]any{"chatId": id, "runId": m.RunID, "role": m.Role, "snippet": string(original[start:end])}
-				if m.Source != nil {
-					hit["source"] = m.Source.Payload()
+				if m.Origin != nil {
+					hit["origin"] = m.Origin.Payload()
 				}
 				if m.SteerID != "" {
 					hit["steerId"] = m.SteerID

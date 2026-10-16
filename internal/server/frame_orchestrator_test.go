@@ -228,9 +228,9 @@ func TestFrameOrchestratorRejectsInvalidSubAgentMode(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
-				SubAgentKey: "planner",
-				TaskText:    "make a plan",
-				TaskName:    "规划",
+				TaskAgentKey: "planner",
+				TaskText:     "make a plan",
+				TaskName:     "规划",
 			}),
 		},
 	}
@@ -255,8 +255,8 @@ func TestFrameOrchestratorRejectsSelfInvocationBeforeCatalogLookup(t *testing.T)
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
-				SubAgentKey: "  parent-agent  ",
-				TaskText:    "delegate to myself",
+				TaskAgentKey: "  parent-agent  ",
+				TaskText:     "delegate to myself",
 			}),
 		},
 	}
@@ -281,8 +281,8 @@ func TestFrameOrchestratorSelfInvocationComparisonIsCaseSensitive(t *testing.T) 
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
-				SubAgentKey: "Parent-Agent",
-				TaskText:    "use an exact catalog key",
+				TaskAgentKey: "Parent-Agent",
+				TaskText:     "use an exact catalog key",
 			}),
 		},
 	}
@@ -302,8 +302,8 @@ func TestFrameOrchestratorRejectsEntireBatchContainingSelfInvocation(t *testing.
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(
-				contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write"},
-				contracts.SubAgentTaskSpec{SubAgentKey: " parent-agent ", TaskText: "review myself"},
+				contracts.SubAgentTaskSpec{TaskAgentKey: "writer", TaskText: "write"},
+				contracts.SubAgentTaskSpec{TaskAgentKey: " parent-agent ", TaskText: "review myself"},
 			),
 		},
 	}
@@ -334,9 +334,9 @@ func TestFrameOrchestratorAllowsKBaseSubAgent(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
-				SubAgentKey: "docs-kbase",
-				TaskText:    "检索 AI 建设材料",
-				TaskName:    "AI 建设文档",
+				TaskAgentKey: "docs-kbase",
+				TaskText:     "检索 AI 建设材料",
+				TaskName:     "AI 建设文档",
 			}),
 		},
 	}
@@ -365,8 +365,8 @@ func TestFrameOrchestratorRejectsSubAgentWithoutInvokeScope(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
-				SubAgentKey: "nav-only",
-				TaskText:    "run hidden task",
+				TaskAgentKey: "nav-only",
+				TaskText:     "run hidden task",
 			}),
 		},
 	}
@@ -391,8 +391,8 @@ func TestFrameOrchestratorAllowsInternalSubAgent(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
-				SubAgentKey: "internal-worker",
-				TaskText:    "run internal task",
+				TaskAgentKey: "internal-worker",
+				TaskText:     "run internal task",
 			}),
 		},
 	}
@@ -418,8 +418,8 @@ func TestFrameOrchestratorInheritsWebClientTargetIntoChildSession(t *testing.T) 
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
-				SubAgentKey: "writer",
-				TaskText:    "write",
+				TaskAgentKey: "writer",
+				TaskText:     "write",
 			}),
 		},
 	}
@@ -469,9 +469,9 @@ func TestFrameOrchestratorRunsProxySubAgent(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
-				SubAgentKey: "remote-query",
-				TaskText:    "查一下研发部",
-				TaskName:    "云端查询",
+				TaskAgentKey: "remote-query",
+				TaskText:     "查一下研发部",
+				TaskName:     "云端查询",
 			}),
 		},
 	}
@@ -560,10 +560,10 @@ func TestFrameOrchestratorMaterializesProxySubAgentFiles(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
-				SubAgentKey: "remote",
-				TaskText:    "read the draft",
-				TaskName:    "远端阅读",
-				Files:       []string{"/chat/draft.md"},
+				TaskAgentKey: "remote",
+				TaskText:     "read the draft",
+				TaskName:     "远端阅读",
+				Files:        []string{"/chat/draft.md"},
 			}),
 		},
 	}
@@ -625,9 +625,9 @@ func TestFrameOrchestratorReportsProxySubAgentNestedError(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
-				SubAgentKey: "remote-query",
-				TaskText:    "查一下研发部",
-				TaskName:    "云端查询",
+				TaskAgentKey: "remote-query",
+				TaskText:     "查一下研发部",
+				TaskName:     "云端查询",
 			}),
 		},
 	}
@@ -660,8 +660,8 @@ func TestFrameOrchestratorRunsBatchedSubAgentsAndAggregatesResult(t *testing.T) 
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(
-				contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"},
-				contracts.SubAgentTaskSpec{SubAgentKey: "reviewer", TaskText: "review it", TaskName: "审查"},
+				contracts.SubAgentTaskSpec{TaskAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"},
+				contracts.SubAgentTaskSpec{TaskAgentKey: "reviewer", TaskText: "review it", TaskName: "审查"},
 			),
 		},
 	}
@@ -714,8 +714,8 @@ func TestFrameOrchestratorSubAgentRequestsShareRunIDWithUniqueRequestIDs(t *test
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(
-				contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"},
-				contracts.SubAgentTaskSpec{SubAgentKey: "reviewer", TaskText: "review it", TaskName: "审查"},
+				contracts.SubAgentTaskSpec{TaskAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"},
+				contracts.SubAgentTaskSpec{TaskAgentKey: "reviewer", TaskText: "review it", TaskName: "审查"},
 			),
 		},
 	}
@@ -837,7 +837,7 @@ func TestFrameOrchestratorSubAgentRequestsShareRunIDWithUniqueRequestIDs(t *test
 func TestFrameOrchestratorRoutesSubAgentAwaitingWithParentRunAndTaskID(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
-			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "ask user", TaskName: "提问"}),
+			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{TaskAgentKey: "writer", TaskText: "ask user", TaskName: "提问"}),
 		},
 	}
 	child := &stubOrchestratableStream{
@@ -912,8 +912,8 @@ func TestFrameOrchestratorSubAgentRequestIDsFallbackWhenParentMissing(t *testing
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(
-				contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"},
-				contracts.SubAgentTaskSpec{SubAgentKey: "reviewer", TaskText: "review it", TaskName: "审查"},
+				contracts.SubAgentTaskSpec{TaskAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"},
+				contracts.SubAgentTaskSpec{TaskAgentKey: "reviewer", TaskText: "review it", TaskName: "审查"},
 			),
 		},
 	}
@@ -977,7 +977,7 @@ func TestFrameOrchestratorSubAgentRequestIDsFallbackWhenParentMissing(t *testing
 
 func TestFrameOrchestratorBuildsChildRequestFromExplicitAllowlist(t *testing.T) {
 	mainStream := &stubOrchestratableStream{deltas: []contracts.AgentDelta{
-		newInvokeAgentsDelta(contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write", TaskName: "writer"}),
+		newInvokeAgentsDelta(contracts.SubAgentTaskSpec{TaskAgentKey: "writer", TaskText: "write", TaskName: "writer"}),
 	}}
 	child := &stubOrchestratableStream{finalText: "done"}
 	orchestrator := newTestFrameOrchestrator(
@@ -1048,7 +1048,7 @@ func TestFrameOrchestratorBuildsChildRequestFromExplicitAllowlist(t *testing.T) 
 
 func TestFrameOrchestratorRejectsChildOutsideFixedTeamSnapshot(t *testing.T) {
 	mainStream := &stubOrchestratableStream{deltas: []contracts.AgentDelta{
-		newInvokeAgentsDelta(contracts.SubAgentTaskSpec{SubAgentKey: "reviewer", TaskText: "review"}),
+		newInvokeAgentsDelta(contracts.SubAgentTaskSpec{TaskAgentKey: "reviewer", TaskText: "review"}),
 	}}
 	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{}, map[string]catalog.AgentDefinition{
 		"reviewer": {Key: "reviewer", Mode: "REACT"},
@@ -1070,7 +1070,7 @@ func TestFrameOrchestratorRejectsChildOutsideFixedTeamSnapshot(t *testing.T) {
 
 func TestFrameOrchestratorReportsACPCoderChildAsTaskError(t *testing.T) {
 	mainStream := &stubOrchestratableStream{deltas: []contracts.AgentDelta{
-		newInvokeAgentsDelta(contracts.SubAgentTaskSpec{SubAgentKey: "acp-coder", TaskText: "edit"}),
+		newInvokeAgentsDelta(contracts.SubAgentTaskSpec{TaskAgentKey: "acp-coder", TaskText: "edit"}),
 	}}
 	var emitted []contracts.AgentDelta
 	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{}, map[string]catalog.AgentDefinition{
@@ -1105,8 +1105,8 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(
-				contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"},
-				contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write another", TaskName: "再写"},
+				contracts.SubAgentTaskSpec{TaskAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"},
+				contracts.SubAgentTaskSpec{TaskAgentKey: "writer", TaskText: "write another", TaskName: "再写"},
 			),
 		},
 	}
@@ -1170,8 +1170,14 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 		}
 		switch line["_type"] {
 		case "query":
-			if line["taskId"] == "" || line["subAgentKey"] != "writer" || line["taskToolId"] != "tool_main_1" {
+			if line["taskId"] == "" || line["taskAgentKey"] != "writer" || line["taskToolId"] != "tool_main_1" {
 				t.Fatalf("unexpected child query line %#v", line)
+			}
+			if _, ok := line["references"]; ok {
+				t.Fatalf("a task without references must not record references: %#v", line)
+			}
+			if query, _ := line["query"].(map[string]any); query["task"] == "" || query["agentKey"] != "writer" || query["role"] != nil || query["chatId"] != nil {
+				t.Fatalf("child query must be the task as the caller wrote it: %#v", line["query"])
 			}
 			liveSeq := testInt64Value(line["liveSeq"])
 			if liveSeq <= 0 {
@@ -1214,7 +1220,7 @@ func TestSubTaskReactStepPersistsContentMessage(t *testing.T) {
 	startServerFixtureRun(t, store, "chat_1", "run_1", testEpochMillis)
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
-			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"}),
+			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{TaskAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"}),
 		},
 	}
 	child := &stubOrchestratableStream{finalText: "马到成功"}
@@ -1275,8 +1281,8 @@ func TestFrameOrchestratorRejectsNestedInvokeAgentsTool(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
-				SubAgentKey: "writer",
-				TaskText:    "write a summary",
+				TaskAgentKey: "writer",
+				TaskText:     "write a summary",
 			}),
 		},
 	}
@@ -1300,9 +1306,9 @@ func TestFrameOrchestratorPartialFailureAggregation(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(
-				contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"},
-				contracts.SubAgentTaskSpec{SubAgentKey: "reviewer", TaskText: "review it", TaskName: "审查"},
-				contracts.SubAgentTaskSpec{SubAgentKey: "publisher", TaskText: "publish it", TaskName: "发布"},
+				contracts.SubAgentTaskSpec{TaskAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"},
+				contracts.SubAgentTaskSpec{TaskAgentKey: "reviewer", TaskText: "review it", TaskName: "审查"},
+				contracts.SubAgentTaskSpec{TaskAgentKey: "publisher", TaskText: "publish it", TaskName: "发布"},
 			),
 		},
 	}
@@ -1372,9 +1378,9 @@ func TestFrameOrchestratorInterruptionMidExecution(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(
-				contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"},
-				contracts.SubAgentTaskSpec{SubAgentKey: "reviewer", TaskText: "review it", TaskName: "审查"},
-				contracts.SubAgentTaskSpec{SubAgentKey: "publisher", TaskText: "publish it", TaskName: "发布"},
+				contracts.SubAgentTaskSpec{TaskAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"},
+				contracts.SubAgentTaskSpec{TaskAgentKey: "reviewer", TaskText: "review it", TaskName: "审查"},
+				contracts.SubAgentTaskSpec{TaskAgentKey: "publisher", TaskText: "publish it", TaskName: "发布"},
 			),
 		},
 	}

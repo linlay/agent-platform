@@ -42,6 +42,7 @@ func (s *Server) wsQueryForLane(ctx context.Context, conn *ws.Conn, req ws.Reque
 			conn.ReleaseStream(req.ID)
 		}
 	}()
+	originalPayload := req.Payload
 	payload, statusErr := s.rewriteChannelRequestPayload(ctx, req.Type, req.Payload)
 	if statusErr != nil {
 		s.sendWSStatusError(conn, req.ID, statusErr)
@@ -65,9 +66,13 @@ func (s *Server) wsQueryForLane(ctx context.Context, conn *ws.Conn, req ws.Reque
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	queryRequest.OriginalQuery = append([]byte(nil), originalPayload...)
 	command := trustedQueryCommand(ctx, queryRequest)
-	command.SideQuery = side
-	command.SideQueryID = queryRequest.BTWID
+	if side {
+		// The authenticated connection, not the payload, selects the lane.
+		command.Lane = conn.QueryLane()
+		command.SideID = queryRequest.SideID
+	}
 	command.Locale = conn.Locale()
 	command.ResourceBaseURL = conn.RequestBaseURL()
 	command.ChatSource = chatSourceFromContext(ctx)
@@ -121,6 +126,7 @@ func (s *Server) wsQueryDetached(ctx context.Context, conn *ws.Conn, req ws.Requ
 		conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, "detached queries require the main WebSocket lane", nil)
 		return
 	}
+	originalPayload := req.Payload
 	payload, statusErr := s.rewriteChannelRequestPayload(ctx, req.Type, req.Payload)
 	if statusErr != nil {
 		s.sendWSStatusError(conn, req.ID, statusErr)
@@ -142,6 +148,7 @@ func (s *Server) wsQueryDetached(ctx context.Context, conn *ws.Conn, req ws.Requ
 		}
 		return
 	}
+	queryRequest.OriginalQuery = append([]byte(nil), originalPayload...)
 	command := trustedQueryCommand(ctx, queryRequest)
 	command.Locale = conn.Locale()
 	command.ResourceBaseURL = conn.RequestBaseURL()

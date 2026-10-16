@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -201,9 +202,12 @@ func (s *Service) StartRun(ctx context.Context, request contracts.RunStartReques
 	agentKey := strings.TrimSpace(request.AgentKey)
 	parentRunID := strings.TrimSpace(request.Origin.RunID)
 	req := runtimetypes.QueryCommand{
-		ChatID:          strings.TrimSpace(request.ChatID),
-		AgentKey:        agentKey,
-		Role:            queryinput.QueryRoleUser,
+		ChatID:   strings.TrimSpace(request.ChatID),
+		AgentKey: agentKey,
+		Origin: &queryinput.Origin{
+			Type: queryinput.OriginAgent, AgentKey: strings.TrimSpace(request.Origin.AgentKey),
+			ChatID: strings.TrimSpace(request.Origin.ChatID), RunID: parentRunID, ToolID: strings.TrimSpace(request.Origin.ToolID),
+		},
 		Message:         strings.TrimSpace(request.Message),
 		AccessLevel:     plan.AccessLevel,
 		References:      append([]queryinput.Reference(nil), request.References...),
@@ -212,6 +216,11 @@ func (s *Service) StartRun(ctx context.Context, request contracts.RunStartReques
 		// validity, permission review and reference authorization still apply.
 		SkipInteractionPolicy: true,
 		ChatSource:            queryinput.ChatSourceRunQueryPrefix + normalizeChatSourcePart(request.Origin.AgentKey),
+	}
+	if request.Input != nil {
+		if input, err := json.Marshal(request.Input); err == nil {
+			req.OriginalQuery = input
+		}
 	}
 	if modelKey, effort := strings.TrimSpace(request.ModelKey), strings.TrimSpace(request.ReasoningEffort); modelKey != "" || effort != "" {
 		req.Model = &runtimetypes.QueryModelOptions{Key: modelKey, ReasoningEffort: effort}
@@ -270,20 +279,10 @@ func (s *Service) StartRun(ctx context.Context, request contracts.RunStartReques
 	if accepted.approvalDigest != "" {
 		permission["approvalDigest"] = accepted.approvalDigest
 	}
-	auditMetadata := map[string]any{
-		"runOrigin": map[string]any{
-			"agentKey":   strings.TrimSpace(origin.AgentKey),
-			"chatId":     strings.TrimSpace(origin.ChatID),
-			"runId":      strings.TrimSpace(origin.RunID),
-			"toolId":     strings.TrimSpace(origin.ToolID),
-			"permission": permission,
-		},
-	}
-	prepared.Req.TrustedQueryMetadata = contracts.CloneMap(auditMetadata)
+	prepared.Req.AccessGrant = permission
 	prepared.Execution = &queryExecutionOptions{
 		StepLineStore:   s.deps.Chats,
 		CompletionStore: s.deps.Chats,
-		QueryMetadata:   auditMetadata,
 	}
 
 	registered, statusErr := s.RegisterPreparedQuery(runCtx, prepared)

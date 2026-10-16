@@ -157,7 +157,7 @@ func TestWriteAndBTWBoundariesScopeTimeValidationToPlatformFields(t *testing.T) 
 	if err := os.WriteFile(store.chatJSONLPath(chatID), []byte(`{"_type":"compact.checkpoint","chatId":"`+chatID+`","updatedAt":0}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CreateBTWBranch(chatID, "btw-contract"); !timecontract.IsViolation(err) {
+	if _, err := store.CreateSideBranch(chatID, SideLaneBTW, "side-contract"); !timecontract.IsViolation(err) {
 		t.Fatalf("expected invalid parent rejection, got %v", err)
 	}
 }

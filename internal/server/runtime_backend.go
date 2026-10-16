@@ -17,13 +17,14 @@ func queryRequestFromRuntime(cmd runtimetypes.QueryCommand) api.QueryRequest {
 		model = &api.QueryModelOptions{Key: cmd.Model.Key, ModelID: cmd.Model.ModelID, ReasoningEffort: cmd.Model.ReasoningEffort, ServiceTier: cmd.Model.ServiceTier}
 	}
 	return api.QueryRequest{
-		RequestID: cmd.RequestID, RunID: cmd.RunID, ChatID: cmd.ChatID, AgentKey: cmd.AgentKey,
+		OriginalQuery: append([]byte(nil), cmd.OriginalQuery...),
+		RequestID:     cmd.RequestID, RunID: cmd.RunID, ChatID: cmd.ChatID, AgentKey: cmd.AgentKey,
 		Role: cmd.Role, Hidden: cmd.Hidden, Message: cmd.Message, SourceUser: cmd.SourceUser, References: references,
 		Params: contracts.CloneMap(cmd.Params), Scene: scene, Stream: cmd.Stream, IncludeUsage: cmd.IncludeUsage,
 		IncludeFullText: cmd.IncludeFullText, PlanningMode: cmd.PlanningMode, EditingMode: cmd.EditingMode,
 		AccessLevel: cmd.AccessLevel, Model: model,
 		SyntheticQueryBootstrapped: cmd.SyntheticQueryBootstrapped, ChatSource: cmd.ChatSource,
-		TrustedQueryMetadata: contracts.CloneMap(cmd.TrustedQueryMetadata),
+		Origin: cmd.Origin.Clone(),
 	}
 }
 
@@ -37,12 +38,13 @@ func queryCommandFromAPI(req api.QueryRequest) runtimetypes.QueryCommand {
 		model = &runtimetypes.QueryModelOptions{Key: req.Model.Key, ModelID: req.Model.ModelID, ReasoningEffort: req.Model.ReasoningEffort, ServiceTier: req.Model.ServiceTier}
 	}
 	return runtimetypes.QueryCommand{
-		RequestID: req.RequestID, RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey,
+		OriginalQuery: append([]byte(nil), req.OriginalQuery...),
+		RequestID:     req.RequestID, RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey,
 		Role: req.Role, Hidden: req.Hidden, Message: req.Message, SourceUser: req.SourceUser,
 		References: runtimeReferencesFromAPI(req.References), Params: contracts.CloneMap(req.Params), Scene: scene,
 		Stream: req.Stream, IncludeUsage: req.IncludeUsage, IncludeFullText: req.IncludeFullText,
 		PlanningMode: req.PlanningMode, EditingMode: req.EditingMode, AccessLevel: req.AccessLevel, Model: model, SyntheticQueryBootstrapped: req.SyntheticQueryBootstrapped,
-		ChatSource: req.ChatSource, TrustedQueryMetadata: contracts.CloneMap(req.TrustedQueryMetadata),
+		ChatSource: req.ChatSource, Origin: req.Origin.Clone(),
 	}
 }
 

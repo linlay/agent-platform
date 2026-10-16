@@ -41,14 +41,14 @@ func TestTEAMReplayPreservesMemberActors(t *testing.T) {
 				for i, member := range []string{"writer", "reviewer"} {
 					ts := testEpochMillis(int64(20 + i*10))
 					if withQuery {
-						err = active.AppendQueryLine(chatID, QueryLine{Type: "query", ChatID: chatID, RunID: runID, UpdatedAt: ts, TaskID: member + "-task", SubAgentKey: member, Query: map[string]any{"message": "member request"}})
+						err = active.AppendQueryLine(chatID, QueryLine{Type: "query", ChatID: chatID, RunID: runID, UpdatedAt: ts, TaskID: member + "-task", TaskAgentKey: member, Query: map[string]any{"message": "member request"}})
 						if err != nil {
 							t.Fatal(err)
 						}
 					}
 					step := StepLine{Type: StepLineTypeReact, ChatID: chatID, RunID: runID, UpdatedAt: ts + 1, TaskID: member + "-task", TaskStatus: terminal.status, Messages: []StoredMessage{{Role: "assistant", Content: textContent(member + " result"), Ts: &ts}}}
 					if !withQuery {
-						step.TaskSubAgentKey = member
+						step.TaskAgentKey = member
 					}
 					if err = active.AppendStepLine(chatID, step); err != nil {
 						t.Fatal(err)

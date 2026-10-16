@@ -243,7 +243,7 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 	if len(req.References) > 0 {
 		return api.SteerResponse{Accepted: false, Status: "unsupported", RunID: req.RunID, SteerID: steerID, Detail: "attachment steer is not supported for remote runs"}, nil, true
 	}
-	route.RememberSteerSource(steerID, req.Source)
+	route.RememberSteerOrigin(steerID, req.Origin)
 	if route.Transport == "sse" {
 		var response api.SteerResponse
 		statusErr := postProxyRunControl(route, "/api/steer", map[string]any{
@@ -254,7 +254,7 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 			"steerId":   steerID,
 			"message":   req.Message,
 		}, &response)
-		if statusErr == nil && req.Source != nil && strings.TrimSpace(response.Status) == "" {
+		if statusErr == nil && req.Origin != nil && strings.TrimSpace(response.Status) == "" {
 			statusErr = &statusError{Status: http.StatusBadGateway, Code: "proxy_invalid_response", Message: "Proxy steer response is missing its acknowledgment", OutcomeUnknown: true}
 		}
 		return response, statusErr, true
@@ -273,7 +273,7 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 		"id":      steerID,
 		"payload": payload,
 	}) {
-		if req.Source != nil {
+		if req.Origin != nil {
 			return api.SteerResponse{}, &statusError{Status: http.StatusBadGateway, Code: "run_steer_not_sent", Message: "Proxy steer was not queued for sending"}, true
 		}
 		return api.SteerResponse{

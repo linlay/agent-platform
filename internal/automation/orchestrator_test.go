@@ -153,8 +153,8 @@ func TestRegistryKeepsOmittedQueryDefaultsOutOfDefinition(t *testing.T) {
 		t.Fatalf("expected omitted optional fields to remain omitted, got %#v", defs[0])
 	}
 	request := defs[0].ToQueryRequest()
-	if request.Role != "automation" || request.Hidden == nil || !*request.Hidden {
-		t.Fatalf("expected execution defaults role=automation and hidden=true, got %#v", request)
+	if request.Role != "" || request.Origin == nil || request.Origin.Type != "automation" || request.Hidden == nil || !*request.Hidden {
+		t.Fatalf("expected an automation origin and hidden=true, got %#v", request)
 	}
 }
 
@@ -204,7 +204,7 @@ func TestRegistrySkipsInvalidAutomations(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
 		"missing-message.yml":       "name: Missing Message\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nquery:\n",
-		"invalid-role.yml":          "name: Invalid Role\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nquery:\n  role: scheduler\n  message: hi\n",
+		"unknown-query-field.yml":   "name: Unknown Field\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nquery:\n  unknown: scheduler\n  message: hi\n",
 		"invalid-chat.yml":          "name: Invalid Chat\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nquery:\n  message: hi\n  chatId: \"bad chat id!\"\n",
 		"invalid-zone.yml":          "name: Invalid Zone\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nenvironment:\n  zoneId: Mars/Base\nquery:\n  message: hi\n",
 		"invalid-cron.yml":          "name: Invalid Cron\ndescription: bad\ncron: \"0 0 9 * * *\"\nagentKey: demo-agent\nquery:\n  message: hi\n",
@@ -721,7 +721,7 @@ func TestOrchestratorManualTriggerRunsPausedWithoutMutatingScheduleState(t *test
 		t.Fatalf("expected effective zone snapshot, got %#v", first)
 	}
 	req := waitForQueryRequest(t, entered, time.Second)
-	if req.AgentKey != definition.AgentKey || req.ChatID != definition.Query.ChatID || req.Message != definition.Query.Message || req.Role != definition.Query.Role {
+	if req.AgentKey != definition.AgentKey || req.ChatID != definition.Query.ChatID || req.Message != definition.Query.Message || req.Role != "" || req.Origin == nil || req.Origin.Type != "automation" {
 		t.Fatalf("manual trigger changed query request: %#v", req)
 	}
 	if req.Hidden == nil || *req.Hidden || req.ChatSource != api.ChatSourceAutomationPrefix+definition.ID || req.Params["source"] != "manual-test" {
@@ -881,7 +881,7 @@ func TestOrchestratorManualTriggerKeepsQueuedTeamDefinitionSnapshot(t *testing.T
 
 	release <- struct{}{}
 	request := waitForQueryRequest(t, entered, time.Second)
-	if request.AgentKey != "research" || request.ChatID != target.Query.ChatID || request.Role != target.Query.Role || request.Message != target.Query.Message {
+	if request.AgentKey != "research" || request.ChatID != target.Query.ChatID || request.Role != "" || request.Origin == nil || request.Origin.Type != "automation" || request.Message != target.Query.Message {
 		t.Fatalf("queued trigger lost accepted Team definition: %#v", request)
 	}
 	if request.Hidden == nil || *request.Hidden || request.Params["snapshot"] != "accepted" || request.ChatSource != api.ChatSourceAutomationPrefix+target.ID {

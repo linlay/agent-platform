@@ -139,15 +139,15 @@ type ModelTurnDiscard struct {
 
 func (ModelTurnDiscard) streamInputTag() {}
 
+// SyntheticQuery is a platform-made request.query: either a system snapshot
+// change inside a Run or the visible start of a Run from an approved plan.
 type SyntheticQuery struct {
 	ChatID   string
-	Role     string
 	Message  string
 	Messages []map[string]any
 	System   map[string]any
-	Kind     string
-	Stage    string
-	Hidden   bool
+	// SystemSnapshot marks a query that only records a new system snapshot.
+	SystemSnapshot bool
 }
 
 func (SyntheticQuery) streamInputTag() {}
@@ -188,12 +188,12 @@ type PlanningSuperseded struct {
 func (PlanningSuperseded) streamInputTag() {}
 
 type TaskStart struct {
-	TaskID      string
-	RunID       string
-	TaskName    string
-	Description string
-	SubAgentKey string
-	MainToolID  string
+	TaskID       string
+	RunID        string
+	TaskName     string
+	Description  string
+	TaskAgentKey string
+	MainToolID   string
 
 	Presentation string
 }
@@ -326,7 +326,7 @@ type AwaitingAnswer struct {
 func (AwaitingAnswer) streamInputTag() {}
 
 type RequestSteer struct {
-	Source     *queryinput.SteerSource
+	Origin     *queryinput.Origin
 	RequestID  string
 	ChatID     string
 	RunID      string

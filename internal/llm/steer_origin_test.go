@@ -14,9 +14,9 @@ import (
 func TestAgentSteerSourceDoesNotChangeModelInput(t *testing.T) {
 	control := contracts.NewRunControl(context.Background(), "target")
 	defer control.Finish()
-	source := &queryinput.SteerSource{Type: "agent", AgentKey: "caller", ChatID: "parent-chat", RunID: "parent-run", ToolID: "call"}
+	source := &queryinput.Origin{Type: "agent", AgentKey: "caller", ChatID: "parent-chat", RunID: "parent-run", ToolID: "call"}
 	want := source.Payload()
-	if !control.EnqueueSteer(api.SteerRequest{RunID: "target", ChatID: "chat", SteerID: "steer-id", Message: "new goal", Source: source}) {
+	if !control.EnqueueSteer(api.SteerRequest{RunID: "target", ChatID: "chat", SteerID: "steer-id", Message: "new goal", Origin: source}) {
 		t.Fatal("not enqueued")
 	}
 	source.AgentKey = "mutated"
@@ -34,7 +34,7 @@ func TestAgentSteerSourceDoesNotChangeModelInput(t *testing.T) {
 		t.Fatal(inputs)
 	}
 	input := inputs[0].(stream.RequestSteer)
-	if !reflect.DeepEqual(input.Source.Payload(), want) || input.Message != "new goal" {
+	if !reflect.DeepEqual(input.Origin.Payload(), want) || input.Message != "new goal" {
 		t.Fatal(input)
 	}
 }

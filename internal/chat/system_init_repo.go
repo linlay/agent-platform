@@ -295,14 +295,6 @@ func systemSchemaError(line map[string]any, reason string) error {
 	return fmt.Errorf("system-init schema error: chatId=%s runId=%s %s", strings.TrimSpace(stringFromAny(line["chatId"])), strings.TrimSpace(stringFromAny(line["runId"])), reason)
 }
 
-func lineIsSystemInitQuery(line map[string]any) bool {
-	if strings.TrimSpace(stringFromAny(line["_type"])) != "query" {
-		return false
-	}
-	query, _ := line["query"].(map[string]any)
-	return strings.TrimSpace(stringFromAny(query["kind"])) == "system-init"
-}
-
 func parseCacheKey(cacheKey string) (string, string) {
 	cacheKey = strings.TrimSpace(cacheKey)
 	if cacheKey == "" {

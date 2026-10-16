@@ -121,7 +121,7 @@ func TestQueryContinuesWithUnavailableContextAgents(t *testing.T) {
 				orchestrator := newTestFrameOrchestrator(engine, nil, nil, nil)
 				orchestrator.Registry = fixture.registry
 				orchestrator.Session.AgentKey = "mock-agent"
-				main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{newInvokeAgentsDelta(contracts.SubAgentTaskSpec{SubAgentKey: key, TaskText: "must reject"})}}
+				main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{newInvokeAgentsDelta(contracts.SubAgentTaskSpec{TaskAgentKey: key, TaskText: "must reject"})}}
 				failed, interrupted, err := orchestrator.Run(main)
 				if err != nil || failed || interrupted || len(main.injected) != 1 || !main.injected[0].isError || main.injected[0].text != "sub-agent not found: "+key || len(engine.sessions) != 0 {
 					t.Fatalf("unexpected child dispatch: %#v err=%v", main.injected, err)

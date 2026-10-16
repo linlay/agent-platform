@@ -243,14 +243,21 @@ func ProviderSafeQueryMessage(role string, message string) (string, string) {
 }
 
 type QueryRequest struct {
+	// OriginalQuery freezes the transport payload before admission resolves IDs,
+	// defaults, references, or model options. It is never accepted as a JSON field.
+	OriginalQuery json.RawMessage `json:"-"`
+
 	// HTTP query routing only. WebSocket execution is selected by the authenticated connection.
-	Lane      string `json:"lane,omitempty"`
-	BTWID     string `json:"btwId,omitempty"`
+	Lane string `json:"lane,omitempty"`
+	// SideID continues an existing btw/explain branch.
+	SideID    string `json:"sideId,omitempty"`
 	RequestID string `json:"requestId,omitempty"`
 	RunID     string `json:"runId,omitempty"`
 	ChatID    string `json:"chatId,omitempty"`
 	AgentKey  string `json:"agentKey,omitempty"`
 
+	// Role is accepted but ignored: admission derives the model input role
+	// from the input's origin.
 	Role    string `json:"role,omitempty"`
 	Hidden  *bool  `json:"hidden,omitempty"`
 	Message string `json:"message"`
@@ -279,9 +286,9 @@ type QueryRequest struct {
 	// cannot set this field.
 	ChatSource string `json:"-"`
 
-	// TrustedQueryMetadata is merged into the persisted request.query event.
-	// External JSON input cannot set this field.
-	TrustedQueryMetadata map[string]any `json:"-"`
+	// Origin is set by trusted internal callers such as Automation. External
+	// JSON input cannot set this field.
+	Origin *queryinput.Origin `json:"-"`
 }
 
 const RequiredSkillKeysRemovedMessage = "requiredSkillKeys has been removed; use references"
@@ -302,6 +309,7 @@ func (r *QueryRequest) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*r = QueryRequest(decoded)
+	r.OriginalQuery = append(json.RawMessage(nil), data...)
 	return nil
 }
 
@@ -311,8 +319,8 @@ type QueryResponse struct {
 	Usage    *ChatUsageData `json:"usage,omitempty"`
 }
 
-type BTWResponse struct {
-	BTWID        string         `json:"btwId"`
+type SideResponse struct {
+	SideID       string         `json:"sideId"`
 	ParentChatID string         `json:"parentChatId"`
 	RunID        string         `json:"runId"`
 	Content      string         `json:"content"`

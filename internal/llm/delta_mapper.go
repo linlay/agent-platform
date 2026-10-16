@@ -256,14 +256,11 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	case DeltaSyntheticQuery:
 		m.lastKind = ""
 		return []stream.StreamInput{stream.SyntheticQuery{
-			ChatID:   value.ChatID,
-			Role:     value.Role,
-			Message:  value.Message,
-			Messages: cloneRawMessageMaps(value.Messages),
-			System:   cloneAnyMapViaJSON(value.System),
-			Kind:     value.Kind,
-			Stage:    value.Stage,
-			Hidden:   value.Hidden,
+			ChatID:         value.ChatID,
+			Message:        value.Message,
+			Messages:       cloneRawMessageMaps(value.Messages),
+			System:         cloneAnyMapViaJSON(value.System),
+			SystemSnapshot: value.SystemSnapshot,
 		}}
 	case DeltaFinishReason:
 		m.lastKind = ""
@@ -304,21 +301,21 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		switch strings.ToLower(value.Kind) {
 		case "start":
 			return []stream.StreamInput{stream.TaskStart{
-				TaskID:      value.TaskID,
-				RunID:       value.RunID,
-				TaskName:    value.TaskName,
-				Description: value.Description,
-				SubAgentKey: value.SubAgentKey,
-				MainToolID:  value.MainToolID,
+				TaskID:       value.TaskID,
+				RunID:        value.RunID,
+				TaskName:     value.TaskName,
+				Description:  value.Description,
+				TaskAgentKey: value.TaskAgentKey,
+				MainToolID:   value.MainToolID,
 
 				Presentation: value.Presentation,
 			}}
 		case "complete":
-			return []stream.StreamInput{stream.TaskComplete{TaskID: value.TaskID, AgentKey: value.SubAgentKey, Presentation: value.Presentation}}
+			return []stream.StreamInput{stream.TaskComplete{TaskID: value.TaskID, AgentKey: value.TaskAgentKey, Presentation: value.Presentation}}
 		case "cancel":
-			return []stream.StreamInput{stream.TaskCancel{TaskID: value.TaskID, Reason: value.Reason, AgentKey: value.SubAgentKey, Presentation: value.Presentation}}
+			return []stream.StreamInput{stream.TaskCancel{TaskID: value.TaskID, Reason: value.Reason, AgentKey: value.TaskAgentKey, Presentation: value.Presentation}}
 		case "error":
-			return []stream.StreamInput{stream.TaskError{TaskID: value.TaskID, Error: value.Error, AgentKey: value.SubAgentKey, Presentation: value.Presentation}}
+			return []stream.StreamInput{stream.TaskError{TaskID: value.TaskID, Error: value.Error, AgentKey: value.TaskAgentKey, Presentation: value.Presentation}}
 		default:
 			return nil
 		}
@@ -369,7 +366,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}}
 	case DeltaRequestSteer:
 		return []stream.StreamInput{stream.RequestSteer{
-			Source:     value.Source.Clone(),
+			Origin:     value.Origin.Clone(),
 			RequestID:  value.RequestID,
 			ChatID:     value.ChatID,
 			RunID:      value.RunID,

@@ -1,6 +1,8 @@
 package types
 
 import (
+	"encoding/json"
+
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
@@ -25,20 +27,27 @@ type ClientTarget struct {
 // HTTP and WebSocket adapters are responsible for decoding external DTOs into
 // this value before invoking application behavior.
 type QueryCommand struct {
+	// OriginalQuery is the immutable incoming JSON, separate from resolved inputs.
+	OriginalQuery json.RawMessage `json:"-"`
+
 	// InitialChatName is internal-only and applies to newly created Chats.
 	InitialChatName string `json:"-"`
 	// SkipInteractionPolicy is set only by Runtime for a chat_start admission.
 	// interactionConfig gates what a user may select in a conversation; it does
 	// not gate a trusted Agent tool entry. No transport decodes this field.
 	SkipInteractionPolicy bool `json:"-"`
-	SideQuery             bool
-	SideQueryID           string
-	TrustedGateway        bool
-	RequestID             string
-	RunID                 string
-	ChatID                string
-	AgentKey              string
+	// Lane is a side lane (btw or explain) for a hidden branch Run; empty is
+	// the main lane. SideID continues an existing branch of that lane.
+	Lane           string
+	SideID         string
+	TrustedGateway bool
+	RequestID      string
+	RunID          string
+	ChatID         string
+	AgentKey       string
 
+	// Role is the model input role. Admission derives it from Origin; no
+	// request carries it.
 	Role                       string
 	Hidden                     *bool
 	Message                    string
@@ -54,13 +63,18 @@ type QueryCommand struct {
 	AccessLevel                string
 	Model                      *QueryModelOptions
 	SyntheticQueryBootstrapped bool
-	TrustedQueryMetadata       map[string]any
-	Identity                   *contracts.AuthIdentity
-	Caller                     Caller
-	Locale                     string
-	ClientTarget               ClientTarget
-	ChatSource                 string
-	ResourceBaseURL            string
+	// Origin is who sent the input; admission defaults it to the requesting user.
+	Origin *queryinput.Origin
+	// AccessGrant audits how a chat_start Run obtained its access level.
+	AccessGrant map[string]any `json:"-"`
+	// PlanRunID links a Run started by approving a plan to its planning Run.
+	PlanRunID       string `json:"-"`
+	Identity        *contracts.AuthIdentity
+	Caller          Caller
+	Locale          string
+	ClientTarget    ClientTarget
+	ChatSource      string
+	ResourceBaseURL string
 }
 
 type QueryModelOptions = queryinput.QueryModelOptions
@@ -76,7 +90,7 @@ type QueryHooks struct {
 type QueryResult struct {
 	Usage        chat.UsageData
 	FinishReason string
-	SideQueryID  string
+	SideID       string
 	ChatID       string
 	RunID        string
 	ErrorPayload map[string]any

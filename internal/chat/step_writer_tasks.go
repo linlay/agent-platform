@@ -8,10 +8,10 @@ import (
 )
 
 type taskStepBuffer struct {
-	taskID          string
-	taskStage       string
-	taskStatus      string
-	taskSubAgentKey string
+	taskID       string
+	taskStage    string
+	taskStatus   string
+	taskAgentKey string
 
 	presentation            string
 	messages                []StoredMessage
@@ -69,7 +69,7 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 		buffer.clearModelTurn()
 		return
 	}
-	allowEmptySubAgentStep := strings.TrimSpace(buffer.taskSubAgentKey) != "" && strings.TrimSpace(buffer.taskStatus) != ""
+	allowEmptySubAgentStep := strings.TrimSpace(buffer.taskAgentKey) != "" && strings.TrimSpace(buffer.taskStatus) != ""
 	if len(buffer.messages) == 0 && buffer.responseID == "" && !allowEmptySubAgentStep &&
 		(buffer.sources == nil || len(buffer.sources.Items) == 0) &&
 		(buffer.artifacts == nil || len(buffer.artifacts.Items) == 0) {
@@ -77,14 +77,14 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	}
 
 	line := StepLine{
-		ResponseID:      buffer.responseID,
-		ChatID:          w.chatID,
-		RunID:           w.runID,
-		UpdatedAt:       buffer.lastTimestamp,
-		LiveSeq:         buffer.liveSeq,
-		TaskID:          buffer.taskID,
-		TaskStatus:      buffer.taskStatus,
-		TaskSubAgentKey: buffer.taskSubAgentKey,
+		ResponseID:   buffer.responseID,
+		ChatID:       w.chatID,
+		RunID:        w.runID,
+		UpdatedAt:    buffer.lastTimestamp,
+		LiveSeq:      buffer.liveSeq,
+		TaskID:       buffer.taskID,
+		TaskStatus:   buffer.taskStatus,
+		TaskAgentKey: buffer.taskAgentKey,
 
 		Presentation: buffer.presentation,
 		Messages:     canonicalizeStoredToolResultOrder(attachResponseReasoning(buffer.messages, buffer.encryptedReasoning, buffer.responseID, buffer.lastTimestamp)),
@@ -277,8 +277,8 @@ func (w *StepWriter) appendSteerLine(event stream.EventData) {
 	if requestID := strings.TrimSpace(event.String("requestId")); requestID != "" {
 		steer["requestId"] = requestID
 	}
-	if source := event.Value("source"); source != nil {
-		steer["source"] = source
+	if origin := event.Value("origin"); origin != nil {
+		steer["origin"] = origin
 	}
 	if references := event.Value("references"); references != nil {
 		steer["references"] = references

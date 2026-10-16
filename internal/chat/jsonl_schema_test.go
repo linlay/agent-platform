@@ -152,7 +152,7 @@ func TestCurrentJSONLSchemaRejectsInvalidDataAcrossActiveReaders(t *testing.T) {
 		"replay":      func() error { _, err := store.LoadChat(chatID); return err },
 		"search":      func() error { _, err := store.SearchSession(chatID, "hello", 10); return err },
 		"compact":     func() error { _, err := store.BuildCompactSnapshot(chatID, 1); return err },
-		"btw":         func() error { _, err := store.CreateBTWBranch(chatID, "schema_check"); return err },
+		"btw":         func() error { _, err := store.CreateSideBranch(chatID, SideLaneBTW, "schema_check"); return err },
 		"derive": func() error {
 			_, err := store.DeriveChat(DeriveChatRequest{SourceChatID: chatID, SourceRunID: "run-1", ChatID: "chat-schema-derived"})
 			return err

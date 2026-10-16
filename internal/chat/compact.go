@@ -323,10 +323,10 @@ func compactRootRunID(line map[string]any) string {
 	if strings.TrimSpace(stringFromAny(line["taskId"])) != "" {
 		return ""
 	}
-	if strings.TrimSpace(stringFromAny(line["taskSubAgentKey"])) != "" {
+	if strings.TrimSpace(lineTaskAgentKey(line)) != "" {
 		return ""
 	}
-	if strings.TrimSpace(stringFromAny(line["subAgentKey"])) != "" {
+	if strings.TrimSpace(lineTaskAgentKey(line)) != "" {
 		return ""
 	}
 	return runID
@@ -504,7 +504,7 @@ func EstimateRawMessageTokens(messages []map[string]any) int {
 	}
 	projected, mediaTokens := projectCompactMediaMessages(messages, false)
 	for _, message := range projected {
-		for _, key := range []string{"runId", "agentKey", "taskSubAgentKey", "msgId", "ts", "_compactPinned", "_compactSource", "_compactRound"} {
+		for _, key := range []string{"runId", "agentKey", "taskAgentKey", "msgId", "ts", "_compactPinned", "_compactSource", "_compactRound"} {
 			delete(message, key)
 		}
 	}

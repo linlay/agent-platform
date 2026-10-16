@@ -1,6 +1,7 @@
 package automation
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,6 +11,34 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts/queryinput"
 )
+
+func TestAutomationQueryKeepsConfiguredFieldsBeforeNormalization(t *testing.T) {
+	input := map[string]any{
+		"message": "hello", "accessLevel": " default ", "requestId": " caller ",
+		"role": "a descriptive role", "hidden": nil, "references": []any{}, "params": map[string]any{}, "scene": nil,
+	}
+	query, err := parseQuery(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := (Definition{ID: "audit", Query: query}).ToQueryRequest()
+	want, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(request.OriginalQuery) != string(want) || request.Role != "" || request.Origin == nil || request.Origin.Type != "automation" {
+		t.Fatalf("configured input changed or role affected execution: %#v, original=%s", request, request.OriginalQuery)
+	}
+	if request.AccessLevel != "default" || request.RequestID != "caller" {
+		t.Fatalf("execution inputs were not normalized: %#v", request)
+	}
+	definition := Definition{Query: query}
+	applyAutomationUpdate(&definition, api.UpdateAutomationRequest{Query: &api.AutomationQueryRequest{Message: "changed", Role: "another description"}})
+	var updated map[string]any
+	if err := json.Unmarshal(definition.ToQueryRequest().OriginalQuery, &updated); err != nil || updated["message"] != "changed" || updated["role"] != "another description" {
+		t.Fatalf("query update retained stale input: %#v, %v", updated, err)
+	}
+}
 
 func TestRegistryPersistLoadPreservesQueryMessageExactly(t *testing.T) {
 	root := t.TempDir()
@@ -92,7 +121,7 @@ func TestRegistryPersistOmitsEmptyAutomationDefaults(t *testing.T) {
 		t.Fatalf("reload persisted automation: definitions=%#v err=%v", definitions, err)
 	}
 	request := definitions[0].ToQueryRequest()
-	if request.Role != api.QueryRoleAutomation || request.Hidden == nil || !*request.Hidden {
+	if request.Role != "" || request.Origin == nil || request.Origin.Type != "automation" || request.Hidden == nil || !*request.Hidden {
 		t.Fatalf("unexpected execution defaults %#v", request)
 	}
 }
@@ -122,7 +151,7 @@ func TestRegistryPersistPreservesExplicitVisibleAutomationQuery(t *testing.T) {
 		t.Fatalf("read persisted automation: %v", err)
 	}
 	content := string(persisted)
-	if !strings.Contains(content, "  role: automation\n") || !strings.Contains(content, "  hidden: false\n") {
+	if !strings.Contains(content, "  role: \"automation\"\n") || !strings.Contains(content, "  hidden: false\n") {
 		t.Fatalf("expected explicit query overrides, got:\n%s", content)
 	}
 

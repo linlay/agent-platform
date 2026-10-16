@@ -385,12 +385,13 @@ func parseQuery(node map[string]any) (Query, error) {
 	if err != nil {
 		return Query{}, err
 	}
-	role, err := optionalStringNode(node, "role")
-	if err != nil {
-		return Query{}, err
-	}
-	if _, err := normalizeAutomationQueryRole(role); err != nil {
-		return Query{}, err
+	role := ""
+	if raw := node["role"]; raw != nil {
+		var ok bool
+		role, ok = raw.(string)
+		if !ok {
+			return Query{}, fmt.Errorf("invalid query.role")
+		}
 	}
 	hidden, err := optionalBoolNode(node, "hidden")
 	if err != nil {
@@ -410,22 +411,23 @@ func parseQuery(node map[string]any) (Query, error) {
 	}
 
 	return Query{
-		AccessLevel: accessLevel,
-		RequestID:   requestID,
-		ChatID:      chatID,
-		Role:        role,
-		Hidden:      hidden,
-		Message:     message,
-		References:  references,
-		Params:      params,
-		Scene:       scene,
+		OriginalInput: contracts.CloneAnyMap(node),
+		AccessLevel:   accessLevel,
+		RequestID:     requestID,
+		ChatID:        chatID,
+		Role:          role,
+		Hidden:        hidden,
+		Message:       message,
+		References:    references,
+		Params:        params,
+		Scene:         scene,
 	}, nil
 }
 
 func automationYAMLTreeOptions() config.YAMLTreeOptions {
 	return config.YAMLTreeOptions{
 		DecodeDoubleQuotedEscapes:  true,
-		PreserveDecodedScalarPaths: []string{"query.message"},
+		PreserveDecodedScalarPaths: []string{"query.message", "query.role"},
 	}
 }
 
@@ -540,9 +542,6 @@ func (r *Registry) Validate(def Definition) error {
 	if _, err := normalizeAutomationAccessLevel(def.Query.AccessLevel); err != nil {
 		return err
 	}
-	if _, err := normalizeAutomationQueryRole(def.Query.Role); err != nil {
-		return err
-	}
 	chatID := strings.TrimSpace(def.Query.ChatID)
 	if chatID != "" {
 		if len(chatID) > chatIDMaxLength {
@@ -553,17 +552,6 @@ func (r *Registry) Validate(def Definition) error {
 		}
 	}
 	return nil
-}
-
-func normalizeAutomationQueryRole(role string) (string, error) {
-	if strings.TrimSpace(role) == "" {
-		return api.QueryRoleAutomation, nil
-	}
-	normalized, ok := api.NormalizeQueryRole(role)
-	if !ok {
-		return "", fmt.Errorf("invalid query.role: %s", api.QueryRoleValidationMessage)
-	}
-	return normalized, nil
 }
 
 func (r *Registry) Delete(def Definition) error {

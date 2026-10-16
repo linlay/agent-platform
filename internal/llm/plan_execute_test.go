@@ -170,16 +170,16 @@ func TestPlanExecuteRegistersPendingStageSystemsOnce(t *testing.T) {
 		},
 	}
 
-	stream.appendPendingSystemInitQuery("plan-execute:execute", "execute")
-	stream.appendPendingSystemInitQuery("plan-execute:execute", "execute")
-	stream.appendPendingSystemInitQuery("plan-execute:summary", "summary")
+	stream.appendPendingSystemInitQuery("plan-execute:execute")
+	stream.appendPendingSystemInitQuery("plan-execute:execute")
+	stream.appendPendingSystemInitQuery("plan-execute:summary")
 
 	if len(stream.pending) != 2 {
 		t.Fatalf("expected one registration per pending stage, got %#v", stream.pending)
 	}
 	for index, wantStage := range []string{"execute", "summary"} {
 		query, ok := stream.pending[index].(contracts.DeltaSyntheticQuery)
-		if !ok || query.Kind != "system-init" || query.Stage != wantStage || !query.Hidden || query.Role != api.QueryRoleSystem {
+		if !ok || !query.SystemSnapshot || query.Message != "" {
 			t.Fatalf("unexpected stage registration %#v", stream.pending[index])
 		}
 		if query.System["agentKey"] != "planner" || query.System["cacheKey"] != "plan-execute:"+wantStage {

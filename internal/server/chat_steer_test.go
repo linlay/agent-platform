@@ -106,7 +106,7 @@ func TestChatSteerChangesStartedRunAndPersistsCallerSource(t *testing.T) {
 			t.Fatalf("model input: %#v", messages)
 		}
 		encoded, _ := json.Marshal(messages)
-		if strings.Contains(string(encoded), "parent-chat") || strings.Contains(string(encoded), `"source"`) {
+		if strings.Contains(string(encoded), "parent-chat") || strings.Contains(string(encoded), `"origin"`) {
 			t.Fatalf("provenance leaked into model input: %s", encoded)
 		}
 	default:
@@ -124,7 +124,7 @@ func TestChatSteerChangesStartedRunAndPersistsCallerSource(t *testing.T) {
 		if count >= len(ids) || event.String("runId") != runID || event.String("steerId") != ids[count] || event.String("role") != "user" {
 			t.Fatalf("unexpected event: %#v", event)
 		}
-		source, ok := event.Value("source").(map[string]any)
+		source, ok := event.Value("origin").(map[string]any)
 		wantRun := []string{"parent", "later"}[count]
 		if !ok || source["type"] != "agent" || source["agentKey"] != "zenmi" || source["runId"] != wantRun || source["chatId"] != wantRun+"-chat" || source["toolId"] != event.String("message") {
 			t.Fatalf("unexpected source: %#v", source)
@@ -156,15 +156,15 @@ func TestChatSteerProxyDoesNotForwardSource(t *testing.T) {
 			}
 			fixture.server.registerProxyRun(route)
 			defer fixture.server.unregisterProxyRun(route.RunID, route)
-			source := &queryinput.SteerSource{Type: "agent", AgentKey: "caller", ChatID: "caller-chat", RunID: "caller-run", ToolID: "call"}
-			result, statusErr, forwarded := fixture.server.forwardProxySteer(api.SteerRequest{RunID: route.RunID, AgentKey: route.AgentKey, SteerID: "id", Message: "goal", Source: source})
+			source := &queryinput.Origin{Type: "agent", AgentKey: "caller", ChatID: "caller-chat", RunID: "caller-run", ToolID: "call"}
+			result, statusErr, forwarded := fixture.server.forwardProxySteer(api.SteerRequest{RunID: route.RunID, AgentKey: route.AgentKey, SteerID: "id", Message: "goal", Origin: source})
 			if statusErr != nil || !forwarded || !result.Accepted {
 				t.Fatalf("%#v %v %v", result, statusErr, forwarded)
 			}
 			if transport == "ws" {
 				received = (<-route.SendQueue)["payload"].(map[string]any)
 			}
-			if received["source"] != nil || received["steerId"] != "id" || received["message"] != "goal" {
+			if received["origin"] != nil || received["steerId"] != "id" || received["message"] != "goal" {
 				t.Fatalf("upstream payload: %#v", received)
 			}
 		})
@@ -226,7 +226,7 @@ func TestChatSteerProxyDistinguishesNotSentFromUnknown(t *testing.T) {
 			}
 			fixture.server.registerProxyRun(route)
 			defer fixture.server.unregisterProxyRun(route.RunID, route)
-			req := api.SteerRequest{RunID: route.RunID, AgentKey: route.AgentKey, SteerID: "id", Message: "goal", Source: &queryinput.SteerSource{Type: "agent", AgentKey: "caller", ChatID: "caller-chat", RunID: "caller", ToolID: "call"}}
+			req := api.SteerRequest{RunID: route.RunID, AgentKey: route.AgentKey, SteerID: "id", Message: "goal", Origin: &queryinput.Origin{Type: "agent", AgentKey: "caller", ChatID: "caller-chat", RunID: "caller", ToolID: "call"}}
 			if tc.name == "agent_mismatch" {
 				req.AgentKey = "wrong"
 			}
@@ -260,7 +260,7 @@ func TestChatSteerProxyDistinguishesNotSentFromUnknown(t *testing.T) {
 				t.Fatal("uncertain request was not attempted exactly once")
 			}
 			if tc.name == "ws_closed" {
-				req.Source = nil
+				req.Origin = nil
 				response, statusErr, _ = fixture.server.forwardProxySteer(req)
 				if statusErr != nil || response.Accepted || response.Status != "unmatched" {
 					t.Fatal("human WS closed-route behavior changed")

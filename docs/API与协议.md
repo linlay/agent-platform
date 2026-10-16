@@ -43,7 +43,7 @@ JWT `exp` / `iat` 与 resource ticket payload 的 `e` 仍是 token 内部的 Num
 
 Chat JSONL 每条物理行只允许一个 JSON object，`_type` 必填且只允许 `query`、`react`、`react-tool`、`event`、`steer`、`submit`、`compact.checkpoint`、`compact.run.checkpoint`、`compact.tool`。空行、多行 object、同行多个 JSON 值、数组、标量、语法错误、非法 `_type` 及非法 system/planning/awaiting 结构统一返回 HTTP/WS `422 chat_storage_schema_violation`。
 
-`_type:"steer"` 的持久化行使用专用 `steer` object，不使用通用 `event`：顶层 `updatedAt/liveSeq` 分别保存事件时间与公开 live cursor，`steer` 保存 `requestId/chatId/runId/steerId/message/role` 与可选 `references` 业务字段；新记录不写顶层 `messages`（旧快照兼容读取），且 `requestId` 为空时省略。回放时重新合成扁平 `type:"request.steer"` 与 `timestamp`；SSE、WebSocket stream 和 `/api/chat.events[]` 的对外事件结构不变。旧 `_type:"steer" + event` 以及 `_type:"event" + event.type:"request.steer"` 均属于不支持的存储 schema，不兼容读取或迁移。
+`_type:"steer"` 的持久化行使用专用 `steer` object，不使用通用 `event`：顶层 `updatedAt/liveSeq` 分别保存事件时间与公开 live cursor，`steer` 保存 `requestId/chatId/runId/steerId/message/role` 与可选 `references`、`origin` 业务字段；新记录不写顶层 `messages`（旧快照兼容读取），且 `requestId` 为空时省略。回放时重新合成扁平 `type:"request.steer"` 与 `timestamp`；SSE、WebSocket stream 和 `/api/chat.events[]` 的对外事件结构不变。旧 `_type:"steer" + event` 以及 `_type:"event" + event.type:"request.steer"` 均属于不支持的存储 schema，不兼容读取或迁移。
 
 HTTP 的 `data.error` 与 WebSocket error frame 的 `data` 包含 `code`、`field`、`location`、`expected`、可选 `actual`、`status:422`、`retryable:false`。`location` 使用 1-based 物理行号；响应不会携带完整 JSONL 行或 system prompt。时间字段不合法仍使用 `time_contract_violation`。
 
@@ -312,7 +312,7 @@ L1 不使用 60% 停止目标，统一保护最近 N 轮完整模型调用。N �
 
 `/api/chat/jsonl`、`/api/chat/system-prompt`、chat/archive replay、搜索结果与 `/api/chat/llm-trace` 都在读取前验证各自明确拥有的时间字段。JSONL 的 line `updatedAt`、event `timestamp`、`messages[].ts` 和 awaiting/submit 时间保持严格；trace 中 `sentAt`、`responseStartedAt`、`completedAt` 以及 `interrupt.interruptedAt` 均为 epoch milliseconds，对应的 `sentTime`、`responseStartedTime`、`completedTime`、`interrupt.interruptedTime` 为 RFC3339Nano 可读时间。字符串、秒、浮点、零值或缺少必填平台时间会返回 `422 time_contract_violation`；trace 中外部 request/response/tool payload 保持透明。
 
-`/api/chats` 的 chat 摘要、`/api/agents?includeChats=N`附带的 chat 摘要，以及 WebSocket `/api/chats` 响应都会在存在运行中 run 时返回 `activeRun`。run 摘要带本次 Run 启动时的选择：`planningMode`（为 true 时返回）和解析后的 `editingMode:true|false`，方便客户端刷新或重连后还原；`request.query` 事件中的 `editingMode` 仍是 同进程续接和计划批准后执行的依据。这些摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
+`/api/chats` 的 chat 摘要、`/api/agents?includeChats=N`附带的 chat 摘要，以及 WebSocket `/api/chats` 响应都会在存在运行中 run 时返回 `activeRun`。run 摘要带本次 Run 启动时的选择：`planningMode`（为 true 时返回）和解析后的 `editingMode:true|false`，方便客户端刷新或重连后还原；query 行顶层的 `editingMode` 用于同进程续接和计划批准后执行。这些摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
 
 `/api/agent` 返回顶层 `modelKey`、`reasoningEffort`、可选 `serviceTier`。模型 key 原样反映配置，ACP 详情不访问上游模型列表、不自动回退到其他模型。思考读取 Agent 顶层 `modelConfig.reasoning`：显式 `enabled:false` 返回 `NONE`，否则返回规范化 `effort`，未配置回退 `MEDIUM`；不代表 stageSettings 或单次 query 的覆盖结果。未设置服务等级时省略 `serviceTier`。不返回 `model`、`selected*`、`modelConfig`、`modelOptions`，meta 不重复返回 modelKey/modelKeys/providerKey/protocol。
 
@@ -348,7 +348,7 @@ Archive 摘要、详情和搜索结果都会返回时间字段：`createdAt` 为
 | POST | `/api/automation/executions` | body: `id` 或 `automationId`、`limit`、`offset` | execution history |
 | POST | `/api/automation/execution` | body: `executionId`（兼容 `id`） | 单条 execution 与完整 query/result 内容 |
 
-`query` 对象包含必填 `message`，以及可选 `chatId`、`role`、`hidden`、`accessLevel`、`references`、`params`。`role` 可选值为 `user`、`assistant`、`automation`、`system`，省略时按 `automation` 执行；`hidden` 省略时按 `true` 执行，只隐藏 Chat 时间线里的 automation query 消息，不隐藏 chat、run 或模型回复，显式 `false` 可显示该 query。省略值在 Automation 详情中继续省略，结构化更新不会把计算后的默认值写回 YAML。
+`query` 对象包含必填 `message`，以及可选 `chatId`、`hidden`、`accessLevel`、`references`、`params`；兼容接收 `role`，只保留供审计，执行时忽略且不校验角色枚举，自动化输入始终由平台记为 automation 来源。`hidden` 省略时按 `true` 执行，只隐藏 Chat 时间线里的 automation query 消息，不隐藏 chat、run 或模型回复，显式 `false` 可显示该 query。省略值在 Automation 详情中继续省略，结构化更新不会把计算后的默认值写回 YAML。
 
 Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch milliseconds；`lastExecution` 与 execution history 中的 `startedAt`、`completedAt` 同样是 epoch milliseconds。这些 `*At` 字段是排序、计算和客户端本地化的唯一权威时间。对应的 `nextFireTime`、`startedTime`、`completedTime` 均由 Platform 按 `automation.default-zone-id`（无效或未配置时回退进程 `time.Local`）转换为 `YYYY-MM-DD HH:mm:ss`，只用于阅读，不保留毫秒或时区信息。
 
@@ -370,7 +370,7 @@ Automation 只配置 `agentKey`，TEAM 也按普通 Agent 准入执行。
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| POST | `/api/query` | body: `lane`（默认 `main`，可选 `btw`）、`btwId`（旁聊续问）、`message`、`agentKey`、`chatId`、`runId`、`requestId`、`role`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
+| POST | `/api/query` | body: `lane`（默认 `main`，可选 `btw`）、`sideId`（旁路分支续问）、`message`、`agentKey`、`chatId`、`runId`、`requestId`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
 | GET | `/api/attach` | query: `runId`、根 `agentKey`、`lastSeq` | 按公开 owner 续接 run 的 SSE stream |
 | POST | `/api/submit` | body: 根 `agentKey`、`runId`、`awaitingId`，以及 `params`（question/approval 的数组）或 `param`（planning/form 的单个对象），二选一 | HITL submit ack |
 | POST | `/api/steer` | body: 根 `agentKey`、`runId`、`message`、`requestId`、`chatId`、`steerId`、`references` | steer ack |
@@ -382,7 +382,11 @@ Automation 只配置 `agentKey`，TEAM 也按普通 Agent 准入执行。
 
 `/api/query` 的 `stream` 是 JSON body 字段；省略或传 `true` 时返回 SSE，结束帧为 `data: [DONE]`。传 `false` 时服务端仍执行完整 run、持久化 chat，并在结束后返回普通 JSON。默认只返回最终回答，响应示例见下文。
 
-editingMode 只认顶层 JSON boolean，是 GENERAL/CODER/KBASE/TEAM 的通用 Workspace 编辑开关。显式 true/false 一致生效；省略时使用模板默认值（KBASE false，其他 true），规划 Run 始终只读。它只控制最终 runtimeConfig.workspaceRoot 的 mutation，不增加来源目录授权、不补工具、不改变 external 或当前 Chat 的通用权限，params.editingMode 不生效。request.query、JSONL 与 replay/export 保留按模板解析后的请求值（含 false），用于普通续接和计划批准后的执行；activeRun 返回当前 Run 的实际值，规划 Run 为 false。该字段不写 Agent 配置、不从上一轮继承。
+editingMode 只认顶层 JSON boolean，是 GENERAL/CODER/KBASE/TEAM 的通用 Workspace 编辑开关。显式 true/false 一致生效；省略时使用模板默认值（KBASE false，其他 true），规划 Run 始终只读。它只控制最终 runtimeConfig.workspaceRoot 的 mutation，不增加来源目录授权、不补工具、不改变 external 或当前 Chat 的通用权限，params.editingMode 不生效。JSONL 的原始 `query` 不补入默认值；query 行顶层的 `editingMode` 与 `request.query` 事件保存解析后的请求意图（含 false），用于普通续接和计划批准后的执行；activeRun 返回当前 Run 的实际值，规划 Run 为 false。该字段不写 Agent 配置、不从上一轮继承。
+
+JSONL query 行的 `query` 只保存调用方原样给出的输入，平台不往里添加任何字段：HTTP body 与 WS payload（含省略、显式 false、null、空对象/数组、大整数，以及 `stream`、`detached`、`lane`、`sourceUser` 等传输字段；不承诺空白或键顺序），chat_start 的工具参数，`agent_invoke`/`agent_delegate` 中该任务的原始条目，Automation 定义里实际配置的 query 字段。平台的决定作为 query 行顶层字段并列保存：`requestId`、`agentKey`、`lane`（主通道省略）、`origin`、`accessGrant`、`planRunId`、`accessLevel`、`planningMode`、`editingMode`、`model`、`references`；任务行另有 `taskId`、`taskToolId`、`taskAgentKey`。没有调用方输入的行不写 `query`：Run 中途只更新 system 快照的行只有 `system`；计划批准后执行 Run 的首行带 `planRunId`，其可见文本按该行 `locale` 在回放时生成。`request.query` 实时事件、历史回放与执行续接都由同一投影从 `query` 的内容字段和顶层决定生成。旧记录没有顶层 `requestId`，其 `query` 即当时的解析结果，继续按原布局读取，不改写历史文件。复制 Chat 时保留原始 query，只对顶层字段重新绑定 Chat/Run。
+
+`origin` 记录输入是谁发起的，由平台判定，请求不能携带：`{type:"user",userId?}`（HTTP/WS；userId 取认证主体，受信 gateway 下取远端用户）、`{type:"agent",agentKey,chatId,runId,toolId}`（chat_start 与 chat_steer）、`{type:"automation",automationId}`。计划批准后的执行 Run 沿用规划 Run 的 origin。memory 只采集 `user` 来源的输入；`automation` 来源不进入会话搜索与导出，模型输入标注为自动化请求。HTTP/WS query 和 Automation YAML/管理 API query 中的 `role` 均接收并保留供审计，执行时忽略，不进入 `request.query` 事件，也不决定模型角色。`agent.yml` 的 `role` 仍为 Agent 描述字段，与请求角色无关。chat_start 的权限审计（父档位、版本、来源、审批摘要）写在顶层 `accessGrant`。
 
 `references` 统一表示本条消息指定的资源。skill/kbase/chat 客户端只传 type 和 id，服务端补齐可信元数据；Chat 正文不随请求拼接，智能体通过 task-control 的 chat_query read/search 按需读取。引用按类型与规范化 ID 去重，整个 Run 累计上限为技能 32、知识库 8、对话 32；steer 超限整条拒绝且不留下授权。技能目录只读授权和脚本入口凭据、知识库可读性、Chat 身份与授权边界见 [引用协议](引用协议.md)。选择列表只进入用户消息，不进入 system prompt 或 fingerprint；固定绑定库 boundLibraryId 保留。
 
@@ -393,11 +397,11 @@ HTTP/WS 的 query/steer 请求拒绝未知字段，包括值为 null 或空数�
 所有调用与控制只使用根 `agentKey`。已有 Chat 归属固定；成员事件上的 key 不授予根控制权限。TEAM 的成员若不存在、为 TEAM/ACP、不支持子任务或携带 agent_invoke，整个请求返回 503。活动 Run 使用冻结版本，同进程延迟批准重新校验当前版本；重启取消未完成 Run。query/steer 中的未声明字段拒绝；其他入口沿用各自 DTO 校验，不检测旧配置。
 
 
-HTTP `POST /api/query` 的 `lane:"btw"` 用于“顺便问”：`chatId` 必须指向已有 active chat；不传 `btwId` 时从当前主 JSONL 创建隐藏快照并在响应头 `X-Btw-Id` 与首个 `request.query.btwId` 返回分支 ID，传 `btwId` 时继续该分支。BTW 固定继承父 chat 的 agent/team，固定 `role:user` 且关闭 planning mode。主 chat 的 active run、pending awaiting、摘要、未读、搜索和 JSONL 都不会被 BTW 更新。
+HTTP `POST /api/query` 的 `lane:"btw"` 用于“顺便问”：`chatId` 必须指向已有 active chat；不传 `sideId` 时从当前主 JSONL 创建隐藏快照并在响应头 `X-Side-Id` 与首个 `request.query.sideId` 返回分支 ID（`side_` 前缀），传 `sideId` 时继续该分支。BTW 固定继承父 chat 的 agent/team，按用户输入执行且关闭 planning mode。主 chat 的 active run、pending awaiting、摘要、未读、搜索和 JSONL 都不会被 BTW 更新。
 
-BTW 与普通 query 使用同一 Agent/ReAct、模型协议、SSE assembler、attach/interrupt 和 StepWriter；`request.query` 额外包含 `kind:"btw"`、`btwId`、`parentChatId`、`hidden:true`，不新增 event type，也不发送 `chat.start` / `chat.updated`。同一个 `btwId` 只允许一个 active run，父 chat 与不同 BTW 分支可以并行。
+BTW 与普通 query 使用同一 Agent/ReAct、模型协议、SSE assembler、attach/interrupt 和 StepWriter；`request.query` 额外包含 `lane`（`btw` 或 `explain`）、`sideId` 与 `hidden:true`，不新增 event type，也不发送 `chat.start` / `chat.updated`。分支存放在 `<chatId>/.btw/<sideId>.jsonl` 或 `<chatId>/.explain/<sideId>.jsonl`，文件名即分支身份，JSONL 行只记 `lane`。同一个 `sideId` 只允许一个 active run，父 chat 与不同 BTW 分支可以并行。
 
-Desktop 使用 `main`、`btw`、`explain` 三条独立普通 WebSocket v2 lane，连接 source 分别为 `desktop-main`、`desktop-btw`、`desktop-explain`。三者发起 Run 统一发送 route `/api/query`：Platform 根据已认证连接身份将 main 送入普通 query，将 btw/explain 送入隐藏只读分支，payload 不能覆盖 lane。旁聊沿用 BTW payload（含可选 `btwId`），同一连接可先后创建、续问和 attach 不同分支 Run，但同一时刻只能观察一个 Run stream。HTTP 统一使用 `POST /api/query`，body 的 `lane` 缺省或 `main` 执行主聊天、`btw` 执行隐藏分支；`explain` 返回 403 `explain_ws_required`，其他值返回 400 `invalid_lane`，均不创建 Chat。网页仍使用 SSE，也支持 `stream:false` JSON。旧 HTTP/WS `/api/btw` 入口已删除，Platform、Desktop 与 WebClient 配套发布。attach、detach、steer、interrupt、access-level 在既有 agent/team owner 校验之外，执行下述 Run 控制归属校验。
+Desktop 使用 `main`、`btw`、`explain` 三条独立普通 WebSocket v2 lane，连接 source 分别为 `desktop-main`、`desktop-btw`、`desktop-explain`。三者发起 Run 统一发送 route `/api/query`：Platform 根据已认证连接身份将 main 送入普通 query，将 btw/explain 送入隐藏只读分支，payload 不能覆盖 lane。旁聊与划词解释都使用 BTW payload（含可选 `sideId`），都支持在同一分支续问，同一连接可先后创建、续问和 attach 不同分支 Run，但同一时刻只能观察一个 Run stream。HTTP 统一使用 `POST /api/query`，body 的 `lane` 缺省或 `main` 执行主聊天、`btw` 执行隐藏分支；`explain` 返回 403 `explain_ws_required`，其他值返回 400 `invalid_lane`，均不创建 Chat。网页仍使用 SSE，也支持 `stream:false` JSON。旧 HTTP/WS `/api/btw` 入口已删除，Platform、Desktop 与 WebClient 配套发布。attach、detach、steer、interrupt、access-level 在既有 agent/team owner 校验之外，执行下述 Run 控制归属校验。
 
 以下控制归属限制不适用于 HITL Submit。Run 创建时由服务端冻结控制归属 `transport`、`lane`、认证 subject 与 WS device boundary，只保存在 Platform 进程内存中，不写入 `.state`、`chats.db` 或 Chat JSONL；请求不能通过 payload 修改归属。HTTP 创建的 Run 只接受 HTTP attach/steer/interrupt/access-level；WS 创建的 Run 只接受同身份、同设备边界、同 lane 的 WS 控制。HTTP 控制不另要求 body lane，HTTP BTW 仍通过自身 Run ID 和 agent/team owner 定位；HTTP 没有 detach endpoint，直接关闭 SSE。跨 transport 返回 403 `run_transport_mismatch`，跨 lane 返回 403 `run_lane_mismatch`，身份不同返回 403 `run_control_identity_mismatch`。缺少归属记录的旧 Run 返回 409 `run_control_identity_unavailable`，不自动认领或默认为 main。
 
@@ -421,7 +425,7 @@ BTW 发给 provider 的 system、tools、tool choice 和 cache key 与普通 cha
   "code": 0,
   "msg": "success",
   "data": {
-    "btwId": "btw_xxx",
+    "sideId": "side_xxx",
     "parentChatId": "chat_xxx",
     "runId": "run_xxx",
     "content": "最终回答"
@@ -599,7 +603,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 
 `hidden` 是可选的 `request.query` 时间线展示标记；省略时普通 query 不隐藏，Automation 调度会按自身默认值传入 `true`。
 
-`role` 可选值为 `user`、`assistant`、`automation`、`system`，普通 query 缺省为 `user`。`automation` / `system` 的 `request.query` 会保留在 trace 中，但不会作为可见用户消息参与搜索或对话导出。`role` 只影响本次 query 展示语义，不决定 chat 摘要的 `source`；外部请求不能通过 `role=automation` 或传入 `source` 伪造 automation 创建来源。普通 HTTP `/api/query` 传入 `sourceUser` 也不会改变 source；该字段只在受信 channel/gateway 上下文中作为远端用户提示使用。
+输入来源只由平台判定的 `origin` 表达（见上文），不决定 chat 摘要的 `source`；外部请求不能通过任何字段（包括 `role`）伪造 automation 来源。旧记录中 `role:"automation"/"system"` 的 query 继续不参与搜索和导出。普通 HTTP `/api/query` 传入 `sourceUser` 也不会改变 source；该字段只在受信 channel/gateway 上下文中作为远端用户提示使用。
 
 Markdown 与 Snapshot 导出统一由 `Summary + LoadChat` 投影一次内部 `ConversationSnapshotV1`。它包含已绑定的可见根 query、reasoning/content、工具、来源、计划、子任务、运行终态，以及已发布 HTML 附件的声明；不包含系统提示、任意原始 payload 或附件文件字节。构建过程只执行一次 JSON 序列化，同一份字节用于 20 MiB 校验和 `format=snapshot` 响应；当前 Platform 对每个 turn 最多保留 2000 个节点。Markdown 仅消费同一 Snapshot 结构体，写出已完成轮次的用户问题和最后一个 assistant 正文回答。
 
@@ -1181,7 +1185,7 @@ Platform WebSocket 注册同一路径：空 payload `{}` 或 `{agentKey}` 对应
 
 ### Agent 发起的 steer 来源
 
-builtin.task-control 的 chat_steer 接收 `{runId,message}`。公开 request.steer 在 SSE、WS 与 `/api/chat` events 中新增可选 `source:{type:"agent",agentKey,chatId,runId,toolId}`；这些是发起方身份，事件顶层 chatId/runId 是目标身份。role 仍为 user，message 与模型输入不添加来源标注。HTTP/WS `/api/steer` 的 Source 为内部不可解码字段，客户端传入时按未知字段拒绝；普通人类 steer 不产生 source。JSONL 将 source 保存在 steer 对象中，不含 source 的现有记录继续读取。
+builtin.task-control 的 chat_steer 接收 `{runId,message}`。公开 request.steer 在 SSE、WS 与 `/api/chat` events 中带可选 `origin:{type:"agent",agentKey,chatId,runId,toolId}`，与 query 行的 `origin` 同一结构；这些是发起方身份，事件顶层 chatId/runId 是目标身份。role 仍为 user，message 与模型输入不添加来源标注。HTTP/WS `/api/steer` 传入 origin 按未知字段拒绝；普通人类 steer 不产生 origin。JSONL 将 origin 保存在 steer 对象中；改名前写入 `source` 的旧记录照常读取，回放时以 `origin` 输出。Agent 发起的 steer 不作为 memory 证据。
 
 ```json
 {
@@ -1192,7 +1196,7 @@ builtin.task-control 的 chat_steer 接收 `{runId,message}`。公开 request.st
   "steerId": "steer_3f9a1c7e2b4d",
   "message": "优先完成后端权限校验和越权测试；暂缓管理界面。",
   "role": "user",
-  "source": {
+  "origin": {
     "type": "agent",
     "agentKey": "initiator-agent",
     "chatId": "chat_P",
@@ -1292,7 +1296,7 @@ Platform 在同一 Catalog 保护区内取得快照、比较版本、替换或�
 
 `/api/submit` 不要求创建与提交的 transport、device boundary 或 lane 相同，允许桌面创建、手机审批及 HTTP/WS 交叉提交。HTTP/WS 的既有认证、Agent/Team owner、等待项和提交参数校验及重复提交仲裁保持不变；其他 Run 控制入口仍执行原通道归属检查。
 
-`chat_start` 工具只接受 `agentKey` 作为目标字段，省略时从可信调用上下文补齐当前 Agent；目标使用精确 Agent key。显式 `agentKey` 必须为非空字符串，续聊仍校验 Chat owner，审批与幂等使用补齐后的目标。`chat_start` 由服务端读取可信父 Run 的控制记录，继承连接归属（含 transport/lane），执行生命周期仍使用独立后台 context。创建来源和父级关系保存在 `runOrigin`；派生链始终继承最初 HTTP/WS 入口的 transport/lane；父级记录缺失或不是 HTTP/WS 时明确失败，不创建空来源的新 Run。不迁移或重写已有 Run 的控制记录。
+`chat_start` 工具只接受 `agentKey` 作为目标字段，省略时从可信调用上下文补齐当前 Agent；目标使用精确 Agent key。显式 `agentKey` 必须为非空字符串，续聊仍校验 Chat owner，审批与幂等使用补齐后的目标。`chat_start` 由服务端读取可信父 Run 的控制记录，继承连接归属（含 transport/lane），执行生命周期仍使用独立后台 context。创建来源和父级关系保存在 query 行的 `origin`（type agent）；派生链始终继承最初 HTTP/WS 入口的 transport/lane；父级记录缺失或不是 HTTP/WS 时明确失败，不创建空来源的新 Run。不迁移或重写已有 Run 的控制记录。
 
 ## 通用智能体根目录与项目目录
 

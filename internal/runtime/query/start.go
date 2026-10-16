@@ -58,7 +58,7 @@ func (s *Service) prepare(ctx context.Context, cmd runtimetypes.QueryCommand) (p
 	cmd.Locale = locale
 	var prepared preparedQuery
 	var err error
-	if cmd.SideQuery {
+	if chat.IsSideLane(cmd.Lane) {
 		var statusErr *statusError
 		prepared, statusErr = s.prepareSideQuery(ctx, cmd)
 		if statusErr != nil {
@@ -100,7 +100,7 @@ func (s *Service) StartQuery(ctx context.Context, cmd runtimetypes.QueryCommand)
 		s.startPreparedLocalRun(prepared, registered, bus)
 	}
 	owner := contracts.ResolveRunOwner(prepared.Session.RunOwner)
-	return runtimetypes.RunHandle{SideQueryID: sideQueryID(prepared), RunID: prepared.Req.RunID, ChatID: prepared.Req.ChatID, AgentKey: owner.AgentKey, StartedAt: registered.StartedAtMillis, Status: "running", Detached: true}, nil
+	return runtimetypes.RunHandle{SideID: sideQueryID(prepared), RunID: prepared.Req.RunID, ChatID: prepared.Req.ChatID, AgentKey: owner.AgentKey, StartedAt: registered.StartedAtMillis, Status: "running", Detached: true}, nil
 }
 func (s *Service) ExecuteQuery(ctx context.Context, cmd runtimetypes.QueryCommand, hooks runtimetypes.QueryHooks) (runtimetypes.QueryResult, error) {
 	ctx = context.WithValue(queryContext(ctx, cmd), queryHooksKey{}, hooks)
@@ -130,7 +130,7 @@ func (s *Service) ExecuteQuery(ctx context.Context, cmd runtimetypes.QueryComman
 		observe = fullText.Observe
 	}
 	result, err := s.executePreparedLocalQuery(prepared, registered, nil, observe)
-	out := runtimetypes.QueryResult{Usage: result.Usage, FinishReason: result.FinishReason, SideQueryID: sideQueryID(prepared), RunID: prepared.Req.RunID, ChatID: prepared.Req.ChatID, ErrorPayload: result.ErrorPayload, Completion: result.Completion, Content: result.AssistantText, ErrorMessage: result.ErrorMessage}
+	out := runtimetypes.QueryResult{Usage: result.Usage, FinishReason: result.FinishReason, SideID: sideQueryID(prepared), RunID: prepared.Req.RunID, ChatID: prepared.Req.ChatID, ErrorPayload: result.ErrorPayload, Completion: result.Completion, Content: result.AssistantText, ErrorMessage: result.ErrorMessage}
 	if fullText != nil {
 		out.FullText = fullText.Text(result.AssistantText)
 	}
@@ -148,7 +148,7 @@ func queryReferenceStatusError(status int, code, message string) *statusError {
 
 func sideQueryID(prepared preparedQuery) string {
 	if prepared.Execution != nil {
-		return prepared.Execution.BTWID
+		return prepared.Execution.SideID
 	}
 	return ""
 }

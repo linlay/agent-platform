@@ -331,9 +331,10 @@ func deriveRequestIDMap(lines []map[string]any, runIDs map[string]string) map[st
 		if sourceRunID == "" || targetRunID == "" {
 			continue
 		}
-		query := anyMap(line["query"])
-		requestID := strings.TrimSpace(stringValue(query["requestId"]))
-		if requestID != "" {
+		if strings.TrimSpace(stringValue(line["_type"])) != "query" {
+			continue
+		}
+		if requestID := lineRequestID(line); requestID != "" {
 			out[requestID] = targetRunID
 		}
 	}
@@ -368,6 +369,11 @@ func (s *FileStore) nextDerivedRunIDLocked(assigned map[string]string) (string, 
 func rewriteDerivedLine(line map[string]any, ctx deriveRewriteContext) (map[string]any, bool) {
 	rewritten := rewriteDerivedValue(line, "", ctx)
 	out, ok := rewritten.(map[string]any)
+	if ok && lineHasCurrentLayout(line) && line["query"] != nil {
+		// The copied query remains a record of what the caller sent. Only the
+		// platform fields beside it are rebound to the derived Chat/Run.
+		out["query"] = line["query"]
+	}
 	return out, ok && len(out) > 0
 }
 
@@ -561,7 +567,7 @@ func copyDerivedChatDir(sourceDir string, targetDir string) error {
 		if rel == "." {
 			return os.MkdirAll(targetBase, 0o755)
 		}
-		if filepath.ToSlash(rel) == BTWRootDirName {
+		if isSideRootDirName(filepath.ToSlash(rel)) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}

@@ -144,7 +144,7 @@ func TestAgentEntryReferencesSkipInteractionPolicyButKeepFrozenSnapshot(t *testi
 	if _, err := session.PrepareReferenceSteer(steer); err == nil {
 		t.Fatal("a user steer bypassed the frozen policy")
 	}
-	steer.Source = &queryinput.SteerSource{Type: "agent"}
+	steer.Origin = &queryinput.Origin{Type: "agent"}
 	if _, err := session.PrepareReferenceSteer(steer); err != nil {
 		t.Fatal(err)
 	}

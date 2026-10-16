@@ -93,7 +93,7 @@ func TestTeamDelegationRunsEveryMemberThroughBoundedPool(t *testing.T) {
 	}
 	for _, key := range keys {
 		defs[key] = catalog.AgentDefinition{Key: key, Name: strings.ToUpper(key), Mode: "REACT"}
-		tasks = append(tasks, contracts.SubAgentTaskSpec{SubAgentKey: key})
+		tasks = append(tasks, contracts.SubAgentTaskSpec{TaskAgentKey: key})
 		children[key] = &gatedTeamMemberStream{memberKey: key, answer: key + " answer", tracker: tracker}
 	}
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
@@ -168,7 +168,7 @@ func TestTeamDelegationPartialFailureDoesNotCancelOtherMembers(t *testing.T) {
 	}
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 		MainToolID: "delegate",
-		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}, {SubAgentKey: "reviewer"}, {SubAgentKey: "publisher"}},
+		Tasks:      []contracts.SubAgentTaskSpec{{TaskAgentKey: "writer"}, {TaskAgentKey: "reviewer"}, {TaskAgentKey: "publisher"}},
 	}}}
 	engine := &orchestratorAgentEngine{streamsByAgentKey: children}
 	var emitted []contracts.AgentDelta
@@ -215,7 +215,7 @@ func TestTeamSingleDelegationAlwaysReturnsControlToCoordinator(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{
 		contracts.DeltaTeamDispatch{
 			MainToolID: "delegate",
-			Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}},
+			Tasks:      []contracts.SubAgentTaskSpec{{TaskAgentKey: "writer"}},
 		},
 		contracts.DeltaContent{Text: "coordinator final answer"},
 	}}
@@ -259,7 +259,7 @@ func TestTeamRuntimeRejectsNestedTeamAndAgentInvokeMembers(t *testing.T) {
 		}
 		main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 			MainToolID: "delegate",
-			Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "nested"}},
+			Tasks:      []contracts.SubAgentTaskSpec{{TaskAgentKey: "nested"}},
 		}}}
 		engine := &orchestratorAgentEngine{streamsByAgentKey: children}
 		o := newTeamFrameOrchestrator(t, main, children, defs, nil, nil)
@@ -290,7 +290,7 @@ func TestTeamRuntimeRejectsNestedTeamAndAgentInvokeMembers(t *testing.T) {
 		}
 		main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 			MainToolID: "delegate",
-			Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer", TaskText: "nested work"}},
+			Tasks:      []contracts.SubAgentTaskSpec{{TaskAgentKey: "writer", TaskText: "nested work"}},
 		}}}
 		engine := &orchestratorAgentEngine{streamsByAgentKey: children}
 		o := newTeamFrameOrchestrator(t, main, children, defs, nil, nil)

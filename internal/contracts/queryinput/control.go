@@ -229,8 +229,8 @@ type SteerRequest struct {
 	References []Reference `json:"references,omitempty"`
 	// CommitReferences is prepared by Runtime and invoked atomically with enqueue.
 	CommitReferences func() error `json:"-"`
-	// Source is constructed by Runtime from a trusted Agent caller, never from wire input.
-	Source *SteerSource `json:"-"`
+	// Origin is constructed by Runtime from a trusted Agent caller, never from wire input.
+	Origin *Origin `json:"-"`
 	// PreparedMessages is an immutable, server-prepared input; never accepted from the wire.
 	PreparedMessages []map[string]any `json:"-"`
 }
@@ -245,34 +245,83 @@ func (r *SteerRequest) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// SteerSource records provenance without changing the user role or model input.
-type SteerSource struct {
-	Type     string `json:"type"`
-	AgentKey string `json:"agentKey"`
-	ChatID   string `json:"chatId"`
-	RunID    string `json:"runId"`
-	ToolID   string `json:"toolId"`
+// Origin records who sent an input: a user, an Agent through a trusted Chat
+// tool, or an Automation. The platform decides it; request bodies never carry
+// it. It changes neither the model input role nor the user-visible message.
+type Origin struct {
+	Type         string `json:"type"`
+	UserID       string `json:"userId,omitempty"`
+	AgentKey     string `json:"agentKey,omitempty"`
+	ChatID       string `json:"chatId,omitempty"`
+	RunID        string `json:"runId,omitempty"`
+	ToolID       string `json:"toolId,omitempty"`
+	AutomationID string `json:"automationId,omitempty"`
 }
 
-// FromAgent reports a steer sent through chat_steer. interactionConfig limits
-// what a user may select, so it does not apply to that trusted tool entry.
-func (s *SteerSource) FromAgent() bool {
-	return s != nil && s.Type == "agent"
+const (
+	OriginUser       = "user"
+	OriginAgent      = "agent"
+	OriginAutomation = "automation"
+)
+
+// FromAgent reports an input sent through a trusted Chat tool such as
+// chat_start or chat_steer. interactionConfig limits what a user may select,
+// so it does not apply to that tool entry.
+func (o *Origin) FromAgent() bool {
+	return o != nil && o.Type == OriginAgent
 }
 
-func (s *SteerSource) Clone() *SteerSource {
-	if s == nil {
+func (o *Origin) Clone() *Origin {
+	if o == nil {
 		return nil
 	}
-	copy := *s
+	copy := *o
 	return &copy
 }
 
-func (s *SteerSource) Payload() map[string]any {
-	if s == nil {
+func (o *Origin) Payload() map[string]any {
+	if o == nil || strings.TrimSpace(o.Type) == "" {
 		return nil
 	}
-	return map[string]any{"type": s.Type, "agentKey": s.AgentKey, "chatId": s.ChatID, "runId": s.RunID, "toolId": s.ToolID}
+	out := map[string]any{"type": o.Type}
+	for key, value := range map[string]string{
+		"userId": o.UserID, "agentKey": o.AgentKey, "chatId": o.ChatID,
+		"runId": o.RunID, "toolId": o.ToolID, "automationId": o.AutomationID,
+	} {
+		if strings.TrimSpace(value) != "" {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+// OriginFromPayload reads an origin object written by Origin.Payload.
+func OriginFromPayload(value any) *Origin {
+	raw, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	text := func(key string) string {
+		value, _ := raw[key].(string)
+		return strings.TrimSpace(value)
+	}
+	origin := &Origin{
+		Type: text("type"), UserID: text("userId"), AgentKey: text("agentKey"), ChatID: text("chatId"),
+		RunID: text("runId"), ToolID: text("toolId"), AutomationID: text("automationId"),
+	}
+	if origin.Type == "" {
+		return nil
+	}
+	return origin
+}
+
+// ExecutionRole is the model input role implied by an origin. Automation input
+// is marked for the model; every other input is an ordinary user message.
+func (o *Origin) ExecutionRole() string {
+	if o != nil && o.Type == OriginAutomation {
+		return QueryRoleAutomation
+	}
+	return QueryRoleUser
 }
 
 type SteerResponse struct {

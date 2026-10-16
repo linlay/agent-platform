@@ -39,6 +39,8 @@ var currentSteerLineFields = map[string]struct{}{
 }
 
 var currentSteerPayloadFields = map[string]struct{}{
+	"origin": {},
+	// TODO(steer-origin): steer lines written before the origin rename.
 	"source":     {},
 	"references": {},
 	"requestId":  {},
@@ -274,25 +276,29 @@ func validateCurrentSteerSchema(line map[string]any) error {
 	if stringFromAny(steer["role"]) != "user" {
 		return newJSONLSchemaViolation(line, "steer.role", "user", stringFromAny(steer["role"]), "steer role must be user")
 	}
-	if raw, found := steer["source"]; found {
-		source, ok := raw.(map[string]any)
+	for _, key := range []string{"origin", "source"} {
+		raw, found := steer[key]
+		if !found {
+			continue
+		}
+		origin, ok := raw.(map[string]any)
 		if !ok {
-			return newJSONLSchemaViolation(line, "steer.source", "Agent source object", jsonValueType(raw), "invalid steer source")
+			return newJSONLSchemaViolation(line, "steer."+key, "Agent origin object", jsonValueType(raw), "invalid steer origin")
 		}
 		allowed := map[string]bool{"type": true, "agentKey": true, "chatId": true, "runId": true, "toolId": true}
-		for field, value := range source {
+		for field, value := range origin {
 			if !allowed[field] {
-				return newJSONLSchemaViolation(line, "steer.source."+field, "known source field", jsonValueType(value), "unknown steer source field")
+				return newJSONLSchemaViolation(line, "steer."+key+"."+field, "known origin field", jsonValueType(value), "unknown steer origin field")
 			}
 		}
 		for _, field := range []string{"type", "agentKey", "chatId", "runId", "toolId"} {
-			value, ok := source[field].(string)
+			value, ok := origin[field].(string)
 			if !ok || strings.TrimSpace(value) == "" {
-				return newJSONLSchemaViolation(line, "steer.source."+field, "non-empty string", jsonValueType(source[field]), "steer source field is required")
+				return newJSONLSchemaViolation(line, "steer."+key+"."+field, "non-empty string", jsonValueType(origin[field]), "steer origin field is required")
 			}
 		}
-		if source["type"] != "agent" {
-			return newJSONLSchemaViolation(line, "steer.source.type", "agent", stringFromAny(source["type"]), "unsupported steer source type")
+		if origin["type"] != "agent" {
+			return newJSONLSchemaViolation(line, "steer."+key+".type", "agent", stringFromAny(origin["type"]), "unsupported steer origin type")
 		}
 	}
 	if raw, found := steer["references"]; found {

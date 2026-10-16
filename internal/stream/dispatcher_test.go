@@ -386,11 +386,11 @@ func TestDispatcherFallsBackToActiveTaskIDForSubAgentBlocks(t *testing.T) {
 	})
 
 	startEvents := dispatcher.Dispatch(TaskStart{
-		TaskID:      "task_sub_1",
-		RunID:       "run_1",
-		TaskName:    "分析",
-		SubAgentKey: "analyzer",
-		MainToolID:  "tool_main_1",
+		TaskID:       "task_sub_1",
+		RunID:        "run_1",
+		TaskName:     "分析",
+		TaskAgentKey: "analyzer",
+		MainToolID:   "tool_main_1",
 	})
 	assertEventTypes(t, startEvents, "task.start")
 	if got := startEvents[0].Data().String("invokingToolId"); got != "tool_main_1" {
@@ -427,11 +427,11 @@ func TestDispatcherClosesContentBeforeTaskComplete(t *testing.T) {
 		ChatID: "chat_1",
 	})
 	dispatcher.Dispatch(TaskStart{
-		TaskID:      "task_sub_1",
-		RunID:       "run_1",
-		TaskName:    "分析",
-		SubAgentKey: "analyzer",
-		MainToolID:  "tool_main_1",
+		TaskID:       "task_sub_1",
+		RunID:        "run_1",
+		TaskName:     "分析",
+		TaskAgentKey: "analyzer",
+		MainToolID:   "tool_main_1",
 	})
 	dispatcher.Dispatch(ContentDelta{
 		ContentID: "task_sub_1:final",
@@ -455,18 +455,18 @@ func TestDispatcherKeepsTaskContentOpenAcrossOtherTaskTerminal(t *testing.T) {
 		ChatID: "chat_1",
 	})
 	dispatcher.Dispatch(TaskStart{
-		TaskID:      "task_1",
-		RunID:       "run_1",
-		TaskName:    "检查",
-		SubAgentKey: "reviewer",
-		MainToolID:  "tool_main_1",
+		TaskID:       "task_1",
+		RunID:        "run_1",
+		TaskName:     "检查",
+		TaskAgentKey: "reviewer",
+		MainToolID:   "tool_main_1",
 	})
 	dispatcher.Dispatch(TaskStart{
-		TaskID:      "task_2",
-		RunID:       "run_1",
-		TaskName:    "写作",
-		SubAgentKey: "writer",
-		MainToolID:  "tool_main_1",
+		TaskID:       "task_2",
+		RunID:        "run_1",
+		TaskName:     "写作",
+		TaskAgentKey: "writer",
+		MainToolID:   "tool_main_1",
 	})
 	events := dispatcher.Dispatch(ContentDelta{
 		ContentID: "task_2_c_1",
@@ -510,11 +510,11 @@ func TestDispatcherKeepsMainContentOpenAcrossChildTaskTerminal(t *testing.T) {
 	assertEventTypes(t, events, "content.start", "content.delta")
 
 	dispatcher.Dispatch(TaskStart{
-		TaskID:      "task_child",
-		RunID:       "run_1",
-		TaskName:    "子任务",
-		SubAgentKey: "writer",
-		MainToolID:  "tool_main_1",
+		TaskID:       "task_child",
+		RunID:        "run_1",
+		TaskName:     "子任务",
+		TaskAgentKey: "writer",
+		MainToolID:   "tool_main_1",
 	})
 	events = dispatcher.Dispatch(ContentDelta{
 		ContentID: "task_child:final",

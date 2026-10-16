@@ -24,7 +24,7 @@ func TestHTTPQueryMainLane(t *testing.T) {
 			}
 			rec := httptest.NewRecorder()
 			fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(marshalPayload(payload))))
-			if rec.Code != http.StatusOK || rec.Header().Get("X-Btw-Id") != "" {
+			if rec.Code != http.StatusOK || rec.Header().Get("X-Side-Id") != "" {
 				t.Fatalf("main response: %d %s", rec.Code, rec.Body.String())
 			}
 			summary, err := fixture.chats.Summary("chat-http-main")
@@ -56,15 +56,15 @@ func TestHTTPQueryBTWLanePreservesHiddenBranch(t *testing.T) {
 			}
 			var btwID, previousRunID string
 			for _, message := range []string{"first side question", "continued side question"} {
-				payload := map[string]any{"lane": "btw", "chatId": chatID, "btwId": btwID, "message": message, "stream": streaming,
+				payload := map[string]any{"lane": "btw", "chatId": chatID, "sideId": btwID, "message": message, "stream": streaming,
 					"references": []any{map[string]any{"type": "selection", "text": "selected source"}}}
 				rec := httptest.NewRecorder()
 				fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(marshalPayload(payload))))
 				if rec.Code != http.StatusOK {
 					t.Fatalf("side response: %d %s", rec.Code, rec.Body.String())
 				}
-				id, runID := rec.Header().Get("X-Btw-Id"), rec.Header().Get("X-Run-Id")
-				if !chat.ValidBTWID(id) || (btwID != "" && id != btwID) || runID == "" || runID == previousRunID {
+				id, runID := rec.Header().Get("X-Side-Id"), rec.Header().Get("X-Run-Id")
+				if !chat.ValidSideID(id) || (btwID != "" && id != btwID) || runID == "" || runID == previousRunID {
 					t.Fatalf("bad identity btw=%q run=%q", id, runID)
 				}
 				btwID, previousRunID = id, runID
@@ -73,20 +73,20 @@ func TestHTTPQueryBTWLanePreservesHiddenBranch(t *testing.T) {
 						t.Fatal("expected SSE")
 					}
 					event := findSSEMessageByType(t, decodeSSEMessages(t, rec.Body.String()), "request.query")
-					if event["hidden"] != true || event["btwId"] != btwID {
+					if event["hidden"] != true || event["sideId"] != btwID {
 						t.Fatalf("not hidden: %#v", event)
 					}
 				} else {
 					var response struct {
 						Data struct {
-							BTWID string `json:"btwId"`
-							RunID string `json:"runId"`
+							SideID string `json:"sideId"`
+							RunID  string `json:"runId"`
 						} `json:"data"`
 					}
 					if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 						t.Fatal(err)
 					}
-					if response.Data.BTWID != btwID || response.Data.RunID != runID {
+					if response.Data.SideID != btwID || response.Data.RunID != runID {
 						t.Fatalf("bad JSON: %s", rec.Body.String())
 					}
 				}
@@ -102,7 +102,7 @@ func TestHTTPQueryBTWLanePreservesHiddenBranch(t *testing.T) {
 			if !bytes.Equal(before, after) || !reflect.DeepEqual(summaryBefore, summaryAfter) {
 				t.Fatal("side query changed main history or summary")
 			}
-			branch, err := os.ReadFile(filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.BTWRootDirName, btwID+".jsonl"))
+			branch, err := os.ReadFile(filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, ".btw", btwID+".jsonl"))
 			if err != nil {
 				t.Fatal(err)
 			}

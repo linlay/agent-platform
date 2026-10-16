@@ -251,6 +251,10 @@ func (r *historyReplay) replayEvent(line map[string]any) error {
 func (r *historyReplay) replaySteer(line map[string]any) error {
 	runID, _ := line["runId"].(string)
 	steer := cloneStringAnyMap(anyMap(line["steer"]))
+	if origin := steerOrigin(steer); origin != nil {
+		delete(steer, "source")
+		steer["origin"] = origin
+	}
 	addReplayLiveSeq(steer, int64FromAny(line["liveSeq"]))
 	rd := ensureRun(r.runs, &r.runOrder, runID)
 	rd.events = append(rd.events, stream.EventData{
@@ -259,4 +263,14 @@ func (r *historyReplay) replaySteer(line map[string]any) error {
 		Payload:   steer,
 	})
 	return nil
+}
+
+// steerOrigin reads a persisted steer origin, including lines written before
+// the field was renamed from source.
+func steerOrigin(steer map[string]any) any {
+	if origin := steer["origin"]; origin != nil {
+		return origin
+	}
+	// TODO(steer-origin): remove with the legacy steer source field.
+	return steer["source"]
 }

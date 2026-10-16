@@ -29,8 +29,7 @@ type QueryExecutionOptions struct {
 	StepLineStore   chat.StepLineStore
 	CompletionStore chat.Store
 	HiddenRun       bool
-	QueryMetadata   map[string]any
-	BTWID           string
+	SideID          string
 	ParentChatID    string
 }
 

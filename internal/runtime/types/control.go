@@ -18,10 +18,10 @@ type RunRef struct {
 }
 
 type RunHandle struct {
-	SideQueryID string
-	RunID       string
-	ChatID      string
-	AgentKey    string
+	SideID   string
+	RunID    string
+	ChatID   string
+	AgentKey string
 
 	StartedAt int64
 	LastSeq   int64

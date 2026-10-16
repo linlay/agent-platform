@@ -115,15 +115,13 @@ type DeltaModelTurnDiscard struct {
 
 func (DeltaModelTurnDiscard) agentDeltaTag() {}
 
+// DeltaSyntheticQuery is a platform-made request.query; see stream.SyntheticQuery.
 type DeltaSyntheticQuery struct {
-	ChatID   string
-	Role     string
-	Message  string
-	Messages []map[string]any
-	System   map[string]any
-	Kind     string
-	Stage    string
-	Hidden   bool
+	ChatID         string
+	Message        string
+	Messages       []map[string]any
+	System         map[string]any
+	SystemSnapshot bool
 }
 
 func (DeltaSyntheticQuery) agentDeltaTag() {}
@@ -195,13 +193,13 @@ type DeltaPlanningSuperseded struct {
 func (DeltaPlanningSuperseded) agentDeltaTag() {}
 
 type DeltaTaskLifecycle struct {
-	Kind        string
-	TaskID      string
-	RunID       string
-	TaskName    string
-	Description string
-	SubAgentKey string
-	MainToolID  string
+	Kind         string
+	TaskID       string
+	RunID        string
+	TaskName     string
+	Description  string
+	TaskAgentKey string
+	MainToolID   string
 
 	Presentation string
 	Reason       string
@@ -211,11 +209,13 @@ type DeltaTaskLifecycle struct {
 func (DeltaTaskLifecycle) agentDeltaTag() {}
 
 type SubAgentTaskSpec struct {
-	References  []api.Reference
-	SubAgentKey string
-	TaskText    string
-	TaskName    string
-	Files       []string
+	References   []api.Reference
+	TaskAgentKey string
+	TaskText     string
+	TaskName     string
+	Files        []string
+	// Input is the task item exactly as the caller wrote it in the tool call.
+	Input map[string]any
 }
 
 type DeltaInvokeSubAgents struct {
@@ -300,7 +300,7 @@ type DeltaRequestSteer struct {
 	SteerID    string
 	Message    string
 	References []api.Reference
-	Source     *queryinput.SteerSource
+	Origin     *queryinput.Origin
 }
 
 func (DeltaRequestSteer) agentDeltaTag() {}

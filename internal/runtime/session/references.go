@@ -144,7 +144,7 @@ func (b *Builder) BindReferencePreparer(session *contracts.QuerySession, def cat
 				return req, fmt.Errorf("message is required for skill, kbase or site references")
 			}
 		}
-		grant, err := b.PrepareRunReferences(context.Background(), frozen, def, req.References, true, scripts, req.Source.FromAgent())
+		grant, err := b.PrepareRunReferences(context.Background(), frozen, def, req.References, true, scripts, req.Origin.FromAgent())
 		if err != nil {
 			return req, err
 		}

@@ -96,13 +96,19 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 			deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid Team dispatch: "+parseErr.Error(), "invalid_tool_arguments")
 			return nil, deltas, message
 		}
+		rawTasks, _ := args["tasks"].([]any)
 		tasks := make([]SubAgentTaskSpec, 0, len(dispatch.Tasks))
-		for _, task := range dispatch.Tasks {
+		for index, task := range dispatch.Tasks {
+			var input map[string]any
+			if index < len(rawTasks) {
+				input, _ = rawTasks[index].(map[string]any)
+			}
 			tasks = append(tasks, SubAgentTaskSpec{
-				SubAgentKey: task.AgentKey,
-				TaskText:    task.Task,
-				TaskName:    task.TaskName,
-				Files:       append([]string(nil), task.Files...),
+				TaskAgentKey: task.AgentKey,
+				TaskText:     task.Task,
+				TaskName:     task.TaskName,
+				Files:        append([]string(nil), task.Files...),
+				Input:        input,
 			})
 		}
 		return &preparedToolInvocation{
@@ -157,11 +163,12 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 				}
 			}
 			tasks = append(tasks, SubAgentTaskSpec{
-				References:  refs,
-				SubAgentKey: subAgentKey,
-				TaskText:    taskText,
-				TaskName:    taskName,
-				Files:       mapStringListArg(taskMap, "files"),
+				References:   refs,
+				TaskAgentKey: subAgentKey,
+				TaskText:     taskText,
+				TaskName:     taskName,
+				Files:        mapStringListArg(taskMap, "files"),
+				Input:        taskMap,
 			})
 		}
 		return &preparedToolInvocation{

@@ -43,7 +43,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 		s.handleAbsoluteResource(w, r, fileParam)
 		return
 	}
-	if chat.IsToolInternalPath(fileParam) || chat.IsBTWInternalPath(fileParam) {
+	if chat.IsToolInternalPath(fileParam) || chat.IsSideInternalPath(fileParam) {
 		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
 		return
 	}

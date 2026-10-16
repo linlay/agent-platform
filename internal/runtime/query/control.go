@@ -64,7 +64,7 @@ func (s *Service) Steer(ctx context.Context, command runtimetypes.SteerCommand) 
 		}
 		// Event provenance is Runtime-owned; external SteerRequest decoding never
 		// populates Source, and the model receives only Message/References.
-		req.Source = &queryinput.SteerSource{Type: "agent", AgentKey: caller.AgentKey, ChatID: caller.ChatID, RunID: caller.RunID, ToolID: caller.ToolID}
+		req.Origin = &queryinput.Origin{Type: queryinput.OriginAgent, AgentKey: caller.AgentKey, ChatID: caller.ChatID, RunID: caller.RunID, ToolID: caller.ToolID}
 	}
 	if req.ChatID != "" && req.ChatID != status.ChatID {
 		return runtimetypes.SteerResult{}, &statusError{Status: 400, Message: "chatId does not match run"}

@@ -104,7 +104,7 @@ func ParseResourceKey(resourceKey string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid resource chat id")
 	}
 	relativePath := strings.Join(segments[1:], "/")
-	if IsToolInternalPath(relativePath) || IsBTWInternalPath(relativePath) {
+	if IsToolInternalPath(relativePath) || IsSideInternalPath(relativePath) {
 		return "", "", fmt.Errorf("resource access denied")
 	}
 	return chatID, relativePath, nil
@@ -125,7 +125,7 @@ func validatedResourceSegments(relativePath string) ([]string, error) {
 			return nil, fmt.Errorf("invalid resource path")
 		}
 	}
-	if IsToolInternalPath(clean) || IsBTWInternalPath(clean) {
+	if IsToolInternalPath(clean) || IsSideInternalPath(clean) {
 		return nil, fmt.Errorf("resource access denied")
 	}
 	return segments, nil

@@ -153,7 +153,6 @@ func (s *Service) prepareControl(action string, args map[string]any, key string)
 	if def.Query.AccessLevel == "" {
 		def.Query.AccessLevel = "default"
 	}
-	def.Query.Role, _ = normalizeAutomationQueryRole(def.Query.Role)
 	p.Definition = def
 	if def.Query.RequestID != "" || len(def.Query.References) > 0 || def.Query.Scene != nil {
 		p.ExecutionOptions = map[string]any{"requestId": def.Query.RequestID, "references": def.Query.References, "scene": def.Query.Scene}

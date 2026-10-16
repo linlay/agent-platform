@@ -27,11 +27,21 @@ type EventData struct {
 	Payload   map[string]any
 }
 
+// IsSystemSnapshotQuery reports a storage-only request.query that records a
+// new system snapshot inside a Run: it has a system payload but no input.
+func IsSystemSnapshotQuery(data EventData) bool {
+	if data.Type != "request.query" || data.Value("system") == nil || data.Value("messages") != nil {
+		return false
+	}
+	_, hasMessage := data.Payload["message"]
+	return !hasMessage
+}
+
 // IsClientVisibleEventData is the common publication policy for native stream
 // events. It deliberately excludes storage-only model requests and snapshots
 // before the assembler assigns the public stream sequence.
 func IsClientVisibleEventData(data EventData) bool {
-	if data.Type == "request.query" && strings.TrimSpace(data.String("kind")) == "system-init" {
+	if IsSystemSnapshotQuery(data) {
 		return false
 	}
 	if data.Type == "tool.result" && data.Value("internalOnly") == true {
@@ -393,7 +403,7 @@ func shouldOmitPayloadField(eventType string, key string, value any) bool {
 	case "planning.start", "planning.delta", "planning.end", "planning.snapshot":
 		return key == "planningId"
 	case "task.start":
-		return key == "description" || key == "subAgentKey" || key == "invokingToolId"
+		return key == "description" || key == "taskAgentKey" || key == "invokingToolId"
 	case "task.cancel":
 		return key == "reason"
 	default:
@@ -404,7 +414,7 @@ func shouldOmitPayloadField(eventType string, key string, value any) bool {
 func eventPayloadKeyOrder(eventType string) []string {
 	switch eventType {
 	case "request.query":
-		return []string{"requestId", "runId", "chatId", "role", "message", "agentKey", "kind", "stage", "btwId", "parentChatId", "hidden", "references", "params", "scene", "stream", "includeUsage", "includeFullText", "planningMode", "editingMode", "accessLevel", "model", "messages", "system"}
+		return []string{"requestId", "runId", "chatId", "role", "message", "agentKey", "lane", "sideId", "origin", "planRunId", "hidden", "references", "params", "scene", "includeUsage", "includeFullText", "planningMode", "editingMode", "accessLevel", "accessGrant", "model", "messages", "system"}
 	case "awaiting.ask":
 		return []string{"awaitingId", "mode", "view", "viewError", "timeout", "runId", "taskId", "agentKey", "questions", "approvals", "form", "planning"}
 	case "awaiting.answer":
@@ -412,7 +422,7 @@ func eventPayloadKeyOrder(eventType string) []string {
 	case "request.submit":
 		return []string{"requestId", "chatId", "runId", "taskId", "awaitingId", "submitId", "param", "params"}
 	case "request.steer":
-		return []string{"requestId", "chatId", "runId", "steerId", "message", "role", "source"}
+		return []string{"requestId", "chatId", "runId", "steerId", "message", "role", "origin"}
 	case "chat.start":
 		return []string{"chatId", "chatName"}
 	case "run.start":
@@ -479,7 +489,7 @@ func eventPayloadKeyOrder(eventType string) []string {
 	case "planning.snapshot":
 		return []string{"planningId", "planningFile", "chatId", "runId", "text"}
 	case "task.start":
-		return []string{"taskId", "runId", "taskName", "description", "subAgentKey", "invokingToolId"}
+		return []string{"taskId", "runId", "taskName", "description", "taskAgentKey", "invokingToolId"}
 	case "task.complete":
 		return []string{"taskId"}
 	case "task.cancel":

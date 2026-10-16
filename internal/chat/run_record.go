@@ -31,7 +31,7 @@ func (s *FileStore) LoadRunRecord(runID string) (*RunRecord, error) {
 		return nil, err
 	}
 	if query := loadRunQueryFromLines(lines, record.ChatID, runID); query != nil {
-		record.AccessLevel = strings.TrimSpace(stringValue(query.Query["accessLevel"]))
+		record.AccessLevel = strings.TrimSpace(stringValue(query.RequestPayload()["accessLevel"]))
 	}
 	return &record, nil
 }

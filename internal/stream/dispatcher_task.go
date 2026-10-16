@@ -20,27 +20,27 @@ func (d *StreamEventDispatcher) handlePlanUpdate(input PlanUpdate) []StreamEvent
 
 func (d *StreamEventDispatcher) handleTaskStart(input TaskStart) []StreamEvent {
 	d.state.activeTaskID = input.TaskID
-	if input.SubAgentKey != "" {
-		d.taskAgents[input.TaskID] = input.SubAgentKey
+	if input.TaskAgentKey != "" {
+		d.taskAgents[input.TaskID] = input.TaskAgentKey
 	}
 	payload := map[string]any{
 		"taskId":         input.TaskID,
 		"runId":          input.RunID,
 		"taskName":       input.TaskName,
 		"description":    input.Description,
-		"subAgentKey":    input.SubAgentKey,
+		"taskAgentKey":   input.TaskAgentKey,
 		"invokingToolId": input.MainToolID,
 	}
 
 	if input.Presentation != "" {
 		payload["presentation"] = input.Presentation
 	}
-	if input.SubAgentKey != "" {
-		payload["agentKey"] = input.SubAgentKey
+	if input.TaskAgentKey != "" {
+		payload["agentKey"] = input.TaskAgentKey
 		payload["actor"] = map[string]any{
 			"type": "agent",
 
-			"agentKey": input.SubAgentKey,
+			"agentKey": input.TaskAgentKey,
 		}
 	}
 	return []StreamEvent{NewEvent("task.start", payload)}

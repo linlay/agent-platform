@@ -76,7 +76,8 @@ func TestStartRunRegistersIndependentAgentRun(t *testing.T) {
 		t.Fatalf("load run-query jsonl: %v", err)
 	}
 	for _, expected := range []string{
-		`"runOrigin"`,
+		`"origin":{"type":"agent"`,
+		`"accessGrant"`,
 		`"agentKey":"zenmi"`,
 		`"chatId":"parent-chat"`,
 		`"runId":"parent-run"`,
@@ -86,7 +87,7 @@ func TestStartRunRegistersIndependentAgentRun(t *testing.T) {
 			t.Fatalf("request.query is missing %s: %s", expected, jsonl)
 		}
 	}
-	for _, forbidden := range []string{`"runQueryOrigin"`, `"callerAgentKey"`, `"parentChatId"`, `"parentRunId"`, `"subject":"alice"`} {
+	for _, forbidden := range []string{`"runOrigin"`, `"runQueryOrigin"`, `"callerAgentKey"`, `"parentChatId"`, `"parentRunId"`, `"subject":"alice"`} {
 		if strings.Contains(jsonl, forbidden) {
 			t.Fatalf("request.query persisted obsolete or private field %s: %s", forbidden, jsonl)
 		}
@@ -393,7 +394,8 @@ func TestInterruptRunsDetachedSSEProxy(t *testing.T) {
 		t.Fatalf("load proxy run JSONL: %v", err)
 	}
 	for _, expected := range []string{
-		`"runOrigin"`,
+		`"origin":{"type":"agent"`,
+		`"accessGrant"`,
 		`"agentKey":"zenmi"`,
 		`"chatId":"parent-chat"`,
 		`"runId":"parent"`,

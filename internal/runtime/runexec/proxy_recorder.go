@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
@@ -68,13 +69,30 @@ func NewProxyEventRecorder(
 	if stepWriter == nil {
 		return nil
 	}
+	stepWriter.SetOriginalQuery(req.OriginalQuery)
 	queryPayload := map[string]any{
 		"requestId": req.RequestID,
 		"runId":     req.RunID,
 		"chatId":    req.ChatID,
 		"agentKey":  req.AgentKey,
-		"role":      req.Role,
 		"message":   req.Message,
+	}
+	if req.AccessLevel != "" {
+		queryPayload["accessLevel"] = req.AccessLevel
+	}
+	editingMode := agentbuiltin.WorkspaceEditingDefault(agentDef.Mode)
+	if req.EditingMode != nil {
+		editingMode = *req.EditingMode
+	}
+	queryPayload["editingMode"] = editingMode
+	if req.Model != nil {
+		queryPayload["model"] = req.Model
+	}
+	if len(req.References) > 0 {
+		queryPayload["references"] = req.References
+	}
+	if req.PlanRunID != "" {
+		queryPayload["planRunId"] = req.PlanRunID
 	}
 	if req.Hidden != nil {
 		queryPayload["hidden"] = *req.Hidden
@@ -88,10 +106,11 @@ func NewProxyEventRecorder(
 	if req.PlanningMode != nil {
 		queryPayload["planningMode"] = *req.PlanningMode
 	}
-	for key, value := range req.TrustedQueryMetadata {
-		if _, reserved := queryPayload[key]; !reserved {
-			queryPayload[key] = value
-		}
+	if origin := req.Origin.Payload(); origin != nil {
+		queryPayload["origin"] = origin
+	}
+	if len(req.AccessGrant) > 0 {
+		queryPayload["accessGrant"] = req.AccessGrant
 	}
 	stepWriter.OnEvent(stream.EventData{
 		Type:      "request.query",

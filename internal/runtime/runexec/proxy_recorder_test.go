@@ -1,6 +1,8 @@
 package runexec
 
 import (
+	"encoding/json"
+	"reflect"
 	"testing"
 
 	"agent-platform/internal/catalog"
@@ -9,6 +11,44 @@ import (
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 )
+
+func TestProxyRecorderPreservesOriginalQuery(t *testing.T) {
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	const chatID, runID = "chat-proxy-original", "run-proxy-original"
+	if _, _, err := store.EnsureChat(chatID, "proxy-agent", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	const raw = `{"message":"hello","stream":false,"includeUsage":false,"references":[],"model":null}`
+	writer := chat.NewStepWriter(store, chatID, runID, "PROXY")
+	editing := false
+	NewProxyEventRecorder(runtimetypes.QueryCommand{
+		OriginalQuery: []byte(raw), RequestID: runID, ChatID: chatID, RunID: runID, AgentKey: "proxy-agent", Role: "user", Message: "hello",
+		AccessLevel: "full_access", EditingMode: &editing, Model: &runtimetypes.QueryModelOptions{Key: "resolved-model"},
+		References: []runtimetypes.Reference{{Type: "selection", ID: "quote", Text: "resolved quote"}},
+	}, 1_700_000_000_000, catalog.AgentDefinition{}, store, writer, nil, nil, chat.UsageData{}, nil, config.BillingConfig{})
+	if err := writer.Err(); err != nil {
+		t.Fatal(err)
+	}
+	line, err := store.LoadRunQuery(chatID, runID)
+	if err != nil || line == nil {
+		t.Fatalf("load proxy query: %#v, %v", line, err)
+	}
+	var want map[string]any
+	if err := json.Unmarshal([]byte(raw), &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(line.Query, want) || line.AgentKey != "proxy-agent" || line.RequestPayload()["agentKey"] != "proxy-agent" {
+		t.Fatalf("proxy request and platform decisions mixed: %#v", line)
+	}
+	model, _ := line.Model.(map[string]any)
+	if line.AccessLevel != "full_access" || line.EditingMode == nil || *line.EditingMode || model["key"] != "resolved-model" || line.References == nil {
+		t.Fatalf("proxy platform decisions were not persisted: %#v", line)
+	}
+}
 
 func TestProxyEventRecorderPersistsDecoratedUsageSnapshotCost(t *testing.T) {
 	const startedAtMillis int64 = 1_700_000_000_000

@@ -43,8 +43,8 @@ func TestChatSteerNativeModesAndLaterCaller(t *testing.T) {
 				t.Fatalf("queue %#v", queue)
 			}
 			for i, steer := range queue {
-				if steer.RunID != "target" || steer.Message != []string{"call-1", "call-2"}[i] || steer.SteerID != ids[i] || steer.Source == nil || steer.Source.Type != "agent" || steer.Source.AgentKey != "caller" || steer.Source.ChatID != "later-chat" || steer.Source.RunID != "later" || steer.Source.ToolID != steer.Message {
-					t.Fatalf("steer %#v source %#v", steer, steer.Source)
+				if steer.RunID != "target" || steer.Message != []string{"call-1", "call-2"}[i] || steer.SteerID != ids[i] || steer.Origin == nil || steer.Origin.Type != "agent" || steer.Origin.AgentKey != "caller" || steer.Origin.ChatID != "later-chat" || steer.Origin.RunID != "later" || steer.Origin.ToolID != steer.Message {
+					t.Fatalf("steer %#v source %#v", steer, steer.Origin)
 				}
 			}
 			status, _ := runs.RunStatus("target")
@@ -64,10 +64,10 @@ func TestChatSteerNativeModesAndLaterCaller(t *testing.T) {
 
 func TestSteerSourceCannotBeDecodedFromClientInput(t *testing.T) {
 	var request queryinput.SteerRequest
-	if err := json.Unmarshal([]byte(`{"runId":"target","agentKey":"agent","message":"change","source":{"type":"agent","agentKey":"forged","chatId":"forged","runId":"forged","toolId":"forged"}}`), &request); !errors.Is(err, queryinput.ErrUnknownField) {
+	if err := json.Unmarshal([]byte(`{"runId":"target","agentKey":"agent","message":"change","origin":{"type":"agent","agentKey":"forged","chatId":"forged","runId":"forged","toolId":"forged"}}`), &request); !errors.Is(err, queryinput.ErrUnknownField) {
 		t.Fatalf("client provenance must be rejected: %v", err)
 	}
-	if request.Source != nil {
+	if request.Origin != nil {
 		t.Fatal("client supplied trusted provenance")
 	}
 	if err := json.Unmarshal([]byte(`{"runId":"target","agentKey":"agent","message":"change"}`), &request); err != nil {
@@ -80,7 +80,7 @@ func TestSteerSourceCannotBeDecodedFromClientInput(t *testing.T) {
 	if err != nil || !result.Accepted {
 		t.Fatalf("%#v %v", result, err)
 	}
-	if got := control.DrainSteers(); len(got) != 1 || got[0].Source != nil || !reflect.DeepEqual(got[0].Message, request.Message) {
+	if got := control.DrainSteers(); len(got) != 1 || got[0].Origin != nil || !reflect.DeepEqual(got[0].Message, request.Message) {
 		t.Fatal(got)
 	}
 }
@@ -127,7 +127,7 @@ func TestChatSteerProxyErrorsPreserveOutcomeAndAreNotResent(t *testing.T) {
 			if first.Error != tc.code || first.Structured["executionState"] != tc.state || !reflect.DeepEqual(first, second) || proxy.calls != 1 {
 				t.Fatalf("%#v %#v calls=%d", first, second, proxy.calls)
 			}
-			if proxy.request.Source == nil || proxy.request.Source.RunID != "parent" || proxy.request.SteerID != first.Structured["steerId"] || len(control.DrainSteers()) != 0 {
+			if proxy.request.Origin == nil || proxy.request.Origin.RunID != "parent" || proxy.request.SteerID != first.Structured["steerId"] || len(control.DrainSteers()) != 0 {
 				t.Fatalf("request %#v", proxy.request)
 			}
 			exec.CurrentToolID = "new-call"

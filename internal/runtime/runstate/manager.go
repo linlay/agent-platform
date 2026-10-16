@@ -389,7 +389,7 @@ func (m *Manager) Steer(req api.SteerRequest) contracts.SteerAck {
 		config = state.interactionConfig
 	}
 	m.mu.Unlock()
-	if config != nil && !req.Source.FromAgent() {
+	if config != nil && !req.Origin.FromAgent() {
 		for _, ref := range req.References {
 			if err := config.ValidateReference(ref.Type); err != nil {
 				return contracts.SteerAck{Status: "interaction_disabled", SteerID: steerID, Detail: err.Error()}

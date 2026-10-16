@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/contracts/queryinput"
 )
 
 type SearchHit struct {
@@ -152,13 +153,22 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 			if lineIsSystemInitQuery(line) {
 				continue
 			}
-			if strings.TrimSpace(stringValue(line["taskId"])) != "" || strings.TrimSpace(stringValue(line["subAgentKey"])) != "" {
+			if strings.TrimSpace(stringValue(line["taskId"])) != "" || lineTaskAgentKey(line) != "" {
 				continue
 			}
-			payload, _ := line["query"].(map[string]any)
-			role := defaultSearchRole(stringValue(payload["role"]))
-			if !api.QueryRoleVisible(role) {
-				continue
+			payload := requestPayloadFromLine(line)
+			role := api.QueryRoleUser
+			if lineHasCurrentLayout(line) {
+				// Automation input and the platform start of an approved plan are
+				// not conversation text.
+				if origin := lineOrigin(line); line["query"] == nil || (origin != nil && origin.Type == queryinput.OriginAutomation) {
+					continue
+				}
+			} else {
+				role = defaultSearchRole(stringValue(payload["role"]))
+				if !api.QueryRoleVisible(role) {
+					continue
+				}
 			}
 			message := stringValue(payload["message"])
 			if score := sessionSearchScore(message, needle); score > 0 {
@@ -259,8 +269,8 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 			text := searchEventText(steer)
 			if score := sessionSearchScore(text, needle); score > 0 {
 				meta := map[string]any{"type": "request.steer"}
-				if source := steer["source"]; source != nil {
-					meta["source"] = source
+				if origin := steerOrigin(steer); origin != nil {
+					meta["origin"] = origin
 				}
 				meta["steerId"] = steer["steerId"]
 				appendHit(SearchHit{

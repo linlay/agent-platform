@@ -55,8 +55,8 @@ func RenderMarkdown(snapshot SnapshotV1) ([]byte, error) {
 		for _, steer := range turn.steers {
 			out.WriteString("\n\n### 补充指令\n\n")
 			out.WriteString(steer.Text)
-			if source := steer.Source; source != nil {
-				fmt.Fprintf(&out, "\n\n来源：Agent `%s`，Chat `%s`，Run `%s`，Tool `%s`。", source.AgentKey, source.ChatID, source.RunID, source.ToolID)
+			if origin := steer.Origin; origin != nil {
+				fmt.Fprintf(&out, "\n\n来源：Agent `%s`，Chat `%s`，Run `%s`，Tool `%s`。", origin.AgentKey, origin.ChatID, origin.RunID, origin.ToolID)
 			}
 		}
 		out.WriteString("\n\n## 助手回答\n\n")

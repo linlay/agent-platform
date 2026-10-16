@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/modelcontent"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/stream"
@@ -95,22 +96,43 @@ type QueryLineSystem struct {
 }
 
 // QueryLine represents a _type:"query" line in chatId.jsonl.
+//
+// Query holds the caller's input exactly as received: the HTTP body or
+// WebSocket payload, or the task item an Agent wrote into agent_invoke or
+// agent_delegate. The platform never adds to it. What admission decides for
+// the Run sits beside it as top-level fields. A line without input, such as a
+// mid-Run system snapshot or the start of an approved plan, omits Query.
+// Lines written before this layout have no top-level requestId and keep the
+// resolved request inside Query; see requestPayloadFromLine.
 type QueryLine struct {
-	ChatID      string `json:"chatId"`
-	RunID       string `json:"runId"`
-	UpdatedAt   int64  `json:"updatedAt"`
-	LiveSeq     int64  `json:"liveSeq,omitempty"`
-	TaskID      string `json:"taskId,omitempty"`
-	TaskName    string `json:"taskName,omitempty"`
-	TaskToolID  string `json:"taskToolId,omitempty"`
-	SubAgentKey string `json:"subAgentKey,omitempty"`
+	ChatID    string `json:"chatId"`
+	RunID     string `json:"runId"`
+	UpdatedAt int64  `json:"updatedAt"`
+	LiveSeq   int64  `json:"liveSeq,omitempty"`
+	RequestID string `json:"requestId,omitempty"`
+	AgentKey  string `json:"agentKey,omitempty"`
 
-	Presentation string `json:"presentation,omitempty"`
-	RootContent  bool   `json:"rootContent,omitempty"`
-	// Locale is the prompt language frozen for this Run. It sits beside Query
-	// so it is never replayed to clients as part of request.query.
+	// Task lines record one agent_invoke or agent_delegate task of this Run.
+	TaskID       string `json:"taskId,omitempty"`
+	TaskToolID   string `json:"taskToolId,omitempty"`
+	TaskAgentKey string `json:"taskAgentKey,omitempty"`
+
+	// Lane is omitted for the main lane.
+	Lane   string             `json:"lane,omitempty"`
+	Origin *queryinput.Origin `json:"origin,omitempty"`
+	// AccessGrant audits how a chat_start Run obtained its access level.
+	AccessGrant map[string]any `json:"accessGrant,omitempty"`
+	// PlanRunID links a Run started by approving a plan to its planning Run.
+	PlanRunID    string `json:"planRunId,omitempty"`
+	AccessLevel  string `json:"accessLevel,omitempty"`
+	PlanningMode bool   `json:"planningMode,omitempty"`
+	EditingMode  *bool  `json:"editingMode,omitempty"`
+	Model        any    `json:"model,omitempty"`
+	References   any    `json:"references,omitempty"`
+
+	// Locale is the prompt language frozen for this Run.
 	Locale   string           `json:"locale,omitempty"`
-	Query    map[string]any   `json:"query"`
+	Query    map[string]any   `json:"query,omitempty"`
 	Messages []map[string]any `json:"messages,omitempty"`
 	System   *QueryLineSystem `json:"system,omitempty"`
 	Type     string           `json:"_type"`
@@ -233,7 +255,7 @@ type StepLine struct {
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 	TaskID          string `json:"taskId,omitempty"`
 	TaskStatus      string `json:"taskStatus,omitempty"`
-	TaskSubAgentKey string `json:"taskSubAgentKey,omitempty"`
+	TaskAgentKey    string `json:"taskAgentKey,omitempty"`
 
 	Presentation  string                    `json:"presentation,omitempty"`
 	SystemRef     map[string]any            `json:"systemRef,omitempty"`
@@ -418,10 +440,10 @@ type PersistedAwaitingSubmit struct {
 // awaiting.ask. Recovery uses this raw context instead of logical history so
 // a partially written restart reconciliation can be completed idempotently.
 type PersistedAwaitingStep struct {
-	RunID           string
-	TaskID          string
-	TaskStatus      string
-	TaskSubAgentKey string
+	RunID        string
+	TaskID       string
+	TaskStatus   string
+	TaskAgentKey string
 
 	Presentation  string
 	Stage         string

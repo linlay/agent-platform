@@ -360,12 +360,9 @@ func (s *llmRunStream) registerCurrentSystemProfile(prepared preparedProviderReq
 	}
 	s.systemInitCacheUsed = true
 	s.pending = append(s.pending, DeltaSyntheticQuery{
-		ChatID: s.session.ChatID,
-		Role:   api.QueryRoleSystem,
-		System: cloneAnyMapViaJSON(profile),
-		Kind:   "system-init",
-		Stage:  s.promptBuildOptions.Stage,
-		Hidden: true,
+		ChatID:         s.session.ChatID,
+		System:         cloneAnyMapViaJSON(profile),
+		SystemSnapshot: true,
 	})
 	return nil
 }

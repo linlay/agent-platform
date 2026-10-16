@@ -74,7 +74,7 @@ func TestDispatcherBuildsStructuredQueryRequest(t *testing.T) {
 	if got.AgentKey != "demo-agent" {
 		t.Fatalf("unexpected target %#v", got)
 	}
-	if got.Role != "automation" || got.Message != "hello" {
+	if got.Role != "" || got.Origin == nil || got.Origin.Type != "automation" || got.Origin.AutomationID != def.ID || got.Message != "hello" {
 		t.Fatalf("unexpected role/message %#v", got)
 	}
 	if got.Hidden == nil || !*got.Hidden {

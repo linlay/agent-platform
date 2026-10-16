@@ -793,28 +793,25 @@ func TestQueryModelOverrideKeepsCoderPlanningStageSettingsSeparate(t *testing.T)
 	}
 }
 
-func TestQueryRoleValidation(t *testing.T) {
+func TestQueryRoleFollowsOrigin(t *testing.T) {
 	fixture := newTestFixture(t)
-	for _, role := range []string{"", "user", "assistant", "automation", "system"} {
-		req := api.QueryRequest{Message: "hello", Role: role}
+	for _, tc := range []struct {
+		origin *queryinput.Origin
+		want   string
+	}{
+		{nil, api.QueryRoleUser},
+		{&queryinput.Origin{Type: queryinput.OriginAgent, AgentKey: "caller"}, api.QueryRoleUser},
+		{&queryinput.Origin{Type: queryinput.OriginAutomation, AutomationID: "daily"}, api.QueryRoleAutomation},
+	} {
+		// A caller-supplied role never reaches execution; origin decides it.
+		req := api.QueryRequest{Message: "hello", Role: "system", Origin: tc.origin}
 		admission, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
 		if err != nil {
-			t.Fatalf("role %q should be accepted: %v", role, err)
+			t.Fatalf("origin %#v: %v", tc.origin, err)
 		}
-		want := role
-		if want == "" {
-			want = api.QueryRoleUser
+		if admission.Req.Role != tc.want || admission.Req.Origin == nil {
+			t.Fatalf("origin %#v: role=%q origin=%#v, want role %q", tc.origin, admission.Req.Role, admission.Req.Origin, tc.want)
 		}
-		if admission.Req.Role != want {
-			t.Fatalf("role %q normalized to %q, want %q", role, admission.Req.Role, want)
-		}
-	}
-
-	req := api.QueryRequest{Message: "hello", Role: "scheduler"}
-	_, err := fixture.server.prepareQueryAdmissionRequest(t.Context(), req, true, i18n.DefaultLocale, "http://example.com")
-	var statusErr *statusError
-	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusBadRequest || !strings.Contains(statusErr.Message, "role must be") {
-		t.Fatalf("expected invalid role 400, got %#v", err)
 	}
 }
 
@@ -2834,9 +2831,9 @@ func jsonLCoderExecuteRunID(t *testing.T, store chat.Store, chatID string, oldRu
 		if stringValue(line["_type"]) != "query" {
 			continue
 		}
-		query, _ := line["query"].(map[string]any)
-		// The synthetic execute query follows the Run locale.
-		if message := stringValue(query["message"]); message != "执行计划" && message != "Execute planning" {
+		// The Run started by approving a plan links back to its planning Run
+		// and records no caller query.
+		if stringValue(line["planRunId"]) == "" || line["query"] != nil {
 			continue
 		}
 		runID := stringValue(line["runId"])
@@ -3260,8 +3257,9 @@ func assertJSONLCoderExecuteBootstrapQuery(t *testing.T, store chat.Store, chatI
 			if stringValue(candidate["_type"]) != "query" {
 				continue
 			}
-			query, _ := candidate["query"].(map[string]any)
-			if stringValue(query["message"]) == wantMessage && stringValue(candidate["runId"]) != "" && stringValue(candidate["runId"]) != sourceRunID {
+			// The approved plan's Run starts with a platform line: it links to
+			// the planning Run and records no caller query.
+			if stringValue(candidate["planRunId"]) == sourceRunID && stringValue(candidate["runId"]) != "" && stringValue(candidate["runId"]) != sourceRunID {
 				queryIndex = scan
 				queryLine = candidate
 				break
@@ -3270,27 +3268,18 @@ func assertJSONLCoderExecuteBootstrapQuery(t *testing.T, store chat.Store, chatI
 		if queryIndex < 0 {
 			t.Fatalf("expected execute bootstrap query after react-tool, got none in:\n%s", content)
 		}
-		query, _ := queryLine["query"].(map[string]any)
-		if stringValue(query["message"]) != wantMessage {
-			t.Fatalf("unexpected execute bootstrap query payload %#v in:\n%s", query, content)
+		if _, ok := queryLine["query"]; ok {
+			t.Fatalf("the execution Run's first line must not record a query: %#v", queryLine)
+		}
+		if got := queryinput.PlanExecutionMessage(stringValue(queryLine["locale"])); got != wantMessage {
+			t.Fatalf("execute bootstrap message = %q, want %q", got, wantMessage)
 		}
 		queryRunID := stringValue(queryLine["runId"])
 		if queryRunID == "" || queryRunID == sourceRunID {
 			t.Fatalf("expected execute bootstrap query to use new run id, got %#v in:\n%s", queryLine, content)
 		}
-		if stringValue(query["requestId"]) != queryRunID {
-			t.Fatalf("expected execute bootstrap requestId to fallback to runId %q, got %#v in:\n%s", queryRunID, query, content)
-		}
-		for _, field := range []string{"synthetic", "stage", "source"} {
-			if _, ok := query[field]; ok {
-				t.Fatalf("did not expect %s in execute bootstrap query payload %#v", field, query)
-			}
-		}
-		if _, ok := query["messages"]; ok {
-			t.Fatalf("did not expect messages inside execute bootstrap query payload %#v", query)
-		}
-		if _, ok := query["system"]; ok {
-			t.Fatalf("did not expect system inside execute bootstrap query payload %#v", query)
+		if stringValue(queryLine["requestId"]) != queryRunID {
+			t.Fatalf("expected execute bootstrap requestId to fallback to runId %q, got %#v in:\n%s", queryRunID, queryLine, content)
 		}
 		system, _ := queryLine["system"].(map[string]any)
 		if len(system) == 0 {
@@ -3653,10 +3642,10 @@ func TestQueryToolBudgetExceededIsVisibleAndDurable(t *testing.T) {
 		t.Fatalf("write websocket attach: %v", err)
 	}
 	var refused platformws.ErrorFrame
-	if err := conn.ReadJSON(&refused); err != nil {
-		t.Fatal(err)
-	}
-	if refused.Code != 403 || refused.Type != "run_transport_mismatch" {
+	waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		return json.Unmarshal(data, &refused) == nil && refused.ID == "attach-tool-budget"
+	})
+	if refused.Frame != platformws.FrameError || refused.Code != 403 || refused.Type != "run_transport_mismatch" {
 		t.Fatalf("mixed transport attach: %#v", refused)
 	}
 

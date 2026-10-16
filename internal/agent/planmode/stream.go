@@ -12,8 +12,8 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/hitl/planning"
-	"agent-platform/internal/i18n"
 )
 
 type planningStream struct {
@@ -657,10 +657,7 @@ func firstNonBlankString(values ...string) string {
 }
 
 func ExecuteSyntheticQueryMessage(locale string) string {
-	if i18n.ResolveLocale(i18n.DefaultLocale, locale) == i18n.LocaleZhCN {
-		return "执行计划"
-	}
-	return "Execute planning"
+	return queryinput.PlanExecutionMessage(locale)
 }
 
 func (s *planningStream) cancelUnstartedPlanning(message string) {

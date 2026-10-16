@@ -139,8 +139,8 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) (events []StreamEven
 		if !isEmptyValue(value.References) {
 			payload["references"] = value.References
 		}
-		if value.Source != nil {
-			payload["source"] = value.Source.Payload()
+		if value.Origin != nil {
+			payload["origin"] = value.Origin.Payload()
 		}
 		events = append(events, NewEvent("request.steer", payload))
 		return events

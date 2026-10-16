@@ -20,7 +20,7 @@ func TestBTWBranchRejectsUnsupportedParentSystemSchema(t *testing.T) {
 	if err := os.WriteFile(store.chatJSONLPath(chatID), []byte(invalidJSONL), 0o644); err != nil {
 		t.Fatalf("write invalid parent JSONL: %v", err)
 	}
-	if _, err := store.CreateBTWBranch(chatID, "btw_invalid"); !IsJSONLSchemaViolation(err) || !strings.Contains(err.Error(), "unsupported system schema field=systems") || !strings.Contains(err.Error(), "chatId="+chatID) {
+	if _, err := store.CreateSideBranch(chatID, SideLaneBTW, "side_invalid"); !IsJSONLSchemaViolation(err) || !strings.Contains(err.Error(), "unsupported system schema field=systems") || !strings.Contains(err.Error(), "chatId="+chatID) {
 		t.Fatalf("expected parent schema rejection before BTW copy, got %v", err)
 	}
 }
@@ -51,7 +51,7 @@ func TestBTWBranchCopiesParentAndAppendsIndependently(t *testing.T) {
 		t.Fatalf("read parent: %v", err)
 	}
 
-	branch, err := store.CreateBTWBranch(chatID, "btw_copy")
+	branch, err := store.CreateSideBranch(chatID, SideLaneBTW, "side_copy")
 	if err != nil {
 		t.Fatalf("create branch: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestBTWBranchCopiesParentAndAppendsIndependently(t *testing.T) {
 	if string(branchBefore) != string(parentBefore) {
 		t.Fatalf("branch snapshot differs from parent\nparent=%s\nbranch=%s", parentBefore, branchBefore)
 	}
-	if _, err := store.ResolveResource(filepath.Join(chatID, BTWRootDirName, "btw_copy.jsonl")); !os.IsPermission(err) {
+	if _, err := store.ResolveResource(filepath.Join(chatID, sideRootDirName(SideLaneBTW), "side_copy.jsonl")); !os.IsPermission(err) {
 		t.Fatalf("expected BTW JSONL to be hidden from resource API, got %v", err)
 	}
 	if err := branch.AppendQueryLine(chatID, QueryLine{
@@ -125,18 +125,46 @@ func TestBTWBranchAppendDoesNotRecreateDeletedParentDirectory(t *testing.T) {
 	if _, _, err := store.EnsureChat(chatID, "agent-a", "question"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	branch, err := store.CreateBTWBranch(chatID, "btw_deleted")
+	branch, err := store.CreateSideBranch(chatID, SideLaneBTW, "side_deleted")
 	if err != nil {
 		t.Fatalf("create branch: %v", err)
 	}
 	if err := os.RemoveAll(store.ChatDir(chatID)); err != nil {
 		t.Fatalf("remove chat dir: %v", err)
 	}
-	if err := branch.AppendStepLine(chatID, StepLine{ChatID: chatID, RunID: "run-btw"}); err != ErrBTWNotFound {
-		t.Fatalf("expected ErrBTWNotFound, got %v", err)
+	if err := branch.AppendStepLine(chatID, StepLine{ChatID: chatID, RunID: "run-btw"}); err != ErrSideNotFound {
+		t.Fatalf("expected ErrSideNotFound, got %v", err)
 	}
 	if _, err := os.Stat(filepath.Dir(branch.Path())); !os.IsNotExist(err) {
 		t.Fatalf("branch append recreated deleted directory: %v", err)
+	}
+}
+
+func TestExplainBranchesLiveInTheirOwnLaneDirectory(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	const chatID = "chat-explain-lane"
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "question"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	branch, err := store.CreateSideBranch(chatID, SideLaneExplain, "side_explain")
+	if err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+	if want := filepath.Join(store.ChatDir(chatID), ".explain", "side_explain.jsonl"); branch.Path() != want {
+		t.Fatalf("explain branch path = %s, want %s", branch.Path(), want)
+	}
+	if _, err := store.OpenSideBranch(chatID, SideLaneBTW, "side_explain"); err != ErrSideNotFound {
+		t.Fatalf("an explain branch must not open on the btw lane, got %v", err)
+	}
+	if _, err := store.CreateSideBranch(chatID, "main", "side_main"); !os.IsPermission(err) {
+		t.Fatalf("main is not a side lane, got %v", err)
+	}
+	if !IsSideInternalPath(filepath.Join(chatID, ".explain", "side_explain.jsonl")) {
+		t.Fatal("explain branch path must be internal")
 	}
 }
 
@@ -144,13 +172,13 @@ func TestCopyDerivedChatDirSkipsBTWBranches(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
 	target := filepath.Join(root, "target")
-	if err := os.MkdirAll(filepath.Join(source, BTWRootDirName), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(source, sideRootDirName(SideLaneBTW)), 0o755); err != nil {
 		t.Fatalf("mkdir source: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(source, "attachment.txt"), []byte("ok"), 0o644); err != nil {
 		t.Fatalf("write attachment: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(source, BTWRootDirName, "btw_1.jsonl"), []byte("hidden"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(source, sideRootDirName(SideLaneBTW), "btw_1.jsonl"), []byte("hidden"), 0o600); err != nil {
 		t.Fatalf("write btw: %v", err)
 	}
 	if err := copyDerivedChatDir(source, target); err != nil {
@@ -159,7 +187,7 @@ func TestCopyDerivedChatDirSkipsBTWBranches(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(target, "attachment.txt")); err != nil {
 		t.Fatalf("expected attachment to copy: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(target, BTWRootDirName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(target, sideRootDirName(SideLaneBTW))); !os.IsNotExist(err) {
 		t.Fatalf("expected BTW directory to be skipped, got %v", err)
 	}
 }

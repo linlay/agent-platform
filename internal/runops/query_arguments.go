@@ -63,5 +63,6 @@ func parseQueryArguments(args map[string]any) (contracts.RunStartRequest, error)
 			return invalid("chatName cannot be combined with chatId")
 		}
 	}
+	request.Input = args
 	return request, nil
 }

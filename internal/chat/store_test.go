@@ -3452,7 +3452,7 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 			"taskId":         "task_1",
 			"taskName":       "分析",
 			"description":    "run analysis",
-			"subAgentKey":    "analyzer",
+			"taskAgentKey":   "analyzer",
 			"invokingToolId": "tool_main_1",
 		},
 	})
@@ -3528,7 +3528,7 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 		t.Fatalf("expected task and root step lines, got %#v", lines)
 	}
 	taskLine := lines[0]
-	if taskLine["taskId"] != "task_1" || taskLine["taskStatus"] != "completed" || taskLine["taskSubAgentKey"] != "analyzer" {
+	if taskLine["taskId"] != "task_1" || taskLine["taskStatus"] != "completed" || taskLine["taskAgentKey"] != "analyzer" {
 		t.Fatalf("expected slim task metadata, got %#v", taskLine)
 	}
 	for _, field := range []string{"taskName", "taskDescription", "taskToolId"} {
@@ -3582,8 +3582,8 @@ func TestStepWriterSubTaskReactFlushOrder(t *testing.T) {
 	onEventForTest(writer, stream.EventData{
 		Type: "task.start",
 		Payload: map[string]any{
-			"taskId":      "task_1",
-			"subAgentKey": "analyzer",
+			"taskId":       "task_1",
+			"taskAgentKey": "analyzer",
 		},
 	})
 	onEventForTest(writer, stream.EventData{
@@ -3634,20 +3634,15 @@ func TestQueryLineTaskToolIDFieldName(t *testing.T) {
 	}
 
 	if err := appendQueryLineForTest(store, "chat-task-query", QueryLine{
-		ChatID:      "chat-task-query",
-		RunID:       "run-task-query",
-		UpdatedAt:   testEpochMillis(1001),
-		TaskID:      "task_1",
-		TaskName:    "分析",
-		TaskToolID:  "tool_main_1",
-		SubAgentKey: "analyzer",
-		Query: map[string]any{
-			"message":   "run analysis",
-			"agentKey":  "analyzer",
-			"requestId": "sub_1",
-			"role":      "user",
-		},
-		Type: "query",
+		ChatID:       "chat-task-query",
+		RunID:        "run-task-query",
+		UpdatedAt:    testEpochMillis(1001),
+		RequestID:    "sub_1",
+		TaskID:       "task_1",
+		TaskToolID:   "tool_main_1",
+		TaskAgentKey: "analyzer",
+		Query:        map[string]any{"subAgentKey": "analyzer", "task": "run analysis", "taskName": "分析"},
+		Type:         "query",
 	}); err != nil {
 		t.Fatalf("append query line: %v", err)
 	}
@@ -3660,8 +3655,16 @@ func TestQueryLineTaskToolIDFieldName(t *testing.T) {
 		t.Fatalf("expected one query line, got %#v", lines)
 	}
 	line := lines[0]
-	if line["taskId"] != "task_1" || line["taskName"] != "分析" || line["taskToolId"] != "tool_main_1" || line["subAgentKey"] != "analyzer" {
-		t.Fatalf("expected sub-agent query metadata, got %#v", line)
+	if line["taskId"] != "task_1" || line["taskToolId"] != "tool_main_1" || line["taskAgentKey"] != "analyzer" || line["requestId"] != "sub_1" {
+		t.Fatalf("expected task query metadata, got %#v", line)
+	}
+	for _, key := range []string{"taskName", "subAgentKey", "presentation"} {
+		if _, ok := line[key]; ok {
+			t.Fatalf("task query line must not record %s, got %#v", key, line)
+		}
+	}
+	if query := anyMap(line["query"]); query["task"] != "run analysis" || query["taskName"] != "分析" || len(query) != 3 {
+		t.Fatalf("task query must be the caller's task item, got %#v", line["query"])
 	}
 	if _, ok := line["taskGroupId"]; ok {
 		t.Fatalf("did not expect taskGroupId on sub-agent query, got %#v", line)
@@ -3691,11 +3694,11 @@ func TestLoadRunTraceKeepsMainQueryWhenSubTaskQueriesExist(t *testing.T) {
 		t.Fatalf("append main query line: %v", err)
 	}
 	if err := appendQueryLineForTest(store, "chat-run-trace-query", QueryLine{
-		ChatID:      "chat-run-trace-query",
-		RunID:       "run_1",
-		UpdatedAt:   testEpochMillis(1002),
-		TaskID:      "task_1",
-		SubAgentKey: "analyzer",
+		ChatID:       "chat-run-trace-query",
+		RunID:        "run_1",
+		UpdatedAt:    testEpochMillis(1002),
+		TaskID:       "task_1",
+		TaskAgentKey: "analyzer",
 		Query: map[string]any{
 			"message":  "child prompt",
 			"agentKey": "analyzer",
@@ -4056,15 +4059,16 @@ func TestStepWriterPersistsSyntheticQueryAfterInitialQuery(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, chatID, "run-1", "react")
+	writer.SetRunLocale("zh-CN")
 	writer.SetPendingQueryMessages([]map[string]any{{"role": "user", "content": "raw user text", "ts": testEpochMillis(1001)}})
 	onEventForTest(writer, stream.EventData{
 		Type:      "request.query",
 		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
-			"chatId":  chatID,
-			"runId":   "run-1",
-			"role":    "user",
-			"message": "raw user text",
+			"requestId": "run-1",
+			"chatId":    chatID,
+			"runId":     "run-1",
+			"message":   "raw user text",
 		},
 	})
 	onEventForTest(writer, stream.EventData{
@@ -4072,13 +4076,13 @@ func TestStepWriterPersistsSyntheticQueryAfterInitialQuery(t *testing.T) {
 		Type:      "request.query",
 		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
+			"requestId": "run-1",
 			"chatId":    chatID,
 			"runId":     "run-1",
-			"role":      "user",
+			"agentKey":  "agent",
 			"message":   "执行计划",
-			"synthetic": true,
-			"stage":     "coder-execute",
-			"source":    "coder-plan-approve",
+			"planRunId": "run-plan",
+			"origin":    map[string]any{"type": "user", "userId": "alice"},
 			"messages": []any{map[string]any{
 				"role":    "user",
 				"content": "Execute the confirmed CODER plan.\n\nConfirmed plan:\n# Plan",
@@ -4105,16 +4109,19 @@ func TestStepWriterPersistsSyntheticQueryAfterInitialQuery(t *testing.T) {
 	if synthetic["_type"] != "query" || toIntValue(synthetic["liveSeq"]) != 42 {
 		t.Fatalf("expected synthetic query line with liveSeq, got %#v", synthetic)
 	}
-	query, _ := synthetic["query"].(map[string]any)
-	if query["message"] != "执行计划" || query["synthetic"] != true ||
-		query["stage"] != "coder-execute" || query["source"] != "coder-plan-approve" {
-		t.Fatalf("unexpected synthetic query payload %#v", query)
+	// The start of an approved plan has no caller input: no query, and its
+	// platform message is rendered from the frozen locale on replay.
+	if _, ok := synthetic["query"]; ok {
+		t.Fatalf("a platform-made query line must not record query, got %#v", synthetic)
 	}
-	if _, ok := query["messages"]; ok {
-		t.Fatalf("did not expect messages inside query payload, got %#v", query)
+	if synthetic["planRunId"] != "run-plan" || anyMap(synthetic["origin"])["userId"] != "alice" || synthetic["locale"] != "zh-CN" {
+		t.Fatalf("expected the plan link and inherited origin beside the line, got %#v", synthetic)
 	}
-	if _, ok := query["system"]; ok {
-		t.Fatalf("did not expect system inside query payload, got %#v", query)
+	if payload := requestPayloadFromLine(synthetic); payload["message"] != "执行计划" || payload["planRunId"] != "run-plan" {
+		t.Fatalf("unexpected replayed plan execution query %#v", payload)
+	}
+	if lineIsSystemInitQuery(synthetic) {
+		t.Fatalf("the start of an approved plan is not a system snapshot: %#v", synthetic)
 	}
 	system, _ := synthetic["system"].(map[string]any)
 	if len(system) == 0 {
@@ -4204,7 +4211,6 @@ func TestStepWriterPersistsQueryWithSystemInitsWithoutHiddenFlag(t *testing.T) {
 		Payload: map[string]any{
 			"chatId":  "chat-query-system-init-no-hidden",
 			"runId":   "run-system",
-			"role":    "system",
 			"message": "system hello",
 			"scene": map[string]any{
 				"url":   "https://example.com/app",
@@ -4247,9 +4253,6 @@ func TestStepWriterPersistsQueryWithSystemInitsWithoutHiddenFlag(t *testing.T) {
 	}
 	if _, ok := queryEvent.Payload["hidden"]; ok {
 		t.Fatalf("did not expect replayed request.query hidden, got %#v", queryEvent)
-	}
-	if queryEvent.String("role") != "system" {
-		t.Fatalf("expected replayed request.query role=system, got %#v", queryEvent)
 	}
 	scene, _ := queryEvent.Value("scene").(map[string]any)
 	if scene["url"] != "https://example.com/app" || scene["title"] != "demo" {
@@ -5057,7 +5060,7 @@ func TestStepWriterSubAgentStepsAreExcludedFromRawMessages(t *testing.T) {
 			"runId":          "run-subagent-raw",
 			"taskName":       "分析",
 			"description":    "run analysis",
-			"subAgentKey":    "analyzer",
+			"taskAgentKey":   "analyzer",
 			"invokingToolId": "tool_main_1",
 		},
 	})
@@ -5107,7 +5110,7 @@ func TestStepWriterSubAgentStepsAreExcludedFromRawMessages(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("expected three step lines, got %#v", lines)
 	}
-	if lines[1]["taskSubAgentKey"] != "analyzer" || lines[1]["taskStatus"] != "completed" {
+	if lines[1]["taskAgentKey"] != "analyzer" || lines[1]["taskStatus"] != "completed" {
 		t.Fatalf("expected slim sub-agent task metadata on task step, got %#v", lines[1])
 	}
 	if _, ok := lines[1]["taskToolId"]; ok {
@@ -5131,7 +5134,7 @@ func TestStepWriterTaskSnapshotsUpsertAfterComplete(t *testing.T) {
 		Payload: map[string]any{
 			"taskId":         "task_1",
 			"taskName":       "讲故事",
-			"subAgentKey":    "story-agent",
+			"taskAgentKey":   "story-agent",
 			"invokingToolId": "tool_main_1",
 		},
 	})
@@ -5169,7 +5172,7 @@ func TestStepWriterTaskSnapshotsUpsertAfterComplete(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected one task step, got %#v", lines)
 	}
-	if lines[0]["taskId"] != "task_1" || lines[0]["taskStatus"] != "completed" || lines[0]["taskSubAgentKey"] != "story-agent" {
+	if lines[0]["taskId"] != "task_1" || lines[0]["taskStatus"] != "completed" || lines[0]["taskAgentKey"] != "story-agent" {
 		t.Fatalf("expected completed task metadata, got %#v", lines[0])
 	}
 	messages, _ := lines[0]["messages"].([]any)
@@ -5238,9 +5241,9 @@ func TestStepWriterDoesNotInferTaskForUntargetedContent(t *testing.T) {
 		Type:      "task.start",
 		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
-			"taskId":      "task_1",
-			"taskName":    "分析",
-			"subAgentKey": "analyzer",
+			"taskId":       "task_1",
+			"taskName":     "分析",
+			"taskAgentKey": "analyzer",
 		},
 	})
 	onEventForTest(writer, stream.EventData{
@@ -5300,33 +5303,27 @@ func TestLoadChatSynthesizesTaskLifecycleFromSubAgentSteps(t *testing.T) {
 
 	contentTs := int64(2001)
 	if err := appendQueryLineForTest(store, "chat-subagent-replay", QueryLine{
-		ChatID:      "chat-subagent-replay",
-		RunID:       "run-subagent-replay",
-		UpdatedAt:   testEpochMillis(2000),
-		TaskID:      "task_1",
-		TaskName:    "分析",
-		TaskToolID:  "tool_main_1",
-		SubAgentKey: "analyzer",
-		Query: map[string]any{
-			"chatId":   "chat-subagent-replay",
-			"runId":    "run-subagent-replay",
-			"agentKey": "analyzer",
-			"message":  "run analysis",
-			"role":     "user",
-		},
-		Type: "query",
+		ChatID:       "chat-subagent-replay",
+		RunID:        "run-subagent-replay",
+		UpdatedAt:    testEpochMillis(2000),
+		RequestID:    "sub_1",
+		TaskID:       "task_1",
+		TaskToolID:   "tool_main_1",
+		TaskAgentKey: "analyzer",
+		Query:        map[string]any{"subAgentKey": "analyzer", "task": "run analysis", "taskName": "分析"},
+		Type:         "query",
 	}); err != nil {
 		t.Fatalf("append sub-agent query line: %v", err)
 	}
 	if err := appendStepLineForTest(store, "chat-subagent-replay", StepLine{
-		ChatID:          "chat-subagent-replay",
-		RunID:           "run-subagent-replay",
-		UpdatedAt:       testEpochMillis(2002),
-		Type:            "react",
-		Seq:             1,
-		TaskID:          "task_1",
-		TaskStatus:      "completed",
-		TaskSubAgentKey: "analyzer",
+		ChatID:       "chat-subagent-replay",
+		RunID:        "run-subagent-replay",
+		UpdatedAt:    testEpochMillis(2002),
+		Type:         "react",
+		Seq:          1,
+		TaskID:       "task_1",
+		TaskStatus:   "completed",
+		TaskAgentKey: "analyzer",
 		Messages: []StoredMessage{{
 			Role:             "assistant",
 			ReasoningContent: []ContentPart{{Type: "text", Text: "thinking"}},
@@ -5389,7 +5386,7 @@ func TestLoadChatSynthesizesTaskLifecycleFromSubAgentSteps(t *testing.T) {
 		}
 		switch event.Type {
 		case "task.start":
-			if event.String("subAgentKey") == "analyzer" && event.String("invokingToolId") == "tool_main_1" && event.String("taskName") == "分析" {
+			if event.String("taskAgentKey") == "analyzer" && event.String("invokingToolId") == "tool_main_1" && event.String("taskName") == "分析" {
 				sawStart = true
 			}
 		case "task.complete":
@@ -5425,32 +5422,26 @@ func TestReplayedSubQueryTaskStartPrecedesRequestQuery(t *testing.T) {
 	}
 
 	if err := appendQueryLineForTest(store, "chat-sub-query-order", QueryLine{
-		ChatID:      "chat-sub-query-order",
-		RunID:       "run-sub-query-order",
-		UpdatedAt:   testEpochMillis(1000),
-		TaskID:      "task_1",
-		TaskName:    "分析",
-		TaskToolID:  "tool_main_1",
-		SubAgentKey: "analyzer",
-		Query: map[string]any{
-			"chatId":   "chat-sub-query-order",
-			"runId":    "run-sub-query-order",
-			"agentKey": "analyzer",
-			"message":  "run analysis",
-			"role":     "user",
-		},
-		Type: "query",
+		ChatID:       "chat-sub-query-order",
+		RunID:        "run-sub-query-order",
+		UpdatedAt:    testEpochMillis(1000),
+		RequestID:    "sub_1",
+		TaskID:       "task_1",
+		TaskToolID:   "tool_main_1",
+		TaskAgentKey: "analyzer",
+		Query:        map[string]any{"subAgentKey": "analyzer", "task": "run analysis", "taskName": "分析"},
+		Type:         "query",
 	}); err != nil {
 		t.Fatalf("append sub-agent query line: %v", err)
 	}
 	if err := appendStepLineForTest(store, "chat-sub-query-order", StepLine{
-		ChatID:          "chat-sub-query-order",
-		RunID:           "run-sub-query-order",
-		UpdatedAt:       testEpochMillis(1001),
-		Type:            "react",
-		TaskID:          "task_1",
-		TaskStatus:      "completed",
-		TaskSubAgentKey: "analyzer",
+		ChatID:       "chat-sub-query-order",
+		RunID:        "run-sub-query-order",
+		UpdatedAt:    testEpochMillis(1001),
+		Type:         "react",
+		TaskID:       "task_1",
+		TaskStatus:   "completed",
+		TaskAgentKey: "analyzer",
 		Messages: []StoredMessage{{
 			Role:      "assistant",
 			Content:   []ContentPart{{Type: "text", Text: "done"}},

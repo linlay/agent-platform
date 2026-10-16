@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -28,6 +29,10 @@ func TestChatStartOptionalSettings(t *testing.T) {
 	defer fixture.runs.Finish("parent")
 	for _, level := range []string{"", "default", "auto_approve", "full_access"} {
 		req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "run message", AccessLevel: level, ChatName: "自定义名称 " + level, Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "tool"}, References: queryinput.MakeReferences("skill", []string{"mock-skill"})}
+		req.Input = map[string]any{"message": "run message", "chatName": req.ChatName, "references": []any{map[string]any{"type": "skill", "id": "mock-skill"}}}
+		if level != "" {
+			req.Input["accessLevel"] = level
+		}
 		started, err := fixture.server.StartRun(context.Background(), req)
 		if err != nil {
 			t.Fatal(err)
@@ -44,9 +49,17 @@ func TestChatStartOptionalSettings(t *testing.T) {
 		if loadErr != nil || persisted == nil {
 			t.Fatalf("query not persisted: %v", loadErr)
 		}
-		raw, _ := json.Marshal(persisted.Query)
+		// query is the chat_start arguments as the Agent wrote them; the
+		// resolved selection and the caller sit beside it.
+		if !reflect.DeepEqual(persisted.Query, req.Input) {
+			t.Fatalf("chat_start input changed: %#v", persisted.Query)
+		}
+		raw, _ := json.Marshal(persisted.References)
 		if !strings.Contains(string(raw), `"type":"skill"`) {
 			t.Fatalf("skill selection lost: %s", raw)
+		}
+		if persisted.Origin == nil || persisted.Origin.Type != "agent" || persisted.Origin.RunID != "parent" || persisted.Origin.ToolID != "tool" {
+			t.Fatalf("chat_start origin lost: %#v", persisted.Origin)
 		}
 		if finished.AccessLevel != expected {
 			t.Fatalf("finished=%#v", finished)
@@ -508,12 +521,11 @@ func TestChatStartAuditUsesAcceptedParentBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := json.Marshal(persisted.Query)
-	var data map[string]any
-	if err := json.Unmarshal(raw, &data); err != nil {
+	raw, _ := json.Marshal(persisted.AccessGrant)
+	var audit map[string]any
+	if err := json.Unmarshal(raw, &audit); err != nil {
 		t.Fatal(err)
 	}
-	audit := data["runOrigin"].(map[string]any)["permission"].(map[string]any)
 	level, version := parent.AccessLevelSnapshot()
 	if level != "full_access" || audit["parentAccessLevel"] != level || audit["parentAccessVersion"] != float64(version) || audit["accessLevel"] != "default" {
 		t.Fatalf("accepted parent=%s/v%d, persisted=%v", level, version, audit)

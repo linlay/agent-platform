@@ -41,7 +41,7 @@ func TestPrepareToolCallTeamDelegateEmitsHiddenDispatch(t *testing.T) {
 	if !ok || len(dispatch.Tasks) != 2 {
 		t.Fatalf("unexpected Team dispatch %#v", invocation.prelude[0])
 	}
-	if dispatch.Tasks[0].SubAgentKey != "writer" || dispatch.Tasks[1].SubAgentKey != "reviewer" {
+	if dispatch.Tasks[0].TaskAgentKey != "writer" || dispatch.Tasks[1].TaskAgentKey != "reviewer" {
 		t.Fatalf("delegation did not preserve task order: %#v", dispatch.Tasks)
 	}
 	if dispatch.Tasks[0].TaskText != "" || dispatch.Tasks[1].TaskText != "review" {

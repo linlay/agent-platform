@@ -46,18 +46,18 @@ type replayedSubTask struct {
 	TaskID        string
 	TaskName      string
 	TaskDesc      string
-	SubAgentKey   string
+	TaskAgentKey  string
 	MainToolID    string
 	Status        string
 	LastTimestamp int64
 }
 
 type replayedSubTaskQuery struct {
-	TaskID      string
-	TaskName    string
-	TaskDesc    string
-	SubAgentKey string
-	MainToolID  string
+	TaskID       string
+	TaskName     string
+	TaskDesc     string
+	TaskAgentKey string
+	MainToolID   string
 
 	Presentation string
 	RootContent  bool
@@ -102,12 +102,12 @@ func ensureRun(runs map[string]*chatRunData, order *[]string, runID string) *cha
 	return rd
 }
 
-func beginReplayedSubTask(rd *chatRunData, runID string, taskID string, taskName string, taskDescription string, taskSubAgentKey string, taskMainToolID string, ts int64, nextSeq func() int64) []stream.EventData {
+func beginReplayedSubTask(rd *chatRunData, runID string, taskID string, taskName string, taskDescription string, taskAgentKey string, taskMainToolID string, ts int64, nextSeq func() int64) []stream.EventData {
 	if rd == nil {
 		return nil
 	}
 	var events []stream.EventData
-	isCurrentSubTask := strings.TrimSpace(taskID) != "" && strings.TrimSpace(taskSubAgentKey) != ""
+	isCurrentSubTask := strings.TrimSpace(taskID) != "" && strings.TrimSpace(taskAgentKey) != ""
 	if !isCurrentSubTask {
 		return nil
 	}
@@ -120,7 +120,7 @@ func beginReplayedSubTask(rd *chatRunData, runID string, taskID string, taskName
 			TaskID:        taskID,
 			TaskName:      taskName,
 			TaskDesc:      taskDescription,
-			SubAgentKey:   taskSubAgentKey,
+			TaskAgentKey:  taskAgentKey,
 			MainToolID:    taskMainToolID,
 			LastTimestamp: ts,
 		}
@@ -134,7 +134,7 @@ func beginReplayedSubTask(rd *chatRunData, runID string, taskID string, taskName
 				"runId":          runID,
 				"taskName":       taskName,
 				"description":    taskDescription,
-				"subAgentKey":    taskSubAgentKey,
+				"taskAgentKey":   taskAgentKey,
 				"invokingToolId": taskMainToolID,
 			},
 		})
@@ -186,7 +186,7 @@ func flushReplayedSubTask(rd *chatRunData, teamRun bool, nextSeq func() int64) [
 		task := rd.activeSubTasks[taskID]
 		terminal := synthesizeReplayedSubTaskTerminal(task, nextSeq)
 		if teamRun {
-			terminal = decorateReplayedTeamTaskEvents(terminal, task.SubAgentKey, "task")
+			terminal = decorateReplayedTeamTaskEvents(terminal, task.TaskAgentKey, "task")
 		}
 		events = append(events, terminal...)
 		delete(rd.activeSubTasks, taskID)

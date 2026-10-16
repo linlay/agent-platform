@@ -54,6 +54,8 @@ func TestQueryPromptLocaleAndHistoricalReplay(t *testing.T) {
 		if recorder.Code != http.StatusOK || strings.Contains(recorder.Body.String(), `"type":"run.error"`) {
 			t.Fatalf("query failed: %s", recorder.Body.String())
 		}
+		start := findSSEMessageByType(t, decodeSSEMessages(t, recorder.Body.String()), "run.start")
+		waitRunTerminal(t, fixture.server, stringValue(start["runId"]))
 		var prompt string
 		select {
 		case prompt = <-prompts:
@@ -83,7 +85,11 @@ func TestQueryPromptLocaleAndHistoricalReplay(t *testing.T) {
 			continue
 		}
 		query, _ := line["query"].(map[string]any)
-		if query["role"] == "user" {
+		origin, _ := line["origin"].(map[string]any)
+		if origin["type"] == "user" && query != nil {
+			if _, added := query["role"]; added {
+				t.Fatalf("the platform added role to the original query: %#v", query)
+			}
 			if id, ok := line["runId"].(string); ok {
 				runIDs = append(runIDs, id)
 			}
@@ -110,7 +116,7 @@ func TestQueryPromptLocaleAndHistoricalReplay(t *testing.T) {
 func TestChildPromptLocaleInherited(t *testing.T) {
 	for _, locale := range []string{"en", "zh-CN"} {
 		t.Run(locale, func(t *testing.T) {
-			main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{newInvokeAgentsDelta(contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write", TaskName: "writing"})}}
+			main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{newInvokeAgentsDelta(contracts.SubAgentTaskSpec{TaskAgentKey: "writer", TaskText: "write", TaskName: "writing"})}}
 			engine := &orchestratorAgentEngine{streams: []contracts.AgentStream{&stubOrchestratableStream{finalText: "done"}}}
 			orchestrator := newTestFrameOrchestrator(engine, map[string]catalog.AgentDefinition{"writer": {Key: "writer", Mode: "GENERAL"}}, nil, nil)
 			orchestrator.Session.Locale = locale

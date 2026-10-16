@@ -3,6 +3,8 @@ package stream
 import (
 	"reflect"
 	"sync/atomic"
+
+	"agent-platform/internal/contracts/queryinput"
 )
 
 type StreamRequest struct {
@@ -13,7 +15,6 @@ type StreamRequest struct {
 	AgentKey  string
 
 	Message         string
-	Role            string
 	Hidden          *bool
 	Scene           *SceneRef
 	References      any
@@ -33,7 +34,14 @@ type StreamRequest struct {
 	// instant.
 	StartedAtMillis    int64
 	BootstrapSynthetic *SyntheticQuery
-	QueryMetadata      map[string]any
+	// Lane is the side lane of a hidden branch Run; empty means main.
+	Lane   string
+	SideID string
+	Origin *queryinput.Origin
+	// AccessGrant audits how a chat_start Run obtained its access level.
+	AccessGrant map[string]any
+	// PlanRunID links a Run started by approving a plan to its planning Run.
+	PlanRunID string
 }
 
 type SceneRef struct {
@@ -113,46 +121,30 @@ func (a *StreamEventAssembler) BootstrapEmissions() []EventEmission {
 		"runId":     a.request.RunID,
 		"chatId":    a.request.ChatID,
 		"agentKey":  a.request.AgentKey,
-
-		"role":    a.request.Role,
-		"message": a.request.Message,
+		"message":   a.request.Message,
 	}
 	if a.request.Hidden != nil {
 		queryPayload["hidden"] = *a.request.Hidden
 	}
-	if a.request.AccessLevel != "" {
-		queryPayload["accessLevel"] = a.request.AccessLevel
-	}
-	if !isEmptyValue(a.request.References) {
-		queryPayload["references"] = a.request.References
-	}
-	if len(a.request.Params) > 0 {
+	if !isEmptyValue(a.request.Params) {
 		queryPayload["params"] = a.request.Params
 	}
-	if !isEmptyValue(a.request.Model) {
-		queryPayload["model"] = a.request.Model
+	if scene := a.request.Scene.ToMap(); scene != nil {
+		queryPayload["scene"] = scene
 	}
-	if a.request.PlanningMode {
-		queryPayload["planningMode"] = true
-	}
-	// Persist the resolved request intent, including false, for Run recovery
-	// and execution after plan approval.
-	queryPayload["editingMode"] = a.request.EditingMode
 	if a.request.IncludeUsage {
 		queryPayload["includeUsage"] = true
 	}
 	if a.request.IncludeFullText {
 		queryPayload["includeFullText"] = true
 	}
-	if scene := a.request.Scene.ToMap(); scene != nil {
-		queryPayload["scene"] = scene
+	a.addRunDecisions(queryPayload)
+	if a.request.PlanningMode {
+		queryPayload["planningMode"] = true
 	}
-	for key, value := range a.request.QueryMetadata {
-		if _, reserved := queryPayload[key]; reserved {
-			continue
-		}
-		queryPayload[key] = value
-	}
+	// Persist the resolved request intent, including false, for Run recovery
+	// and execution after plan approval.
+	queryPayload["editingMode"] = a.request.EditingMode
 	events := []StreamEvent{}
 	if !a.request.ContinueRun && a.request.Created {
 		events = append(events, NewEvent("chat.start", map[string]any{
@@ -181,6 +173,40 @@ func (a *StreamEventAssembler) BootstrapEmissions() []EventEmission {
 	return a.emit(events)
 }
 
+// addRunDecisions adds what admission decided for the Run. Side lanes are
+// always hidden from the main conversation.
+func (a *StreamEventAssembler) addRunDecisions(payload map[string]any) {
+	addRunDecisions(a.request, payload)
+}
+
+func addRunDecisions(request StreamRequest, payload map[string]any) {
+	if request.AccessLevel != "" {
+		payload["accessLevel"] = request.AccessLevel
+	}
+	if !isEmptyValue(request.References) {
+		payload["references"] = request.References
+	}
+	if !isEmptyValue(request.Model) {
+		payload["model"] = request.Model
+	}
+	if request.Lane != "" {
+		payload["lane"] = request.Lane
+		payload["hidden"] = true
+	}
+	if request.SideID != "" {
+		payload["sideId"] = request.SideID
+	}
+	if origin := request.Origin.Payload(); origin != nil {
+		payload["origin"] = origin
+	}
+	if len(request.AccessGrant) > 0 {
+		payload["accessGrant"] = request.AccessGrant
+	}
+	if request.PlanRunID != "" {
+		payload["planRunId"] = request.PlanRunID
+	}
+}
+
 func syntheticQueryPayload(request StreamRequest, value SyntheticQuery) map[string]any {
 	chatID := value.ChatID
 	if chatID == "" {
@@ -194,12 +220,6 @@ func syntheticQueryPayload(request StreamRequest, value SyntheticQuery) map[stri
 		"requestId": requestID,
 		"runId":     request.RunID,
 		"chatId":    chatID,
-
-		"role":    value.Role,
-		"message": value.Message,
-	}
-	if !isEmptyValue(request.References) {
-		payload["references"] = request.References
 	}
 	if len(value.Messages) > 0 {
 		payload["messages"] = cloneMessagePayloads(value.Messages)
@@ -207,21 +227,14 @@ func syntheticQueryPayload(request StreamRequest, value SyntheticQuery) map[stri
 	if len(value.System) > 0 {
 		payload["system"] = clonePayload(value.System)
 	}
-	if value.Kind != "" {
-		payload["kind"] = value.Kind
+	if value.SystemSnapshot {
+		// Only the system snapshot changed; there is no input to show.
+		return payload
 	}
-	if value.Stage != "" {
-		payload["stage"] = value.Stage
-	}
-	if value.Hidden {
-		payload["hidden"] = true
-	}
-	for key, item := range request.QueryMetadata {
-		if _, reserved := payload[key]; reserved {
-			continue
-		}
-		payload[key] = item
-	}
+	payload["agentKey"] = request.AgentKey
+	payload["message"] = value.Message
+	addRunDecisions(request, payload)
+	payload["editingMode"] = request.EditingMode
 	return payload
 }
 

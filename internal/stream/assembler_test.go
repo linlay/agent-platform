@@ -1,9 +1,10 @@
 package stream
 
 import (
-	"agent-platform/internal/contracts/queryinput"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/contracts/queryinput"
 )
 
 func TestAssemblerBootstrapAndComplete(t *testing.T) {
@@ -14,7 +15,6 @@ func TestAssemblerBootstrapAndComplete(t *testing.T) {
 		ChatName:  "Test Chat",
 		AgentKey:  "agent_1",
 		Message:   "hello",
-		Role:      "user",
 		Created:   true,
 	})
 
@@ -56,14 +56,14 @@ func TestAssemblerBootstrapAndComplete(t *testing.T) {
 func TestAssemblerBootstrapPreservesResolvedWorkspaceEditingMode(t *testing.T) {
 	editing := NewAssembler(StreamRequest{
 		RequestID: "req_edit", RunID: "run_edit", ChatID: "chat_edit",
-		AgentKey: "docs", Message: "edit", Role: "user", EditingMode: true,
+		AgentKey: "docs", Message: "edit", EditingMode: true,
 	}).Bootstrap()[0].ToData()
 	if editing["editingMode"] != true {
 		t.Fatalf("expected editingMode=true in request.query, got %#v", editing)
 	}
 	readOnly := NewAssembler(StreamRequest{
 		RequestID: "req_read", RunID: "run_read", ChatID: "chat_read",
-		AgentKey: "docs", Message: "read", Role: "user",
+		AgentKey: "docs", Message: "read",
 	}).Bootstrap()[0].ToData()
 	if readOnly["editingMode"] != false {
 		t.Fatalf("editingMode=false must be preserved, got %#v", readOnly)
@@ -74,7 +74,7 @@ func TestAssemblerBootstrapPreservesExplicitQueryVisibility(t *testing.T) {
 	hidden := true
 	requestQuery := NewAssembler(StreamRequest{
 		RequestID: "req_hidden", RunID: "run_hidden", ChatID: "chat_hidden",
-		AgentKey: "docs", Message: "scheduled", Role: "automation", Hidden: &hidden,
+		AgentKey: "docs", Message: "scheduled", Hidden: &hidden,
 	}).Bootstrap()[0].ToData()
 	if requestQuery["hidden"] != true {
 		t.Fatalf("expected hidden=true in request.query, got %#v", requestQuery)
@@ -83,7 +83,7 @@ func TestAssemblerBootstrapPreservesExplicitQueryVisibility(t *testing.T) {
 	visible := false
 	requestQuery = NewAssembler(StreamRequest{
 		RequestID: "req_visible", RunID: "run_visible", ChatID: "chat_visible",
-		AgentKey: "docs", Message: "scheduled", Role: "automation", Hidden: &visible,
+		AgentKey: "docs", Message: "scheduled", Hidden: &visible,
 	}).Bootstrap()[0].ToData()
 	if requestQuery["hidden"] != false {
 		t.Fatalf("expected hidden=false in request.query, got %#v", requestQuery)
@@ -98,7 +98,6 @@ func TestAssemblerBootstrapSkipsChatStartForExistingChat(t *testing.T) {
 		ChatName:  "Existing Chat",
 		AgentKey:  "agent_1",
 		Message:   "again",
-		Role:      "user",
 		Created:   false,
 	})
 
@@ -114,7 +113,6 @@ func TestAssemblerBootstrapUsesRegisteredRunStartTimestamp(t *testing.T) {
 		ChatID:    "chat_started",
 		AgentKey:  "agent_1",
 		Message:   "hello",
-		Role:      "user",
 	})
 	assembler.SetRunStartedAtMillis(startedAt)
 
@@ -139,10 +137,8 @@ func TestAssemblerBootstrapCanUseSyntheticQuery(t *testing.T) {
 		RunID:     "run_exec",
 		ChatID:    "chat_1",
 		AgentKey:  "coder",
-		Role:      "system",
 		BootstrapSynthetic: &SyntheticQuery{
 			ChatID:  "chat_1",
-			Role:    "user",
 			Message: "Execute planning",
 			Messages: []map[string]any{{
 				"role":    "user",
@@ -182,10 +178,8 @@ func TestAssemblerContinuationCanBootstrapSystemRegistrationQuery(t *testing.T) 
 		ChatID:      "chat_1",
 		ContinueRun: true,
 		BootstrapSynthetic: &SyntheticQuery{
-			ChatID: "chat_1",
-			Role:   "system",
-			Kind:   "system-init",
-			Hidden: true,
+			ChatID:         "chat_1",
+			SystemSnapshot: true,
 			System: map[string]any{
 				"agentKey":    "agent",
 				"cacheKey":    "react:main",
@@ -202,14 +196,14 @@ func TestAssemblerContinuationCanBootstrapSystemRegistrationQuery(t *testing.T) 
 	bootstrap := visibleEmissionEvents(emissions)
 	assertStampedTypes(t, bootstrap, "run.start")
 	query := emissions[0].Event.ToData()
-	if query["kind"] != "system-init" || query["hidden"] != true {
-		t.Fatalf("unexpected continuation system registration %#v", query)
+	if _, hasMessage := query["message"]; hasMessage || query["kind"] != nil || query["system"] == nil || !IsSystemSnapshotQuery(emissions[0].Event.Data()) {
+		t.Fatalf("a system registration carries only its snapshot: %#v", query)
 	}
 }
 
 func TestAssemblerInternalEventsDoNotAdvancePublicSequence(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{
-		RunID: "run_visible_seq", ChatID: "chat_visible_seq", AgentKey: "agent", Message: "hello", Role: "user",
+		RunID: "run_visible_seq", ChatID: "chat_visible_seq", AgentKey: "agent", Message: "hello",
 	})
 	assertStampedTypes(t, assembler.Bootstrap(), "request.query", "run.start")
 	if got := assembler.CurrentSeq(); got != 2 {
@@ -299,7 +293,6 @@ func TestAssemblerBootstrapIncludesOptionalQueryContext(t *testing.T) {
 		ChatID:    "chat_3",
 		AgentKey:  "agent_3",
 		Message:   "hello",
-		Role:      "user",
 		References: []map[string]any{{
 			"id":   "ref_1",
 			"type": "file",
@@ -351,7 +344,6 @@ func TestAssemblerBootstrapOmitsTypedNilModel(t *testing.T) {
 		ChatID:    "chat_nil_model",
 		AgentKey:  "agent_nil_model",
 		Message:   "hello",
-		Role:      "user",
 		Model:     model,
 	})
 
@@ -370,7 +362,6 @@ func TestAssemblerBootstrapIncludesPlanningModeWhenEnabled(t *testing.T) {
 		ChatID:       "chat_plan",
 		AgentKey:     "coder",
 		Message:      "plan first",
-		Role:         "user",
 		PlanningMode: true,
 	})
 
@@ -413,11 +404,7 @@ func TestAssemblerSyntheticQueryIncludesReferencedSkills(t *testing.T) {
 		References: queryinput.MakeReferences("skill", []string{"product-design"}),
 	})
 
-	events := assembler.Consume(SyntheticQuery{
-		Role:    "user",
-		Message: "continue",
-		Hidden:  true,
-	})
+	events := assembler.Consume(SyntheticQuery{Message: "continue"})
 	if len(events) != 1 || events[0].Type != "request.query" {
 		t.Fatalf("unexpected events: %#v", events)
 	}
@@ -436,7 +423,6 @@ func TestAssemblerBootstrapOmitsEmptyQueryContext(t *testing.T) {
 		ChatID:     "chat_4",
 		AgentKey:   "agent_4",
 		Message:    "hello",
-		Role:       "user",
 		References: []map[string]any{},
 		Params:     map[string]any{},
 	})
@@ -504,7 +490,7 @@ func TestAssemblerCarriesRequiredLibrariesAcrossBootstrapAndSyntheticQuery(t *te
 	if refs, ok := bootstrap[0].ToData()["references"].([]queryinput.Reference); !ok || strings.Join(queryinput.ResourceIDs(refs, "kbase"), ",") != "a,b" {
 		t.Fatalf("bootstrap: %+v", bootstrap[0])
 	}
-	synthetic := assembler.Consume(SyntheticQuery{Role: "user", Message: "continue"})
+	synthetic := assembler.Consume(SyntheticQuery{Message: "continue"})
 	if refs, ok := synthetic[0].Payload["references"].([]queryinput.Reference); !ok || strings.Join(queryinput.ResourceIDs(refs, "kbase"), ",") != "a,b" {
 		t.Fatalf("synthetic: %+v", synthetic)
 	}

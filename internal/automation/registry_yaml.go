@@ -40,8 +40,8 @@ func renderDefinition(def Definition) []byte {
 	if strings.TrimSpace(def.Query.ChatID) != "" {
 		writeYAMLKeyValue(&b, 2, "chatId", def.Query.ChatID)
 	}
-	if strings.TrimSpace(def.Query.Role) != "" {
-		writeYAMLKeyValue(&b, 2, "role", def.Query.Role)
+	if def.Query.Role != "" {
+		writeYAMLExactString(&b, 2, "role", def.Query.Role)
 	}
 	if def.Query.Hidden != nil {
 		writeYAMLKeyValue(&b, 2, "hidden", *def.Query.Hidden)

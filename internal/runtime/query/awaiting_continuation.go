@@ -166,6 +166,8 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	if planningApprove {
 		req = adapter.QueryCommand(agentbuiltin.BuildConfirmedPlanRequest(continuationInput))
 		if newExecutionRun {
+			// The execution Run keeps the planning Run's origin and links back to it.
+			req.PlanRunID = sourceRunID
 			req.References, err = s.deps.Sessions.RunRequestReferences(chatID, sourceRunID, req.References)
 			if err != nil {
 				return false, err
@@ -453,10 +455,8 @@ func (s *Service) prepareConfirmedPlanRun(req runtimetypes.QueryCommand, origina
 	// The system prompt renders the user's original request, not the long
 	// execution message that embeds the whole plan.
 	profileReq := req
-	if original != nil && len(original.Query) > 0 {
-		if message := strings.TrimSpace(sessionbuild.StringValue(original.Query["message"])); message != "" {
-			profileReq.Message = message
-		}
+	if message := strings.TrimSpace(sessionbuild.StringValue(original.RequestPayload()["message"])); message != "" {
+		profileReq.Message = message
 	}
 	system, err := s.deps.Sessions.PrepareSystemInitCache(profileReq, session, false)
 	if err != nil {
@@ -470,13 +470,9 @@ func (s *Service) prepareConfirmedPlanRun(req runtimetypes.QueryCommand, origina
 }
 
 func systemInitSyntheticBootstrap(chatID string, system chat.QueryLineSystem) *stream.SyntheticQuery {
-	stage := ""
-	if _, parsedStage, ok := strings.Cut(strings.TrimSpace(system.CacheKey), ":"); ok {
-		stage = strings.TrimSpace(parsedStage)
-	}
 	return &stream.SyntheticQuery{
-		ChatID: chatID,
-		Role:   queryinput.QueryRoleSystem,
+		ChatID:         chatID,
+		SystemSnapshot: true,
 		System: map[string]any{
 			"agentKey":       system.AgentKey,
 			"cacheKey":       system.CacheKey,
@@ -487,9 +483,6 @@ func systemInitSyntheticBootstrap(chatID string, system chat.QueryLineSystem) *s
 			"toolChoice":     system.ToolChoice,
 			"requestOptions": sessionbuild.CloneMap(system.RequestOptions),
 		},
-		Kind:   "system-init",
-		Stage:  stage,
-		Hidden: true,
 	}
 }
 
@@ -574,12 +567,12 @@ func (s *Service) PersistDeferredAwaitingToolAnswer(chatID string, runID string,
 				content, _ := json.Marshal(answer)
 				ts := resolvedAt
 				return s.deps.Chats.AppendStepLine(chatID, chat.StepLine{
-					ChatID:          chatID,
-					RunID:           runID,
-					UpdatedAt:       resolvedAt,
-					TaskID:          step.TaskID,
-					TaskStatus:      step.TaskStatus,
-					TaskSubAgentKey: step.TaskSubAgentKey,
+					ChatID:       chatID,
+					RunID:        runID,
+					UpdatedAt:    resolvedAt,
+					TaskID:       step.TaskID,
+					TaskStatus:   step.TaskStatus,
+					TaskAgentKey: step.TaskAgentKey,
 
 					Presentation: step.Presentation,
 					Stage:        step.Stage,
@@ -725,8 +718,8 @@ func (s *Service) resolveAwaitingContinuationAdmission(chatID string, requestedA
 
 func planContinuationRequestInput(original *chat.QueryLine, submitReq queryinput.SubmitRequest, summary chat.Summary, agentDef catalog.AgentDefinition, mode string, answer map[string]any, planningMarkdown string) agentbuiltin.PlanContinuationRequestInput {
 	var originalRequest runtimetypes.QueryCommand
-	if original != nil && len(original.Query) > 0 {
-		data, _ := json.Marshal(original.Query)
+	if payload := original.RequestPayload(); payload != nil {
+		data, _ := json.Marshal(payload)
 		_ = json.Unmarshal(data, &originalRequest)
 	}
 	return agentbuiltin.PlanContinuationRequestInput{
@@ -748,7 +741,6 @@ func planContinuationRequestInput(original *chat.QueryLine, submitReq queryinput
 func confirmedPlanSyntheticBootstrap(session contracts.QuerySession, system *chat.QueryLineSystem) *stream.SyntheticQuery {
 	bootstrap := &stream.SyntheticQuery{
 		ChatID:   session.ChatID,
-		Role:     queryinput.QueryRoleUser,
 		Message:  agentbuiltin.PlanExecuteSyntheticQueryMessage(session.Locale),
 		Messages: cloneMessageMapsForSyntheticBootstrap(session.CurrentMessages),
 	}

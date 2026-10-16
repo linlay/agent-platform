@@ -86,7 +86,6 @@ func serviceTierAllowedForACPModel(serviceTier string, modelKey string, options 
 
 func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEventAssembler, contracts.StreamDeltaMapper) {
 	execution := s.resolvedQueryExecution(prepared)
-	role, _ := normalizeQueryRole(prepared.Req.Role)
 	sceneRef := (*stream.SceneRef)(nil)
 	if prepared.Req.Scene != nil {
 		sceneRef = &stream.SceneRef{
@@ -108,7 +107,6 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 		AgentKey:  prepared.Req.AgentKey,
 
 		Message:            prepared.Req.Message,
-		Role:               role,
 		Hidden:             prepared.Req.Hidden,
 		Scene:              sceneRef,
 		References:         prepared.Req.References,
@@ -123,7 +121,11 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 		ContinueRun:        prepared.ContinueRun,
 		InitialSeq:         prepared.InitialSeq,
 		BootstrapSynthetic: prepared.SyntheticBootstrap,
-		QueryMetadata:      contracts.CloneMap(execution.QueryMetadata),
+		Lane:               prepared.Req.Lane,
+		SideID:             execution.SideID,
+		Origin:             prepared.Req.Origin,
+		AccessGrant:        prepared.Req.AccessGrant,
+		PlanRunID:          prepared.Req.PlanRunID,
 	})
 	if s.deps.Tools != nil {
 		for _, toolDef := range s.deps.Tools.Definitions() {
@@ -347,11 +349,10 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	if requireMessage && strings.TrimSpace(req.Message) == "" && len(req.References) > 0 && !hasQueryReferenceContent(req.References) {
 		return queryAdmission{}, &statusError{Status: 400, Message: "message is required"}
 	}
-	if role, ok := normalizeQueryRole(req.Role); ok {
-		req.Role = role
-	} else {
-		return queryAdmission{}, &statusError{Status: 400, Message: queryinput.QueryRoleValidationMessage}
+	if req.Origin == nil {
+		req.Origin = &queryinput.Origin{Type: queryinput.OriginUser, UserID: querySourceUser(ctx, req)}
 	}
+	req.Role = req.Origin.ExecutionRole()
 	req.ChatSource = runtimetypes.ChatSourceFromContext(ctx)
 	accessLevel, ok := contracts.NormalizeAccessLevel(req.AccessLevel)
 	if !ok {

@@ -285,7 +285,7 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 
 func activeRunInPlanningStage(runID string, query *chat.QueryLine, events []stream.EventData, summary *chat.Summary) bool {
 	runID = strings.TrimSpace(runID)
-	if runID == "" || query == nil || !contracts.AnyBoolNode(query.Query["planningMode"]) {
+	if runID == "" || query == nil || !contracts.AnyBoolNode(query.RequestPayload()["planningMode"]) {
 		return false
 	}
 	if summary != nil && summary.PendingAwaiting != nil {

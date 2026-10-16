@@ -25,7 +25,7 @@ func TestInteractionPolicyFrozenForActiveRun(t *testing.T) {
 		t.Fatalf("steer ack: %+v", steer)
 	}
 	// chat_steer is a trusted Agent entry and is not gated by the user policy.
-	steer = m.Steer(api.SteerRequest{RunID: "interaction-run", References: []api.Reference{{Type: "chat"}}, Source: &queryinput.SteerSource{Type: "agent"}})
+	steer = m.Steer(api.SteerRequest{RunID: "interaction-run", References: []api.Reference{{Type: "chat"}}, Origin: &queryinput.Origin{Type: "agent"}})
 	if steer.Status == "interaction_disabled" {
 		t.Fatalf("agent steer ack: %+v", steer)
 	}

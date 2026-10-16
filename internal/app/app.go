@@ -370,9 +370,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			},
 		)
 		dispatcher := automation.NewDispatcher(func(ctx context.Context, req api.QueryRequest, hooks automation.QueryRunHooks) (automation.QueryRunResult, error) {
-			if strings.TrimSpace(req.Role) == "" {
-				req.Role = api.QueryRoleAutomation
-			}
 			result, err := runtimeService.ExecuteQueryWithHooks(ctx, runtimeQueryCommand(req), runtimetypes.QueryHooks{OnRunStarted: hooks.OnRunStarted})
 			queryResult := automation.QueryRunResult{Completion: result.Completion, ErrorMessage: result.ErrorMessage}
 			if err != nil {
@@ -705,12 +702,13 @@ func runtimeQueryCommand(req api.QueryRequest) runtimetypes.QueryCommand {
 		}
 	}
 	return runtimetypes.QueryCommand{
-		RequestID: req.RequestID, RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey,
+		OriginalQuery: append([]byte(nil), req.OriginalQuery...),
+		RequestID:     req.RequestID, RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey,
 		Role: req.Role, Hidden: req.Hidden, Message: req.Message, SourceUser: req.SourceUser, References: references,
 		Params: contracts.CloneMap(req.Params), Scene: scene, Stream: req.Stream, IncludeUsage: req.IncludeUsage,
 		IncludeFullText: req.IncludeFullText, PlanningMode: req.PlanningMode, EditingMode: req.EditingMode,
 		AccessLevel: req.AccessLevel, Model: model,
 		SyntheticQueryBootstrapped: req.SyntheticQueryBootstrapped, ChatSource: req.ChatSource,
-		TrustedQueryMetadata: contracts.CloneMap(req.TrustedQueryMetadata),
+		Origin: req.Origin.Clone(),
 	}
 }

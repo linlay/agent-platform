@@ -10,9 +10,9 @@ import (
 
 func TestSteerSourceIsOptionalEventMetadata(t *testing.T) {
 	d := NewDispatcher(StreamRequest{RunID: "target", ChatID: "chat"})
-	source := &queryinput.SteerSource{Type: "agent", AgentKey: "caller", ChatID: "parent-chat", RunID: "parent-run", ToolID: "call"}
-	for _, s := range []*queryinput.SteerSource{nil, source} {
-		events := d.Dispatch(RequestSteer{RunID: "target", ChatID: "chat", SteerID: "steer-id", Message: "change", Source: s})
+	source := &queryinput.Origin{Type: "agent", AgentKey: "caller", ChatID: "parent-chat", RunID: "parent-run", ToolID: "call"}
+	for _, s := range []*queryinput.Origin{nil, source} {
+		events := d.Dispatch(RequestSteer{RunID: "target", ChatID: "chat", SteerID: "steer-id", Message: "change", Origin: s})
 		if len(events) != 1 || events[0].Type != "request.steer" || events[0].Payload["role"] != "user" || events[0].Payload["message"] != "change" {
 			t.Fatal(events)
 		}
@@ -25,10 +25,10 @@ func TestSteerSourceIsOptionalEventMetadata(t *testing.T) {
 			t.Fatal(err)
 		}
 		if s == nil {
-			if _, ok := flat["source"]; ok {
+			if _, ok := flat["origin"]; ok {
 				t.Fatal(string(data))
 			}
-		} else if !reflect.DeepEqual(flat["source"], source.Payload()) {
+		} else if !reflect.DeepEqual(flat["origin"], source.Payload()) {
 			t.Fatal(string(data))
 		}
 	}

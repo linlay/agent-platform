@@ -137,17 +137,14 @@ func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) 
 			if lineIsSystemInitQuery(line) {
 				continue
 			}
-			data, _ := json.Marshal(line)
-			var query QueryLine
-			if err := json.Unmarshal(data, &query); err == nil {
-				if strings.TrimSpace(query.TaskID) == "" && trace.Query == nil {
-					trace.Query = &query
-				}
+			if strings.TrimSpace(stringFromAny(line["taskId"])) == "" && trace.Query == nil {
+				trace.Query = queryLineFromMap(line, chatID)
 			}
 		case StepLineTypeReact, StepLineTypeReactTool:
 			data, _ := json.Marshal(line)
 			var step StepLine
 			if err := json.Unmarshal(data, &step); err == nil {
+				step.TaskAgentKey = lineTaskAgentKey(line)
 				trace.Steps = append(trace.Steps, step)
 				for _, message := range step.Messages {
 					if strings.EqualFold(strings.TrimSpace(message.Role), "assistant") {

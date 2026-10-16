@@ -116,7 +116,7 @@ func (s *FileStore) CloseInterruptedRunTools(chatID, runID string, completedAt i
 			continue
 		}
 		step := group.step
-		line := StepLine{Type: StepLineTypeReactTool, ChatID: chatID, RunID: runID, UpdatedAt: completedAt, Seq: step.Seq, Stage: step.Stage, TaskID: step.TaskID, TaskStatus: step.TaskStatus, TaskSubAgentKey: step.TaskSubAgentKey, Presentation: step.Presentation, Messages: messages}
+		line := StepLine{Type: StepLineTypeReactTool, ChatID: chatID, RunID: runID, UpdatedAt: completedAt, Seq: step.Seq, Stage: step.Stage, TaskID: step.TaskID, TaskStatus: step.TaskStatus, TaskAgentKey: step.TaskAgentKey, Presentation: step.Presentation, Messages: messages}
 		if err := s.appendJSONLineLocked(s.chatJSONLPath(chatID), line); err != nil {
 			return "", err
 		}

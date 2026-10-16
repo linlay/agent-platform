@@ -13,7 +13,7 @@ func reasoningReplacements(records []jsonLineRecord, limit int) []toolCompactRep
 	var entries []entry
 	for li, record := range records {
 		line := record.Value
-		if lineIsCompacted(line) || stringFromAny(line["taskSubAgentKey"]) != "" {
+		if lineIsCompacted(line) || lineTaskAgentKey(line) != "" {
 			continue
 		}
 		switch stringFromAny(line["_type"]) {
@@ -31,7 +31,7 @@ func reasoningReplacements(records []jsonLineRecord, limit int) []toolCompactRep
 			if run == "" {
 				run = stringFromAny(line["runId"])
 			}
-			scope := run + "\x00" + stringFromAny(message["agentKey"]) + "\x00" + stringFromAny(message["taskSubAgentKey"])
+			scope := run + "\x00" + stringFromAny(message["agentKey"]) + "\x00" + stringFromAny(message["taskAgentKey"])
 			entries = append(entries, entry{li, mi, message, scope})
 		}
 	}

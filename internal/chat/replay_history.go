@@ -101,6 +101,7 @@ func (r *historyReplay) replayLine(line map[string]any) error {
 
 func collectReplayedTaskQueries(lines []map[string]any) map[string]replayedSubTaskQuery {
 	taskQueries := map[string]replayedSubTaskQuery{}
+	runMessages := map[string]string{}
 	for _, line := range lines {
 		if lineType, _ := line["_type"].(string); lineType != "query" {
 			continue
@@ -111,15 +112,22 @@ func collectReplayedTaskQueries(lines []map[string]any) map[string]replayedSubTa
 		runID, _ := line["runId"].(string)
 		taskID, _ := line["taskId"].(string)
 		if strings.TrimSpace(taskID) == "" {
+			if _, seen := runMessages[runID]; !seen {
+				runMessages[runID] = stringFromAny(requestPayloadFromLine(line)["message"])
+			}
 			continue
 		}
-		query, _ := line["query"].(map[string]any)
+		description := stringFromAny(requestPayloadFromLine(line)["message"])
+		if strings.TrimSpace(description) == "" {
+			// agent_delegate defaults an omitted task to the Run's own request.
+			description = runMessages[runID]
+		}
 		taskQueries[replayedTaskQueryKey(runID, taskID)] = replayedSubTaskQuery{
-			TaskID:      taskID,
-			TaskName:    stringFromAny(line["taskName"]),
-			TaskDesc:    stringFromAny(query["message"]),
-			SubAgentKey: stringFromAny(line["subAgentKey"]),
-			MainToolID:  taskToolIDFromLine(line),
+			TaskID:       taskID,
+			TaskName:     lineTaskName(line),
+			TaskDesc:     description,
+			TaskAgentKey: lineTaskAgentKey(line),
+			MainToolID:   taskToolIDFromLine(line),
 
 			Presentation: stringFromAny(line["presentation"]),
 			RootContent:  boolFromAny(line["rootContent"]),
@@ -136,16 +144,9 @@ func (r *historyReplay) replayQuery(line map[string]any) error {
 		return nil
 	}
 	lineLiveSeq := int64FromAny(line["liveSeq"])
-	query, _ := line["query"].(map[string]any)
-	if query == nil {
-		query = map[string]any{}
-	}
-	payload := map[string]any{}
-	for k, v := range query {
-		if k == "seq" || k == "liveSeq" {
-			continue
-		}
-		payload[k] = v
+	payload := requestPayloadFromLine(line)
+	if payload == nil {
+		payload = map[string]any{}
 	}
 	taskID, _ := line["taskId"].(string)
 	if rootContent := boolFromAny(line["rootContent"]); strings.TrimSpace(taskID) != "" && rootContent {
@@ -164,13 +165,10 @@ func (r *historyReplay) replayQuery(line map[string]any) error {
 	rd := ensureRun(r.runs, &r.runOrder, runID)
 	if strings.TrimSpace(taskID) != "" {
 		ts := int64FromAny(line["updatedAt"])
-		taskName := stringFromAny(line["taskName"])
-		taskDescription := stringFromAny(query["message"])
-		taskSubAgentKey := stringFromAny(line["subAgentKey"])
-		taskMainToolID := taskToolIDFromLine(line)
-		if events := beginReplayedSubTask(rd, runID, taskID, taskName, taskDescription, taskSubAgentKey, taskMainToolID, ts, r.nextSeq); len(events) > 0 {
+		meta := r.taskQueries[replayedTaskQueryKey(runID, taskID)]
+		if events := beginReplayedSubTask(rd, runID, taskID, meta.TaskName, meta.TaskDesc, meta.TaskAgentKey, meta.MainToolID, ts, r.nextSeq); len(events) > 0 {
 			if r.isTeamRun(runID) {
-				events = decorateReplayedTeamTaskEvents(events, taskSubAgentKey, stringFromAny(line["presentation"]))
+				events = decorateReplayedTeamTaskEvents(events, meta.TaskAgentKey, meta.Presentation)
 			}
 			rd.events = append(rd.events, events...)
 		}

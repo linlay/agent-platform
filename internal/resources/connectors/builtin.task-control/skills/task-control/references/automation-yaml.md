@@ -18,14 +18,13 @@ Required fields are name, cron, agentKey, and query.message. Description is opti
 | query.message | Non-empty self-contained instruction; preserve its actual text, including newlines and whitespace |
 | query.accessLevel | default, auto_approve or full_access; omitted means default, without Chat permission inheritance |
 | query.chatId | Optional explicit Chat destination; do not infer it from the creating Chat |
-| query.role | Optional valid query role; omitted executes as automation |
 | query.hidden | Optional boolean; omitted means true, hiding the query message while Chat/Run and assistant replies remain visible |
 | query.params | Optional object |
 | query.requestId | Optional request identifier |
 | query.references | Optional reference objects using the current Query reference contract |
 | query.scene | Optional scene object using the current Query scene contract |
 
-query.requestId/references/scene are supported in YAML but are not creation/update inputs of the management tools. Preserve such fields when maintaining an existing source; do not invent unsupported tool arguments. YAML uses environment.zoneId, whereas management input uses zoneId. Do not write old top-level zoneId/params or query.stream.
+query.requestId/references/scene are supported in YAML but are not creation/update inputs of the management tools. Preserve such fields when maintaining an existing source; do not invent unsupported tool arguments. YAML uses environment.zoneId, whereas management input uses zoneId. Do not write old top-level zoneId/params or query.stream. Legacy query.role is accepted and preserved for audit only; it does not select a message role. The platform records automation input with an automation origin.
 
 ```yaml
 name: Daily review

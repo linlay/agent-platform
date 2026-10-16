@@ -61,7 +61,6 @@ func startAgentMode(engine *LLMAgentEngine, ctx context.Context, req api.QueryRe
 	if !req.SyntheticQueryBootstrapped {
 		pending = append(pending, DeltaSyntheticQuery{
 			ChatID:   session.ChatID,
-			Role:     api.QueryRoleUser,
 			Message:  planmode.ExecuteSyntheticQueryMessage(session.Locale),
 			Messages: cloneRawMessageMaps(session.CurrentMessages),
 			System:   TakePendingSystemInitPayload(&session, sessionSystemInitCacheKey(session, "")),

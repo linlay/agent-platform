@@ -100,7 +100,7 @@ func (s *FileStore) commitRunSummary(chatID string, line RunCompactCheckpointLin
 	}
 	for i := len(records) - 1; i >= effectiveStart; i-- {
 		source := records[i].Value
-		if lineIsCompacted(source) || stringFromAny(source["taskSubAgentKey"]) != "" || lineIsSystemInitQuery(source) {
+		if lineIsCompacted(source) || lineTaskAgentKey(source) != "" || lineIsSystemInitQuery(source) {
 			continue
 		}
 		kind := stringFromAny(source["_type"])

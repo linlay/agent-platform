@@ -80,7 +80,7 @@ func testBTWStreamsOverWebSocket(t *testing.T, source string) {
 			ID:    requestID,
 			Payload: marshalPayload(map[string]any{
 				"chatId":  chatID,
-				"btwId":   btwID,
+				"sideId":  btwID,
 				"message": "side question",
 				"lane":    "main",
 			}),
@@ -106,9 +106,12 @@ func testBTWStreamsOverWebSocket(t *testing.T, source string) {
 				case "chat.start":
 					t.Fatal("BTW websocket stream must not emit chat.start")
 				case "request.query":
-					btwID, _ = frame.Event.Value("btwId").(string)
-					if kind, _ := frame.Event.Value("kind").(string); kind != "btw" {
-						t.Fatalf("unexpected request.query kind %q", kind)
+					btwID, _ = frame.Event.Value("sideId").(string)
+					if lane, _ := frame.Event.Value("lane").(string); lane != strings.TrimPrefix(source, "desktop-") {
+						t.Fatalf("unexpected request.query lane %q", lane)
+					}
+					if frame.Event.Value("kind") != nil || frame.Event.Value("btwId") != nil || frame.Event.Value("parentChatId") != nil {
+						t.Fatalf("side request.query must carry only lane and sideId: %#v", frame.Event)
 					}
 				case "run.start":
 					runID, _ = frame.Event.Value("runId").(string)
@@ -116,8 +119,8 @@ func testBTWStreamsOverWebSocket(t *testing.T, source string) {
 			}
 			terminalReason = frame.Reason
 		}
-		if terminalReason != "done" || !chat.ValidBTWID(btwID) || runID == "" {
-			t.Fatalf("unexpected BTW websocket result: reason=%q btwId=%q runId=%q", terminalReason, btwID, runID)
+		if terminalReason != "done" || !chat.ValidSideID(btwID) || runID == "" {
+			t.Fatalf("unexpected BTW websocket result: reason=%q sideId=%q runId=%q", terminalReason, btwID, runID)
 		}
 		if previousBTWID != "" && btwID != previousBTWID {
 			t.Fatal("continuation created a different branch")
@@ -138,7 +141,7 @@ func testBTWStreamsOverWebSocket(t *testing.T, source string) {
 	if !bytes.Equal(parentBefore, parentAfter) || !reflect.DeepEqual(summaryBefore, summaryAfter) {
 		t.Fatal("side query changed the parent history or summary")
 	}
-	branchBytes, err := os.ReadFile(filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.BTWRootDirName, btwID+".jsonl"))
+	branchBytes, err := os.ReadFile(filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, "."+strings.TrimPrefix(source, "desktop-"), btwID+".jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,8 +307,8 @@ func TestBTWCreatesHiddenBranchWithoutChangingParentChat(t *testing.T) {
 	if btwRec.Code != http.StatusOK {
 		t.Fatalf("create BTW: %d %s", btwRec.Code, btwRec.Body.String())
 	}
-	btwID := btwRec.Header().Get("X-Btw-Id")
-	if !chat.ValidBTWID(btwID) || !strings.HasPrefix(btwID, "btw_") {
+	btwID := btwRec.Header().Get("X-Side-Id")
+	if !chat.ValidSideID(btwID) || !strings.HasPrefix(btwID, "side_") {
 		t.Fatalf("unexpected BTW id %q", btwID)
 	}
 	body := btwRec.Body.String()
@@ -313,7 +316,7 @@ func TestBTWCreatesHiddenBranchWithoutChangingParentChat(t *testing.T) {
 		t.Fatalf("BTW must not emit chat.start: %s", body)
 	}
 	requestEvent := findSSEMessageByType(t, decodeSSEMessages(t, body), "request.query")
-	if requestEvent["kind"] != "btw" || requestEvent["btwId"] != btwID || requestEvent["parentChatId"] != chatID || requestEvent["hidden"] != true {
+	if requestEvent["lane"] != "btw" || requestEvent["sideId"] != btwID || requestEvent["hidden"] != true || requestEvent["kind"] != nil || requestEvent["parentChatId"] != nil {
 		t.Fatalf("unexpected BTW request.query metadata %#v", requestEvent)
 	}
 
@@ -333,7 +336,7 @@ func TestBTWCreatesHiddenBranchWithoutChangingParentChat(t *testing.T) {
 	}
 
 	store := fixture.chats.(*chat.FileStore)
-	branch, err := store.OpenBTWBranch(chatID, btwID)
+	branch, err := store.OpenSideBranch(chatID, chat.SideLaneBTW, btwID)
 	if err != nil {
 		t.Fatalf("open BTW branch: %v", err)
 	}
@@ -348,18 +351,18 @@ func TestBTWCreatesHiddenBranchWithoutChangingParentChat(t *testing.T) {
 		t.Fatalf("BTW provider message missing side-question boundary: %#v", messages[2])
 	}
 
-	continueReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"lane":"btw","chatId":"`+chatID+`","btwId":"`+btwID+`","message":"follow up","stream":false,"includeUsage":true}`))
+	continueReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"lane":"btw","chatId":"`+chatID+`","sideId":"`+btwID+`","message":"follow up","stream":false,"includeUsage":true}`))
 	continueReq.Header.Set("Content-Type", "application/json")
 	continueRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(continueRec, continueReq)
 	if continueRec.Code != http.StatusOK {
 		t.Fatalf("continue BTW: %d %s", continueRec.Code, continueRec.Body.String())
 	}
-	var response api.ApiResponse[api.BTWResponse]
+	var response api.ApiResponse[api.SideResponse]
 	if err := json.Unmarshal(continueRec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode BTW response: %v", err)
 	}
-	if response.Data.BTWID != btwID || response.Data.ParentChatID != chatID || response.Data.RunID == "" || response.Data.Content != "Go runtime test response" {
+	if response.Data.SideID != btwID || response.Data.ParentChatID != chatID || response.Data.RunID == "" || response.Data.Content != "Go runtime test response" {
 		t.Fatalf("unexpected BTW non-stream response %#v", response.Data)
 	}
 	parentFinal, err := os.ReadFile(parentPath)
@@ -600,7 +603,7 @@ func TestBTWRequiresExistingParentAndExistingContinuation(t *testing.T) {
 	if _, _, err := fixture.chats.EnsureChat("chat-btw-missing", "mock-agent", "parent"); err != nil {
 		t.Fatalf("ensure parent: %v", err)
 	}
-	rec = serveJSONRequestForBTWTestStatus(t, fixture.server, "/api/query", `{"lane":"btw","chatId":"chat-btw-missing","btwId":"btw_missing","message":"side"}`)
+	rec = serveJSONRequestForBTWTestStatus(t, fixture.server, "/api/query", `{"lane":"btw","chatId":"chat-btw-missing","sideId":"side_missing","message":"side"}`)
 	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "btw_not_found") {
 		t.Fatalf("expected missing BTW error, got %d %s", rec.Code, rec.Body.String())
 	}

@@ -50,7 +50,7 @@ func newTeamFrameOrchestrator(t *testing.T, main *stubOrchestratableStream, chil
 func TestFrameOrchestratorTeamSingleDelegationReturnsMemberResultToCoordinator(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 		MainToolID: "team-tool",
-		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}},
+		Tasks:      []contracts.SubAgentTaskSpec{{TaskAgentKey: "writer"}},
 	}}}
 	child := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaContent{Text: "member answer"}}, finalText: "member answer"}
 	defs := map[string]catalog.AgentDefinition{
@@ -65,7 +65,7 @@ func TestFrameOrchestratorTeamSingleDelegationReturnsMemberResultToCoordinator(t
 	if err != nil || failed || interrupted {
 		t.Fatalf("Run() = failed=%v interrupted=%v err=%v", failed, interrupted, err)
 	}
-	if len(main.injected) != 1 || main.injected[0].isError || !strings.Contains(main.injected[0].text, `"agentKey":"writer"`) || !strings.Contains(main.injected[0].text, `"content":"member answer"`) {
+	if len(main.injected) != 1 || main.injected[0].isError || !strings.Contains(main.injected[0].text, `"taskAgentKey":"writer"`) || strings.Contains(main.injected[0].text, `"agentKey":`) || !strings.Contains(main.injected[0].text, `"content":"member answer"`) {
 		t.Fatalf("single delegation did not return a structured result: %#v", main.injected)
 	}
 	if len(emitted) != 2 {
@@ -90,7 +90,7 @@ func TestFrameOrchestratorTeamSingleDelegationReturnsMemberResultToCoordinator(t
 func TestFrameOrchestratorTeamMultiDelegationUsesSameCoordinatorReturnPath(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 		MainToolID: "team-tool",
-		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}, {SubAgentKey: "reviewer"}},
+		Tasks:      []contracts.SubAgentTaskSpec{{TaskAgentKey: "writer"}, {TaskAgentKey: "reviewer"}},
 	}}}
 	defs := map[string]catalog.AgentDefinition{
 		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
@@ -133,7 +133,7 @@ func TestFrameOrchestratorTeamMultiDelegationUsesSameCoordinatorReturnPath(t *te
 func TestFrameOrchestratorTeamDelegationRejectsDuplicateMemberSet(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 		MainToolID: "team-tool",
-		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}, {SubAgentKey: "writer"}},
+		Tasks:      []contracts.SubAgentTaskSpec{{TaskAgentKey: "writer"}, {TaskAgentKey: "writer"}},
 	}}}
 	defs := map[string]catalog.AgentDefinition{
 		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
@@ -158,7 +158,7 @@ func TestFrameOrchestratorTeamDelegationRejectsDuplicateMemberSet(t *testing.T) 
 func TestFrameOrchestratorTeamDelegationRejectsSelfTarget(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 		MainToolID: "team-tool",
-		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: " writer "}},
+		Tasks:      []contracts.SubAgentTaskSpec{{TaskAgentKey: " writer "}},
 	}}}
 	defs := map[string]catalog.AgentDefinition{
 		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
@@ -187,7 +187,7 @@ func TestFrameOrchestratorTeamDelegationRejectsSelfTarget(t *testing.T) {
 func TestFrameOrchestratorTeamCustomTaskUsesSameDelegationPath(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 		MainToolID: "team-tool",
-		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer", TaskText: "draft", TaskName: "Draft"}},
+		Tasks:      []contracts.SubAgentTaskSpec{{TaskAgentKey: "writer", TaskText: "draft", TaskName: "Draft"}},
 	}}}
 	defs := map[string]catalog.AgentDefinition{
 		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT", VisibilityScopes: []string{"invoke"}},
@@ -222,7 +222,7 @@ func TestFrameOrchestratorTeamCustomTaskUsesSameDelegationPath(t *testing.T) {
 func TestFrameOrchestratorTeamDelegationMergesFilesWithOriginalReferences(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 		MainToolID: "team-tool",
-		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer", Files: []string{"/chat/draft.md", "/chat/draft.md"}}},
+		Tasks:      []contracts.SubAgentTaskSpec{{TaskAgentKey: "writer", Files: []string{"/chat/draft.md", "/chat/draft.md"}}},
 	}}}
 	defs := map[string]catalog.AgentDefinition{
 		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
@@ -266,7 +266,7 @@ func TestFrameOrchestratorMaterializesInheritedWorkspaceReferenceIntoChat(t *tes
 	}
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 		MainToolID: "team-tool",
-		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}},
+		Tasks:      []contracts.SubAgentTaskSpec{{TaskAgentKey: "writer"}},
 	}}}
 	defs := map[string]catalog.AgentDefinition{
 		"writer": {Key: "writer", Name: "Writer", Mode: "REACT"},
@@ -350,7 +350,7 @@ func TestRouteChildStreamInputAttributesModelAndUsageEventsToTask(t *testing.T) 
 }
 
 func TestRouteTeamChildLLMRequestCarriesHiddenPersistenceActor(t *testing.T) {
-	task := preparedSubTask{Spec: contracts.SubAgentTaskSpec{SubAgentKey: "writer"}, TaskID: "task-1"}
+	task := preparedSubTask{Spec: contracts.SubAgentTaskSpec{TaskAgentKey: "writer"}, TaskID: "task-1"}
 	input := routeChildStreamInput("run-1", task.TaskID, stream.InputLLMRequest{ModelKey: "member-model"})
 	routed, ok := routeTeamChildStreamInput("run-1", task, input, childRunOptions{Presentation: "task"}).(stream.InputLLMRequest)
 	if !ok || routed.AgentKey != "writer" {
@@ -359,7 +359,7 @@ func TestRouteTeamChildLLMRequestCarriesHiddenPersistenceActor(t *testing.T) {
 }
 
 func TestRouteTeamChildArtifactPublicationKeepsToolAndTaskTogether(t *testing.T) {
-	task := preparedSubTask{Spec: contracts.SubAgentTaskSpec{SubAgentKey: "writer"}, TaskID: "task-1"}
+	task := preparedSubTask{Spec: contracts.SubAgentTaskSpec{TaskAgentKey: "writer"}, TaskID: "task-1"}
 	args, ok := routeTeamChildStreamInput("run-1", task, stream.ToolArgs{ToolID: "call-artifact", ToolName: "artifact_publish"}, childRunOptions{}).(stream.ToolArgs)
 	if !ok || args.TaskID != "task-1" || args.ToolID != "task-1:call-artifact" {
 		t.Fatalf("routed Team tool args=%#v", args)

@@ -85,12 +85,12 @@ func (s *Service) persistRestartAwaitingToolResults(
 		return nil
 	}
 	if err := s.deps.Chats.AppendStepLine(item.ChatID, chat.StepLine{
-		ChatID:          item.ChatID,
-		RunID:           item.RunID,
-		UpdatedAt:       resolvedAt,
-		TaskID:          step.TaskID,
-		TaskStatus:      step.TaskStatus,
-		TaskSubAgentKey: step.TaskSubAgentKey,
+		ChatID:       item.ChatID,
+		RunID:        item.RunID,
+		UpdatedAt:    resolvedAt,
+		TaskID:       step.TaskID,
+		TaskStatus:   step.TaskStatus,
+		TaskAgentKey: step.TaskAgentKey,
 
 		Presentation: step.Presentation,
 		Stage:        step.Stage,
@@ -137,7 +137,7 @@ func (s *Service) completeRestartAwaitingRun(item chat.PendingAwaitingWithChat, 
 	}
 	initialMessage := ""
 	if query != nil {
-		initialMessage = strings.TrimSpace(contracts.AnyStringNode(query.Query["message"]))
+		initialMessage = strings.TrimSpace(contracts.AnyStringNode(query.RequestPayload()["message"]))
 	}
 	assistantText := ""
 	if store, ok := s.deps.Chats.(chat.InterruptedRunStore); ok && interrupted {

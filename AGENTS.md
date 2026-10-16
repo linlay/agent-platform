@@ -95,6 +95,7 @@ Chat 默认由 `AP_RUNTIME_CHATS_DIR` 控制，主要包含：
 - `chats.db`：chat 摘要索引。
 - `chat-order.json` / `chat-pinned.json`：Platform 管理的实例级 recent/manual 展示排序，缺省 recent（更新时间倒序），以及独立跨 mode 置顶顺序，不修改 Chat 内容时间或数据库 schema。
 - `<chatId>.jsonl`：运行事件、StepLine、system init 与 raw messages。
+- JSONL query 行的 `query` 只保存调用方原样输入（HTTP/WS 请求体、chat_start 参数、子任务条目、Automation 配置的 query），平台不往里加字段；平台决定写在行顶层（requestId、agentKey、lane、origin、accessGrant、planRunId、accessLevel、planningMode、editingMode、model、references，任务行另有 taskId/taskToolId/taskAgentKey），无输入的行不写 query。`origin` 由平台判定（user/agent/automation）；HTTP/WS 请求及 Automation API/YAML query 中的 `role` 均接收、保留但不参与执行；`agent.yml` 的描述字段 `role` 继续保留；旧记录按原布局读取。btw/explain 分支分别存于 `<chatId>/.btw/`、`.explain/`，协议用 `sideId`。详见 [API 与协议](docs/API与协议.md)。
 - `<chatId>/<uploaded-or-generated-file>`：上传与图片生成资源；工具返回内部绝对 `path` 和相对于当前 Chat 的稳定 `url`（不含 `chatId`），用户可见内容只使用 `url`。
 - `<chatId>/artifacts/<runId>/<filename>`：`artifact_publish` 的发布副本；发布结果 URL 必须指向该副本，写作 `@chat/artifacts/<runId>/<filename>`（字面路径），读取方同时接受裸相对引用。
 
@@ -218,7 +219,7 @@ Desktop 原生连接器不属于外部 builtin 构建缓存，不要求 `sync-lo
 
 待实施设计：[云端部署与持续任务架构设计](docs/云端部署与持续任务架构设计.md)，覆盖完整 Linux 镜像、用户实例、身份与 HTTPS、云端 Job 和 Desktop 离线续跑；不改变当前重启取消 Run 等事实与约束。
 
-`builtin.task-control`（任务管理）独立提供六个 Chat 工具和两个 Automation 工具；`chat_steer` 不审批、不比较双方档位，同进程同调用冻结首次结果（含未受理与 unknown），收据随调用方 Run 结束清理（在途调用完成后释放）；确定未发送/明确拒绝为 not_started，SSE 传输或响应不确定为 unknown；由调用身份派生 steerId；Runtime 写入可选 request.steer.source，来源不进入模型输入、不传上游。`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
+`builtin.task-control`（任务管理）独立提供六个 Chat 工具和两个 Automation 工具；`chat_steer` 不审批、不比较双方档位，同进程同调用冻结首次结果（含未受理与 unknown），收据随调用方 Run 结束清理（在途调用完成后释放）；确定未发送/明确拒绝为 not_started，SSE 传输或响应不确定为 unknown；由调用身份派生 steerId；Runtime 写入可选 request.steer.origin，来源不进入模型输入、不传上游。`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
 
 自动化行为、自然语言时间/Cron 与 YAML 契约归 task-control 的按需 references；Provider/Model 和外部连接器组件配置维护参考归 platform-control。Skill 不增加工具或文件权限，不应恢复外部 platform-admin/platform-automation 的重复路由。具体自动化更新与时区语义见 [自动化](docs/自动化.md#task-control-管理工具)。
 

@@ -72,11 +72,11 @@ func TestQueryExecutionEntryPointParity(t *testing.T) {
 					}, main.deltas...)
 					main.deltas = append(main.deltas, contracts.DeltaModelTurnCommit{RunSeq: 1})
 				case "subagent":
-					main.deltas = append([]contracts.AgentDelta{contracts.DeltaInvokeSubAgents{MainToolID: "invoke", Tasks: []contracts.SubAgentTaskSpec{{SubAgentKey: "writer", TaskText: "child task"}}}}, main.deltas...)
+					main.deltas = append([]contracts.AgentDelta{contracts.DeltaInvokeSubAgents{MainToolID: "invoke", Tasks: []contracts.SubAgentTaskSpec{{TaskAgentKey: "writer", TaskText: "child task"}}}}, main.deltas...)
 					engine.streams = append(engine.streams, &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaContent{Text: "child answer"}}, finalText: "child answer"})
 				case "team":
 					req.AgentKey = "research"
-					main.deltas = append([]contracts.AgentDelta{contracts.DeltaTeamDispatch{MainToolID: "delegate", Tasks: []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}}}}, main.deltas...)
+					main.deltas = append([]contracts.AgentDelta{contracts.DeltaTeamDispatch{MainToolID: "delegate", Tasks: []contracts.SubAgentTaskSpec{{TaskAgentKey: "writer"}}}}, main.deltas...)
 					engine.streams = append(engine.streams, &stubOrchestratableStream{deltas: []contracts.AgentDelta{
 						contracts.DeltaContent{Text: "child answer"},
 						contracts.DeltaUsageSnapshot{RunPromptTokens: 5, RunCompletionTokens: 3, RunTotalTokens: 8},

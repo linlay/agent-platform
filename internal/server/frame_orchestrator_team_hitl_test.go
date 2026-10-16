@@ -176,7 +176,7 @@ func teamQuestionSubmit(t *testing.T, submitID string) func(stream.AwaitAsk) api
 func TestFrameOrchestratorTeamDelegationPublishesMemberHITLOneAtATime(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 		MainToolID: "team-tool",
-		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}, {SubAgentKey: "reviewer"}},
+		Tasks:      []contracts.SubAgentTaskSpec{{TaskAgentKey: "writer"}, {TaskAgentKey: "reviewer"}},
 	}}}
 	defs := map[string]catalog.AgentDefinition{
 		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
@@ -246,7 +246,7 @@ func TestFrameOrchestratorTeamDelegationPublishesMemberHITLOneAtATime(t *testing
 func TestFrameOrchestratorTeamMemberFormKeepsViewAndSingleParam(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 		MainToolID: "team-tool",
-		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}},
+		Tasks:      []contracts.SubAgentTaskSpec{{TaskAgentKey: "writer"}},
 	}}}
 	defs := map[string]catalog.AgentDefinition{"writer": {Key: "writer", Name: "Writer", Mode: "REACT"}}
 	ref := &view.Reference{Source: "connector", ConnectorID: "member-forms", Key: "edit", Hash: strings.Repeat("a", 64), Renderer: "html"}
@@ -283,7 +283,7 @@ func TestFrameOrchestratorTeamMemberFormKeepsViewAndSingleParam(t *testing.T) {
 func TestFrameOrchestratorTeamDelegationInterruptCancelsQueuedHITLChildren(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 		MainToolID: "team-tool",
-		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}, {SubAgentKey: "reviewer"}},
+		Tasks:      []contracts.SubAgentTaskSpec{{TaskAgentKey: "writer"}, {TaskAgentKey: "reviewer"}},
 	}}}
 	defs := map[string]catalog.AgentDefinition{
 		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
@@ -339,8 +339,8 @@ func TestFrameOrchestratorTeamCustomTaskDelegationQueuesMemberHITL(t *testing.T)
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 		MainToolID: "team-tool",
 		Tasks: []contracts.SubAgentTaskSpec{
-			{SubAgentKey: "writer", TaskText: "draft", TaskName: "Draft"},
-			{SubAgentKey: "reviewer", TaskText: "review", TaskName: "Review"},
+			{TaskAgentKey: "writer", TaskText: "draft", TaskName: "Draft"},
+			{TaskAgentKey: "reviewer", TaskText: "review", TaskName: "Review"},
 		},
 	}}}
 	defs := map[string]catalog.AgentDefinition{
@@ -379,7 +379,7 @@ func TestFrameOrchestratorTeamCustomTaskDelegationQueuesMemberHITL(t *testing.T)
 func TestFrameOrchestratorTeamDelegationQueuesHITLAcrossBoundedParallelism(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 		MainToolID: "team-tool",
-		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}, {SubAgentKey: "reviewer"}, {SubAgentKey: "analyst"}},
+		Tasks:      []contracts.SubAgentTaskSpec{{TaskAgentKey: "writer"}, {TaskAgentKey: "reviewer"}, {TaskAgentKey: "analyst"}},
 	}}}
 	defs := map[string]catalog.AgentDefinition{
 		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},

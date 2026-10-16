@@ -36,8 +36,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		// Ordinary HTTP queries retain their existing admission and execution path.
 	case "btw":
 		command := trustedQueryCommand(r.Context(), req)
-		command.SideQuery = true
-		command.SideQueryID = req.BTWID
+		command.Lane = lane
+		command.SideID = req.SideID
 		command.Locale = requestLocale(r, s.deps.Config.Prompts.Runtime.ResolveLocale(""))
 		command.ResourceBaseURL = s.requestBaseURL(r)
 		s.writeRuntimeQueryResponse(w, r.Context(), command)
@@ -101,8 +101,8 @@ func (s *Server) writeRuntimeQueryStream(w http.ResponseWriter, ctx context.Cont
 		writeQueryStartError(w, err)
 		return
 	}
-	if handle.SideQueryID != "" {
-		w.Header().Set("X-Btw-Id", handle.SideQueryID)
+	if handle.SideID != "" {
+		w.Header().Set("X-Side-Id", handle.SideID)
 		w.Header().Set("X-Run-Id", handle.RunID)
 	}
 	sseWriter, err := newSSEWriter(w, sseWriterOptions{
@@ -194,11 +194,11 @@ func queryResponseFromResult(req api.QueryRequest, result queryRunResult) api.Qu
 func queryResponsePayload(prepared preparedQuery, result queryRunResult) any {
 	queryResponse := queryResponseFromResult(prepared.Req, result)
 	execution := prepared.Execution
-	if execution == nil || strings.TrimSpace(execution.BTWID) == "" {
+	if execution == nil || strings.TrimSpace(execution.SideID) == "" {
 		return queryResponse
 	}
-	return api.BTWResponse{
-		BTWID:        execution.BTWID,
+	return api.SideResponse{
+		SideID:       execution.SideID,
 		ParentChatID: execution.ParentChatID,
 		RunID:        prepared.Req.RunID,
 		Content:      queryResponse.Content,
@@ -296,10 +296,10 @@ func (s *Server) writeRuntimeQueryNonStream(w http.ResponseWriter, ctx context.C
 	req := queryRequestFromRuntime(cmd)
 	req.RunID = result.RunID
 	p := preparedQuery{Req: req}
-	if result.SideQueryID != "" {
-		w.Header().Set("X-Btw-Id", result.SideQueryID)
+	if result.SideID != "" {
+		w.Header().Set("X-Side-Id", result.SideID)
 		w.Header().Set("X-Run-Id", result.RunID)
-		p.Execution = &queryExecutionOptions{BTWID: result.SideQueryID, ParentChatID: result.ChatID}
+		p.Execution = &queryExecutionOptions{SideID: result.SideID, ParentChatID: result.ChatID}
 	}
 	writeJSON(w, http.StatusOK, api.Success(queryResponsePayload(p, mapped)))
 }

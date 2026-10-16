@@ -10,7 +10,7 @@ func (r *historyReplay) replayStep(line map[string]any) error {
 	taskName, _ := line["taskName"].(string)
 	taskDescription, _ := line["taskDescription"].(string)
 	taskStatus, _ := line["taskStatus"].(string)
-	taskSubAgentKey, _ := line["taskSubAgentKey"].(string)
+	taskAgentKey := lineTaskAgentKey(line)
 	taskMainToolID := taskToolIDFromLine(line)
 
 	presentation := stringFromAny(line["presentation"])
@@ -22,8 +22,8 @@ func (r *historyReplay) replayStep(line map[string]any) error {
 		if strings.TrimSpace(taskDescription) == "" {
 			taskDescription = meta.TaskDesc
 		}
-		if strings.TrimSpace(taskSubAgentKey) == "" {
-			taskSubAgentKey = meta.SubAgentKey
+		if strings.TrimSpace(taskAgentKey) == "" {
+			taskAgentKey = meta.TaskAgentKey
 		}
 		if strings.TrimSpace(taskMainToolID) == "" {
 			taskMainToolID = meta.MainToolID
@@ -34,9 +34,9 @@ func (r *historyReplay) replayStep(line map[string]any) error {
 	}
 	ts := int64FromAny(line["updatedAt"])
 	if !rootContent {
-		if events := beginReplayedSubTask(rd, runID, taskID, taskName, taskDescription, taskSubAgentKey, taskMainToolID, ts, r.nextSeq); len(events) > 0 {
+		if events := beginReplayedSubTask(rd, runID, taskID, taskName, taskDescription, taskAgentKey, taskMainToolID, ts, r.nextSeq); len(events) > 0 {
 			if r.isTeamRun(runID) {
-				events = decorateReplayedTeamTaskEvents(events, taskSubAgentKey, presentation)
+				events = decorateReplayedTeamTaskEvents(events, taskAgentKey, presentation)
 			}
 			rd.events = append(rd.events, events...)
 		}
@@ -53,7 +53,7 @@ func (r *historyReplay) replayStep(line map[string]any) error {
 		options.Presentation = presentation
 		if strings.TrimSpace(taskID) != "" {
 			options.ActorType = "agent"
-			options.AgentKey = taskSubAgentKey
+			options.AgentKey = taskAgentKey
 			if strings.TrimSpace(options.Presentation) == "" {
 				options.Presentation = "task"
 			}
@@ -69,7 +69,7 @@ func (r *historyReplay) replayStep(line map[string]any) error {
 	r.accumulateStepUsage(rd, stepUsage)
 	if events := finishReplayedSubTaskIfTerminal(rd, taskID, taskStatus, ts, r.nextSeq); len(events) > 0 {
 		if r.isTeamRun(runID) {
-			events = decorateReplayedTeamTaskEvents(events, taskSubAgentKey, presentation)
+			events = decorateReplayedTeamTaskEvents(events, taskAgentKey, presentation)
 		}
 		rd.events = append(rd.events, events...)
 	}

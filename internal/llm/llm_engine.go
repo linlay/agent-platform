@@ -269,7 +269,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		messages:               append([]openAIMessage(nil), messages...),
 		pinnedMessageStart:     pinnedMessageStart,
 		pinnedMessageEnd:       pinnedMessageEnd,
-		compactDisabled:        options.DisableContextCompaction || strings.HasPrefix(strings.TrimSpace(session.RunScopeID), "btw:"),
+		compactDisabled:        options.DisableContextCompaction || isSideLaneRunScope(session.RunScopeID),
 		protocolConfig:         protocolConfig,
 		stageSettings:          stageSettings,
 		execCtx:                execCtx,
@@ -732,4 +732,11 @@ func currentRunModelOptions(modelKey string, settings StageSettings) *queryinput
 		}
 	}
 	return &queryinput.QueryModelOptions{Key: modelKey, ReasoningEffort: effort}
+}
+
+// isSideLaneRunScope reports a hidden btw/explain branch Run, whose scope is
+// "<lane>:<chatId>:<sideId>". Side branches never compact their context.
+func isSideLaneRunScope(scopeID string) bool {
+	scopeID = strings.TrimSpace(scopeID)
+	return strings.HasPrefix(scopeID, "btw:") || strings.HasPrefix(scopeID, "explain:")
 }

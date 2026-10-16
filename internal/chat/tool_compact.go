@@ -346,7 +346,7 @@ func collectToolCompactCandidates(records []jsonLineRecord) []toolCompactCandida
 		} else if lineType != StepLineTypeReact && lineType != StepLineTypeReactTool {
 			continue
 		}
-		if stringFromAny(line["taskSubAgentKey"]) != "" {
+		if lineTaskAgentKey(line) != "" {
 			continue
 		}
 		for messageIndex, message := range anyMessageSlice(line["messages"]) {
@@ -354,7 +354,7 @@ func collectToolCompactCandidates(records []jsonLineRecord) []toolCompactCandida
 			if runID == "" {
 				runID = stringFromAny(line["runId"])
 			}
-			actor := stringFromAny(message["taskSubAgentKey"]) + ":" + stringFromAny(message["agentKey"])
+			actor := stringFromAny(message["taskAgentKey"]) + ":" + stringFromAny(message["agentKey"])
 			scope := runID + "\x00" + actor + "\x00"
 			switch stringFromAny(message["role"]) {
 			case "assistant":

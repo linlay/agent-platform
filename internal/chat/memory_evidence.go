@@ -74,27 +74,18 @@ func (s *FileStore) MemoryMessages(chatID, runID string) ([]MemoryMessage, error
 func memoryMessagesFromLines(lines []map[string]any, runID string) []MemoryMessage {
 	var out []MemoryMessage
 	for _, line := range lines {
-		if stringValue(line["runId"]) != runID || stringValue(line["taskId"]) != "" || stringValue(line["subAgentKey"]) != "" || stringValue(line["taskSubAgentKey"]) != "" {
+		if stringValue(line["runId"]) != runID || stringValue(line["taskId"]) != "" || lineTaskAgentKey(line) != "" {
 			continue
 		}
 		at := int64FromAny(line["updatedAt"])
 		switch stringValue(line["_type"]) {
 		case "query":
-			if lineIsSystemInitQuery(line) {
-				continue
-			}
-			q := mapValue(line["query"])
-			if role := stringValue(q["role"]); role != "" && role != "user" {
-				continue
-			}
-			if stringValue(q["source"]) == "automation" || q["runOrigin"] != nil {
-				continue
-			}
-			if text := stringValue(q["message"]); strings.TrimSpace(text) != "" {
-				out = append(out, MemoryMessage{ID: runID + ":query", Role: "user", Content: text, At: at})
+			// Memory evidence is what a user said; Agent and Automation input is not.
+			if text, ok := lineUserMessage(line); ok && strings.TrimSpace(text) != "" {
+				out = append(out, MemoryMessage{ID: runID + ":query", Role: "user", Content: strings.TrimSpace(text), At: at})
 			}
 		case "steer":
-			if msg := mapValue(line["steer"]); len(msg) > 0 && (stringValue(msg["role"]) == "" || stringValue(msg["role"]) == "user") {
+			if msg := mapValue(line["steer"]); len(msg) > 0 && (stringValue(msg["role"]) == "" || stringValue(msg["role"]) == "user") && steerOrigin(msg) == nil {
 				if text := stringValue(msg["message"]); strings.TrimSpace(text) != "" {
 					out = append(out, MemoryMessage{ID: fmt.Sprintf("%s:steer:%d", runID, at), Role: "user", Content: text, At: at})
 				}

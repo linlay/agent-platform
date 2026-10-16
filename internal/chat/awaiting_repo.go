@@ -119,10 +119,10 @@ func loadPersistedAwaitingStepFromLines(lines []map[string]any, awaitingID strin
 			continue
 		}
 		latest = &PersistedAwaitingStep{
-			RunID:           strings.TrimSpace(stringValue(line["runId"])),
-			TaskID:          strings.TrimSpace(stringValue(line["taskId"])),
-			TaskStatus:      strings.TrimSpace(stringValue(line["taskStatus"])),
-			TaskSubAgentKey: strings.TrimSpace(stringValue(line["taskSubAgentKey"])),
+			RunID:        strings.TrimSpace(stringValue(line["runId"])),
+			TaskID:       strings.TrimSpace(stringValue(line["taskId"])),
+			TaskStatus:   strings.TrimSpace(stringValue(line["taskStatus"])),
+			TaskAgentKey: lineTaskAgentKey(line),
 
 			Presentation:  strings.TrimSpace(stringValue(line["presentation"])),
 			Stage:         strings.TrimSpace(stringValue(line["stage"])),
@@ -318,22 +318,10 @@ func loadRunQueryFromLines(lines []map[string]any, chatID string, runID string) 
 		if strings.TrimSpace(stringValue(line["runId"])) != runID {
 			continue
 		}
-		query, _ := line["query"].(map[string]any)
-		if query == nil {
+		if line["query"] == nil && !lineHasCurrentLayout(line) {
 			continue
 		}
-		lineChatID := firstNonBlankSubmitLineValue(line, query, "chatId")
-		if lineChatID == "" {
-			lineChatID = strings.TrimSpace(chatID)
-		}
-		return &QueryLine{
-			Type:      "query",
-			ChatID:    lineChatID,
-			RunID:     runID,
-			UpdatedAt: int64FromAny(line["updatedAt"]),
-			Locale:    strings.TrimSpace(stringValue(line["locale"])),
-			Query:     cloneStringAnyMap(query),
-		}
+		return queryLineFromMap(line, chatID)
 	}
 	return nil
 }

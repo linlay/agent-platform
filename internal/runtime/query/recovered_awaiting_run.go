@@ -152,7 +152,7 @@ func (s *Service) completeRecoveredPlanningRun(deferred DeferredAwaiting, recove
 	}
 	initialMessage := ""
 	if query != nil {
-		initialMessage = strings.TrimSpace(contracts.AnyStringNode(query.Query["message"]))
+		initialMessage = strings.TrimSpace(contracts.AnyStringNode(query.RequestPayload()["message"]))
 	}
 	if err := s.deps.Chats.OnRunCompleted(chat.RunCompletion{
 		ChatID: deferred.ChatID, RunID: deferred.RunID, AgentKey: summary.AgentKey,
@@ -188,7 +188,7 @@ func (s *Service) RegisterRecoveredAwaitingRun(item chat.PendingAwaitingWithChat
 	}
 	var original runtimetypes.QueryCommand
 	if query != nil {
-		raw, marshalErr := json.Marshal(query.Query)
+		raw, marshalErr := json.Marshal(query.RequestPayload())
 		if marshalErr != nil {
 			return contracts.RecoveredAwaitingRun{}, marshalErr
 		}

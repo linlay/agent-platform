@@ -30,6 +30,32 @@ type automationStoreRecorder struct {
 	store *automation.ExecutionStore
 }
 
+func TestAutomationHTTPKeepsDescriptiveRoleWithoutUsingIt(t *testing.T) {
+	fixture := newAutomationTestServer(t, false)
+	created := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/create", map[string]any{
+		"name": "Role audit", "cron": "0 9 * * *", "agentKey": "demo-agent", "enabled": false,
+		"query": map[string]any{"message": "hello", "role": " descriptive-role "},
+	})
+	if created.Query.Role != " descriptive-role " {
+		t.Fatalf("create lost the caller role: %#v", created.Query)
+	}
+	updated := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/update", map[string]any{
+		"id": created.ID, "query": map[string]any{"message": "changed", "role": " another\n${ROLE_AUDIT_ONLY} "},
+	})
+	if updated.Query.Role != " another\n${ROLE_AUDIT_ONLY} " {
+		t.Fatalf("update lost the caller role: %#v", updated.Query)
+	}
+	defs, err := fixture.server.deps.AutomationRegistry.Load()
+	if err != nil || len(defs) != 1 {
+		t.Fatalf("load definition: %#v, %v", defs, err)
+	}
+	request := defs[0].ToQueryRequest()
+	var original map[string]any
+	if err := json.Unmarshal(request.OriginalQuery, &original); err != nil || original["role"] != " another\n${ROLE_AUDIT_ONLY} " || request.Role != "" || request.Origin == nil || request.Origin.Type != "automation" {
+		t.Fatalf("role changed execution or was lost from the input: %#v, original=%s, err=%v", request, request.OriginalQuery, err)
+	}
+}
+
 func TestAutomationHTTPRemainingRunsUpdateClearsWithoutRecreation(t *testing.T) {
 	fixture := newAutomationTestServer(t, false)
 	created := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/create", map[string]any{
@@ -261,7 +287,7 @@ func TestAutomationHTTPCreateAllowsOmittedDescriptionAndQueryDefaults(t *testing
 		t.Fatalf("load automation registry: definitions=%#v err=%v", definitions, err)
 	}
 	request := definitions[0].ToQueryRequest()
-	if request.Role != api.QueryRoleAutomation || request.Hidden == nil || !*request.Hidden {
+	if request.Role != "" || request.Origin == nil || request.Origin.Type != "automation" || request.Hidden == nil || !*request.Hidden {
 		t.Fatalf("unexpected execution defaults %#v", request)
 	}
 }
