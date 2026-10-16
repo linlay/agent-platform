@@ -102,6 +102,7 @@ const (
 	CodeProviderModelNotFound         Code = "provider_model_not_found"
 	CodeProviderContextLengthExceeded Code = "provider_context_length_exceeded"
 	CodeContextWindowUncompactable    Code = "context_window_uncompactable"
+	CodeContextCompactFailed          Code = "context_compact_failed"
 	CodeProviderContentFilter         Code = "provider_content_filter"
 	CodeProviderBadRequest            Code = "provider_bad_request"
 	CodeProviderBadResponse           Code = "provider_bad_response"

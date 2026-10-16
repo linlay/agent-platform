@@ -104,7 +104,7 @@ func (s *FileStore) commitRunSummary(chatID string, line RunCompactCheckpointLin
 			continue
 		}
 		kind := stringFromAny(source["_type"])
-		if kind == "event" || kind == "submit" || kind == ToolCompactLineType {
+		if kind == "event" || kind == "submit" || kind == ToolCompactLineType || kind == CompactRecordLineType {
 			continue
 		}
 		messages := rawMessagesFromJSONLLines([]map[string]any{source})

@@ -70,6 +70,7 @@ var definitions = []Definition{
 	def(CodeProviderModelNotFound, CategoryModel, ScopeModel, http.StatusNotFound, false),
 	def(CodeProviderContextLengthExceeded, CategoryModel, ScopeModel, http.StatusBadRequest, false),
 	def(CodeContextWindowUncompactable, CategoryModel, ScopeModel, http.StatusBadRequest, false),
+	def(CodeContextCompactFailed, CategoryModel, ScopeModel, http.StatusBadGateway, true),
 	def(CodeProviderContentFilter, CategoryModel, ScopeModel, http.StatusBadRequest, false),
 	def(CodeProviderBadRequest, CategoryModel, ScopeModel, http.StatusBadRequest, false),
 	def(CodeProviderBadResponse, CategoryModel, ScopeModel, http.StatusBadGateway, true),

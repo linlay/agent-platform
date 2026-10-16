@@ -17,8 +17,13 @@ func validatePersistedTimeContract(lines []map[string]any, baseLocation string) 
 		location := fmt.Sprintf("%s[%d]", strings.TrimSpace(baseLocation), index)
 		lineType := strings.TrimSpace(stringFromAny(line["_type"]))
 		switch lineType {
-		case "query", StepLineTypeReact, StepLineTypeReactTool, "event", "submit", "steer", CompactCheckpointLineType, RunCompactCheckpointLineType, ToolCompactLineType:
+		case "query", StepLineTypeReact, StepLineTypeReactTool, "event", "submit", "steer", CompactCheckpointLineType, RunCompactCheckpointLineType, ToolCompactLineType, CompactRecordLineType:
 			if err := requirePersistedEpochMillis(line, "updatedAt", location); err != nil {
+				return err
+			}
+		}
+		if lineType == CompactRecordLineType {
+			if err := requirePersistedEpochMillis(line, "startedAt", location); err != nil {
 				return err
 			}
 		}

@@ -371,6 +371,9 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) (events []StreamEven
 		if value.AwaitingID != "" {
 			payload["awaitingId"] = value.AwaitingID
 		}
+		if len(value.Record) > 0 && status != "start" {
+			payload["compactRecord"] = clonePayload(value.Record)
+		}
 		var events []StreamEvent
 		if status == "start" {
 			events = d.closeOpenBlocks()

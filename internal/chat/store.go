@@ -27,6 +27,11 @@ type RunCompactCheckpointStore interface {
 	AppendRunCompactCheckpoint(chatID string, line RunCompactCheckpointLine) error
 }
 
+// CompactRecordStore appends the storage-only audit line of a compaction attempt.
+type CompactRecordStore interface {
+	AppendCompactRecord(chatID string, line CompactRecordLine) error
+}
+
 // RunStartRecorder persists the authoritative registration clock before a
 // stream can emit or replay run.start. It is deliberately optional so test
 // doubles and non-chat execution stores do not need to implement lifecycle

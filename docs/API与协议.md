@@ -41,7 +41,7 @@ JWT `exp` / `iat` 与 resource ticket payload 的 `e` 仍是 token 内部的 Num
 
 ## Chat JSONL schema 错误
 
-Chat JSONL 每条物理行只允许一个 JSON object，`_type` 必填且只允许 `query`、`react`、`react-tool`、`event`、`steer`、`submit`、`compact.checkpoint`、`compact.run.checkpoint`、`compact.tool`。空行、多行 object、同行多个 JSON 值、数组、标量、语法错误、非法 `_type` 及非法 system/planning/awaiting 结构统一返回 HTTP/WS `422 chat_storage_schema_violation`。
+Chat JSONL 每条物理行只允许一个 JSON object，`_type` 必填且只允许 `query`、`react`、`react-tool`、`event`、`steer`、`submit`、`compact.checkpoint`、`compact.run.checkpoint`、`compact.tool`、`compact`。空行、多行 object、同行多个 JSON 值、数组、标量、语法错误、非法 `_type` 及非法 system/planning/awaiting 结构统一返回 HTTP/WS `422 chat_storage_schema_violation`。
 
 `_type:"steer"` 的持久化行使用专用 `steer` object，不使用通用 `event`：顶层 `updatedAt/liveSeq` 分别保存事件时间与公开 live cursor，`steer` 保存 `requestId/chatId/runId/steerId/message/role` 与可选 `references`、`origin` 业务字段；新记录不写顶层 `messages`（旧快照兼容读取），且 `requestId` 为空时省略。回放时重新合成扁平 `type:"request.steer"` 与 `timestamp`；SSE、WebSocket stream 和 `/api/chat.events[]` 的对外事件结构不变。旧 `_type:"steer" + event` 以及 `_type:"event" + event.type:"request.steer"` 均属于不支持的存储 schema，不兼容读取或迁移。
 
@@ -299,7 +299,7 @@ Chat 列表摘要、`/api/agents?includeChats` 中的摘要和 `/api/chat` 详�
 
 普通 Agent 或 Team 协调器的活动原生根 Run 同时支持 L1/L2，请求投递给 REACT 循环并阻塞等待最终结果。已启动模型或工具批次自然结束后，在下一次模型调用、HITL 等待或 Run 终态边界执行；未完成交互与当前指令受保护。压缩前先关闭已完成输出块，持久化原始消息，再原子提交原行标记及可选 L2 摘要。持久化失败返回 `compact_persist_failed` 并终止继续调用；私有校验消息不进入公共 SSE/WS。
 
-手动 L2 的模型失败、空摘要和输入过大分别返回 `summary_model_failed`、`summary_empty`、`summary_input_too_large`，保持逻辑上下文不变且不创建 checkpoint；新压缩不再生成 deterministic fallback，已有旧 checkpoint 仍兼容回放。压缩不消耗 Agent `maxSteps`、工具轮次或普通 LLM 调用计数，L2 用量单独记录为 `compactionUsage`。自动压缩达到完整请求 90% 后执行 L1、重新估算，仍达到模型窗口 90% 才执行一次 L2；自动 L2 失败时不继续下一次模型调用。Provider 在未提交 Turn 返回标准 context-length 错误时自动压缩并只重试一次；再次溢出，或 system、工具 Schema、当前用户输入与不可拆分待处理组本身超窗口时，以 `context_window_uncompactable` 终止。
+手动 L2 的模型失败、空摘要和输入过大分别返回 `summary_model_failed`、`summary_empty`、`summary_input_too_large`，保持逻辑上下文不变且不创建 checkpoint；新压缩不再生成 deterministic fallback，已有旧 checkpoint 仍兼容回放。压缩不消耗 Agent `maxSteps`、工具轮次或普通 LLM 调用计数，L2 用量单独记录为 `compactionUsage`。自动压缩达到完整请求 90% 后执行 L1、重新估算，仍达到模型窗口 90% 才执行一次 L2；自动 L2 失败时不继续下一次模型调用：摘要模型请求失败或返回空内容时 `run.error` 为 `context_compact_failed`（retryable 跟随原因），message 带原始错误，`diagnostics` 含 compactId/level/detail、模型与窗口、摘要预算及 `cause`（原始结构化错误）；摘要输入超预算、无可压缩历史或压缩后仍超窗口才是 `context_window_uncompactable`，同样附带原因和估算。Provider 在未提交 Turn 返回标准 context-length 错误时自动压缩并只重试一次；再次溢出，或 system、工具 Schema、当前用户输入与不可拆分待处理组本身超窗口时，以 `context_window_uncompactable` 终止。
 
 #### Compact 自动周期可选字段
 

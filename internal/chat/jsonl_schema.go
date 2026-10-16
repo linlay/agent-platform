@@ -12,7 +12,7 @@ import (
 const (
 	ChatStorageSchemaViolationCode     = "chat_storage_schema_violation"
 	chatStorageSchemaExpectedLine      = "one JSON object per physical line"
-	chatStorageSchemaExpectedLineTypes = "query|react|react-tool|event|steer|submit|compact.checkpoint|compact.run.checkpoint|compact.tool"
+	chatStorageSchemaExpectedLineTypes = "query|react|react-tool|event|steer|submit|compact.checkpoint|compact.run.checkpoint|compact.tool|compact"
 )
 
 var currentJSONLLineTypes = map[string]struct{}{
@@ -25,6 +25,7 @@ var currentJSONLLineTypes = map[string]struct{}{
 	CompactCheckpointLineType:    {},
 	RunCompactCheckpointLineType: {},
 	ToolCompactLineType:          {},
+	CompactRecordLineType:        {},
 }
 
 var currentSteerLineFields = map[string]struct{}{

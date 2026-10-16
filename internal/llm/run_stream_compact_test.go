@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
+	"agent-platform/internal/modelclient"
 	"agent-platform/internal/models"
 )
 
@@ -532,6 +533,117 @@ func TestProviderContextOverflowCompactsOnceThenReturnsUncompactable(t *testing.
 	var terminal *apperrors.Error
 	if !errors.As(stream.modelTerminalError, &terminal) || terminal.Code() != apperrors.CodeContextWindowUncompactable {
 		t.Fatalf("terminal error = %v, want context_window_uncompactable", stream.modelTerminalError)
+	}
+}
+
+func TestAutomaticSummaryFailureReportsProviderCause(t *testing.T) {
+	stream := &llmRunStream{
+		session: contracts.QuerySession{RunID: "run-auto", ChatID: "chat-auto"},
+		execCtx: &contracts.ExecutionContext{RunLoopState: contracts.RunLoopStateIdle},
+		model:   models.ModelDefinition{Key: "summary-model", ContextWindow: 2000},
+		messages: []openAIMessage{
+			{Role: "system", Content: "system"},
+			{Role: "assistant", Content: strings.Repeat("important prose ", 900)},
+			{Role: "assistant", ToolCalls: []contracts.ModelToolCall{{ID: "tool-1", Type: "function", Function: contracts.ModelFunctionCall{Name: "file_read", Arguments: `{"path":"large.log"}`}}}},
+			{Role: "tool", ToolCallID: "tool-1", Content: strings.Repeat("tool output ", 900)},
+			{Role: "user", Content: "current root"},
+		},
+		pinnedMessageStart: 4,
+		pinnedMessageEnd:   5,
+	}
+	appendRecentCompactTestTools(stream, 5)
+	if !stream.scheduleContextCompact(false) {
+		t.Fatal("automatic l1 was not scheduled")
+	}
+	if err := stream.executeContextCompact(); err != nil {
+		t.Fatalf("execute automatic l1: %v", err)
+	}
+	work := stream.compactWork
+	if work == nil || work.request.Level != "summary" || work.startedAt.IsZero() {
+		t.Fatalf("summary work = %#v", work)
+	}
+	if err := stream.failContextCompact(work, "summary_model_failed", true, modelclient.StreamTimeoutError(60*time.Second)); err != nil {
+		t.Fatalf("fail compact: %v", err)
+	}
+
+	var l1Complete, failed *contracts.DeltaContextCompact
+	var runError map[string]any
+	for _, delta := range stream.pending {
+		switch value := delta.(type) {
+		case contracts.DeltaContextCompact:
+			if value.Status == "complete" {
+				l1Complete = &value
+			}
+			if value.Status == "failed" {
+				failed = &value
+			}
+		case contracts.DeltaError:
+			runError = value.Error
+		}
+	}
+	if l1Complete == nil || contracts.AnyIntNode(l1Complete.Record["startedAt"]) <= 0 || l1Complete.Record["modelKey"] != "summary-model" {
+		t.Fatalf("l1 complete record = %#v", l1Complete)
+	}
+	if failed == nil || failed.Detail != "summary_model_failed" || !failed.Retryable {
+		t.Fatalf("failed delta = %#v", failed)
+	}
+	recordErr, _ := failed.Record["error"].(map[string]any)
+	if recordErr["code"] != string(apperrors.CodeProviderTimeout) || recordErr["message"] != "model stream idle timeout after 60 seconds" {
+		t.Fatalf("record error = %#v", failed.Record)
+	}
+	if runError["code"] != string(apperrors.CodeContextCompactFailed) || runError["retryable"] != true {
+		t.Fatalf("run error = %#v", runError)
+	}
+	if message, _ := runError["message"].(string); !strings.Contains(message, "summary model request failed: model stream idle timeout after 60 seconds") {
+		t.Fatalf("run error message = %q", message)
+	}
+	diagnostics, _ := runError["diagnostics"].(map[string]any)
+	cause, _ := diagnostics["cause"].(map[string]any)
+	if diagnostics["compactId"] != work.request.CompactID || diagnostics["level"] != "summary" || diagnostics["modelKey"] != "summary-model" || cause["code"] != string(apperrors.CodeProviderTimeout) {
+		t.Fatalf("run error diagnostics = %#v", diagnostics)
+	}
+}
+
+func TestAutomaticCompactWithoutHistoryRecordsFailure(t *testing.T) {
+	stream := &llmRunStream{
+		session:             contracts.QuerySession{RunID: "run-empty", ChatID: "chat-empty"},
+		execCtx:             &contracts.ExecutionContext{RunLoopState: contracts.RunLoopStateIdle},
+		model:               models.ModelDefinition{ContextWindow: 1000},
+		messages:            []openAIMessage{{Role: "system", Content: "system"}, {Role: "user", Content: strings.Repeat("huge input ", 900)}},
+		pinnedMessageStart:  1,
+		pinnedMessageEnd:    2,
+		forceContextCompact: true,
+	}
+	if !stream.scheduleContextCompact(false) {
+		t.Fatal("uncompactable context did not stop the run")
+	}
+	var failed *contracts.DeltaContextCompact
+	var runError map[string]any
+	for _, delta := range stream.pending {
+		switch value := delta.(type) {
+		case contracts.DeltaContextCompact:
+			failed = &value
+		case contracts.DeltaError:
+			runError = value.Error
+		}
+	}
+	if failed == nil || failed.Status != "failed" || contracts.AnyIntNode(failed.Record["startedAt"]) <= 0 {
+		t.Fatalf("failed delta = %#v", failed)
+	}
+	if runError["code"] != string(apperrors.CodeContextWindowUncompactable) || !strings.Contains(fmt.Sprint(runError["message"]), "no history left to compact") {
+		t.Fatalf("run error = %#v", runError)
+	}
+}
+
+func TestCompactSummaryDeltaErrorKeepsProviderPayload(t *testing.T) {
+	err := compactSummaryDeltaError(map[string]any{"code": "provider_rate_limited", "message": "slow down", "retryable": true, "diagnostics": map[string]any{"attempt": 1}})
+	var appErr *apperrors.Error
+	if !errors.As(err, &appErr) || appErr.Code() != apperrors.CodeProviderRateLimited || appErr.Error() != "slow down" {
+		t.Fatalf("summary delta error = %#v", err)
+	}
+	payload := appErr.Payload()
+	if payload["retryable"] != true || payload["diagnostics"].(map[string]any)["attempt"] != 1 {
+		t.Fatalf("payload = %#v", payload)
 	}
 }
 

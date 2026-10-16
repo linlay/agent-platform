@@ -219,7 +219,9 @@ func (s *FileStore) CommitCompactCheckpoint(chatID string, snapshot CompactSnaps
 	var out bytes.Buffer
 	for i, record := range records {
 		lineBytes := record.Raw
-		if i <= snapshot.InsertAfterIndex && !lineIsCompacted(record.Value) {
+		// Audit lines record what happened; they never enter context, so an L2
+		// prefix leaves them untouched.
+		if i <= snapshot.InsertAfterIndex && !lineIsCompacted(record.Value) && record.Value["_type"] != CompactRecordLineType {
 			marked := cloneJSONLineMap(record.Value)
 			marked["_compact"] = compactMarker("L2", compactID, nil)
 			lineBytes, err = json.Marshal(marked)

@@ -2,17 +2,86 @@ package conversation
 
 import (
 	"errors"
+	"log"
 	"strings"
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/compaction"
 )
 
 // CompactHistory owns snapshot selection and the atomic history transaction;
 // the caller holds the chat maintenance lease for this entire operation.
+// Every attempt, whatever its outcome, leaves a _type:"compact" audit line.
 func CompactHistory(store CompactStore, baseResp api.CompactResponse, window, overhead int, compactID string, generate func(string, int) (string, map[string]any, error), options ...chat.L1Options) (api.CompactResponse, error) {
+	startedAt := time.Now().UnixMilli()
+	var summaryErr error
+	observed := generate
+	if generate != nil {
+		observed = func(prompt string, output int) (string, map[string]any, error) {
+			text, usage, err := generate(prompt, output)
+			summaryErr = err
+			return text, usage, err
+		}
+	}
+	resp, err := compactHistory(store, baseResp, window, overhead, compactID, observed, options...)
+	appendHistoryCompactRecord(store, baseResp, resp, compactID, window, overhead, startedAt, err, summaryErr)
+	return resp, err
+}
+
+func appendHistoryCompactRecord(store CompactStore, baseResp, resp api.CompactResponse, compactID string, window, overhead int, startedAt int64, err, summaryErr error) {
+	recordStore, ok := store.(chat.CompactRecordStore)
+	if !ok {
+		return
+	}
+	completedAt := time.Now().UnixMilli()
+	status := "skipped"
+	switch {
+	case err != nil:
+		status = "failed"
+	case resp.Status == "completed" || resp.Status == "failed":
+		status = resp.Status
+	}
+	line := chat.CompactRecordLine{
+		RequestID:                  baseResp.RequestID,
+		CompactID:                  compactID,
+		Trigger:                    baseResp.Trigger,
+		Level:                      baseResp.Level,
+		Scope:                      "history",
+		Status:                     status,
+		Detail:                     resp.Detail,
+		Retryable:                  resp.Retryable,
+		StartedAt:                  startedAt,
+		UpdatedAt:                  completedAt,
+		DurationMs:                 completedAt - startedAt,
+		ContextWindow:              window,
+		SummarySource:              resp.SummarySource,
+		PreCompactEstimatedTokens:  resp.PreCompactEstimatedTokens,
+		PostCompactEstimatedTokens: resp.PostCompactEstimatedTokens,
+		TokensFreed:                resp.TokensFreed,
+		ToolsCleared:               resp.ToolsCleared,
+		ReasoningCleared:           resp.ReasoningCleared,
+		ToolsKept:                  resp.ToolsKept,
+		CompactionUsage:            resp.CompactionUsage,
+		Diagnostics:                map[string]any{"overheadTokens": overhead},
+	}
+	if line.Level == "" {
+		line.Level = "summary"
+	}
+	switch {
+	case summaryErr != nil:
+		line.Error = apperrors.FromError(summaryErr, apperrors.CodeContextCompactFailed)
+	case err != nil:
+		line.Error = apperrors.FromError(err, apperrors.CodeRunError)
+	}
+	if appendErr := recordStore.AppendCompactRecord(baseResp.ChatID, line); appendErr != nil {
+		log.Printf("[compact][%s] append compact record %s failed: %v", baseResp.ChatID, compactID, appendErr)
+	}
+}
+
+func compactHistory(store CompactStore, baseResp api.CompactResponse, window, overhead int, compactID string, generate func(string, int) (string, map[string]any, error), options ...chat.L1Options) (api.CompactResponse, error) {
 	chatID, requestID, trigger, level := baseResp.ChatID, baseResp.RequestID, baseResp.Trigger, baseResp.Level
 	baseResp.CompactID = compactID
 	historyTargetTokens := max(1, compaction.Target(window)-overhead)

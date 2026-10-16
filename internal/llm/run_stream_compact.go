@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/compaction"
 	. "agent-platform/internal/contracts"
@@ -30,6 +32,10 @@ type contextCompactWork struct {
 	awaitingID       string
 	cycleID          string
 	forceSummary     bool
+	startedAt        time.Time
+	// diagnostics accumulates budgets and estimates for the compact record
+	// and for the run.error of a failed automatic compaction.
+	diagnostics map[string]any
 }
 
 type contextCompactPlan struct {
@@ -117,7 +123,13 @@ func (s *llmRunStream) scheduleContextCompact(finishAfter bool) bool {
 		}
 		if s.forceContextCompact || (!manual && compaction.Reached(preTokens, s.effectiveContextWindow(), compaction.SummaryPercent)) {
 			s.forceContextCompact = false
-			s.pending = append(s.pending, DeltaError{Error: map[string]any{"code": "context_window_uncompactable", "message": "Context cannot be reduced below the model window"}})
+			detail := "no_compactable_history"
+			if request.Level == "l1_tools" {
+				detail = "no_compactable_tools"
+			}
+			work := &contextCompactWork{request: request, preTokens: preTokens, startedAt: time.Now(), cycleID: request.CompactID}
+			s.pending = append(s.pending, s.failedCompactDelta(work, detail, false, nil))
+			s.pending = append(s.pending, DeltaError{Error: s.compactFailureError(work, detail, nil)})
 			s.closeSteersAndFinish()
 			return true
 		}
@@ -155,6 +167,7 @@ func (s *llmRunStream) scheduleContextCompact(finishAfter bool) bool {
 		toolsKept:        toolsKept,
 		awaitingID:       awaitingID,
 		forceSummary:     s.forceContextCompact,
+		startedAt:        time.Now(),
 	}
 	if !manual {
 		s.compactWork.cycleID = request.CompactID
@@ -311,36 +324,44 @@ func (s *llmRunStream) executeContextCompact() error {
 	baseMessages := append(cloneModelMessages(work.plan.system), work.plan.pinned...)
 	baseMessages = append(baseMessages, work.plan.retained...)
 	maxInputTokens, maxOutputTokens := compaction.SummaryBudget(s.effectiveContextWindow(), s.estimateCompactContext(baseMessages))
+	work.setDiagnostic("candidateMessages", len(work.plan.candidates))
+	work.setDiagnostic("retainedMessages", len(work.plan.retained))
+	work.setDiagnostic("summaryMaxInputTokens", maxInputTokens)
+	work.setDiagnostic("summaryMaxOutputTokens", maxOutputTokens)
 	if maxOutputTokens <= 0 {
-		return s.failContextCompact(work, "context_window_uncompactable", false)
+		return s.failContextCompact(work, "context_window_uncompactable", false, nil)
 	}
 	prompt, err := chat.BuildCompactPromptWithinBudget(rawCandidates, maxInputTokens)
 	if errors.Is(err, chat.ErrCompactSummaryInputTooLarge) {
-		return s.failContextCompact(work, "summary_input_too_large", false)
+		return s.failContextCompact(work, "summary_input_too_large", false, nil)
 	}
 	if err != nil {
-		return s.failContextCompact(work, "summary_model_failed", true)
+		return s.failContextCompact(work, "summary_model_failed", true, err)
 	}
 	if strings.TrimSpace(prompt) == "" {
-		return s.failContextCompact(work, "no_compactable_history", false)
+		return s.failContextCompact(work, "no_compactable_history", false, nil)
 	}
+	work.setDiagnostic("summaryPromptChars", len(prompt))
+	work.setDiagnostic("summaryPromptEstimatedTokens", chat.EstimateTextTokens(prompt))
 	summary := ""
 	summarySource := "model"
 	usage := map[string]any{}
 	detail := "completed"
+	summaryStartedAt := time.Now()
 	modelSummary, modelUsage, modelErr := s.generateContextCompactSummaryWithBudget(work.request, prompt, maxOutputTokens)
+	work.setDiagnostic("summaryDurationMs", time.Since(summaryStartedAt).Milliseconds())
 	if len(modelUsage) > 0 {
 		usage = modelUsage
 	}
 	if modelErr != nil {
 		if errors.Is(modelErr, chat.ErrCompactSummaryInputTooLarge) {
-			return s.failContextCompact(work, "summary_input_too_large", false)
+			return s.failContextCompact(work, "summary_input_too_large", false, modelErr)
 		}
-		return s.failContextCompact(work, "summary_model_failed", true)
+		return s.failContextCompact(work, "summary_model_failed", true, modelErr)
 	}
 	summary = strings.TrimSpace(modelSummary)
 	if summary == "" || summary == "Model returned no assistant content." {
-		return s.failContextCompact(work, "summary_empty", true)
+		return s.failContextCompact(work, "summary_empty", true, nil)
 	}
 	targetTokens := s.effectiveContextWindow() - 64
 
@@ -361,7 +382,9 @@ func (s *llmRunStream) executeContextCompact() error {
 	newMessages = append(newMessages, work.plan.retained...)
 	postTokens := s.estimateCompactContext(newMessages)
 	if postTokens >= work.preTokens || postTokens > targetTokens {
-		return s.failContextCompact(work, "context_window_uncompactable", false)
+		work.setDiagnostic("postCompactEstimatedTokens", postTokens)
+		work.setDiagnostic("targetTokens", targetTokens)
+		return s.failContextCompact(work, "context_window_uncompactable", false, nil)
 	}
 	s.messages = newMessages
 	s.forceContextCompact = false
@@ -398,6 +421,7 @@ func (s *llmRunStream) executeContextCompact() error {
 		CheckpointMessages:         checkpointMessages,
 		PreviousRunState:           string(work.previousState),
 		AwaitingID:                 work.awaitingID,
+		Record:                     s.compactRecord(work, nil),
 	})
 	finishAfter := work.finishAfter
 	s.compactWork = nil
@@ -432,11 +456,12 @@ func (s *llmRunStream) availableReferenceContext() string {
 
 func (s *llmRunStream) executeToolContextCompact(work *contextCompactWork) error {
 	if work == nil || (work.toolsCleared == 0 && work.reasoningCleared == 0) || len(work.toolMessages) == 0 {
-		return s.failContextCompact(work, "no_compactable_tools", false)
+		return s.failContextCompact(work, "no_compactable_tools", false, nil)
 	}
 	postTokens := s.estimateCompactContext(work.toolMessages)
 	if postTokens >= work.preTokens {
-		return s.failContextCompact(work, "no_compactable_tools", false)
+		work.setDiagnostic("postCompactEstimatedTokens", postTokens)
+		return s.failContextCompact(work, "no_compactable_tools", false, nil)
 	}
 	needsSummary := work.request.Trigger == "auto" && (compaction.Reached(postTokens, s.effectiveContextWindow(), compaction.SummaryPercent))
 	projection := chat.ProjectL1(modelMessagesToMaps(s.messages), compaction.KeepRecentRounds(s.effectiveContextWindow(), s.model.L1KeepRecentRounds), s.pinnedMessageStart, s.pinnedMessageEnd, preserveReasoningContent(s.protocolConfig, s.stageSettings))
@@ -491,6 +516,7 @@ func (s *llmRunStream) executeToolContextCompact(work *contextCompactWork) error
 		CheckpointMessages:         checkpointMessages,
 		PreviousRunState:           string(work.previousState),
 		AwaitingID:                 work.awaitingID,
+		Record:                     s.compactRecord(work, nil),
 	})
 	finishAfter := work.finishAfter
 	previousState := work.previousState
@@ -500,14 +526,16 @@ func (s *llmRunStream) executeToolContextCompact(work *contextCompactWork) error
 		request := s.nextAutomaticCompactRequest("summary")
 		plan := s.buildContextCompactPlan(true)
 		if len(plan.candidates) == 0 {
-			s.pending = append(s.pending, DeltaContextCompact{CycleID: work.cycleID, CycleComplete: true, Status: "failed", RequestID: request.RequestID, CompactID: request.CompactID, ChatID: request.ChatID, RunID: s.session.RunID, Trigger: "auto", Level: "summary", Scope: "run", Detail: "no_compactable_history"})
-			s.pending = append(s.pending, DeltaError{Error: map[string]any{"code": "context_window_uncompactable", "message": "Context cannot be reduced below the model window"}})
+			failed := &contextCompactWork{request: request, preTokens: postTokens, cycleID: work.cycleID, startedAt: time.Now()}
+			s.pending = append(s.pending, s.failedCompactDelta(failed, "no_compactable_history", false, nil))
+			s.pending = append(s.pending, DeltaError{Error: s.compactFailureError(failed, "no_compactable_history", nil)})
 			s.closeSteersAndFinish()
 			return nil
 		}
 		s.compactWork = &contextCompactWork{
 			request: request, previousState: previousState, finishAfter: finishAfter,
 			preTokens: postTokens, plan: plan, awaitingID: awaitingID, cycleID: work.cycleID,
+			startedAt: time.Now(),
 		}
 		s.pending = append(s.pending, DeltaContextCompact{
 			CycleID: work.cycleID, Status: "start", RequestID: request.RequestID, CompactID: request.CompactID,
@@ -550,11 +578,24 @@ func (s *llmRunStream) restoreContextCompactState(work *contextCompactWork) {
 	}
 }
 
-func (s *llmRunStream) failContextCompact(work *contextCompactWork, detail string, retryable bool) error {
+func (s *llmRunStream) failContextCompact(work *contextCompactWork, detail string, retryable bool, cause error) error {
 	if work == nil {
 		return nil
 	}
-	s.pending = append(s.pending, DeltaContextCompact{
+	s.pending = append(s.pending, s.failedCompactDelta(work, detail, retryable, cause))
+	s.compactWork = nil
+	s.restoreContextCompactState(work)
+	if work.request.Trigger == "auto" {
+		s.pending = append(s.pending, DeltaError{Error: s.compactFailureError(work, detail, cause)})
+		s.closeSteersAndFinish()
+	} else if work.finishAfter {
+		s.compactFinishPending = true
+	}
+	return nil
+}
+
+func (s *llmRunStream) failedCompactDelta(work *contextCompactWork, detail string, retryable bool, cause error) DeltaContextCompact {
+	return DeltaContextCompact{
 		CycleID:          work.cycleID,
 		CycleComplete:    true,
 		Status:           "failed",
@@ -569,20 +610,94 @@ func (s *llmRunStream) failContextCompact(work *contextCompactWork, detail strin
 		Retryable:        retryable,
 		PreviousRunState: string(work.previousState),
 		AwaitingID:       work.awaitingID,
-	})
-	s.compactWork = nil
-	s.restoreContextCompactState(work)
-	if work.request.Trigger == "auto" {
-		code := detail
-		if detail == "summary_input_too_large" || detail == "summary_model_failed" || detail == "summary_empty" {
-			code = "context_window_uncompactable"
-		}
-		s.pending = append(s.pending, DeltaError{Error: map[string]any{"code": code, "message": "Context cannot be reduced below the model window"}})
-		s.closeSteersAndFinish()
-	} else if work.finishAfter {
-		s.compactFinishPending = true
+		Record:           s.compactRecord(work, cause),
 	}
-	return nil
+}
+
+func (w *contextCompactWork) setDiagnostic(key string, value any) {
+	if w.diagnostics == nil {
+		w.diagnostics = map[string]any{}
+	}
+	w.diagnostics[key] = value
+}
+
+// compactRecord is the storage-only payload behind the _type:"compact" line.
+func (s *llmRunStream) compactRecord(work *contextCompactWork, cause error) map[string]any {
+	startedAt := work.startedAt
+	if startedAt.IsZero() {
+		startedAt = time.Now()
+	}
+	record := map[string]any{
+		"startedAt":     startedAt.UnixMilli(),
+		"modelKey":      s.model.Key,
+		"contextWindow": s.effectiveContextWindow(),
+	}
+	if len(work.diagnostics) > 0 {
+		record["diagnostics"] = CloneMap(work.diagnostics)
+	}
+	if cause != nil {
+		record["error"] = compactCausePayload(cause)
+	}
+	return record
+}
+
+// compactFailureError is the run.error of an automatic compaction that stops
+// the Run. A failed or empty summary call keeps its own cause and
+// retryability; only a context that cannot fit is context_window_uncompactable.
+func (s *llmRunStream) compactFailureError(work *contextCompactWork, detail string, cause error) map[string]any {
+	code := apperrors.CodeContextWindowUncompactable
+	retryable := false
+	var reason string
+	switch detail {
+	case "summary_model_failed":
+		code, retryable, reason = apperrors.CodeContextCompactFailed, true, "summary model request failed"
+	case "summary_empty":
+		code, retryable, reason = apperrors.CodeContextCompactFailed, true, "summary model returned no content"
+	case "summary_input_too_large":
+		reason = "history to summarize exceeds the summary input budget"
+	case "no_compactable_tools", "no_compactable_history":
+		reason = "no history left to compact"
+	default:
+		reason = "compacted context still exceeds the model window"
+	}
+	message := "Context cannot be reduced below the model window: " + reason
+	if code == apperrors.CodeContextCompactFailed {
+		message = "Context compaction failed: " + reason
+	}
+	diagnostics := map[string]any{
+		"compactId":                 work.request.CompactID,
+		"level":                     work.request.Level,
+		"trigger":                   work.request.Trigger,
+		"detail":                    detail,
+		"modelKey":                  s.model.Key,
+		"contextWindow":             s.effectiveContextWindow(),
+		"preCompactEstimatedTokens": work.preTokens,
+	}
+	if work.cycleID != "" {
+		diagnostics["cycleId"] = work.cycleID
+	}
+	for key, value := range work.diagnostics {
+		diagnostics[key] = value
+	}
+	if cause != nil {
+		causePayload := compactCausePayload(cause)
+		diagnostics["cause"] = causePayload
+		if text, _ := causePayload["message"].(string); strings.TrimSpace(text) != "" {
+			message += ": " + text
+		}
+		if causeRetryable, ok := causePayload["retryable"].(bool); ok && code == apperrors.CodeContextCompactFailed {
+			retryable = causeRetryable
+		}
+	}
+	return apperrors.Payload(code, message, apperrors.WithRetryable(retryable), apperrors.WithDiagnostics(diagnostics))
+}
+
+func compactCausePayload(err error) map[string]any {
+	var appErr *apperrors.Error
+	if errors.As(err, &appErr) {
+		return appErr.Payload()
+	}
+	return map[string]any{"message": err.Error()}
 }
 
 func (s *llmRunStream) compactToolsFingerprint() string {
@@ -658,7 +773,7 @@ func (s *llmRunStream) generateContextCompactSummaryWithBudget(request CompactCo
 				// The compact caller maps an empty result to summary_empty.
 				return "", usage, nil
 			}
-			return strings.TrimSpace(output.String()), usage, fmt.Errorf("compact summary model error: %v", value.Error)
+			return strings.TrimSpace(output.String()), usage, compactSummaryDeltaError(value.Error)
 		}
 	}
 	return strings.TrimSpace(output.String()), usage, nil
@@ -752,4 +867,22 @@ func (s *llmRunStream) checkpointMessages(messages []openAIMessage) []map[string
 		}
 	}
 	return raw
+}
+
+// compactSummaryDeltaError keeps the structured provider error of the summary
+// call instead of flattening it to text.
+func compactSummaryDeltaError(payload map[string]any) error {
+	code, _ := payload["code"].(string)
+	message, _ := payload["message"].(string)
+	if strings.TrimSpace(code) == "" {
+		return fmt.Errorf("compact summary model error: %v", payload)
+	}
+	opts := []apperrors.Option{}
+	if diagnostics, ok := payload["diagnostics"].(map[string]any); ok {
+		opts = append(opts, apperrors.WithDiagnostics(diagnostics))
+	}
+	if retryable, ok := payload["retryable"].(bool); ok {
+		opts = append(opts, apperrors.WithRetryable(retryable))
+	}
+	return apperrors.New(apperrors.Code(code), message, opts...)
 }

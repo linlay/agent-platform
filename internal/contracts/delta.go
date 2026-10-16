@@ -441,6 +441,9 @@ type DeltaContextCompact struct {
 	CheckpointMessages         []map[string]any
 	PreviousRunState           string
 	AwaitingID                 string
+	// Record is storage-only compaction audit data (start time, budgets,
+	// failure cause). It is persisted as the _type:"compact" line only.
+	Record map[string]any
 }
 
 func (DeltaContextCompact) agentDeltaTag() {}

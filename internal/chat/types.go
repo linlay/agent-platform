@@ -164,7 +164,42 @@ const (
 	CompactCheckpointLineType    = "compact.checkpoint"
 	RunCompactCheckpointLineType = "compact.run.checkpoint"
 	ToolCompactLineType          = "compact.tool"
+	CompactRecordLineType        = "compact"
 )
+
+// CompactRecordLine is the storage-only audit record of one compaction attempt
+// (L1 or L2, any trigger, any outcome). Readers that build context or replay
+// ignore it; the effective result still lives in checkpoints and _compact.
+type CompactRecordLine struct {
+	Type                       string         `json:"_type"`
+	ChatID                     string         `json:"chatId"`
+	RunID                      string         `json:"runId,omitempty"`
+	RequestID                  string         `json:"requestId,omitempty"`
+	CompactID                  string         `json:"compactId"`
+	CycleID                    string         `json:"cycleId,omitempty"`
+	Trigger                    string         `json:"trigger,omitempty"`
+	Level                      string         `json:"level,omitempty"`
+	Scope                      string         `json:"scope,omitempty"`
+	Status                     string         `json:"status"`
+	Detail                     string         `json:"detail,omitempty"`
+	Retryable                  bool           `json:"retryable,omitempty"`
+	StartedAt                  int64          `json:"startedAt"`
+	UpdatedAt                  int64          `json:"updatedAt"`
+	DurationMs                 int64          `json:"durationMs"`
+	LiveSeq                    int64          `json:"liveSeq,omitempty"`
+	ModelKey                   string         `json:"modelKey,omitempty"`
+	ContextWindow              int            `json:"contextWindow,omitempty"`
+	SummarySource              string         `json:"summarySource,omitempty"`
+	PreCompactEstimatedTokens  int            `json:"preCompactEstimatedTokens,omitempty"`
+	PostCompactEstimatedTokens int            `json:"postCompactEstimatedTokens,omitempty"`
+	TokensFreed                int            `json:"tokensFreed,omitempty"`
+	ToolsCleared               int            `json:"toolsCleared,omitempty"`
+	ReasoningCleared           int            `json:"reasoningCleared,omitempty"`
+	ToolsKept                  int            `json:"toolsKept,omitempty"`
+	CompactionUsage            map[string]any `json:"compactionUsage,omitempty"`
+	Diagnostics                map[string]any `json:"diagnostics,omitempty"`
+	Error                      map[string]any `json:"error,omitempty"`
+}
 
 type CompactCheckpointLine struct {
 	Version                    int              `json:"version,omitempty"`

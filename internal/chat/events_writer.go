@@ -39,6 +39,15 @@ func (s *FileStore) AppendSubmitLine(chatID string, line SubmitLine) error {
 	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
 }
 
+func (s *FileStore) AppendCompactRecord(chatID string, line CompactRecordLine) error {
+	if !ValidChatID(chatID) {
+		return os.ErrPermission
+	}
+	line.Type = CompactRecordLineType
+	line.ChatID = chatID
+	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
+}
+
 func (s *FileStore) AppendRunCompactCheckpoint(chatID string, line RunCompactCheckpointLine) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

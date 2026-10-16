@@ -396,7 +396,10 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.flushCurrentStep()
 		w.flushAllTaskSteps()
 		if event.String("level") != "l1_tools" {
-			w.appendTypedEventLine(event, "event")
+			w.appendTypedEventLine(withoutCompactRecord(event), "event")
+		}
+		if event.Type == "context.compact.failed" {
+			w.appendCompactRecord(event, "failed", nil)
 		}
 
 	case "context.compact.complete":
@@ -407,7 +410,9 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		}
 		checkpointMessages := messagesFromEventValue(event.Value("checkpointMessages"))
 		if len(checkpointMessages) == 0 {
-			w.recordPersistenceError(fmt.Errorf("compact run checkpoint messages are required"))
+			err := fmt.Errorf("compact run checkpoint messages are required")
+			w.recordPersistenceError(err)
+			w.appendCompactRecord(event, "failed", err)
 			break
 		}
 		compactionUsage, _ := event.Value("compactionUsage").(map[string]any)
@@ -448,7 +453,10 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			AwaitingID:                 event.String("awaitingId"),
 		}); err != nil {
 			w.recordPersistenceError(err)
+			w.appendCompactRecord(event, "failed", err)
+			break
 		}
+		w.appendCompactRecord(event, "completed", nil)
 
 	case "run.error":
 		w.flushCurrentStep()

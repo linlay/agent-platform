@@ -478,6 +478,9 @@ type InputContextCompact struct {
 	CheckpointMessages         []map[string]any
 	PreviousRunState           string
 	AwaitingID                 string
+	// Record is storage-only compaction audit data; it is stripped before
+	// client publication.
+	Record map[string]any
 }
 
 func (InputContextCompact) streamInputTag() {}

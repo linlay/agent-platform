@@ -508,6 +508,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			CheckpointMessages:         cloneRawMessageMaps(value.CheckpointMessages),
 			PreviousRunState:           value.PreviousRunState,
 			AwaitingID:                 value.AwaitingID,
+			Record:                     CloneMap(value.Record),
 		}}
 	case DeltaRunCancel:
 		return []stream.StreamInput{stream.RunCancel{RunID: value.RunID}}
