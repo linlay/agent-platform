@@ -140,6 +140,7 @@ Agent 创建的请求级 `isProject:true` 要求 `definition.runtimeConfig.works
 | GET/PUT | `/api/admin/connectors/detail` | GET: `id/file`；PUT: `id/file/content/baseSha256` | 读取或原子保存连接器定义，旧 MCP Registry 管理接口已移除 |
 | DELETE | `/api/admin/connectors/detail?id=<id>` | 外部连接器 id | 删除未被 Agent 引用的安装包，返回 `{id,deleted:true}`；内置包 403、仍被引用 409（`data.error.agentKeys`）、不存在 404；保留授权与 CLI 状态，重载失败回滚 |
 | POST | `/api/admin/connectors/import` | multipart `file` ZIP、可选 `overwrite` | 原子安装或覆盖外部连接器 |
+| POST | `/api/admin/connectors/import-mcp` | JSON `mcpUrl`、可选 `authMode`（mcp/none，缺省 mcp） | 按主机名创建 HTTP MCP 连接器，重名不覆盖；见[安装与授权](连接器安装与授权.md#mcp-地址导入) |
 | GET/POST/DELETE | `/api/admin/connectors/auth?id=<id>` | 连接器 id | 查询状态、发起登录、退出登录 |
 | POST | `/api/admin/connectors/auth/cancel?id=<id>` | 连接器 id | 取消当前登录会话 |
 | GET/PUT/DELETE | `/api/admin/source` | GET query: `type`、`key`/`id`、`path`、`category`、`file`；PUT body: `target`、`content`、`baseSha256`；DELETE body: `target`、`baseSha256` | 读取或保存受控的 Agent、Skill、Skill Package、Automation、Registry 文本 source；旧 MCP source 删除入口已退役；mutation 使用哈希防止覆盖并发修改（技能包必填） |

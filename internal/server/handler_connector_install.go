@@ -67,7 +67,18 @@ func (s *Server) handleConnectorImport(w http.ResponseWriter, r *http.Request) {
 		s.writeConnectorError(w, err)
 		return
 	}
-	pkg, err := withCatalogDirectoryTransaction(r.Context(), s, "connectors", func(ctx context.Context) (connector.Package, error) {
+	pkg, err := s.publishPreparedConnector(r.Context(), prepared, overwrite)
+	if err != nil {
+		s.writeConnectorError(w, err)
+		return
+	}
+	s.writeConnectorInstall(w, pkg)
+}
+
+// publishPreparedConnector is the single publication boundary shared by ZIP and
+// HTTP MCP imports: connector operation lock, package revalidation and reload.
+func (s *Server) publishPreparedConnector(ctx context.Context, prepared *connector.PreparedArchive, overwrite bool) (connector.Package, error) {
+	return withCatalogDirectoryTransaction(ctx, s, "connectors", func(ctx context.Context) (connector.Package, error) {
 		return prepared.Publish(ctx, overwrite, mcp.ValidateConnectorPackages, func() error {
 			if s.deps.CatalogReloader != nil {
 				return s.deps.CatalogReloader.Reload(context.WithoutCancel(ctx), "connectors")
@@ -75,10 +86,9 @@ func (s *Server) handleConnectorImport(w http.ResponseWriter, r *http.Request) {
 			return nil
 		})
 	})
-	if err != nil {
-		s.writeConnectorError(w, err)
-		return
-	}
+}
+
+func (s *Server) writeConnectorInstall(w http.ResponseWriter, pkg connector.Package) {
 	response := map[string]any{"id": pkg.ID, "name": pkg.Manifest.Localized(responseLocale(w)).Name, "version": pkg.Version, "installed": true, "authMode": pkg.AuthMode}
 	if pkg.CLI != nil {
 		prepared, err := s.connectorAuth.StartPreparation(pkg.ID)

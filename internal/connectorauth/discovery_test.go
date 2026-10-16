@@ -371,6 +371,10 @@ func TestDiscoveryReportsTheScopesLoginRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := waitStatus(t, m, "demo", "pending")
+	// End the login before the temporary state directory is removed.
+	if err := m.Cancel("demo"); err != nil {
+		t.Fatal(err)
+	}
 	authorize, _ := url.Parse(session.URL)
 	if strings.Join(report.Scopes, " ") != "mcp:read" || authorize.Query().Get("scope") != "mcp:read" {
 		t.Fatalf("check scopes %v, login scope %q", report.Scopes, authorize.Query().Get("scope"))
@@ -390,7 +394,7 @@ func TestDiagnosticRedactionHandlesSpecialCharacters(t *testing.T) {
 			t.Fatalf("redactDiagnostic(%q) = %q", text, got)
 		}
 	}
-	for _, raw := range []string{"https://h.test/mcp?api_key='" + secret + "'", "https://h.test/mcp?a=\"" + secret + "\"", "https://h.test/mcp#" + secret, "https://h.test/%zz?" + secret} {
+	for _, raw := range []string{"https://h.test/mcp?api_key='" + secret + "'", "https://h.test/mcp?a=\"" + secret + "\"", "https://h.test/mcp#" + secret, "https://h.test/%zz?" + secret, "https://user:" + secret + "@h.test/%zz?key=x"} {
 		if got := redactURLString(raw); strings.Contains(got, secret) {
 			t.Fatalf("redactURLString(%q) = %q", raw, got)
 		}
@@ -470,5 +474,13 @@ func TestEarlierCheckKeepsNewerLoginFailure(t *testing.T) {
 	status, err := m.StatusComponent(t.Context(), "demo", "")
 	if err != nil || status.Status != "failed" || status.Message != failure.Message {
 		t.Fatalf("earlier check removed the newer login failure: %+v (%v)", status, err)
+	}
+}
+
+func TestValidationRedactsUnparseableURLCredentials(t *testing.T) {
+	const secret = "REVIEW_SECRET"
+	pkg := connector.Package{Manifest: connector.Manifest{ID: "demo", AuthMode: connector.AuthMCP}, MCP: map[string]map[string]any{"main": {"type": "streamableHttp", "url": "https://user:" + secret + "@h.test/%zz?key=x"}}}
+	if err := ValidatePackage(pkg); err == nil || strings.Contains(err.Error(), secret) {
+		t.Fatalf("validation leaked userinfo: %v", err)
 	}
 }

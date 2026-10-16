@@ -149,15 +149,15 @@ func redactedURL(u *url.URL) string {
 }
 
 // redactURLString parses a known URL and drops userinfo, query and fragment,
-// keeping a marker where a query was removed. Unparseable text is cut at the
-// first query or fragment delimiter.
+// keeping a marker where a query was removed. Unparseable text keeps only its
+// scheme: its authority may still hold userinfo credentials.
 func redactURLString(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
-		if i := strings.IndexAny(raw, "?#"); i >= 0 {
-			return raw[:i] + "?[redacted]"
+		if scheme, _, ok := strings.Cut(raw, "://"); ok && !strings.ContainsAny(scheme, "/?#@") {
+			return scheme + "://[unparseable URL redacted]"
 		}
-		return redactDiagnostic(raw)
+		return "[unparseable URL redacted]"
 	}
 	clean := redactedURL(u)
 	if u.RawQuery != "" || u.ForceQuery || strings.Contains(raw, "?") {
