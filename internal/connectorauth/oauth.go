@@ -46,7 +46,7 @@ func oauthResource(pkg connector.Package) (string, oauthSettings, error) {
 		}
 	}
 	if settings.Resource != "" && !secureURL(settings.Resource) {
-		return "", settings, fmt.Errorf("oauth.resource %q must be an HTTPS URL (HTTP only for localhost)", settings.Resource)
+		return "", settings, fmt.Errorf("oauth.resource %q must be an HTTPS URL (HTTP only for localhost)", redactURLString(settings.Resource))
 	}
 	if settings.RedirectURI != "" {
 		if _, _, err := callbackAddress(settings.RedirectURI); err != nil {
@@ -54,7 +54,7 @@ func oauthResource(pkg connector.Package) (string, oauthSettings, error) {
 		}
 	}
 	if settings.ResourceMetadataURL != "" && !secureURL(settings.ResourceMetadataURL) {
-		return "", settings, fmt.Errorf("oauth.resourceMetadataUrl %q must be an HTTPS URL (HTTP only for localhost)", settings.ResourceMetadataURL)
+		return "", settings, fmt.Errorf("oauth.resourceMetadataUrl %q must be an HTTPS URL (HTTP only for localhost)", redactURLString(settings.ResourceMetadataURL))
 	}
 	switch len(pkg.MCP) {
 	case 0:
@@ -72,7 +72,7 @@ func oauthResource(pkg connector.Package) (string, oauthSettings, error) {
 		}
 		resource, _ := component["url"].(string)
 		if !secureURL(resource) {
-			return "", settings, fmt.Errorf("MCP component %s url %q must be HTTPS for MCP authorization (HTTP only for localhost)", name, resource)
+			return "", settings, fmt.Errorf("MCP component %s url %q must be HTTPS for MCP authorization (HTTP only for localhost)", name, redactURLString(resource))
 		}
 		if headers, ok := component["headers"].(map[string]any); ok {
 			for key := range headers {
@@ -87,6 +87,25 @@ func oauthResource(pkg connector.Package) (string, oauthSettings, error) {
 		return resource, settings, nil
 	}
 	return "", settings, nil
+}
+
+// authorizationScopes is the scope request of both login and the discovery
+// check: a pending step-up from an insufficient_scope challenge first, then the
+// initial Bearer challenge as the MCP specification requires, then the
+// connector's configured scopes and finally scopes_supported.
+func authorizationScopes(pkg connector.Package, resource string, settings oauthSettings, found *discovered) []string {
+	if existing, err := readCredential(pkg.PersistentRoot(), pkg.ID); err == nil {
+		if grant, ok := selectCredential(existing, resource, []string{oauthDestination(pkg)}); ok && len(grant.RequiredScopes) > 0 {
+			return grant.RequiredScopes
+		}
+	}
+	switch {
+	case len(found.challengedScopes) > 0:
+		return found.challengedScopes
+	case len(settings.Scopes) > 0:
+		return settings.Scopes
+	}
+	return found.prm.ScopesSupported
 }
 
 // mcpAuthorizationSettings adds the deployment-owned client registration, as
@@ -164,14 +183,6 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 	if err != nil {
 		return err
 	}
-	scopes := settings.Scopes
-	stepUp := false
-	if existing, readErr := readCredential(pkg.PersistentRoot(), pkg.ID); readErr == nil {
-		if grant, ok := selectCredential(existing, resource, []string{oauthDestination(pkg)}); ok && len(grant.RequiredScopes) > 0 {
-			scopes = grant.RequiredScopes
-			stepUp = true
-		}
-	}
 	var component map[string]any
 	for _, value := range pkg.MCP {
 		component = value
@@ -181,12 +192,7 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 		return err
 	}
 	prm, asm := found.prm, found.asm
-	if len(found.challengedScopes) > 0 && !stepUp {
-		scopes = found.challengedScopes
-	}
-	if len(scopes) == 0 {
-		scopes = prm.ScopesSupported
-	}
+	scopes := authorizationScopes(pkg, resource, settings, found)
 	cfg := oauth2.Config{ClientID: settings.ClientID, Endpoint: oauth2.Endpoint{AuthURL: asm.AuthorizationEndpoint, TokenURL: asm.TokenEndpoint, AuthStyle: oauth2.AuthStyleInParams}}
 	cfg.ClientSecret = clientInfo.ClientSecret
 	if cfg.ClientSecret != "" {
@@ -342,7 +348,7 @@ func oauthRegistrationError(err error) error {
 // oauthExchangeError reports the OAuth error code and description but never the
 // raw response body, which may echo codes or tokens.
 func oauthExchangeError(endpoint string, err error) error {
-	message := "OAuth token exchange at " + endpoint + " failed"
+	message := "OAuth token exchange at " + redactURLString(endpoint) + " failed"
 	var retrieve *oauth2.RetrieveError
 	if errors.As(err, &retrieve) {
 		if retrieve.Response != nil {
@@ -355,7 +361,7 @@ func oauthExchangeError(endpoint string, err error) error {
 			message += ": " + description
 		}
 	} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		message += ": " + err.Error()
+		message += ": " + redactKnown(err.Error(), endpoint)
 	}
 	return errors.New(message + "; start login again")
 }

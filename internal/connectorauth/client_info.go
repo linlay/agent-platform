@@ -117,9 +117,11 @@ func saveRegisteredClient(ctx context.Context, pkg connector.Package, info OAuth
 }
 
 func validateClientMetadata(ctx context.Context, client *http.Client, raw, redirect string) error {
+	// The document URL is connector configuration and may carry a query.
+	shown := redactURLString(raw)
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.Path == "" || u.User != nil || u.Fragment != "" || redirect == "" {
-		return fmt.Errorf("oauth.clientMetadataUrl %q must be an HTTPS document URL and oauth.redirectUri must be configured", raw)
+		return fmt.Errorf("oauth.clientMetadataUrl %q must be an HTTPS document URL and oauth.redirectUri must be configured", shown)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
@@ -127,7 +129,7 @@ func validateClientMetadata(ctx context.Context, client *http.Client, raw, redir
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("client metadata document %s is unavailable: %v", raw, err)
+		return fmt.Errorf("client metadata document %s is unavailable: %s", shown, redactKnown(err.Error(), raw))
 	}
 	defer resp.Body.Close()
 	var doc struct {
@@ -136,18 +138,18 @@ func validateClientMetadata(ctx context.Context, client *http.Client, raw, redir
 		RedirectURIs []string `json:"redirect_uris"`
 	}
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("client metadata document %s returned HTTP %d", raw, resp.StatusCode)
+		return fmt.Errorf("client metadata document %s returned HTTP %d", shown, resp.StatusCode)
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&doc); err != nil {
-		return fmt.Errorf("client metadata document %s is not valid JSON: %v", raw, err)
+		return fmt.Errorf("client metadata document %s is not valid JSON: %v", shown, err)
 	}
 	switch {
 	case doc.ClientID != raw:
-		return fmt.Errorf("client metadata document %s declares client_id %q; it must equal the document URL", raw, doc.ClientID)
+		return fmt.Errorf("client metadata document %s declares client_id %q; it must equal the document URL", shown, redactURLString(doc.ClientID))
 	case doc.ClientName == "":
-		return fmt.Errorf("client metadata document %s requires client_name", raw)
+		return fmt.Errorf("client metadata document %s requires client_name", shown)
 	case !slices.Contains(doc.RedirectURIs, redirect):
-		return fmt.Errorf("client metadata document %s does not list redirect_uri %s", raw, redirect)
+		return fmt.Errorf("client metadata document %s does not list redirect_uri %s", shown, redirect)
 	}
 	return nil
 }

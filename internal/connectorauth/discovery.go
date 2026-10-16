@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -90,6 +91,7 @@ type discovered struct {
 // including redirects, before any network I/O.
 type discoveryRecorder struct {
 	base  http.RoundTripper
+	known []string
 	mu    sync.Mutex
 	steps []DiscoveryStep
 }
@@ -103,7 +105,10 @@ func (t *discoveryRecorder) RoundTrip(req *http.Request) (*http.Response, error)
 	}
 	response, err := t.base.RoundTrip(req)
 	if err != nil {
-		step.Result = "request failed: " + err.Error()
+		t.mu.Lock()
+		known := append(slices.Clone(t.known), req.URL.String())
+		t.mu.Unlock()
+		step.Result = "request failed: " + redactKnown(err.Error(), known...)
 	} else {
 		step.Status = response.StatusCode
 	}
@@ -143,6 +148,60 @@ func redactedURL(u *url.URL) string {
 	return clean.String()
 }
 
+// redactURLString parses a known URL and drops userinfo, query and fragment,
+// keeping a marker where a query was removed. Unparseable text is cut at the
+// first query or fragment delimiter.
+func redactURLString(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		if i := strings.IndexAny(raw, "?#"); i >= 0 {
+			return raw[:i] + "?[redacted]"
+		}
+		return redactDiagnostic(raw)
+	}
+	clean := redactedURL(u)
+	if u.RawQuery != "" || u.ForceQuery || strings.Contains(raw, "?") {
+		clean += "?[redacted]"
+	}
+	return clean
+}
+
+// diagnosticURL matches any URL left in free text. Host and path stop at quotes
+// so formatted URLs keep their delimiters; a query or fragment extends to the
+// next whitespace, since quotes and brackets are valid inside a query.
+var diagnosticURL = regexp.MustCompile(`(?i)(https?://)(?:[^\s/?#@]*@)?([^\s"'<>?#]*)([?#]\S*)?`)
+
+// redactDiagnostic removes userinfo, query strings and fragments from every
+// URL in diagnostic text. Endpoint, metadata and SDK error text may embed
+// connector URLs whose query carries an API key.
+func redactDiagnostic(text string) string {
+	return diagnosticURL.ReplaceAllStringFunc(text, func(match string) string {
+		parts := diagnosticURL.FindStringSubmatch(match)
+		redacted := parts[1] + parts[2]
+		if parts[3] != "" {
+			redacted += "?[redacted]"
+		}
+		return redacted
+	})
+}
+
+// redactKnown replaces known URLs, raw or %q-escaped as in url.Error, with
+// their parsed redaction before the generic fallback runs.
+func redactKnown(text string, known ...string) string {
+	known = slices.Clone(known)
+	slices.SortFunc(known, func(a, b string) int { return len(b) - len(a) })
+	for _, raw := range known {
+		if raw == "" {
+			continue
+		}
+		clean := redactURLString(raw)
+		quoted := strconv.Quote(raw)
+		text = strings.ReplaceAll(text, quoted[1:len(quoted)-1], clean)
+		text = strings.ReplaceAll(text, raw, clean)
+	}
+	return redactDiagnostic(text)
+}
+
 // discoverAuthorization follows the MCP authorization specification: an MCP
 // request without a token yields a Bearer challenge that names the protected
 // resource metadata. Some servers answer GET with 200 or 405, so the probe is a
@@ -152,11 +211,19 @@ func discoverAuthorization(ctx context.Context, client *http.Client, resource, d
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	recorder := &discoveryRecorder{base: base}
+	known := []string{destination, resource, settings.ResourceMetadataURL, settings.Issuer, settings.ClientMetadataURL}
+	recorder := &discoveryRecorder{base: base, known: known}
 	recording := *client
 	recording.Transport = recorder
 	fail := func(code, format string, args ...any) (*discovered, error) {
-		return nil, &DiscoveryError{Code: code, Message: fmt.Sprintf(format, args...), Steps: recorder.snapshot()}
+		return nil, &DiscoveryError{Code: code, Message: redactKnown(fmt.Sprintf(format, args...), known...), Steps: recorder.snapshot()}
+	}
+	// URLs learned during discovery are redacted the same way as configured ones.
+	addKnown := func(urls ...string) {
+		known = append(known, urls...)
+		recorder.mu.Lock()
+		recorder.known = slices.Clone(known)
+		recorder.mu.Unlock()
 	}
 	result := &discovered{}
 	metadata := settings.ResourceMetadataURL
@@ -174,6 +241,7 @@ func discoverAuthorization(ctx context.Context, client *http.Client, resource, d
 		if challenge != "" {
 			challengeFound = true
 			candidates = []string{challenge}
+			addKnown(challenge)
 		} else {
 			candidates = wellKnownResourceMetadata(destination)
 		}
@@ -211,6 +279,8 @@ func discoverAuthorization(ctx context.Context, client *http.Client, resource, d
 	if len(result.prm.AuthorizationServers) == 0 {
 		return fail("authorization_server_missing", "protected resource metadata %s lists no authorization_servers", result.metadataURL)
 	}
+	addKnown(result.prm.AuthorizationServers...)
+	addKnown(result.prm.Resource)
 	issuer := result.prm.AuthorizationServers[0]
 	if settings.Issuer != "" {
 		if !slices.Contains(result.prm.AuthorizationServers, settings.Issuer) {
@@ -233,6 +303,7 @@ func discoverAuthorization(ctx context.Context, client *http.Client, resource, d
 		return fail("authorization_server_metadata_not_found", "authorization server %s metadata discovery failed: %s", issuer, detail)
 	}
 	result.asm = asm
+	addKnown(asm.Issuer, asm.AuthorizationEndpoint, asm.TokenEndpoint, asm.RegistrationEndpoint)
 	for name, endpoint := range map[string]string{"authorization_endpoint": asm.AuthorizationEndpoint, "token_endpoint": asm.TokenEndpoint} {
 		if !secureURL(endpoint) {
 			return fail("insecure_authorization_server", "authorization server %s %s %q must use HTTPS (HTTP only for localhost)", issuer, name, endpoint)
@@ -279,7 +350,8 @@ func probeChallenge(ctx context.Context, client *http.Client, recorder *discover
 	if err != nil {
 		return "", nil, err
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	// Only the status and headers matter. An SSE response may never end, so the
+	// body is closed unread instead of drained.
 	resp.Body.Close()
 	if session := resp.Header.Get("Mcp-Session-Id"); resp.StatusCode < 300 && session != "" {
 		closeProbeSession(ctx, client, destination, headers, session)
@@ -345,6 +417,17 @@ func wellKnownResourceMetadata(destination string) []string {
 	return []string{u.String(), root}
 }
 
+// componentURLs lists the package's MCP endpoints for diagnostic redaction.
+func componentURLs(pkg connector.Package) []string {
+	var urls []string
+	for _, component := range pkg.MCP {
+		if value, ok := component["url"].(string); ok {
+			urls = append(urls, value)
+		}
+	}
+	return urls
+}
+
 // probeHeaders are the component's constant headers. Templated values hold
 // credentials and are never sent before authorization.
 func probeHeaders(component map[string]any) map[string]string {
@@ -371,7 +454,7 @@ func DiscoverAuthorization(ctx context.Context, client *http.Client, pkg connect
 	}
 	selected, err := OAuthComponent(pkg, component)
 	if err != nil {
-		report.Code, report.Message = "invalid_component", err.Error()
+		report.Code, report.Message = "invalid_component", redactKnown(err.Error(), componentURLs(pkg)...)
 		return report
 	}
 	for name := range selected.MCP {
@@ -379,10 +462,10 @@ func DiscoverAuthorization(ctx context.Context, client *http.Client, pkg connect
 	}
 	resource, settings, err := mcpAuthorizationSettings(selected)
 	if err != nil {
-		report.Code, report.Message = "invalid_configuration", err.Error()
+		report.Code, report.Message = "invalid_configuration", redactKnown(err.Error(), componentURLs(pkg)...)
 		return report
 	}
-	report.Resource = resource
+	report.Resource = redactURLString(resource)
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	found, err := discoverAuthorization(ctx, client, resource, oauthDestination(selected), probeHeaders(selected.MCP[report.ComponentID]), settings)
@@ -390,18 +473,12 @@ func DiscoverAuthorization(ctx context.Context, client *http.Client, pkg connect
 		if discoveryErr, ok := err.(*DiscoveryError); ok {
 			report.Code, report.Message, report.Steps = discoveryErr.Code, discoveryErr.Message, discoveryErr.Steps
 		} else {
-			report.Code, report.Message = "discovery_failed", err.Error()
+			report.Code, report.Message = "discovery_failed", redactKnown(err.Error(), componentURLs(pkg)...)
 		}
 		return report
 	}
 	report.Status, report.Message, report.Steps = "passed", "MCP authorization discovery passed; sign in to authorize", found.steps
-	report.ResourceMetadataURL, report.Issuer, report.ClientRegistration = found.metadataURL, found.asm.Issuer, found.registration
-	report.Scopes = settings.Scopes
-	if len(report.Scopes) == 0 {
-		report.Scopes = found.challengedScopes
-	}
-	if len(report.Scopes) == 0 {
-		report.Scopes = found.prm.ScopesSupported
-	}
+	report.ResourceMetadataURL, report.Issuer, report.ClientRegistration = redactURLString(found.metadataURL), redactURLString(found.asm.Issuer), found.registration
+	report.Scopes = authorizationScopes(selected, resource, settings, found)
 	return report
 }

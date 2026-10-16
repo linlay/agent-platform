@@ -120,18 +120,42 @@ func (m *Manager) Check(ctx context.Context, id, component string) (Session, err
 		}
 		return Session{ConnectorID: id, Status: status, AuthBrowser: pkg.AuthorizationBrowser(), Message: message}, nil
 	}
-	// MCP uses the locally stored grant/expiry contract; OneID reads Desktop identity.
-	result, err := m.StatusComponent(ctx, id, component)
-	if err != nil || pkg.AuthMode != connector.AuthMCP || result.Status != "unauthorized" {
+	if pkg.AuthMode != connector.AuthMCP {
+		// OneID reads Desktop identity.
+		return m.StatusComponent(ctx, id, component)
+	}
+	// An active login keeps ownership of its progress status. Otherwise the
+	// check may only supersede the terminal login present when it started.
+	m.mu.Lock()
+	superseded := m.sessions[id]
+	if superseded != nil && (superseded.Status == "pending" || superseded.Status == "preparing") {
+		active := superseded.Session
+		m.mu.Unlock()
+		return active, nil
+	}
+	m.mu.Unlock()
+	// Read the stored grants directly: a cached failed or canceled login must
+	// not hide a fresh check after the server has been fixed.
+	result, err := m.mcpGrantStatus(pkg, component, Session{ConnectorID: id, AuthBrowser: pkg.AuthorizationBrowser(), Status: "unauthorized"})
+	if err != nil {
 		return result, err
 	}
-	if component == "" && len(pkg.MCP) > 1 {
-		result.Message = "Select an MCP component to check its authorization discovery"
-		return result, nil
+	if result.Status == "unauthorized" {
+		if component == "" && len(pkg.MCP) > 1 {
+			result.Message = "Select an MCP component to check its authorization discovery"
+			return result, nil
+		}
+		// Local validation does not prove that sign-in can start: discover the
+		// authorization server without logging in or registering a client.
+		report := DiscoverAuthorization(ctx, m.client, pkg, component)
+		result.Discovery, result.Message = &report, report.Message
 	}
-	// Local validation does not prove that sign-in can start: discover the
-	// authorization server without logging in or registering a client.
-	report := DiscoverAuthorization(ctx, m.client, pkg, component)
-	result.Discovery, result.Message = &report, report.Message
+	// A completed check supersedes the failed or canceled login it observed; a
+	// login started while discovery ran keeps its own outcome.
+	m.mu.Lock()
+	if superseded != nil && m.sessions[id] == superseded {
+		delete(m.sessions, id)
+	}
+	m.mu.Unlock()
 	return result, nil
 }

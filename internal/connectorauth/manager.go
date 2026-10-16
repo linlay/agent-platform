@@ -280,7 +280,7 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 			s.Message = "Login canceled or expired"
 		} else if err != nil {
 			s.Status = "failed"
-			s.Message = err.Error()
+			s.Message = redactKnown(err.Error(), componentURLs(pkg)...)
 		} else {
 			s.Status = "authorized"
 			s.Message = "Login completed"
@@ -360,6 +360,14 @@ func (m *Manager) StatusComponent(_ context.Context, id, component string) (Sess
 	if pkg.AuthMode == connector.AuthToken {
 		return m.tokenStatus(pkg)
 	}
+	return m.mcpGrantStatus(pkg, component, result)
+}
+
+// mcpGrantStatus reads only the stored MCP grants, ignoring cached login
+// sessions, so an explicit check is not hidden by an earlier failed login.
+func (m *Manager) mcpGrantStatus(pkg connector.Package, component string, result Session) (Session, error) {
+	id := pkg.ID
+	var err error
 	if len(pkg.MCP) > 1 && component == "" {
 		result.Status = "authorized"
 		for name := range pkg.MCP {

@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"agent-platform/internal/connector"
 )
@@ -246,5 +249,226 @@ func TestCheckRunsDiscoveryForUnauthorizedMCP(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(upstream.requestLog(), ","), "/register") {
 		t.Fatal("check registered a client")
+	}
+}
+
+func TestDiscoveryDoesNotWaitForStreamingProbeResponse(t *testing.T) {
+	deleted := make(chan struct{}, 1)
+	var upstream *mcpAuthUpstream
+	upstream = newMCPAuthUpstream(t, func(u *mcpAuthUpstream) {
+		u.mcp = func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodDelete {
+				deleted <- struct{}{}
+				return
+			}
+			// An SSE stream that stays open after the headers.
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Mcp-Session-Id", "stream-session")
+			w.WriteHeader(http.StatusOK)
+			w.(http.Flusher).Flush()
+			select {
+			case <-r.Context().Done():
+			case <-time.After(20 * time.Second):
+			}
+		}
+		u.routes = map[string]http.HandlerFunc{"/.well-known/oauth-protected-resource": func(w http.ResponseWriter, r *http.Request) {
+			json.NewEncoder(w).Encode(map[string]any{"resource": upstream.URL + "/mcp", "authorization_servers": []string{upstream.URL}})
+		}}
+	})
+	pkg := upstream.writePackage(t, t.TempDir(), nil)
+	started := time.Now()
+	report := DiscoverAuthorization(t.Context(), upstream.Client(), pkg, "")
+	if report.Status != "passed" || time.Since(started) > 5*time.Second {
+		t.Fatalf("streaming probe blocked discovery for %s: %+v", time.Since(started), report)
+	}
+	select {
+	case <-deleted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("probe session was not closed")
+	}
+}
+
+func TestCheckRediscoversAfterFailedLogin(t *testing.T) {
+	var broken atomic.Bool
+	broken.Store(true)
+	var upstream *mcpAuthUpstream
+	upstream = newMCPAuthUpstream(t, func(u *mcpAuthUpstream) {
+		u.metadata = func(w http.ResponseWriter, r *http.Request) {
+			if broken.Load() {
+				http.NotFound(w, r)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"resource": upstream.URL + "/mcp", "authorization_servers": []string{upstream.URL}})
+		}
+	})
+	root := t.TempDir()
+	upstream.writePackage(t, root, nil)
+	m := New(t.Context(), connector.Sources{ExternalRoot: root}, nil)
+	m.client = upstream.Client()
+	if _, err := m.Start("demo"); err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, m, "demo", "failed")
+	broken.Store(false)
+	before := len(upstream.requestLog())
+	session, err := m.Check(t.Context(), "demo", "")
+	if err != nil || session.Discovery == nil || session.Discovery.Status != "passed" || len(upstream.requestLog()) == before {
+		t.Fatalf("check reused the failed login: %+v (%v)", session, err)
+	}
+	if status, _ := m.StatusComponent(t.Context(), "demo", ""); status.Status != "unauthorized" {
+		t.Fatalf("check did not supersede the failed login: %+v", status)
+	}
+}
+
+func TestDiscoveryDiagnosticsRedactURLQueries(t *testing.T) {
+	const secret = "REVIEW_SECRET"
+	upstream := newMCPAuthUpstream(t, func(u *mcpAuthUpstream) {
+		u.mcp = func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{}`)) }
+	})
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+	for name, endpoint := range map[string]string{"no metadata": upstream.URL + "/mcp?api_key=" + secret, "unreachable": closed.URL + "/mcp?api_key=" + secret} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			writeAuthPackage(t, root, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "mcp"}, map[string]any{"type": "streamableHttp", "url": endpoint})
+			pkg, err := connector.Load(root, "demo")
+			if err != nil {
+				t.Fatal(err)
+			}
+			report := DiscoverAuthorization(t.Context(), upstream.Client(), pkg, "")
+			encoded, _ := json.Marshal(report)
+			if report.Status != "failed" || strings.Contains(string(encoded), secret) || !strings.Contains(report.Message, "?[redacted]") {
+				t.Fatalf("diagnostics leaked the query: %s", encoded)
+			}
+			m := New(t.Context(), connector.Sources{ExternalRoot: root}, nil)
+			m.client = upstream.Client()
+			if _, err := m.Start("demo"); err != nil {
+				t.Fatal(err)
+			}
+			if failed := waitStatus(t, m, "demo", "failed"); strings.Contains(failed.Message, secret) {
+				t.Fatalf("login message leaked the query: %s", failed.Message)
+			}
+		})
+	}
+	pkg := connector.Package{Manifest: connector.Manifest{ID: "demo", AuthMode: connector.AuthMCP}, MCP: map[string]map[string]any{"main": {"type": "streamableHttp", "url": "http://example.test/mcp?api_key=" + secret}}}
+	if err := ValidatePackage(pkg); err == nil || strings.Contains(err.Error(), secret) {
+		t.Fatalf("local validation leaked the query: %v", err)
+	}
+}
+
+func TestDiscoveryReportsTheScopesLoginRequests(t *testing.T) {
+	upstream := newMCPAuthUpstream(t, nil)
+	root := t.TempDir()
+	writeAuthPackage(t, root, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "mcp", "oauth": map[string]any{"scopes": []string{"configured:scope"}}}, map[string]any{"type": "streamableHttp", "url": upstream.URL + "/mcp"})
+	pkg, err := connector.Load(root, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := DiscoverAuthorization(t.Context(), upstream.Client(), pkg, "")
+	m := New(t.Context(), connector.Sources{ExternalRoot: root}, nil)
+	m.client = upstream.Client()
+	if _, err := m.Start("demo"); err != nil {
+		t.Fatal(err)
+	}
+	session := waitStatus(t, m, "demo", "pending")
+	authorize, _ := url.Parse(session.URL)
+	if strings.Join(report.Scopes, " ") != "mcp:read" || authorize.Query().Get("scope") != "mcp:read" {
+		t.Fatalf("check scopes %v, login scope %q", report.Scopes, authorize.Query().Get("scope"))
+	}
+}
+
+func TestDiagnosticRedactionHandlesSpecialCharacters(t *testing.T) {
+	const secret = "REVIEW_SECRET"
+	for _, text := range []string{
+		`Post "https://h.test/mcp?api_key='` + secret + `'": dial tcp: refused`,
+		`url "https://h.test/mcp?api_key=\"` + secret + `\"" must be HTTPS`,
+		`metadata https://h.test/mcp?k=<` + secret + `> failed`,
+		`endpoint https://user:` + secret + `@h.test/mcp failed`,
+		`endpoint https://h.test/mcp#` + secret + ` failed`,
+	} {
+		if got := redactDiagnostic(text); strings.Contains(got, secret) {
+			t.Fatalf("redactDiagnostic(%q) = %q", text, got)
+		}
+	}
+	for _, raw := range []string{"https://h.test/mcp?api_key='" + secret + "'", "https://h.test/mcp?a=\"" + secret + "\"", "https://h.test/mcp#" + secret, "https://h.test/%zz?" + secret} {
+		if got := redactURLString(raw); strings.Contains(got, secret) {
+			t.Fatalf("redactURLString(%q) = %q", raw, got)
+		}
+	}
+}
+
+func TestDiscoveryRedactsQueriesWithSpecialCharacters(t *testing.T) {
+	const secret = "REVIEW_SECRET"
+	upstream := newMCPAuthUpstream(t, func(u *mcpAuthUpstream) {
+		u.mcp = func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{}`)) }
+	})
+	for _, suffix := range []string{"?api_key='" + secret + "'", `?api_key="` + secret + `"`, "?api_key=<" + secret + ">", "?a=1&api_key=" + secret + `'x"y`, "#" + secret} {
+		t.Run(suffix, func(t *testing.T) {
+			root := t.TempDir()
+			writeAuthPackage(t, root, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "mcp"}, map[string]any{"type": "streamableHttp", "url": upstream.URL + "/mcp" + suffix})
+			pkg, err := connector.Load(root, "demo")
+			if err != nil {
+				if strings.Contains(err.Error(), secret) {
+					t.Fatalf("load error leaked the secret: %v", err)
+				}
+				return
+			}
+			report := DiscoverAuthorization(t.Context(), upstream.Client(), pkg, "")
+			if encoded, _ := json.Marshal(report); report.Status != "failed" || strings.Contains(string(encoded), secret) {
+				t.Fatalf("report leaked the secret: %s", encoded)
+			}
+			m := New(t.Context(), connector.Sources{ExternalRoot: root}, nil)
+			m.client = upstream.Client()
+			if _, err := m.Start("demo"); err != nil {
+				if strings.Contains(err.Error(), secret) {
+					t.Fatalf("start error leaked the secret: %v", err)
+				}
+				return
+			}
+			if failed := waitStatus(t, m, "demo", "failed"); strings.Contains(failed.Message, secret) {
+				t.Fatalf("login message leaked the secret: %s", failed.Message)
+			}
+		})
+	}
+}
+
+func TestEarlierCheckKeepsNewerLoginFailure(t *testing.T) {
+	release := make(chan struct{})
+	var probes atomic.Int32
+	upstream := newMCPAuthUpstream(t, func(u *mcpAuthUpstream) {
+		u.mcp = func(w http.ResponseWriter, r *http.Request) {
+			// The first probe belongs to check A and waits; login B proceeds.
+			if probes.Add(1) == 1 {
+				select {
+				case <-release:
+				case <-r.Context().Done():
+				}
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	})
+	root := t.TempDir()
+	upstream.writePackage(t, root, nil)
+	m := New(t.Context(), connector.Sources{ExternalRoot: root}, nil)
+	m.client = upstream.Client()
+	checked := make(chan Session, 1)
+	go func() {
+		session, _ := m.Check(t.Context(), "demo", "")
+		checked <- session
+	}()
+	for probes.Load() == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := m.Start("demo"); err != nil {
+		t.Fatal(err)
+	}
+	failure := waitStatus(t, m, "demo", "failed")
+	close(release)
+	if session := <-checked; session.Discovery == nil {
+		t.Fatalf("check A did not run discovery: %+v", session)
+	}
+	status, err := m.StatusComponent(t.Context(), "demo", "")
+	if err != nil || status.Status != "failed" || status.Message != failure.Message {
+		t.Fatalf("earlier check removed the newer login failure: %+v (%v)", status, err)
 	}
 }
