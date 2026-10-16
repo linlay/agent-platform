@@ -44,6 +44,23 @@
               }
             ]
           }
+        },
+        "windows-amd64": {
+          "version": "v0.1.6",
+          "source": "https://github.com/linlay/cli-dbx.git",
+          "commit": "e0b0d1172ed968c2ba614cb4c8183e518418e2c7",
+          "path": "dist/v0.1.6/builtin.dbx_v0.1.6_windows_amd64.zip",
+          "format": "zip",
+          "sha256": "337c536cbcce6a8f974eb51268495629a5cd0cbad15bc5802a5ce06496cc0476",
+          "tree": {
+            "root": "runtime",
+            "outputs": [
+              {
+                "path": "connectors/builtin.dbx",
+                "type": "dir"
+              }
+            ]
+          }
         }
       }
     },
@@ -80,6 +97,23 @@
           "path": "dist/v0.1.12/builtin.httpx_v0.1.12_linux_amd64.zip",
           "format": "zip",
           "sha256": "b21a9835643462c3424483f775f8b5c1a1b6703938d06b314b7637715629c051",
+          "tree": {
+            "root": "runtime",
+            "outputs": [
+              {
+                "path": "connectors/builtin.httpx",
+                "type": "dir"
+              }
+            ]
+          }
+        },
+        "windows-amd64": {
+          "version": "v0.1.13",
+          "source": "https://github.com/linlay/cli-httpx.git",
+          "commit": "72ccaf9542ad579995a0c8a459de7c4c9e042e03",
+          "path": "dist/v0.1.13/builtin.httpx_v0.1.13_windows_amd64.zip",
+          "format": "zip",
+          "sha256": "c905377642932c602786b3309547d4a4168a179d5fbbd0f37823b5c197a70ce2",
           "tree": {
             "root": "runtime",
             "outputs": [
