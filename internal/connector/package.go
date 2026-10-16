@@ -52,6 +52,7 @@ type Package struct {
 	MCPPreAuth  string
 	CLI         map[string]any
 	Views       map[string]view.Definition
+	iconPath    string
 	iconSHA256  string
 }
 
@@ -118,13 +119,11 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 		return Package{}, err
 	}
 	pkg.Dir = dir
-	if pkg.Icon != "" {
-		icon, err := pkg.ReadIcon()
-		if err != nil {
-			return Package{}, fmt.Errorf("connector %s icon: %w", id, err)
-		}
-		pkg.iconSHA256 = icon.SHA256
+	icon, err := pkg.readIcon()
+	if err != nil {
+		return Package{}, fmt.Errorf("connector %s icon: %w", id, err)
 	}
+	pkg.iconPath, pkg.iconSHA256 = icon.Path, icon.SHA256
 	if info, err := os.Stat(filepath.Join(dir, "bin")); err == nil {
 		if !info.IsDir() {
 			return Package{}, fmt.Errorf("connector %s bin must be a directory", id)

@@ -3,10 +3,12 @@ package connector
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -23,12 +25,199 @@ func iconPackage(t *testing.T, root, icon string, data []byte) Package {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for path, data := range map[string][]byte{"connector.json": content, "cli.json": []byte(`{}`), icon: data} {
+	files := map[string][]byte{"connector.json": content, "cli.json": []byte(`{}`)}
+	if icon != "" {
+		files[icon] = data
+	}
+	for path, data := range files {
 		if err := os.WriteFile(filepath.Join(dir, path), data, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	return Package{Manifest: manifest, Dir: dir}
+}
+
+func TestConnectorIconDefaultCandidates(t *testing.T) {
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, image.NewNRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	candidates := []string{"assets/icon.svg", "assets/icon.png", "assets/demo.svg", "assets/demo.png"}
+	for first := 0; first <= len(candidates); first++ {
+		name := "none"
+		if first < len(candidates) {
+			name = candidates[first]
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			fixture := iconPackage(t, root, "", nil)
+			original, err := os.ReadFile(filepath.Join(fixture.Dir, "connector.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, candidate := range append([]string{"assets/unrelated.svg"}, candidates[first:]...) {
+				data := []byte(testIconSVG)
+				if strings.HasSuffix(candidate, ".png") {
+					data = encoded.Bytes()
+				}
+				if err := os.WriteFile(filepath.Join(fixture.Dir, candidate), data, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			pkg, err := Load(root, "demo")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pkg.Icon != "" || pkg.Version != "1.0.0" {
+				t.Fatalf("discovery changed manifest: %+v", pkg.Manifest)
+			}
+			items, err := (Sources{ExternalRoot: root}).Summaries()
+			if err != nil || len(items) != 1 {
+				t.Fatalf("summaries: %+v, %v", items, err)
+			}
+			icon, err := pkg.ReadIcon()
+			if first == len(candidates) {
+				if !errors.Is(err, os.ErrNotExist) || items[0].Icon != "" || items[0].IconSHA256 != "" {
+					t.Fatalf("unexpected default icon: %+v, %v", items[0], err)
+				}
+			} else {
+				mediaType, data := "image/svg+xml", []byte(testIconSVG)
+				if strings.HasSuffix(name, ".png") {
+					mediaType, data = "image/png", encoded.Bytes()
+				}
+				if err != nil || icon.Path != name || icon.MediaType != mediaType || !bytes.Equal(icon.Data, data) || icon.SHA256 != digest(data) {
+					t.Fatalf("wrong discovered icon: %+v, %v", icon, err)
+				}
+				if items[0].Icon != name || items[0].IconSHA256 != icon.SHA256 {
+					t.Fatalf("missing discovered metadata: %+v", items[0])
+				}
+			}
+			current, err := os.ReadFile(filepath.Join(fixture.Dir, "connector.json"))
+			if err != nil || !bytes.Equal(current, original) {
+				t.Fatalf("discovery rewrote connector.json: %v", err)
+			}
+			// Runtime package directory names are content digests, not connector IDs.
+			versioned := filepath.Join(root, "content-digest")
+			if err := os.Rename(fixture.Dir, versioned); err != nil {
+				t.Fatal(err)
+			}
+			copy, err := LoadDirectory(versioned, "demo")
+			if err != nil || copy.iconPath != pkg.iconPath || copy.iconSHA256 != pkg.iconSHA256 {
+				t.Fatalf("versioned directory lost connector icon: %v", err)
+			}
+		})
+	}
+	t.Run("no assets directory", func(t *testing.T) {
+		root := t.TempDir()
+		pkg := iconPackage(t, root, "", nil)
+		if err := os.Remove(filepath.Join(pkg.Dir, "assets")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(root, "demo"); err != nil {
+			t.Fatalf("optional assets directory required: %v", err)
+		}
+	})
+}
+
+func TestConnectorIconExplicitOverridesDefaults(t *testing.T) {
+	root := t.TempDir()
+	pkg := iconPackage(t, root, "assets/custom.svg", []byte(testIconSVG))
+	if err := os.WriteFile(filepath.Join(pkg.Dir, "assets/icon.svg"), []byte(`<svg onload="alert(1)"/>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(root, "demo")
+	if err != nil || loaded.iconPath != pkg.Icon {
+		t.Fatalf("declared icon did not override defaults: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg.Dir, "assets/icon.svg"), []byte(testIconSVG), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(pkg.Dir, pkg.Icon)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(root, "demo"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing declared icon fell back to default: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg.Dir, pkg.Icon), []byte(`<svg onload="alert(1)"/>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(root, "demo"); err == nil {
+		t.Fatal("invalid declared icon fell back to default")
+	}
+}
+
+func TestConnectorIconDefaultValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data []byte
+	}{
+		{"assets/icon.svg", []byte(`<svg onload="alert(1)"/>`)},
+		{"assets/icon.svg", nil},
+		{"assets/icon.svg", bytes.Repeat([]byte("x"), MaxIconBytes+1)},
+		{"assets/icon.png", []byte(testIconSVG)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			pkg := iconPackage(t, root, "", nil)
+			// An invalid earlier candidate must not fall back to a valid later one.
+			for name, data := range map[string][]byte{tc.name: tc.data, "assets/demo.svg": []byte(testIconSVG)} {
+				if err := os.WriteFile(filepath.Join(pkg.Dir, name), data, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := Load(root, "demo"); err == nil {
+				t.Fatal("invalid discovered icon accepted")
+			}
+		})
+	}
+}
+
+func TestConnectorIconDiscoveryOnDefinitionSave(t *testing.T) {
+	for _, valid := range []bool{true, false} {
+		name := "valid default"
+		if !valid {
+			name = "invalid default"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			pkg := iconPackage(t, root, "assets/custom.svg", []byte(testIconSVG))
+			data := []byte(testIconSVG)
+			if !valid {
+				data = []byte(`<svg onload="alert(1)"/>`)
+			}
+			if err := os.WriteFile(filepath.Join(pkg.Dir, "assets/icon.svg"), data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			previous, err := ReadFile(root, "demo", "connector.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest := pkg.Manifest
+			manifest.Icon = ""
+			content, err := json.Marshal(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reloaded := false
+			_, err = SaveDefinition(root, File{ID: "demo", File: "connector.json", Content: string(content)}, previous.SHA256, func(candidate Package) error {
+				if candidate.Icon != "" || candidate.iconPath != "assets/icon.svg" || candidate.iconSHA256 != digest(data) {
+					t.Fatalf("definition validation missed discovered icon: %+v", candidate)
+				}
+				return nil
+			}, func() error { reloaded = true; return nil })
+			if (err == nil) != valid || reloaded != valid {
+				t.Fatalf("save/reload: valid=%v reloaded=%v err=%v", valid, reloaded, err)
+			}
+			want := previous.Content
+			if valid {
+				want = string(content)
+			}
+			current, err := ReadFile(root, "demo", "connector.json")
+			if err != nil || current.Content != want {
+				t.Fatalf("save rewrote or replaced manifest unexpectedly: %v", err)
+			}
+		})
+	}
 }
 
 func TestConnectorIconLoadAndSummary(t *testing.T) {
@@ -99,6 +288,10 @@ func TestConnectorIconRejectsEscapesAndActiveSVG(t *testing.T) {
 	}
 	if _, err := pkg.ReadIcon(); err == nil {
 		t.Fatal("icon read escaped package after load")
+	}
+	pkg.Icon = ""
+	if _, err := pkg.ReadIcon(); err == nil {
+		t.Fatal("discovered icon read escaped package after load")
 	}
 }
 

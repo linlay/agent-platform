@@ -50,7 +50,7 @@ func (s Sources) Summaries() ([]Summary, error) {
 		for _, skill := range pkg.Skills {
 			summary.Skills = append(summary.Skills, skill.Name)
 		}
-		summary.IconSHA256 = pkg.iconSHA256
+		summary.Icon, summary.IconSHA256 = pkg.iconPath, pkg.iconSHA256
 		summary.HasView = len(pkg.Views) > 0
 		for key, definition := range pkg.Views {
 			source := "local"

@@ -16,6 +16,7 @@ import (
 const MaxIconBytes = 256 << 10
 
 type IconAsset struct {
+	Path      string
 	Data      []byte
 	MediaType string
 	SHA256    string
@@ -27,13 +28,21 @@ func validIconPath(name string) bool {
 		!strings.ContainsAny(name, "\\:%?#\x00\r\n") && (ext == ".svg" || ext == ".png")
 }
 
-// ReadIcon serves only the manifest's declared image, never arbitrary assets or
-// authentication state. OpenRoot constrains symlinks even after catalog loading.
+// ReadIcon serves the declared image or the first default candidate, never
+// arbitrary assets or authentication state. OpenRoot constrains symlinks even
+// after catalog loading.
 func (p Package) ReadIcon() (IconAsset, error) {
-	if p.Icon == "" {
+	icon, err := p.readIcon()
+	if err == nil && icon.Path == "" {
 		return IconAsset{}, os.ErrNotExist
 	}
-	if !validIconPath(p.Icon) {
+	return icon, err
+}
+
+// readIcon leaves an absent optional icon empty, while preserving errors for
+// missing declared images and invalid default candidates.
+func (p Package) readIcon() (IconAsset, error) {
+	if p.Icon != "" && !validIconPath(p.Icon) {
 		return IconAsset{}, errors.New("invalid connector icon path")
 	}
 	root, err := os.OpenRoot(p.Dir)
@@ -41,7 +50,11 @@ func (p Package) ReadIcon() (IconAsset, error) {
 		return IconAsset{}, err
 	}
 	defer root.Close()
-	f, err := root.Open(filepath.FromSlash(p.Icon))
+	name, err := p.resolveIconPath(root)
+	if err != nil || name == "" {
+		return IconAsset{}, err
+	}
+	f, err := root.Open(filepath.FromSlash(name))
 	if err != nil {
 		return IconAsset{}, err
 	}
@@ -61,7 +74,7 @@ func (p Package) ReadIcon() (IconAsset, error) {
 		return IconAsset{}, errors.New("invalid connector icon size")
 	}
 	mediaType := "image/svg+xml"
-	if strings.EqualFold(path.Ext(p.Icon), ".png") {
+	if strings.EqualFold(path.Ext(name), ".png") {
 		mediaType = "image/png"
 		cfg, err := png.DecodeConfig(bytes.NewReader(data))
 		if err != nil || cfg.Width < 1 || cfg.Height < 1 || cfg.Width > 4096 || cfg.Height > 4096 {
@@ -73,7 +86,25 @@ func (p Package) ReadIcon() (IconAsset, error) {
 	} else if err := validateIconSVG(data); err != nil {
 		return IconAsset{}, err
 	}
-	return IconAsset{Data: data, MediaType: mediaType, SHA256: digest(data)}, nil
+	return IconAsset{Path: name, Data: data, MediaType: mediaType, SHA256: digest(data)}, nil
+}
+
+func (p Package) resolveIconPath(root *os.Root) (string, error) {
+	if p.Icon != "" {
+		return p.Icon, nil
+	}
+	for _, name := range []string{"assets/icon.svg", "assets/icon.png", "assets/" + p.ID + ".svg", "assets/" + p.ID + ".png"} {
+		if !validIconPath(name) {
+			return "", errors.New("invalid connector icon path")
+		}
+		if _, err := root.Lstat(filepath.FromSlash(name)); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return "", err
+		}
+		return name, nil
+	}
+	return "", nil
 }
 
 // ValidateIconSVG accepts static vector icons and rejects active or external content.

@@ -209,7 +209,7 @@ Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 
 
 连接器锁统一存放于 `<AP_RUNTIME_DIR>/.lock/`，按布局初始化、装配、安装、来源操作和版本租约分开管理；`ru-connectors` 保留共享运行包与 `.shared-v1` 标记，不执行旧布局迁移。目录结构与锁路径切换要求见 [Runtime 锁目录](docs/连接器共享包与Desktop迁移.md#runtime-锁目录)。
 
-连接器资源包通过清单声明组件、图标、认证方式与授权页面展示。包内程序、安装脚本和远程服务定义的分发边界见 [连接器打包与分发](./docs/连接器打包与分发.md)。
+连接器资源包通过清单声明组件、认证方式与授权页面展示。图标可由 `connector.json.icon` 显式指定，省略时按 `assets/icon.svg`、`assets/icon.png`、`assets/<id>.svg`、`assets/<id>.png` 顺序自动发现，不回写清单或修改连接器版本。包内程序、安装脚本和远程服务定义的分发边界见 [连接器打包与分发](./docs/连接器打包与分发.md)。
 
 新连接器清单 `connector.json` 全部使用小驼峰字段，`authMode` 必须显式声明：`none`、`self`、`token`、`mcp`、`oneid`（长期别名：`oauth` 即 `mcp`，`oneid-token` 即 `oneid`；独立 OAuth 模式已删除，OAuth 只按 MCP 标准授权使用）。`none` 无需配置；`token` 的填写表单放在独立的 `token-schema.json`；需要凭证的模式使用包外来源，认证操作不触碰连接器定义文件。凭据模板直接写在 `mcp.json` 的 headers/env 与 `cli.json` 的 env 中，HTTP 发送前、进程启动前读取票据。本版本暂时兼容旧清单的蛇形字段、认证值、内联表单与凭据绑定，读取时转换且不改写原包，下个版本移除，详见 [清单临时兼容](./docs/连接器.md#清单临时兼容下个版本移除)。MCP 支持以未认证 initialize 的 Bearer 挑战发现元数据（GET 不作探测）、well-known 回退、登录前的授权发现检查、多资源授权、客户端注册信息落盘、PKCE、刷新及追加权限提示，详见 [凭证消费与多组件授权](./docs/连接器安装与授权.md#凭证消费与多组件授权)。
 

@@ -136,7 +136,7 @@ Agent 创建的请求级 `isProject:true` 要求 `definition.runtimeConfig.works
 | PUT（GET 兼容） | `/api/agents/connectors` | PUT: `{agentKey,connectorId,enabled}`；旧 GET: query `agentKey` | `{agentKey,connectorIds,reloadPending}`，connectorIds 过滤预置；正常读取复用 `/api/agent.connectors` |
 | GET | `/api/admin/connectors` | 无 | 完整管理目录：包摘要、组件、技能和 MCP 同步状态 |
 | GET/PUT | `/api/admin/agents/connectors` | GET: query `agentKey`；PUT: `{agentKey,connectorId,enabled}` | 完整配置、预置、声明和已生效挂载状态；预置切换返回 403 |
-| GET | `/api/connectors/icon` | query: `id`；可选缓存标识 `v` | 清单声明的 SVG/PNG 图片；沿用服务鉴权，支持 ETag/304，缺失返回 404 |
+| GET | `/api/connectors/icon` | query: `id`；可选缓存标识 `v` | 显式配置或默认规则选中的 SVG/PNG 图片；沿用服务鉴权，支持 ETag/304，缺失返回 404 |
 | GET/PUT | `/api/admin/connectors/detail` | GET: `id/file`；PUT: `id/file/content/baseSha256` | 读取或原子保存连接器定义，旧 MCP Registry 管理接口已移除 |
 | DELETE | `/api/admin/connectors/detail?id=<id>` | 外部连接器 id | 删除未被 Agent 引用的安装包，返回 `{id,deleted:true}`；内置包 403、仍被引用 409（`data.error.agentKeys`）、不存在 404；保留授权与 CLI 状态，重载失败回滚 |
 | POST | `/api/admin/connectors/import` | multipart `file` ZIP、可选 `overwrite` | 原子安装或覆盖外部连接器 |
@@ -223,7 +223,7 @@ Agent 创建的请求级 `isProject:true` 要求 `definition.runtimeConfig.works
 
 使用目录 `GET /api/connectors[?agentKey=...]` 返回 `data.connectors[]` 的 id/name、非空 description/iconUrl/mutuallyExclusiveWith、本地 readiness 和可选 mcp[]（agentKey/serverKey/status/toolCount，只含各 Agent 当前发布版本，每个组件最多一条）；指定 Agent 时返回顶层 agentKey/reloadPending，全局省略。读取使用既有快照，不执行 CLI 或主动探测上游；按当前 Agent 过滤全局与 mode 预置，省略 agentKey 时过滤全部预置并集。`/api/agent.connectors` 提供已保存的非预置关联 ID；`PUT /api/agents/connectors` 只返回 agentKey、非预置 connectorIds 和 reloadPending，旧 GET 保留兼容。管理目录 `GET /api/admin/connectors` 保留完整包清单、`hasMcp/hasCli/hasBin/skills`；`mcp[]` 包含 `serverKey/toolCount/status` 和可选同步时间、脱敏诊断。管理挂载 `GET/PUT /api/admin/agents/connectors` 保留 presetConnectorIds、declaredConnectorIds 和 activeConnectorIds。两套挂载 PUT 都拒绝预置切换（403 `preset_connector_readonly`），不改变运行时自动挂载。读取定义使用 `GET /api/admin/connectors/detail?id=...&file=...`，保存使用同路径 PUT（`id/file/content/baseSha256`，哈希必填，冲突 409）。先校验、原子替换、本地 reload，失败恢复；远端初始化继续后台执行，发送 `catalog.updated(reason=connectors)`。完整契约见 [连接器](连接器.md)。
 
-带图标的连接器在管理目录另返回 `icon`（例如 `assets/icon.svg`）、`iconSha256` 和 `iconUrl`（`/api/connectors/icon?id=<id>&v=<sha256>`）；使用目录仅返回 iconUrl，未声明图标时省略。图标接口成功响应直接为 `image/svg+xml` 或 `image/png` 字节，失败沿用 JSON 错误包裹；仅允许读取该连接器清单声明的图片，不能用 `file` 参数读取其他包文件。启用鉴权时必须携带有效认证。缓存使用 `private, max-age=0, must-revalidate` 和内容 SHA-256 ETag；`If-None-Match` 命中返回 304。客户端通过带认证请求获取 Blob，再用 `<img>` 显示，失败显示默认图标。
+带图标的连接器在管理目录另返回实际选中的 `icon`（例如 `assets/icon.svg`）、`iconSha256` 和 `iconUrl`（`/api/connectors/icon?id=<id>&v=<sha256>`）；使用目录仅返回 iconUrl，无可用图标时省略。显式 `connector.json.icon` 优先；未配置或为空时按 `assets/icon.svg` → `assets/icon.png` → `assets/<id>.svg` → `assets/<id>.png` 自动发现，`<id>` 为连接器 ID，不回写定义或修改版本。图标接口成功响应直接为 `image/svg+xml` 或 `image/png` 字节，失败沿用 JSON 错误包裹；仅允许读取该连接器显式配置或默认规则选中的图片，不能用 `file` 参数读取其他包文件。启用鉴权时必须携带有效认证。缓存使用 `private, max-age=0, must-revalidate` 和内容 SHA-256 ETag；`If-None-Match` 命中返回 304。客户端通过带认证请求获取 Blob，再用 `<img>` 显示，失败显示默认图标。
 
 Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `baseUrl`；model 暴露 `provider/protocol/type/isVision/isReasoner/isFunction/maxInputTokens/maxOutputTokens/timeout`；provider 与 model 均通过 `summary.icon` 透传 YAML 中的非空图标标识，未配置时省略，前端使用默认图标。旧 viewport server 管理分类已删除。
 
