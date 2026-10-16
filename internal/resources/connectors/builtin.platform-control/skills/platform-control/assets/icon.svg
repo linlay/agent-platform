@@ -1,6 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="color-scheme: light dark; color: #64748b; color: light-dark(#64748b, #a6b4c7)">
-  <path d="M3 6h3m4 0h11M3 12h11m4 0h3M3 18h5m4 0h9"/>
-  <circle cx="8" cy="6" r="2"/>
-  <circle cx="16" cy="12" r="2"/>
-  <circle cx="10" cy="18" r="2"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <rect width="24" height="24" rx="6" fill="#6366F1"/>
+  <rect x="5" y="5" width="6" height="6" rx="1.5" fill="#fff"/>
+  <rect x="13" y="5" width="6" height="4" rx="1.5" fill="#fff"/>
+  <rect x="5" y="13" width="6" height="6" rx="1.5" fill="#fff"/>
+  <rect x="13" y="11" width="6" height="8" rx="1.5" fill="#fff"/>
 </svg>
