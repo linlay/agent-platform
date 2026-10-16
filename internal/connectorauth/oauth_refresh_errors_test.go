@@ -36,6 +36,7 @@ func TestRefreshSeparatesClientConfigurationAndAuthorizationFailures(t *testing.
 			root := t.TempDir()
 			resource := "https://example.test/mcp"
 			credential := oauthCredential{
+				MCP:      true,
 				Resource: resource, Destination: resource,
 				Config: oauth2.Config{ClientID: "client", Endpoint: oauth2.Endpoint{TokenURL: upstream.URL, AuthStyle: oauth2.AuthStyleInParams}},
 				Token:  &oauth2.Token{AccessToken: "old-access", RefreshToken: "old-refresh", Expiry: time.Now().Add(-time.Hour)},
@@ -43,7 +44,7 @@ func TestRefreshSeparatesClientConfigurationAndAuthorizationFailures(t *testing.
 			if err := saveCredential(root, "demo", credential); err != nil {
 				t.Fatal(err)
 			}
-			pkg := connector.Package{Manifest: connector.Manifest{ID: "demo", AuthMode: connector.AuthOAuth}, StateRoot: root}
+			pkg := connector.Package{Manifest: connector.Manifest{ID: "demo", AuthMode: connector.AuthMCP}, StateRoot: root}
 			if _, err := pkg.SetConfigured(true); err != nil {
 				t.Fatal(err)
 			}
@@ -69,7 +70,7 @@ func TestRefreshSeparatesClientConfigurationAndAuthorizationFailures(t *testing.
 func TestOAuthDamagedStorageDoesNotAskUserToAuthorizeAgain(t *testing.T) {
 	root := t.TempDir()
 	resource := "https://example.test/mcp"
-	credential := oauthCredential{Resource: resource, Destination: resource, Token: &oauth2.Token{AccessToken: "saved-access", RefreshToken: "saved-refresh", Expiry: time.Now().Add(time.Hour)}}
+	credential := oauthCredential{MCP: true, Resource: resource, Destination: resource, Token: &oauth2.Token{AccessToken: "saved-access", RefreshToken: "saved-refresh", Expiry: time.Now().Add(time.Hour)}}
 	if err := saveCredential(root, "demo", credential); err != nil {
 		t.Fatal(err)
 	}

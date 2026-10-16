@@ -326,7 +326,7 @@ func TestControlCreatesCompleteHTTPMCPPackage(t *testing.T) {
 }
 
 func TestControlHTTPMCPDefaultRejectsExplicitUnsupportedModes(t *testing.T) {
-	for _, auth := range []string{`null`, `"token"`, `"oauth"`, `"delegated"`, `""`, `false`} {
+	for _, auth := range []string{`null`, `"token"`, `"delegated"`, `""`, `false`} {
 		t.Run(auth, func(t *testing.T) {
 			s := controlFixture(t)
 			c := ControlChange{ControlTarget: ControlTarget{ResourceType: "connector", ResourceKey: "remote"}, Action: "apply", MCPURL: "https://example.com/mcp", Content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp","authMode":` + auth + `}`}
@@ -359,6 +359,7 @@ func TestControlMCPAuthenticationValidatedBeforeApproval(t *testing.T) {
 		valid                bool
 	}{
 		{"oauth_https", "mcp", "https://example.test/mcp", true},
+		{"oauth_alias", "oauth", "https://example.test/mcp", true},
 		{"oauth_private_https", "mcp", "https://10.0.0.1/mcp", true},
 		{"oauth_localhost", "mcp", "http://localhost:8080/mcp", true},
 		{"oauth_loopback", "mcp", "http://127.0.0.1:8080/mcp", true},
@@ -375,7 +376,7 @@ func TestControlMCPAuthenticationValidatedBeforeApproval(t *testing.T) {
 			if (err == nil) != tt.valid {
 				t.Fatalf("valid=%v: plan=%v err=%v", tt.valid, plan, err)
 			}
-			if !tt.valid && (plan != nil || !strings.Contains(err.Error(), "HTTPS MCP resource")) {
+			if !tt.valid && (plan != nil || !strings.Contains(err.Error(), "must be HTTPS for MCP authorization")) {
 				t.Fatalf("invalid OAuth endpoint reached approval: %v %v", plan, err)
 			}
 			if _, err := os.Stat(filepath.Join(s.Config.Paths.ConnectorsCenterDir, "remote")); !os.IsNotExist(err) {

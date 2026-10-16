@@ -120,6 +120,18 @@ func (m *Manager) Check(ctx context.Context, id, component string) (Session, err
 		}
 		return Session{ConnectorID: id, Status: status, AuthBrowser: pkg.AuthorizationBrowser(), Message: message}, nil
 	}
-	// OAuth uses the existing locally stored grant/expiry contract; OneID reads Desktop identity.
-	return m.StatusComponent(ctx, id, component)
+	// MCP uses the locally stored grant/expiry contract; OneID reads Desktop identity.
+	result, err := m.StatusComponent(ctx, id, component)
+	if err != nil || pkg.AuthMode != connector.AuthMCP || result.Status != "unauthorized" {
+		return result, err
+	}
+	if component == "" && len(pkg.MCP) > 1 {
+		result.Message = "Select an MCP component to check its authorization discovery"
+		return result, nil
+	}
+	// Local validation does not prove that sign-in can start: discover the
+	// authorization server without logging in or registering a client.
+	report := DiscoverAuthorization(ctx, m.client, pkg, component)
+	result.Discovery, result.Message = &report, report.Message
+	return result, nil
 }

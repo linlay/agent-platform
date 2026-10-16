@@ -14,7 +14,7 @@ func TestAuthModeValuesAreExplicit(t *testing.T) {
 		want AuthMode
 	}{
 		{`"none"`, AuthNoAuth}, {`"self"`, AuthDelegated}, {`"token"`, AuthToken},
-		{`"mcp"`, AuthMCP}, {`"oneid"`, AuthOneID}, {`"oneid-token"`, AuthOneID},
+		{`"mcp"`, AuthMCP}, {`"oauth"`, AuthMCP}, {`"oneid"`, AuthOneID}, {`"oneid-token"`, AuthOneID},
 	} {
 		data := []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":` + tc.auth + `}`)
 		if err := ValidateManifest("demo", data); err != nil {
@@ -33,6 +33,24 @@ func TestAuthModeValuesAreExplicit(t *testing.T) {
 		if err := ValidateManifest("demo", []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp"`+auth+`}`)); err == nil {
 			t.Fatal("accepted invalid mode", auth)
 		}
+	}
+}
+
+func TestStandaloneOAuthSettingsAreRejectedExplicitly(t *testing.T) {
+	for _, tc := range []struct{ extra, want string }{
+		{`"authMode":"oauth","oauth":{"clientId":"demo","authorizationEndpoint":"https://idp.test/authorize"}`, "oauth.authorizationEndpoint is no longer supported"},
+		{`"authMode":"mcp","oauth":{"tokenEndpoint":"https://idp.test/token"}`, "oauth.tokenEndpoint is no longer supported"},
+		{`"authMode":"mcp","oauth":{"discovery":true}`, "oauth.discovery is not supported"},
+		{`"authMode":"token","oauth":{"clientId":"demo"}`, "oauth settings require authMode mcp, but authMode is token"},
+		{`"authMode":"server-side"`, `authMode "server-side" is not supported`},
+	} {
+		err := ValidateManifest("demo", []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp",`+tc.extra+`}`))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: error %v, want %q", tc.extra, err, tc.want)
+		}
+	}
+	if err := ValidateManifest("demo", []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"oauth","oauth":{"resourceMetadataUrl":"https://mcp.test/.well-known/oauth-protected-resource","scopes":["read"]}}`)); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -75,19 +93,22 @@ func TestTokenSchemaFile(t *testing.T) {
 	if err := writeTokenSchemaPackage(t, "token", valid); err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct{ mode, schema string }{
-		{"token", ""},
-		{"none", valid},
-		{"self", valid},
-		{"token", `{"fields":[]}`},
-		{"token", `{"fields":[{"key":"TOKEN"},{"key":"TOKEN"}]}`},
-		{"token", `{"fields":[{"key":"token"}]}`},
-		{"token", `{"fields":[{"name":"TOKEN"}]}`},
-		{"token", `{"fields":[{"key":"TOKEN","type":"password","defaultValue":"sk-secret"}]}`},
-		{"token", `{"title_en":"Legacy","fields":[{"key":"TOKEN"}]}`},
+	for _, tc := range []struct{ mode, schema, want string }{
+		{"token", "", "authMode token requires token-schema.json"},
+		{"none", valid, "token-schema.json is only allowed with authMode token, but authMode is none"},
+		{"self", valid, "token-schema.json is only allowed with authMode token, but authMode is self"},
+		{"token", `{"fields":[]}`, "fields must contain at least one field"},
+		{"token", `{"fields":[{"key":"TOKEN"},{"key":"TOKEN"}]}`, `fields[1].key "TOKEN" is duplicated`},
+		{"token", `{"fields":[{"key":"token"}]}`, `fields[0].key "token" must be an uppercase identifier`},
+		{"token", `{"fields":[{"name":"TOKEN"}]}`, `unknown field "name"`},
+		{"token", `{"fields":[{"key":"TOKEN","type":"select"}]}`, `field TOKEN type "select" must be text or password`},
+		{"token", `{"fields":[{"key":"TOKEN","type":"password","defaultValue":"sk-secret"}]}`, "field TOKEN is a password and cannot declare defaultValue"},
+		{"token", `{"title_en":"Legacy","fields":[{"key":"TOKEN"}]}`, "translations belong in i18n.<locale>"},
+		{"token", `{"fields":[{"key":"TOKEN","label_en":"Token"}]}`, `unknown field "label_en"`},
 	} {
-		if err := writeTokenSchemaPackage(t, tc.mode, tc.schema); err == nil {
-			t.Fatalf("accepted %s with %q", tc.mode, tc.schema)
+		err := writeTokenSchemaPackage(t, tc.mode, tc.schema)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s with %q: error %v, want %q", tc.mode, tc.schema, err, tc.want)
 		}
 	}
 }

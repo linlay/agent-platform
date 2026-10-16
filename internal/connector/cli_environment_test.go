@@ -29,11 +29,11 @@ func TestCLIEnvironmentValidation(t *testing.T) {
 		{"lowercase name", AuthDelegated, "npm_config_registry", "https://registry.npmmirror.com", true},
 		{"empty literal", AuthDelegated, "OPTIONAL", "", true},
 		{"token field", AuthToken, "FOO_KEY", "${API_KEY}", true},
-		{"oauth token", AuthOAuth, "FOO_TOKEN", "Bearer ${OAUTH_ACCESS_TOKEN}", true},
+		{"mcp token", AuthMCP, "FOO_TOKEN", "Bearer ${OAUTH_ACCESS_TOKEN}", true},
 		{"oneid token", AuthOneID, "FOO_TOKEN", "${ONEID_TOKEN}", true},
 		{"undeclared credential", AuthToken, "FOO_KEY", "${MISSING}", false},
 		{"credential in self mode", AuthDelegated, "FOO_KEY", "${API_KEY}", false},
-		{"old oauth name", AuthOAuth, "FOO_TOKEN", "${ACCESS_TOKEN}", false},
+		{"old mcp name", AuthMCP, "FOO_TOKEN", "${ACCESS_TOKEN}", false},
 		{"old oneid name", AuthOneID, "FOO_TOKEN", "${AP_ACCESS_TOKEN}", false},
 		{"shell execution variable", AuthDelegated, "BASH_ENV", "x", false},
 		{"path", AuthDelegated, "PATH", "/tmp", false},
@@ -92,7 +92,7 @@ func TestCLIEnvironmentSeparatesPublicValuesFromCredentials(t *testing.T) {
 	if err != nil || len(credentials) != 1 || credentials["FOO_KEY"] != "key=${API_KEY}" {
 		t.Fatalf("credential templates %v %v", credentials, err)
 	}
-	oauth := cliEnvPackage(t, AuthOAuth, map[string]any{"FOO_TOKEN": "Bearer ${OAUTH_ACCESS_TOKEN}"})
+	oauth := cliEnvPackage(t, AuthMCP, map[string]any{"FOO_TOKEN": "Bearer ${OAUTH_ACCESS_TOKEN}"})
 	if templates, err := oauth.CLICredentialTemplates(); err != nil || templates["FOO_TOKEN"] != "Bearer ${ACCESS_TOKEN}" {
 		t.Fatalf("oauth template %v %v", templates, err)
 	}

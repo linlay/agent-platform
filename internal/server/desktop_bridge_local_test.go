@@ -35,6 +35,24 @@ func TestDesktopConnectorBridgeLocal(t *testing.T) {
 		handler.ServeHTTP(w, r)
 	}))
 	defer upstream.Close()
+	// MCP authorization discovery runs before the authorization link exists. A
+	// loopback HTTP server is trusted without a test certificate.
+	var authUpstream *httptest.Server
+	authUpstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/mcp":
+			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+authUpstream.URL+`/resource-metadata"`)
+			w.WriteHeader(http.StatusUnauthorized)
+		case "/resource-metadata":
+			_ = json.NewEncoder(w).Encode(map[string]any{"resource": authUpstream.URL + "/mcp", "authorization_servers": []string{authUpstream.URL}})
+		case "/.well-known/oauth-authorization-server":
+			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": authUpstream.URL, "authorization_endpoint": authUpstream.URL + "/authorize", "token_endpoint": authUpstream.URL + "/token", "response_types_supported": []string{"code"}, "code_challenge_methods_supported": []string{"S256"}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer authUpstream.Close()
 	fixture := newTestFixture(t)
 	root := fixture.server.deps.Config.Paths.EffectiveConnectorsCenterDir()
 	for _, id := range []string{"bridge-none", "bridge-token", "bridge-oauth"} {
@@ -49,9 +67,10 @@ func TestDesktopConnectorBridgeLocal(t *testing.T) {
 			component["headers"] = map[string]any{"X-API-Key": "${API_KEY}"}
 		}
 		if id == "bridge-oauth" {
-			manifest["authMode"] = "oauth"
+			manifest["authMode"] = "mcp"
 			manifest["authBrowser"] = "embedded"
-			manifest["oauth"] = map[string]any{"clientId": "fixture-client", "authorizationEndpoint": upstream.URL + "/authorize", "tokenEndpoint": upstream.URL + "/token", "resource": upstream.URL + "/mcp", "scopes": []string{"read"}}
+			manifest["oauth"] = map[string]any{"clientId": "fixture-client", "scopes": []string{"read"}}
+			component["url"] = authUpstream.URL + "/mcp"
 		}
 		for name, value := range files {
 			raw, err := json.Marshal(value)

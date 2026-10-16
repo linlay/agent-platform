@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agent-platform/internal/connector"
+	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/httpclient"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 )
@@ -37,6 +38,7 @@ type ConnectorCheckResult struct {
 	AuthMode        connector.AuthMode     `json:"authMode,omitempty"`
 	Status          string                 `json:"status"`
 	Package         ConnectorCheckStage    `json:"package"`
+	Authorization   ConnectorCheckStage    `json:"authorization"`
 	Initialize      ConnectorCheckStage    `json:"initialize"`
 	ToolDiscovery   ConnectorToolDiscovery `json:"toolDiscovery"`
 	ProtocolVersion string                 `json:"protocolVersion,omitempty"`
@@ -56,7 +58,7 @@ func NewConnectorChecker(sources connector.Sources) *ConnectorChecker {
 // SupportsConnectorCheck reads only the declared transport, authentication and
 // enabled flags. It does not read credentials, validate the package or connect.
 func SupportsConnectorCheck(pkg connector.Package, component string) bool {
-	if pkg.AuthMode != connector.AuthNoAuth && pkg.AuthMode != connector.AuthMCP && pkg.AuthMode != connector.AuthOAuth && pkg.AuthMode != connector.AuthToken {
+	if pkg.AuthMode != connector.AuthNoAuth && pkg.AuthMode != connector.AuthMCP && pkg.AuthMode != connector.AuthToken {
 		return false
 	}
 	definition := pkg.MCP[component]
@@ -93,7 +95,7 @@ func (c *ConnectorChecker) CheckConnector(ctx context.Context, id, component str
 	}
 	r := ConnectorCheckResult{
 		ConnectorID: id, Component: component, Status: "failed",
-		Package: ConnectorCheckStage{Status: "not_run"}, Initialize: ConnectorCheckStage{Status: "not_run"},
+		Package: ConnectorCheckStage{Status: "not_run"}, Authorization: ConnectorCheckStage{Status: "not_run"}, Initialize: ConnectorCheckStage{Status: "not_run"},
 		ToolDiscovery: ConnectorToolDiscovery{ConnectorCheckStage: ConnectorCheckStage{Status: "not_run"}, Tools: []ConnectorToolSummary{}},
 	}
 	pkg, err := c.sources.Load(id)
@@ -121,7 +123,7 @@ func (c *ConnectorChecker) CheckConnector(ctx context.Context, id, component str
 		return r, nil
 	}
 	if !SupportsConnectorCheck(pkg, component) {
-		r.Package = ConnectorCheckStage{Status: "failed", Code: "unsupported_component", Message: "This check supports HTTP MCP with no_auth, mcp, oauth or token authentication."}
+		r.Package = ConnectorCheckStage{Status: "failed", Code: "unsupported_component", Message: "This check supports HTTP MCP with authMode none, mcp or token."}
 		return r, nil
 	}
 	r.Package.Status = "passed"
@@ -135,6 +137,15 @@ func (c *ConnectorChecker) CheckConnector(ctx context.Context, id, component str
 			r.Status = "authorization_required"
 			r.Initialize.Code = "authorization_required"
 			r.Initialize.Message = "Complete connector authorization before checking the remote MCP protocol."
+			if pkg.AuthMode == connector.AuthMCP {
+				// Local validation does not prove that sign-in can start; discover
+				// the authorization server without logging in or registering.
+				r.Authorization = connectorAuthorizationStage(connectorauth.DiscoverAuthorization(ctx, c.httpClient, pkg, component))
+				if r.Authorization.Status != "passed" {
+					r.Status = "failed"
+					r.Initialize.Message = "MCP authorization cannot start until the authorization discovery failure is resolved."
+				}
+			}
 			return r, nil
 		}
 	}
@@ -187,6 +198,34 @@ func (c *ConnectorChecker) CheckConnector(ctx context.Context, id, component str
 	}
 	r.Status = "passed"
 	return r, nil
+}
+
+// connectorAuthorizationMessages describe discovery failures without endpoint
+// URLs; the connector detail page and /api/connectors/check list the requests.
+var connectorAuthorizationMessages = map[string]string{
+	"discovery_request_failed":                "The MCP endpoint could not be reached for authorization discovery.",
+	"resource_metadata_not_found":             "The server published no protected resource metadata: initialize returned no Bearer challenge with resource_metadata and no well-known metadata exists. Declare oauth.resourceMetadataUrl if the server publishes it elsewhere.",
+	"invalid_resource_metadata":               "The protected resource metadata is invalid or names a different resource than the MCP endpoint.",
+	"invalid_metadata_url":                    "The protected resource metadata URL must use HTTPS.",
+	"authorization_server_missing":            "The protected resource metadata lists no authorization server.",
+	"issuer_not_advertised":                   "The configured OAuth issuer is not advertised by the protected resource.",
+	"insecure_authorization_server":           "The authorization server or its endpoints do not use HTTPS.",
+	"authorization_server_metadata_not_found": "The authorization server publishes no OAuth or OpenID metadata.",
+	"client_registration_unavailable":         "The authorization server offers no dynamic client registration; configure a pre-registered OAuth client.",
+	"pkce_s256_unsupported":                   "The authorization server does not advertise PKCE S256.",
+	"invalid_configuration":                   "The connector's MCP authorization settings failed local validation.",
+	"invalid_component":                       "Select an existing HTTP MCP component.",
+}
+
+func connectorAuthorizationStage(report connectorauth.DiscoveryReport) ConnectorCheckStage {
+	if report.Status == "passed" {
+		return ConnectorCheckStage{Status: "passed", Message: "Authorization discovery passed; the user can sign in from the connector detail page."}
+	}
+	message := connectorAuthorizationMessages[report.Code]
+	if message == "" {
+		message = "MCP authorization discovery failed."
+	}
+	return ConnectorCheckStage{Status: "failed", Code: report.Code, Message: message}
 }
 
 func connectorProbeFailure(ctx context.Context, err error) ConnectorCheckStage {

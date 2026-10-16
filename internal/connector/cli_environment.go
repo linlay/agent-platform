@@ -78,7 +78,7 @@ func (p Package) credentialVariables() map[string]bool {
 			names[field.Key] = true
 		}
 		return names
-	case AuthOAuth, AuthMCP:
+	case AuthMCP:
 		return map[string]bool{EnvOAuthAccessToken: true}
 	case AuthOneID:
 		return map[string]bool{EnvOneIDToken: true}

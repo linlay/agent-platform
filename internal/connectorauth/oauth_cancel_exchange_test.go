@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
@@ -18,18 +17,14 @@ func TestOAuthCancellationDuringTokenExchangeCannotRestoreConnection(t *testing.
 			entered := make(chan struct{})
 			release := make(chan struct{})
 			exchangeDone := make(chan struct{})
-			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != "/token" {
-					http.NotFound(w, r)
-					return
+			upstream := newMCPAuthUpstream(t, func(u *mcpAuthUpstream) {
+				u.token = func(w http.ResponseWriter, r *http.Request) {
+					defer close(exchangeDone)
+					close(entered)
+					<-release
+					json.NewEncoder(w).Encode(map[string]any{"access_token": "late-secret", "token_type": "Bearer", "expires_in": 3600})
 				}
-				defer close(exchangeDone)
-				close(entered)
-				<-release
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]any{"access_token": "late-secret", "token_type": "Bearer", "expires_in": 3600})
-			}))
-			defer upstream.Close()
+			})
 			defer func() {
 				select {
 				case <-release:
@@ -38,12 +33,10 @@ func TestOAuthCancellationDuringTokenExchangeCannotRestoreConnection(t *testing.
 				}
 			}()
 			sources := connector.Sources{ExternalRoot: t.TempDir(), StateRoot: t.TempDir()}
-			pkg := writeAuthPackage(t, sources.ExternalRoot, "demo", map[string]any{
-				"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "oauth",
-				"oauth": map[string]any{"clientId": "public-client", "authorizationEndpoint": upstream.URL + "/authorize", "tokenEndpoint": upstream.URL + "/token", "resource": upstream.URL + "/mcp"},
-			}, map[string]any{"type": "streamableHttp", "url": upstream.URL + "/mcp"})
+			pkg := upstream.writePackage(t, sources.ExternalRoot, nil)
 			pkg.StateRoot = sources.StateRoot
 			manager := New(t.Context(), sources, nil)
+			manager.client = upstream.Client()
 			if _, err := manager.Start("demo"); err != nil {
 				t.Fatal(err)
 			}

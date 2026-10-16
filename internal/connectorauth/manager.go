@@ -30,6 +30,8 @@ type Session struct {
 	AuthBrowser       string     `json:"authBrowser"`
 	Message           string     `json:"message,omitempty"`
 	ExpiresAt         time.Time  `json:"expiresAt"`
+	// Discovery is set by an explicit check of an unauthorized MCP component.
+	Discovery *DiscoveryReport `json:"discovery,omitempty"`
 }
 
 type login struct {
@@ -165,14 +167,14 @@ func (m *Manager) StartComponent(id, component string) (Session, error) {
 	if pkg.AuthMode == connector.AuthNoAuth {
 		return Session{}, ErrAuthNotRequired
 	}
-	if pkg.AuthMode == connector.AuthOAuth || pkg.AuthMode == connector.AuthMCP {
+	if pkg.AuthMode == connector.AuthMCP {
 		pkg, err = OAuthComponent(pkg, component)
 		if err != nil {
 			return Session{}, err
 		}
 	}
-	if !(pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI()) && pkg.AuthMode != connector.AuthOAuth && pkg.AuthMode != connector.AuthMCP {
-		return Session{}, fmt.Errorf("connector does not support interactive login")
+	if !(pkg.AuthMode == connector.AuthDelegated && pkg.ManagedCLI()) && pkg.AuthMode != connector.AuthMCP {
+		return Session{}, fmt.Errorf("connector %s authMode %s does not support interactive login; only authMode mcp and self with cli.json auth do", id, pkg.AuthMode)
 	}
 	m.mu.Lock()
 	if m.disconnecting[id] {

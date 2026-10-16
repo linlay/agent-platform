@@ -25,7 +25,8 @@ func TestLegacyManifestAuthentication(t *testing.T) {
 		{`,"auth_mode":"mcp"`, AuthMCP},
 		{`,"auth_mode":"oneid-token"`, AuthOneID},
 		{`,"auth_mode":"oauth","oauth":{"discovery":true}`, AuthMCP},
-		{`,"auth_mode":"oauth","oauth":{"clientId":"demo"}`, AuthOAuth},
+		{`,"auth_mode":"oauth","oauth":{"clientId":"demo"}`, AuthMCP},
+		{`,"auth_mode":"oauth"`, AuthMCP},
 		{`,"authMode":"none"`, AuthNoAuth},
 	} {
 		t.Run(tc.fields, func(t *testing.T) {

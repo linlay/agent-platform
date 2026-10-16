@@ -90,7 +90,7 @@ func (h *ToolHandler) checkConnector(ctx context.Context, params map[string]any)
 	}
 	result := map[string]any{
 		"connectorId": check.ConnectorID, "component": check.Component, "authMode": check.AuthMode, "status": check.Status,
-		"package": check.Package, "initialize": check.Initialize, "toolDiscovery": check.ToolDiscovery,
+		"package": check.Package, "authorization": check.Authorization, "initialize": check.Initialize, "toolDiscovery": check.ToolDiscovery,
 	}
 	if check.ProtocolVersion != "" {
 		result["protocolVersion"] = check.ProtocolVersion

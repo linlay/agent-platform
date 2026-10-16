@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"agent-platform/internal/shellenv"
@@ -83,20 +84,20 @@ func decodeManifest(data []byte, manifest *Manifest) error {
 	decoded.TokenSchema, decoded.legacy = schema, legacy
 	if legacy != nil {
 		if len(decoded.OAuth) != 0 {
-			settings, discovery, err := normalizeLegacyOAuth(decoded.OAuth)
+			settings, err := normalizeLegacyOAuth(decoded.OAuth)
 			if err != nil {
 				return err
 			}
 			decoded.OAuth = settings
-			if decoded.AuthMode == AuthOAuth && discovery {
-				decoded.AuthMode = AuthMCP
-			}
 		}
 		for target, binding := range legacy.bindings {
 			if len(binding.OAuth) != 0 {
-				settings, _, err := normalizeLegacyOAuth(binding.OAuth)
+				settings, err := normalizeLegacyOAuth(binding.OAuth)
 				if err != nil {
-					return err
+					return fmt.Errorf("auth_bindings.%s: %w", target, err)
+				}
+				if err := validateMCPAuthorizationSettings(settings); err != nil {
+					return fmt.Errorf("auth_bindings.%s %w", target, err)
 				}
 				binding.OAuth = settings
 				legacy.bindings[target] = binding
@@ -158,10 +159,12 @@ func normalizeLegacyTokenSchema(raw json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(schema)
 }
 
-func normalizeLegacyOAuth(raw json.RawMessage) (json.RawMessage, bool, error) {
+// normalizeLegacyOAuth renames snake_case keys and drops the former discovery
+// switch: the legacy auth_mode oauth is always MCP standard authorization now.
+func normalizeLegacyOAuth(raw json.RawMessage) (json.RawMessage, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		return nil, false, fmt.Errorf("oauth must be an object")
+		return nil, fmt.Errorf("oauth must be an object")
 	}
 	for _, pair := range [][2]string{
 		{"client_id", "clientId"}, {"authorization_endpoint", "authorizationEndpoint"},
@@ -170,21 +173,20 @@ func normalizeLegacyOAuth(raw json.RawMessage) (json.RawMessage, bool, error) {
 	} {
 		if value, exists := fields[pair[0]]; exists {
 			if _, conflict := fields[pair[1]]; conflict {
-				return nil, false, fmt.Errorf("oauth declares both %s and %s", pair[0], pair[1])
+				return nil, fmt.Errorf("oauth declares both %s and %s", pair[0], pair[1])
 			}
 			fields[pair[1]] = value
 			delete(fields, pair[0])
 		}
 	}
-	var discovery bool
 	if raw, exists := fields["discovery"]; exists {
+		var discovery bool
 		if err := json.Unmarshal(raw, &discovery); err != nil {
-			return nil, false, fmt.Errorf("oauth discovery must be boolean")
+			return nil, fmt.Errorf("oauth.discovery must be a boolean")
 		}
 		delete(fields, "discovery")
 	}
-	encoded, err := json.Marshal(fields)
-	return encoded, discovery, err
+	return json.Marshal(fields)
 }
 
 // LegacyOAuthBinding preserves per-component OAuth settings and CLI grant
@@ -226,64 +228,64 @@ func (p *Package) normalizeLegacyComponents() error {
 	}
 	allowed := p.credentialVariables()
 	if len(p.legacy.bindings) > 0 && len(allowed) == 0 {
-		return fmt.Errorf("auth_bindings require token, oauth, mcp or oneid mode")
+		return fmt.Errorf("auth_bindings require authMode token, mcp or oneid, but authMode is %s", p.AuthMode)
 	}
 	for target, binding := range p.legacy.bindings {
 		if len(binding.OAuth) != 0 || binding.Grant != "" {
-			if p.AuthMode != AuthOAuth && p.AuthMode != AuthMCP {
-				return fmt.Errorf("OAuth bindings require oauth or mcp mode")
+			if p.AuthMode != AuthMCP {
+				return fmt.Errorf("auth_bindings.%s oauth/grant requires authMode mcp, but authMode is %s", target, p.AuthMode)
 			}
 		}
 		var component map[string]any
 		if target == "cli" {
 			component = p.CLI
 			if binding.Grant != "" && p.MCP[binding.Grant] == nil {
-				return fmt.Errorf("CLI grant references missing MCP component")
+				return fmt.Errorf("auth_bindings.cli grant references missing MCP component %q", binding.Grant)
 			}
 		} else if name, ok := strings.CutPrefix(target, "mcp:"); ok {
 			component = p.MCP[name]
 			if binding.Grant != "" {
-				return fmt.Errorf("only CLI may consume another component grant")
+				return fmt.Errorf("auth_bindings.%s cannot declare grant; only cli may use another component's grant", target)
 			}
 		} else {
-			return fmt.Errorf("auth binding target must be cli or mcp:<name>")
+			return fmt.Errorf("auth_bindings target %q must be cli or mcp:<name>", target)
 		}
 		if component == nil {
-			return fmt.Errorf("auth binding targets missing component %q", target)
+			return fmt.Errorf("auth_bindings target %q references a missing component", target)
 		}
 		http := target != "cli" && component["type"] == "streamableHttp"
 		if http && len(binding.Env) != 0 || !http && len(binding.Headers) != 0 {
-			return fmt.Errorf("auth binding does not match component transport")
+			return fmt.Errorf("auth_bindings.%s does not match component transport: HTTP MCP accepts headers only, CLI and stdio MCP accept env only", target)
 		}
 		for field, entries := range map[string]map[string]string{"env": binding.Env, "headers": binding.Headers} {
 			for key, template := range entries {
 				if field == "env" && (!tokenFieldKey.MatchString(key) || shellenv.UnsafeOverride(key) || strings.HasPrefix(key, "AP_") || strings.HasSuffix(key, "_CONFIG_DIR")) {
-					return fmt.Errorf("invalid credential environment variable")
+					return fmt.Errorf("auth_bindings.%s env %q must be an uppercase identifier that is not reserved (AP_*, *_CONFIG_DIR or unsafe overrides)", target, key)
 				}
 				if field == "headers" {
 					lower := strings.ToLower(key)
 					if !legacyHeaderName.MatchString(key) || lower == "host" || lower == "content-length" || lower == "connection" || strings.HasPrefix(lower, "mcp-") || p.AuthMode != AuthToken {
-						return fmt.Errorf("invalid authentication header")
+						return fmt.Errorf("auth_bindings.%s header %q is not allowed: requires authMode token and a valid name other than Host, Content-Length, Connection or Mcp-*", target, key)
 					}
 				}
 				// Legacy templates used the internal credential names.
 				variables := allowed
 				if target != "cli" {
-					if p.AuthMode == AuthOAuth || p.AuthMode == AuthMCP {
+					if p.AuthMode == AuthMCP {
 						variables = map[string]bool{"ACCESS_TOKEN": true}
 					} else if p.AuthMode == AuthOneID {
 						variables = map[string]bool{"AP_ACCESS_TOKEN": true}
 					}
-				} else if p.AuthMode == AuthOAuth || p.AuthMode == AuthMCP {
+				} else if p.AuthMode == AuthMCP {
 					template = strings.ReplaceAll(template, "${ACCESS_TOKEN}", "${"+EnvOAuthAccessToken+"}")
 				} else if p.AuthMode == AuthOneID {
 					template = strings.ReplaceAll(template, "${AP_ACCESS_TOKEN}", "${"+EnvOneIDToken+"}")
 				}
 				if err := validateLegacyTemplate(template, variables); err != nil {
-					return err
+					return fmt.Errorf("auth_bindings.%s %s %q: %w", target, field, key, err)
 				}
 				if err := mergeLegacyTemplate(component, field, key, template); err != nil {
-					return err
+					return fmt.Errorf("auth_bindings.%s: %w", target, err)
 				}
 			}
 		}
@@ -293,7 +295,7 @@ func (p *Package) normalizeLegacyComponents() error {
 
 func validateLegacyTemplate(template string, allowed map[string]bool) error {
 	if strings.ContainsAny(template, "\r\n\x00") || !authVariable.MatchString(template) {
-		return fmt.Errorf("auth binding requires a credential template")
+		return fmt.Errorf("value must be a single-line ${VAR} credential template")
 	}
 	values := map[string]string{}
 	for key := range allowed {
@@ -301,9 +303,18 @@ func validateLegacyTemplate(template string, allowed map[string]bool) error {
 	}
 	resolved, err := ResolveAuthTemplate(template, values)
 	if err != nil || strings.Contains(resolved, "${") {
-		return fmt.Errorf("auth binding references an undeclared credential")
+		return fmt.Errorf("template references a credential this authMode does not provide (allowed: %s)", strings.Join(sortedKeys(allowed), ", "))
 	}
 	return nil
+}
+
+func sortedKeys(values map[string]bool) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func mergeLegacyTemplate(component map[string]any, field, key, template string) error {

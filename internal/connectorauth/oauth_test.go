@@ -55,7 +55,7 @@ func TestCredentialSnapshotDoesNotWaitForRefreshLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer unlock()
-	if err := saveCredential(root, "demo", oauthCredential{Resource: "https://example.test/mcp", Token: &oauth2.Token{AccessToken: "expired", RefreshToken: "refresh", Expiry: time.Now().Add(-time.Hour)}}); err != nil {
+	if err := saveCredential(root, "demo", oauthCredential{MCP: true, Resource: "https://example.test/mcp", Token: &oauth2.Token{AccessToken: "expired", RefreshToken: "refresh", Expiry: time.Now().Add(-time.Hour)}}); err != nil {
 		t.Fatal(err)
 	}
 	ready := make(chan bool, 1)
@@ -91,7 +91,7 @@ func TestOAuthRejectsConflictingAuthenticationDeclarations(t *testing.T) {
 		{"type": "streamableHttp", "url": "https://example.test/mcp", "platform": map[string]any{"authSource": "identity-file"}},
 		{"type": "stdio", "command": "some-server"},
 	} {
-		pkg := connector.Package{Manifest: connector.Manifest{AuthMode: "oauth"}, MCP: map[string]map[string]any{"main": component}}
+		pkg := connector.Package{Manifest: connector.Manifest{AuthMode: connector.AuthMCP}, MCP: map[string]map[string]any{"main": component}}
 		if err := ValidatePackage(pkg); err == nil {
 			t.Fatal("accepted incompatible OAuth configuration")
 		}

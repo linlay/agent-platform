@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,9 +117,53 @@ func TestConnectorSnapshotFailureDoesNotUndoCreation(t *testing.T) {
 	}
 }
 
+// mcpAuthorizationServer answers an unauthenticated initialize with a Bearer
+// challenge, as the MCP authorization specification requires.
+func mcpAuthorizationServer(t *testing.T, publishMetadata bool) *httptest.Server {
+	t.Helper()
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/mcp" && r.Method == http.MethodPost && publishMetadata:
+			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+server.URL+`/resource-metadata"`)
+			w.WriteHeader(http.StatusUnauthorized)
+		case r.URL.Path == "/mcp":
+			w.WriteHeader(http.StatusUnauthorized)
+		case r.URL.Path == "/resource-metadata":
+			json.NewEncoder(w).Encode(map[string]any{"resource": server.URL + "/mcp", "authorization_servers": []string{server.URL}})
+		case r.URL.Path == "/.well-known/oauth-authorization-server":
+			json.NewEncoder(w).Encode(map[string]any{"issuer": server.URL, "authorization_endpoint": server.URL + "/authorize", "token_endpoint": server.URL + "/token", "registration_endpoint": server.URL + "/register", "response_types_supported": []string{"code"}, "code_challenge_methods_supported": []string{"S256"}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestConnectorCheckReportsAuthorizationDiscoveryFailureWithoutEndpoints(t *testing.T) {
+	h := connectorControlFixture(t)
+	upstream := mcpAuthorizationServer(t, false)
+	change := adminsource.ControlChange{ControlTarget: adminsource.ControlTarget{ResourceType: "connector", ResourceKey: "remote"}, Action: "apply", MCPURL: upstream.URL + "/mcp", Content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp"}`}
+	plan, err := h.sources.Prepare(change, "caller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.sources.Apply(t.Context(), change, "caller", plan.Digest); err != nil {
+		t.Fatal(err)
+	}
+	result, err := h.Invoke(t.Context(), "platform_inspect", map[string]any{"action": "checkConnector", "args": map[string]any{"connectorId": "remote"}}, controlExecution())
+	authorization, _ := result.Structured["authorization"].(map[string]any)
+	if err != nil || result.Structured["status"] != "failed" || authorization["code"] != "resource_metadata_not_found" || result.Structured["nextAction"] != nil || strings.Contains(result.Output, upstream.URL) {
+		t.Fatalf("discovery failure: %+v, %v", result, err)
+	}
+}
+
 func TestConnectorCheckAdmissionAndAuthorizationRecovery(t *testing.T) {
 	h := connectorControlFixture(t)
-	change := adminsource.ControlChange{ControlTarget: adminsource.ControlTarget{ResourceType: "connector", ResourceKey: "remote"}, Action: "apply", MCPURL: "https://example.test/mcp", Content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp"}`}
+	upstream := mcpAuthorizationServer(t, true)
+	change := adminsource.ControlChange{ControlTarget: adminsource.ControlTarget{ResourceType: "connector", ResourceKey: "remote"}, Action: "apply", MCPURL: upstream.URL + "/mcp", Content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp"}`}
 	plan, err := h.sources.Prepare(change, "caller")
 	if err != nil {
 		t.Fatal(err)
@@ -127,7 +173,7 @@ func TestConnectorCheckAdmissionAndAuthorizationRecovery(t *testing.T) {
 	}
 	args := map[string]any{"action": "checkConnector", "args": map[string]any{"connectorId": "remote"}}
 	result, err := h.Invoke(t.Context(), "platform_inspect", args, controlExecution())
-	if err != nil || result.Error != "" || result.Structured["status"] != "authorization_required" || result.Structured["nextAction"].(map[string]any)["route"] != "/connectors/remote" {
+	if err != nil || result.Error != "" || result.Structured["status"] != "authorization_required" || result.Structured["nextAction"].(map[string]any)["route"] != "/connectors/remote" || result.Structured["authorization"].(map[string]any)["status"] != "passed" {
 		t.Fatalf("authorization recovery: %+v, %v", result, err)
 	}
 	child := controlExecution()

@@ -910,7 +910,7 @@ func controlMCPFile(c ControlChange) (string, error) {
 		return "", err
 	}
 	if m.Type != "mcp" || (m.AuthMode != connector.AuthMCP && m.AuthMode != connector.AuthNoAuth) {
-		return "", fmt.Errorf("HTTP MCP creation requires type mcp and authMode mcp (OAuth discovery) or none; use the connector package workflow for other authentication modes")
+		return "", fmt.Errorf("HTTP MCP creation requires type mcp and authMode mcp (MCP standard authorization; alias oauth) or none, but got type %s and authMode %s; use the connector package workflow for other authentication modes", m.Type, m.AuthMode)
 	}
 	components := map[string]map[string]any{"main": {"type": "streamableHttp", "url": c.MCPURL}}
 	// Match login's local validation before asking the user to approve creation.

@@ -61,7 +61,7 @@ func TestConnectorOAuthToolCallsUseCurrentCredentials(t *testing.T) {
 	}
 	os.MkdirAll(state, 0o700)
 	save := func(value string) {
-		data, _ := json.Marshal(map[string]any{"resource": server.URL, "config": oauth2.Config{}, "token": &oauth2.Token{AccessToken: value, TokenType: "Bearer", Expiry: time.Now().Add(time.Hour)}})
+		data, _ := json.Marshal(map[string]any{"mcp": true, "resource": server.URL, "config": oauth2.Config{}, "token": &oauth2.Token{AccessToken: value, TokenType: "Bearer", Expiry: time.Now().Add(time.Hour)}})
 		if err := os.WriteFile(filepath.Join(state, "oauth.json"), data, 0o600); err != nil {
 			t.Fatal(err)
 		}

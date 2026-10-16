@@ -21,7 +21,7 @@ import (
 func TestIndependentGrantsAndLogoutFence(t *testing.T) {
 	root := t.TempDir()
 	for _, target := range []string{"https://a.example/mcp", "https://b.example/mcp"} {
-		if err := saveCredential(root, "demo", oauthCredential{Resource: target, Destination: target, Token: &oauth2.Token{AccessToken: target}}); err != nil {
+		if err := saveCredential(root, "demo", oauthCredential{MCP: true, Resource: target, Destination: target, Token: &oauth2.Token{AccessToken: target}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -109,31 +109,6 @@ func TestMCPRejectRefreshAndScopeChallenge(t *testing.T) {
 	}
 }
 
-func TestDiscoveryFallsBackToRootMetadata(t *testing.T) {
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/mcp":
-			w.WriteHeader(401)
-		case "/.well-known/oauth-protected-resource/mcp":
-			http.NotFound(w, r)
-		case "/.well-known/oauth-protected-resource":
-			json.NewEncoder(w).Encode(map[string]any{"resource": server.URL + "/mcp", "authorization_servers": []string{server.URL}})
-		case "/.well-known/oauth-authorization-server":
-			json.NewEncoder(w).Encode(map[string]any{"issuer": server.URL, "authorization_endpoint": server.URL + "/authorize", "token_endpoint": server.URL + "/token", "code_challenge_methods_supported": []string{"S256"}})
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-	m := New(t.Context(), connector.Sources{ExternalRoot: t.TempDir()}, nil)
-	prm, _, err := m.discover(t.Context(), server.URL+"/mcp", server.URL+"/mcp", oauthSettings{ClientID: "test"})
-	if err != nil || prm == nil {
-		t.Fatal(err)
-	}
-}
-
 func TestTokenEnvironmentReadsLatestValueAndPreservesSources(t *testing.T) {
 	root := t.TempDir()
 	writeAuthPackage(t, root, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "token", "tokenSchema": map[string]any{"fields": []map[string]any{{"key": "API_KEY", "required": true}}}}, map[string]any{"type": "streamableHttp", "url": "https://example.com/mcp"})
@@ -170,34 +145,26 @@ func TestTokenEnvironmentReadsLatestValueAndPreservesSources(t *testing.T) {
 func TestLateOAuthLoginAfterLogoutDoesNotRestoreCredentials(t *testing.T) {
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.ParseForm()
-		if r.Form.Get("code") == "late" {
-			started <- struct{}{}
-			select {
-			case <-release:
-			case <-r.Context().Done():
-				return
+	upstream := newMCPAuthUpstream(t, func(u *mcpAuthUpstream) {
+		u.token = func(w http.ResponseWriter, r *http.Request) {
+			r.ParseForm()
+			if r.Form.Get("code") == "late" {
+				started <- struct{}{}
+				select {
+				case <-release:
+				case <-r.Context().Done():
+					return
+				}
 			}
+			json.NewEncoder(w).Encode(map[string]any{"access_token": r.Form.Get("code"), "token_type": "Bearer", "expires_in": 3600})
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"access_token": r.Form.Get("code"), "token_type": "Bearer", "expires_in": 3600})
-	}))
-	defer server.Close()
+	})
 	root := t.TempDir()
-	dir := filepath.Join(root, "demo")
-	os.MkdirAll(dir, 0755)
-	resource := server.URL + "/a"
-	manifest := map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "oauth",
-		"oauth": map[string]any{"clientId": "test", "authorizationEndpoint": server.URL + "/authorize", "tokenEndpoint": server.URL + "/token", "resource": resource}}
-	for name, value := range map[string]any{"connector.json": manifest, "mcp.json": map[string]any{"mcpServers": map[string]any{"a": map[string]any{"type": "streamableHttp", "url": resource}}}} {
-		data, _ := json.Marshal(value)
-		if err := os.WriteFile(filepath.Join(dir, name), data, 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	upstream.writePackage(t, root, nil)
+	resource := upstream.URL + "/mcp"
 	sources := connector.Sources{ExternalRoot: root}
 	m := New(t.Context(), sources, nil).WithCredentialValidator(acceptTokenForPersistenceTest)
+	m.client = upstream.Client()
 	callback := func(code string) {
 		s := waitStatus(t, m, "demo", "pending")
 		u, _ := url.Parse(s.URL)
@@ -207,7 +174,7 @@ func TestLateOAuthLoginAfterLogoutDoesNotRestoreCredentials(t *testing.T) {
 		}
 		response.Body.Close()
 	}
-	if _, err := m.StartComponent("demo", "a"); err != nil {
+	if _, err := m.StartComponent("demo", "main"); err != nil {
 		t.Fatal(err)
 	}
 	callback("first")
@@ -218,7 +185,7 @@ func TestLateOAuthLoginAfterLogoutDoesNotRestoreCredentials(t *testing.T) {
 	if value, err := AccessToken(t.Context(), sources.PersistentRoot(), "demo", resource, nil, resource); err != nil || value != "first" {
 		t.Fatal("first login did not store its grant", err)
 	}
-	if _, err := m.StartComponent("demo", "a"); err != nil {
+	if _, err := m.StartComponent("demo", "main"); err != nil {
 		t.Fatal(err)
 	}
 	callback("late")
@@ -235,7 +202,7 @@ func TestLateOAuthLoginAfterLogoutDoesNotRestoreCredentials(t *testing.T) {
 	close(release)
 	deadline = time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		status, _ := m.StatusComponent(t.Context(), "demo", "a")
+		status, _ := m.StatusComponent(t.Context(), "demo", "main")
 		if status.Status == "failed" {
 			break
 		}

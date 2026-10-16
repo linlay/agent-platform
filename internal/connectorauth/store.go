@@ -209,8 +209,10 @@ func credentialReadiness(root, id, resource string, destinations ...string) (boo
 	return c.Generation == s.Generation && !c.RequiresLogin && matches && c.Token != nil && (c.Token.Valid() || c.Token.RefreshToken != ""), nil
 }
 
+// Grants from the removed standalone OAuth flow (mcp=false) never match, so
+// those connectors require MCP sign-in again instead of a converted grant.
 func credentialMatches(c oauthCredential, resource string, destinations []string) bool {
-	if c.Resource != resource {
+	if !c.MCP || c.Resource != resource {
 		return false
 	}
 	destination := c.Destination
@@ -248,11 +250,7 @@ func AccessToken(ctx context.Context, root, id, resource string, client *http.Cl
 	if client == nil {
 		client = httpclient.NewClient(30 * time.Second)
 	}
-	refreshResource := ""
-	if c.MCP {
-		refreshResource = c.Resource
-	}
-	client = tokenHTTPClient(client, c.Config.Endpoint.TokenURL, refreshResource)
+	client = tokenHTTPClient(client, c.Config.Endpoint.TokenURL, c.Resource)
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, client)
 	token, err := c.Config.TokenSource(ctx, c.Token).Token()
 	if err != nil {

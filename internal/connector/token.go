@@ -44,24 +44,41 @@ var tokenFieldKey = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
 func TokenFields(manifest Manifest) ([]TokenField, error) {
 	var schema TokenSchema
-	if err := DecodeJSON(manifest.TokenSchema, &schema); err != nil || len(schema.Fields) == 0 {
-		return nil, fmt.Errorf("token-schema.json requires non-empty fields")
+	if err := DecodeJSON(manifest.TokenSchema, &schema); err != nil {
+		return nil, fmt.Errorf("token-schema.json is invalid: %w%s", err, tokenSchemaHint(err))
+	}
+	if len(schema.Fields) == 0 {
+		return nil, fmt.Errorf("token-schema.json fields must contain at least one field")
 	}
 	seen := map[string]bool{}
 	for i := range schema.Fields {
 		f := &schema.Fields[i]
-		if !tokenFieldKey.MatchString(f.Key) || seen[f.Key] {
-			return nil, fmt.Errorf("token-schema.json field keys must be unique uppercase identifiers")
+		if !tokenFieldKey.MatchString(f.Key) {
+			return nil, fmt.Errorf("token-schema.json fields[%d].key %q must be an uppercase identifier ([A-Z][A-Z0-9_]*)", i, f.Key)
+		}
+		if seen[f.Key] {
+			return nil, fmt.Errorf("token-schema.json fields[%d].key %q is duplicated", i, f.Key)
 		}
 		seen[f.Key] = true
 		if f.Type == "" {
 			f.Type = "password"
 		}
-		if f.Type != "text" && f.Type != "password" || f.Type == "password" && f.DefaultValue != "" {
-			return nil, fmt.Errorf("token-schema.json field %s requires text/password and no password default", f.Key)
+		if f.Type != "text" && f.Type != "password" {
+			return nil, fmt.Errorf("token-schema.json field %s type %q must be text or password", f.Key, f.Type)
+		}
+		if f.Type == "password" && f.DefaultValue != "" {
+			return nil, fmt.Errorf("token-schema.json field %s is a password and cannot declare defaultValue", f.Key)
 		}
 	}
 	return schema.Fields, nil
+}
+
+// tokenSchemaHint points WorkBuddy-style suffixed translations to i18n.
+func tokenSchemaHint(err error) string {
+	if _, field, ok := strings.Cut(err.Error(), "unknown field "); ok && strings.HasSuffix(strings.Trim(field, `"`), "_en") {
+		return "; translations belong in i18n.<locale> (for example i18n.en.label), not _en suffix fields"
+	}
+	return ""
 }
 
 // ValidateTokenValues never includes credential values in diagnostics.
@@ -83,7 +100,7 @@ func ValidateTokenValues(manifest Manifest, values map[string]string) error {
 	}
 	for key := range values {
 		if !known[key] {
-			return fmt.Errorf("credentials contain an undeclared field")
+			return fmt.Errorf("credential field %s is not declared in token-schema.json", key)
 		}
 	}
 	return nil

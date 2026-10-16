@@ -96,14 +96,19 @@ func TestConnectorCheckOAuthUsesStoredCredentialsAndRequiresLogin(t *testing.T) 
 	sources, pkg := connectorCheckFixture(t, server.URL, "mcp")
 	checker := NewConnectorChecker(sources)
 	result, err := checker.CheckConnector(t.Context(), "demo", "main")
-	if err != nil || result.Status != "authorization_required" || result.Package.Status != "passed" || result.Initialize.Status != "not_run" || requests.Load() != 0 {
+	// Without a grant the check discovers authorization; this server publishes
+	// no metadata, so sign-in cannot start and the check fails explicitly.
+	if err != nil || result.Status != "failed" || result.Package.Status != "passed" || result.Initialize.Status != "not_run" || result.Authorization.Code != "resource_metadata_not_found" {
 		t.Fatalf("missing credentials: %+v, %v", result, err)
+	}
+	if output, _ := json.Marshal(result); strings.Contains(string(output), server.URL) {
+		t.Fatalf("discovery output exposed the endpoint: %s", output)
 	}
 	if _, err := pkg.SetConfigured(true); err != nil {
 		t.Fatal(err)
 	}
 	state, _ := pkg.ConnectorStateDir()
-	data, _ := json.Marshal(map[string]any{"resource": server.URL, "config": oauth2.Config{}, "token": &oauth2.Token{AccessToken: "private-check-token", TokenType: "Bearer", Expiry: time.Now().Add(time.Hour)}})
+	data, _ := json.Marshal(map[string]any{"mcp": true, "resource": server.URL, "config": oauth2.Config{}, "token": &oauth2.Token{AccessToken: "private-check-token", TokenType: "Bearer", Expiry: time.Now().Add(time.Hour)}})
 	if err := os.WriteFile(filepath.Join(state, "oauth.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -257,6 +262,7 @@ func saveConnectorCheckGrant(t *testing.T, pkg connector.Package, endpoint, toke
 		t.Fatal(err)
 	}
 	data, err := json.Marshal(map[string]any{
+		"mcp":      true,
 		"resource": endpoint,
 		"config":   oauth2.Config{Endpoint: oauth2.Endpoint{TokenURL: tokenEndpoint, AuthStyle: oauth2.AuthStyleInParams}},
 		"token":    &oauth2.Token{AccessToken: "private-check-token", RefreshToken: "private-refresh-token", TokenType: "Bearer", Expiry: time.Now().Add(time.Hour)},

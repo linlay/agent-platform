@@ -11,8 +11,7 @@ import (
 
 func TestOAuthStatusSeparatesMissingGrantFromDamagedStorage(t *testing.T) {
 	sources := connector.Sources{ExternalRoot: t.TempDir(), StateRoot: filepath.Join(t.TempDir(), "state")}
-	writeAuthPackage(t, sources.ExternalRoot, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "oauth",
-		"oauth": map[string]any{"clientId": "fixture", "authorizationEndpoint": "https://example.test/authorize", "tokenEndpoint": "https://example.test/token", "resource": "https://example.test/mcp"}},
+	writeAuthPackage(t, sources.ExternalRoot, "demo", map[string]any{"id": "demo", "name": "Demo", "version": "1.0.0", "type": "mcp", "authMode": "mcp"},
 		map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp"})
 	m := New(t.Context(), sources, nil)
 	status, err := m.StatusComponent(t.Context(), "demo", "")

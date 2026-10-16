@@ -245,7 +245,7 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 			}
 		}
 	}
-	if pkg.AuthMode == connector.AuthToken || pkg.AuthMode == connector.AuthOAuth || pkg.AuthMode == connector.AuthMCP {
+	if pkg.AuthMode == connector.AuthToken || pkg.AuthMode == connector.AuthMCP {
 		server.ConnectorAuthRoot = pkg.PersistentRoot()
 		server.CredentialRevision = credentialStateDigest(filepath.Join(pkg.PersistentRoot(), pkg.ID))
 		if server.Transport == TransportStreamableHTTP {
@@ -272,7 +272,7 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 	if err != nil {
 		return ServerDefinition{}, fmt.Errorf("disabledTools: %w", err)
 	}
-	if pkg.AuthMode == "oauth" || pkg.AuthMode == "mcp" {
+	if pkg.AuthMode == connector.AuthMCP {
 		if err := connectorauth.ValidatePackage(pkg); err != nil {
 			return ServerDefinition{}, err
 		}
@@ -280,22 +280,19 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 		if selectErr != nil {
 			return ServerDefinition{}, selectErr
 		}
-		server.ConnectorOAuth = server.Transport == TransportStreamableHTTP
+		// MCP authorization only accepts streamableHttp components.
+		server.ConnectorOAuth = true
 		server.ConnectorAuthRoot = pkg.PersistentRoot()
 		server.ConnectorOAuthResource, err = connectorauth.OAuthResource(selected)
 		if err != nil {
 			return ServerDefinition{}, err
 		}
-		destination := server.ResolvedURL()
-		if server.Transport == TransportStdio {
-			destination = server.ConnectorOAuthResource
-		}
-		credentialReady = connectorauth.CredentialReady(server.ConnectorAuthRoot, pkg.ID, server.ConnectorOAuthResource, destination)
+		credentialReady = connectorauth.CredentialReady(server.ConnectorAuthRoot, pkg.ID, server.ConnectorOAuthResource, server.ResolvedURL())
 	}
 	if server.ConnectorToken {
 		server.ConnectorAuthRoot = pkg.PersistentRoot()
 	}
-	if (pkg.AuthMode == connector.AuthToken || pkg.AuthMode == connector.AuthOAuth || pkg.AuthMode == connector.AuthMCP) && !credentialReady {
+	if (pkg.AuthMode == connector.AuthToken || pkg.AuthMode == connector.AuthMCP) && !credentialReady {
 		// Account authorization is deliberately not inferred from process env or
 		// CLI output. These modes require a configured credential provider.
 		server.SetupError = "connector authentication requires setup: " + string(pkg.AuthMode)

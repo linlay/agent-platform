@@ -249,17 +249,18 @@ func validateManifest(id string, pkg Manifest) error {
 			return fmt.Errorf("connector %s authMode none does not accept authentication settings", id)
 		}
 	case AuthDelegated, AuthOneID, AuthMCP, AuthToken:
-	case AuthOAuth:
-		if len(pkg.OAuth) == 0 {
-			return fmt.Errorf("connector %s oauth is required", id)
-		}
 	case "":
 		return fmt.Errorf("connector %s authMode is required", id)
 	default:
-		return fmt.Errorf("connector %s has invalid authMode", id)
+		return fmt.Errorf("connector %s authMode %q is not supported; use %s", id, pkg.AuthMode, authModeValues)
 	}
-	if pkg.AuthMode != AuthOAuth && pkg.AuthMode != AuthMCP && len(pkg.OAuth) != 0 {
-		return fmt.Errorf("connector %s oauth requires authMode oauth or mcp", id)
+	if len(pkg.OAuth) != 0 {
+		if pkg.AuthMode != AuthMCP {
+			return fmt.Errorf("connector %s oauth settings require authMode mcp, but authMode is %s", id, pkg.AuthMode)
+		}
+		if err := validateMCPAuthorizationSettings(pkg.OAuth); err != nil {
+			return fmt.Errorf("connector %s %w", id, err)
+		}
 	}
 	// TODO(connector-compat): 下个版本移除此内联表单校验，保留加载独立文件后的校验。
 	if len(pkg.TokenSchema) != 0 {
@@ -268,11 +269,39 @@ func validateManifest(id string, pkg Manifest) error {
 	return nil
 }
 
+// mcpAuthorizationFields are the connector.json oauth keys of authMode mcp.
+// Authorization and token endpoints always come from MCP discovery.
+var mcpAuthorizationFields = map[string]bool{
+	"resourceMetadataUrl": true, "scopes": true, "clientId": true, "resource": true,
+	"issuer": true, "clientMetadataUrl": true, "redirectUri": true,
+}
+
+func validateMCPAuthorizationSettings(raw json.RawMessage) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+		return fmt.Errorf("oauth must be an object")
+	}
+	keys := make([]string, 0, len(fields))
+	for key := range fields {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		switch {
+		case key == "authorizationEndpoint" || key == "tokenEndpoint":
+			return fmt.Errorf("oauth.%s is no longer supported: standalone OAuth was removed and authMode mcp discovers authorization and token endpoints", key)
+		case !mcpAuthorizationFields[key]:
+			return fmt.Errorf("oauth.%s is not supported; allowed fields are resourceMetadataUrl, scopes, clientId, resource, issuer, clientMetadataUrl and redirectUri", key)
+		}
+	}
+	return nil
+}
+
 // validateTokenSchema pairs token-schema.json with authMode token only.
 func validateTokenSchema(id string, manifest Manifest) error {
 	if manifest.AuthMode != AuthToken {
 		if len(manifest.TokenSchema) != 0 {
-			return fmt.Errorf("connector %s token-schema.json requires authMode token", id)
+			return fmt.Errorf("connector %s token-schema.json is only allowed with authMode token, but authMode is %s", id, manifest.AuthMode)
 		}
 		return nil
 	}

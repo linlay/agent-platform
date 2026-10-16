@@ -20,7 +20,7 @@ func CLIEnvironment(pkg connector.Package) (connector.CredentialEnvironment, err
 		return d, err
 	}
 	d.Env = templates
-	if len(templates) > 0 && (pkg.AuthMode == connector.AuthOAuth || pkg.AuthMode == connector.AuthMCP) {
+	if len(templates) > 0 && pkg.AuthMode == connector.AuthMCP {
 		selected, err := cliOAuthComponent(pkg)
 		if err != nil {
 			return d, err
@@ -34,18 +34,17 @@ func CLIEnvironment(pkg connector.Package) (connector.CredentialEnvironment, err
 	return d, nil
 }
 
-// cliOAuthComponent selects the grant a CLI uses. With MCP discovery the CLI
-// shares the package's single MCP component grant; plain OAuth uses the
-// package's own OAuth settings.
+// cliOAuthComponent selects the grant a CLI uses: the CLI shares the
+// package's single MCP component grant.
 func cliOAuthComponent(pkg connector.Package) (connector.Package, error) {
 	// TODO(connector-compat): 下个版本移除旧 CLI OAuth/grant 分支。
 	if settings, grant := pkg.LegacyOAuthBinding("cli"); len(settings) != 0 || grant != "" {
 		return OAuthComponent(pkg, "cli")
 	}
-	if pkg.AuthMode == connector.AuthMCP {
-		return OAuthComponent(pkg, "")
+	if len(pkg.MCP) != 1 {
+		return pkg, fmt.Errorf("cli.json env uses ${%s}, which requires exactly one MCP component to share its authorization; connector %s has %d", connector.EnvOAuthAccessToken, pkg.ID, len(pkg.MCP))
 	}
-	return OAuthComponent(pkg, "cli")
+	return OAuthComponent(pkg, "")
 }
 
 func ResolveEnvironment(ctx context.Context, d connector.CredentialEnvironment, identityFile string) (map[string]string, error) {
@@ -79,7 +78,7 @@ func ResolveEnvironmentWithRevision(ctx context.Context, d connector.CredentialE
 			}
 			return nil, "", fmt.Errorf("connector %s requires credentials: %w", d.ID, ErrTokenRejected)
 		}
-	case connector.AuthOAuth, connector.AuthMCP:
+	case connector.AuthMCP:
 		token, err := AccessToken(ctx, d.Root, d.ID, d.Resource, nil, d.Destination)
 		if err != nil {
 			return nil, "", err
@@ -92,7 +91,7 @@ func ResolveEnvironmentWithRevision(ctx context.Context, d connector.CredentialE
 			return nil, "", fmt.Errorf("Desktop SSO is unavailable")
 		}
 	default:
-		return nil, "", fmt.Errorf("unsupported credential environment")
+		return nil, "", fmt.Errorf("connector %s authMode %s does not supply credential templates", d.ID, d.Mode)
 	}
 	env := map[string]string{}
 	for name, template := range d.Env {

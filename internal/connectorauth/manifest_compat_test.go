@@ -5,29 +5,23 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agent-platform/internal/connector"
 )
 
 func TestLegacyOAuthSettingsAndCLIGrant(t *testing.T) {
-	for _, mode := range []string{"oauth", "mcp"} {
+	for _, mode := range []string{"discovery", "plain"} {
 		t.Run(mode, func(t *testing.T) {
-			settings := map[string]any{
-				"client_id": "default-client", "authorization_endpoint": "https://auth.test/authorize",
-				"token_endpoint": "https://auth.test/token", "resource": "https://example.test/default",
-				"redirect_uri": "http://127.0.0.1:42341/callback",
+			// Previous manifests used auth_mode oauth; with or without the old
+			// discovery flag it now always means MCP standard authorization.
+			settings := map[string]any{"discovery": true, "client_metadata_url": "https://example.test/client.json"}
+			if mode == "plain" {
+				settings = map[string]any{"client_id": "default-client"}
 			}
-			override := map[string]any{
-				"client_id": "component-client", "authorization_endpoint": "https://auth.test/authorize",
-				"token_endpoint": "https://auth.test/token", "resource": "https://example.test/selected",
-			}
+			override := map[string]any{"client_id": "component-client"}
 			authMode := "oauth"
-			if mode == "mcp" {
-				// Previous OAuth discovery manifests used auth_mode oauth.
-				settings = map[string]any{"discovery": true, "client_metadata_url": "https://example.test/client.json"}
-				override = map[string]any{"client_id": "component-client"}
-			}
 			root := t.TempDir()
 			dir := filepath.Join(root, "demo")
 			if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -56,7 +50,7 @@ func TestLegacyOAuthSettingsAndCLIGrant(t *testing.T) {
 				}
 			}
 			pkg, err := connector.Load(root, "demo")
-			if err != nil || string(pkg.AuthMode) != mode {
+			if err != nil || pkg.AuthMode != connector.AuthMCP {
 				t.Fatalf("legacy OAuth load: mode=%s, %v", pkg.AuthMode, err)
 			}
 			if err := ValidatePackage(pkg); err != nil {
@@ -82,5 +76,23 @@ func TestLegacyOAuthSettingsAndCLIGrant(t *testing.T) {
 				t.Fatal("component selection mutated source package")
 			}
 		})
+	}
+}
+
+func TestLegacyStandaloneOAuthEndpointsAreRejected(t *testing.T) {
+	for _, tc := range []struct{ manifest, want string }{
+		{`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":"oauth","oauth":{"client_id":"c","authorization_endpoint":"https://auth.test/authorize","token_endpoint":"https://auth.test/token"}}`, "oauth.authorizationEndpoint is no longer supported"},
+		{`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","auth_mode":"oauth","auth_bindings":{"mcp:main":{"oauth":{"token_endpoint":"https://auth.test/token"}}}}`, "auth_bindings.mcp:main oauth.tokenEndpoint is no longer supported"},
+	} {
+		root := t.TempDir()
+		dir := filepath.Join(root, "demo")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		os.WriteFile(filepath.Join(dir, "connector.json"), []byte(tc.manifest), 0o644)
+		os.WriteFile(filepath.Join(dir, "mcp.json"), []byte(`{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp"}}}`), 0o644)
+		if _, err := connector.Load(root, "demo"); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("error %v, want %q", err, tc.want)
+		}
 	}
 }
