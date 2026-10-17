@@ -35,15 +35,17 @@ func TestCandidateCLIPrivateDirectoriesWindowsAndDarwin(t *testing.T) {
 
 func TestTokenCLIExecutionFailurePreservesAccountAndCandidate(t *testing.T) {
 	for _, tc := range []struct {
-		name, output string
-		exitCode     int
-		rejected     bool
+		name, stdout, stderr string
+		exitCode             int
+		rejected             bool
 	}{
-		{"missing APPDATA", `{"schema_version":1,"error":{"code":"INTERNAL_ERROR","message":"%AppData% is not defined"}}`, 1, false},
-		{"internal error exit zero", `{"schema_version":1,"error":{"code":"INTERNAL_ERROR"}}`, 0, false},
-		{"network failure", `{"error":{"code":"NETWORK_ERROR"}}`, 5, false},
-		{"unknown process failure", `failed to start local configuration`, 2, false},
-		{"credentials rejected", `{"schema_version":1,"error":{"code":"AUTH_FAILED"}}`, 3, true},
+		{"missing APPDATA", `{"schema_version":1,"error":{"code":"INTERNAL_ERROR","message":"%AppData% is not defined"}}`, "", 1, false},
+		{"internal error exit zero", `{"schema_version":1,"error":{"code":"INTERNAL_ERROR"}}`, "", 0, false},
+		{"network failure", "", `{"error":{"code":"NETWORK_ERROR"}}`, 5, false},
+		{"unknown process failure", "", `failed to start local configuration`, 2, false},
+		{"credentials rejected", `{"schema_version":1,"error":{"code":"AUTH_FAILED"}}`, "", 3, true},
+		{"Jira CAPTCHA or account restriction", `{"authenticated":true}`, `{"schema_version":1,"error":{"code":"AUTHENTICATION_DENIED","message":"Jira 拒绝登录，可能触发 CAPTCHA 或账号限制","http_status":403}}`, 3, true},
+		{"forbidden is not proof of invalid credentials", `{"authenticated":true}`, `{"error":{"code":"FORBIDDEN","http_status":403}}`, 3, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, pkg := tokenCLIFixture(t, true)
@@ -52,8 +54,9 @@ func TestTokenCLIExecutionFailurePreservesAccountAndCandidate(t *testing.T) {
 			}
 			// Freeze a new status implementation, preserving the active account.
 			script := filepath.Join(t.TempDir(), "demo.js")
-			output, _ := json.Marshal(tc.output)
-			body := "if(process.argv[2]==='--version'){console.log('1.2.0')}else{console.log(" + string(output) + ");process.exit(" + fmt.Sprint(tc.exitCode) + ")}"
+			stdout, _ := json.Marshal(tc.stdout)
+			stderr, _ := json.Marshal(tc.stderr)
+			body := "if(process.argv[2]==='--version'){console.log('1.2.0')}else{process.stdout.write(" + string(stdout) + ");process.stderr.write(" + string(stderr) + ");process.exit(" + fmt.Sprint(tc.exitCode) + ")}"
 			if err := os.WriteFile(script, []byte(body), 0600); err != nil {
 				t.Fatal(err)
 			}
