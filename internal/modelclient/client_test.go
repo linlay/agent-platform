@@ -70,3 +70,46 @@ func TestOpenStreamRetainsOnlyBoundedResponseMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenStreamPrefersConfiguredRequestIDHeader(t *testing.T) {
+	status := http.StatusOK
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Request-Id", "generic-id")
+		w.Header().Set("X-Babelark-Request-Id", "relay-id")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(`{"error":{"message":"bad"}}`))
+	}))
+	defer upstream.Close()
+	open := func(headers ...string) (*Stream, error) {
+		request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, upstream.URL, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return New(upstream.Client()).OpenStream(request, time.Second, headers...)
+	}
+	stream, err := open("x-babelark-request-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream.Body.Close()
+	stream.Cancel()
+	if stream.Response.RequestID != "relay-id" || stream.Response.RequestIDHeader != "X-Babelark-Request-Id" {
+		t.Fatalf("metadata = %#v", stream.Response)
+	}
+	if stream, err = open(); err != nil || stream.Response.RequestID != "generic-id" {
+		t.Fatalf("default fallback: %#v %v", stream, err)
+	}
+	stream.Body.Close()
+	stream.Cancel()
+
+	status = http.StatusBadRequest
+	_, err = open("X-Babelark-Request-Id")
+	var appErr *apperrors.Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("err = %v", err)
+	}
+	diagnostics, _ := appErr.Payload()["diagnostics"].(map[string]any)
+	if diagnostics["upstreamRequestId"] != "relay-id" || diagnostics["upstreamRequestIdHeader"] != "X-Babelark-Request-Id" {
+		t.Fatalf("diagnostics = %#v", diagnostics)
+	}
+}

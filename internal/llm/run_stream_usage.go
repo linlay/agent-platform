@@ -179,6 +179,7 @@ func (s *llmRunStream) resetLastCallUsage() {
 	s.lastCallToolCallCount = 0
 	s.lastCallFirstTokenLatencyMs = 0
 	s.lastCallGenerationDurationMs = 0
+	s.lastCallUpstreamRequestID = ""
 	s.pendingTimingUsageEmit = false
 }
 
@@ -234,6 +235,7 @@ func (s *llmRunStream) emitDebugLLMChatDelta(trace *llmChatTrace) {
 		LLMReturnToolCallCount:          s.lastCallToolCallCount,
 		LLMReturnFirstTokenLatencyMs:    s.lastCallFirstTokenLatencyMs,
 		LLMReturnGenerationDurationMs:   s.lastCallGenerationDurationMs,
+		LLMReturnUpstreamRequestID:      s.lastCallUpstreamRequestID,
 		RunPromptTokens:                 s.runPromptTokens,
 		RunCompletionTokens:             s.runCompletionTokens,
 		RunTotalTokens:                  s.runTotalTokens,
@@ -315,6 +317,7 @@ func (s *llmRunStream) buildUsageSnapshotDelta() DeltaUsageSnapshot {
 		LLMReturnToolCallCount:          s.currentToolCallCountSinceSnapshot(),
 		LLMReturnFirstTokenLatencyMs:    s.lastCallFirstTokenLatencyMs,
 		LLMReturnGenerationDurationMs:   s.lastCallGenerationDurationMs,
+		LLMReturnUpstreamRequestID:      s.lastCallUpstreamRequestID,
 		RunPromptTokens:                 s.runPromptTokens,
 		RunCompletionTokens:             s.runCompletionTokens,
 		RunTotalTokens:                  s.runTotalTokens,

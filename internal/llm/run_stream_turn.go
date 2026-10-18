@@ -286,6 +286,8 @@ func (s *llmRunStream) openPendingModelCall() error {
 		turn.trace = trace
 	}
 	turn.requestSentAt = requestSentAt
+	// The successful attempt's ID; failed attempts keep theirs in diagnostics.
+	s.lastCallUpstreamRequestID = turn.observation.Response.RequestID
 	if !call.logicalTurnCounted {
 		s.execCtx.ModelCalls++
 		s.step++

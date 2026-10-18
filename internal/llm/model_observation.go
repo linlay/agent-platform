@@ -125,13 +125,17 @@ func (s *llmRunStream) observeModelAttempt(turn *providerTurnStream, trace *llmC
 	if err != nil {
 		payload := modelErrorPayload(err)
 		d["errorCode"] = payload["code"]
-		// Error bodies may contain request data; retain only the HTTP status.
+		// Error bodies may contain request data; retain only the HTTP status and
+		// the bounded upstream request ID.
 		if details, ok := payload["diagnostics"].(map[string]any); ok {
 			if payload["code"] == string(apperrors.CodeModelOutputRepetition) {
 				d["outputRepetition"] = details // Locally generated counts only; no model text.
 			}
 			if status, ok := details["upstreamStatus"]; ok {
 				d["httpStatus"] = status
+			}
+			if requestID, ok := details["upstreamRequestId"].(string); ok && requestID != "" {
+				d["upstreamRequestId"] = diagnosticLabel(requestID)
 			}
 		}
 		category = "llm_model_attempt_error"

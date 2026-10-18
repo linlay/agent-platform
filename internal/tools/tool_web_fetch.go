@@ -140,7 +140,7 @@ func (t *RuntimeToolExecutor) invokeWebFetch(ctx context.Context, args map[strin
 	if !directReturn {
 		callCtx, callCancel := context.WithTimeout(ctx, time.Duration(maxInt(profile.Timeout, 60))*time.Second)
 		defer callCancel()
-		result, usage, err = t.applyWebFetchPrompt(callCtx, model, provider, profile, prompt, content, response.FinalURL, isPreapproved, truncated)
+		result, usage, err = t.applyWebFetchPrompt(callCtx, model, provider, profile, prompt, content, response.FinalURL, isPreapproved, truncated, toolCallAffinityKey(execCtx))
 		if errors.Is(err, errTextModelOutputTruncated) && strings.TrimSpace(result) != "" {
 			// A partial answer is still useful; return it flagged as incomplete.
 			result += textModelTruncatedNotice
@@ -307,7 +307,7 @@ func readWebFetchResponse(resp *http.Response, profile config.WebFetchProfileCon
 	}, nil
 }
 
-func (t *RuntimeToolExecutor) applyWebFetchPrompt(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, profile config.WebFetchProfileConfig, prompt string, content string, finalURL string, preapproved bool, truncated bool) (string, map[string]any, error) {
+func (t *RuntimeToolExecutor) applyWebFetchPrompt(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, profile config.WebFetchProfileConfig, prompt string, content string, finalURL string, preapproved bool, truncated bool, affinityKey string) (string, map[string]any, error) {
 	userPrompt := webFetchModelPrompt(finalURL, prompt, content, preapproved, truncated)
 	systemPrompt := strings.TrimSpace(profile.SystemPrompt)
 	if systemPrompt == "" {
@@ -317,6 +317,7 @@ func (t *RuntimeToolExecutor) applyWebFetchPrompt(ctx context.Context, model mod
 		SystemPrompt:    systemPrompt,
 		UserPrompt:      userPrompt,
 		MaxOutputTokens: maxInt(profile.MaxOutputTokens, 4000),
+		AffinityKey:     affinityKey,
 	})
 }
 

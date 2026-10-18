@@ -36,22 +36,37 @@ type ResponseMetadata struct {
 	RequestIDHeader string `json:"upstreamRequestIdHeader,omitempty"`
 }
 
-func responseMetadata(response *http.Response) ResponseMetadata {
-	bounded := func(value string) string {
-		value = observability.SanitizeLog(strings.TrimSpace(value))
-		if len(value) > 256 {
-			value = value[:256]
-		}
-		return value
+var defaultRequestIDHeaders = []string{"X-Request-Id", "Request-Id", "X-Ms-Request-Id", "X-Amzn-Requestid"}
+
+func boundedHeaderValue(value string) string {
+	value = observability.SanitizeLog(strings.TrimSpace(value))
+	if len(value) > 256 {
+		value = value[:256]
 	}
-	metadata := ResponseMetadata{StatusCode: response.StatusCode, ContentType: bounded(response.Header.Get("Content-Type"))}
-	for _, key := range []string{"X-Request-Id", "Request-Id", "X-Ms-Request-Id", "X-Amzn-Requestid"} {
-		if value := bounded(response.Header.Get(key)); value != "" {
-			metadata.RequestID, metadata.RequestIDHeader = value, key
-			break
-		}
-	}
+	return value
+}
+
+// responseMetadata checks provider-configured request ID headers (a relay's
+// own trace header) before the generic ones; it still reads only named headers.
+func responseMetadata(response *http.Response, requestIDHeaders []string) ResponseMetadata {
+	metadata := ResponseMetadata{StatusCode: response.StatusCode, ContentType: boundedHeaderValue(response.Header.Get("Content-Type"))}
+	metadata.RequestID, metadata.RequestIDHeader = upstreamRequestID(response.Header, requestIDHeaders)
 	return metadata
+}
+
+func upstreamRequestID(header http.Header, requestIDHeaders []string) (string, string) {
+	for _, keys := range [][]string{requestIDHeaders, defaultRequestIDHeaders} {
+		for _, key := range keys {
+			key = strings.TrimSpace(key)
+			if key == "" {
+				continue
+			}
+			if value := boundedHeaderValue(header.Get(key)); value != "" {
+				return value, http.CanonicalHeaderKey(key)
+			}
+		}
+	}
+	return "", ""
 }
 
 func New(httpClient *http.Client) *Client {
@@ -61,12 +76,14 @@ func New(httpClient *http.Client) *Client {
 	return &Client{http: httpClient}
 }
 
-func (c *Client) OpenStream(request *http.Request, firstResponseTimeout time.Duration) (*Stream, error) {
+// OpenStream reports the upstream request ID from requestIDHeaders (then the
+// generic headers) on both the opened stream and HTTP error diagnostics.
+func (c *Client) OpenStream(request *http.Request, firstResponseTimeout time.Duration, requestIDHeaders ...string) (*Stream, error) {
 	if request == nil {
 		return nil, apperrors.New(apperrors.CodeProviderBadRequest, "provider request is required")
 	}
 	if firstResponseTimeout <= 0 {
-		return c.do(request)
+		return c.do(request, requestIDHeaders)
 	}
 	ctx, cancel := context.WithCancel(request.Context())
 	timedRequest := request.WithContext(ctx)
@@ -76,7 +93,7 @@ func (c *Client) OpenStream(request *http.Request, firstResponseTimeout time.Dur
 	}
 	resultCh := make(chan result, 1)
 	go func() {
-		stream, err := c.do(timedRequest)
+		stream, err := c.do(timedRequest, requestIDHeaders)
 		resultCh <- result{stream: stream, err: err}
 	}()
 	timer := time.NewTimer(firstResponseTimeout)
@@ -99,7 +116,7 @@ func (c *Client) OpenStream(request *http.Request, firstResponseTimeout time.Dur
 	}
 }
 
-func (c *Client) do(request *http.Request) (*Stream, error) {
+func (c *Client) do(request *http.Request, requestIDHeaders []string) (*Stream, error) {
 	client := c.http
 	if client == nil {
 		client = httpclient.NewClient(0)
@@ -112,11 +129,12 @@ func (c *Client) do(request *http.Request) (*Stream, error) {
 		defer response.Body.Close()
 		body, readErr := io.ReadAll(response.Body)
 		if readErr != nil {
-			return nil, ResponseError(response.StatusCode, nil)
+			body = nil
 		}
-		return nil, ResponseError(response.StatusCode, body)
+		requestID, headerName := upstreamRequestID(response.Header, requestIDHeaders)
+		return nil, responseError(response.StatusCode, body, requestID, headerName)
 	}
-	return &Stream{Body: response.Body, Response: responseMetadata(response)}, nil
+	return &Stream{Body: response.Body, Response: responseMetadata(response, requestIDHeaders)}, nil
 }
 
 func StreamTimeoutError(timeout time.Duration) error {
@@ -151,6 +169,10 @@ func TransportError(err error) error {
 }
 
 func ResponseError(status int, body []byte) error {
+	return responseError(status, body, "", "")
+}
+
+func responseError(status int, body []byte, requestID string, requestIDHeader string) error {
 	bodyText := strings.TrimSpace(string(body))
 	fields := ParseErrorFields(body)
 	code := ClassifyError(status, fields.Code, fields.Type, apperrors.CodeProviderRequestFailed)
@@ -170,6 +192,9 @@ func ResponseError(status int, body []byte) error {
 	}
 	if fields.Message != "" {
 		diagnostics["upstreamMessage"] = fields.Message
+	}
+	if requestID != "" {
+		diagnostics["upstreamRequestId"], diagnostics["upstreamRequestIdHeader"] = requestID, requestIDHeader
 	}
 	return apperrors.New(code, message, apperrors.WithDiagnostics(diagnostics))
 }

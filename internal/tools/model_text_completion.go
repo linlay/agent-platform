@@ -20,6 +20,17 @@ type textModelRequest struct {
 	SystemPrompt    string
 	UserPrompt      string
 	MaxOutputTokens int
+	// AffinityKey is the calling Run's session affinity key (see modelrequest).
+	AffinityKey string
+}
+
+// toolCallAffinityKey reuses the calling Chat's key so auxiliary calls stay on
+// the same upstream route as the main conversation.
+func toolCallAffinityKey(execCtx *contracts.ExecutionContext) string {
+	if execCtx == nil {
+		return ""
+	}
+	return modelrequest.AffinityKey(execCtx.Session.ChatID, execCtx.Session.RunID)
 }
 
 // textModelReasoningHeadroomTokens is added to the wire output limit of
@@ -61,7 +72,7 @@ func (t *RuntimeToolExecutor) completeTextModel(ctx context.Context, model model
 	request.MaxOutputTokens = textModelOutputLimit(model, request.MaxOutputTokens)
 	switch strings.ToUpper(strings.TrimSpace(model.Protocol)) {
 	case "OPENAI_RESPONSES":
-		return t.completeResponsesModel(ctx, model, provider, []contracts.ModelMessage{{Role: "system", Content: strings.TrimSpace(request.SystemPrompt)}, {Role: "user", Content: strings.TrimSpace(request.UserPrompt)}}, request.MaxOutputTokens)
+		return t.completeResponsesModel(ctx, model, provider, []contracts.ModelMessage{{Role: "system", Content: strings.TrimSpace(request.SystemPrompt)}, {Role: "user", Content: strings.TrimSpace(request.UserPrompt)}}, request.MaxOutputTokens, request.AffinityKey)
 	case "ANTHROPIC":
 		return t.completeTextModelAnthropic(ctx, model, provider, request)
 	default:
@@ -127,6 +138,7 @@ func (t *RuntimeToolExecutor) completeTextModelAnthropic(ctx context.Context, mo
 		},
 	}
 	body = mergeVisionRequestCompat(body, provider, model)
+	modelrequest.ApplyAnthropicMetadata(body, request.AffinityKey)
 	data, err := t.postModelJSON(ctx, provider, model, body, "ANTHROPIC", "model")
 	if err != nil {
 		return "", nil, err

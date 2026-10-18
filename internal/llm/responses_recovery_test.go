@@ -3,7 +3,7 @@ package llm
 import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/modelclient"
-	"agent-platform/internal/modelresponses"
+	"agent-platform/internal/modelrequest"
 	"strings"
 	"testing"
 )
@@ -30,7 +30,7 @@ func TestResponsesRecoveryOnlyCompletedPrefix(t *testing.T) {
 				t.Fatal("active group lost state")
 			}
 		} else {
-			if s.modelCall.prepared.RequestBody["prompt_cache_key"] != modelresponses.PromptCacheKey(s.session.ChatID) {
+			if s.modelCall.prepared.RequestBody["prompt_cache_key"] != modelrequest.AffinityKey(s.session.ChatID, "") {
 				t.Fatal("encrypted-state recovery lost Chat affinity")
 			}
 			if strings.Contains(string(s.modelCall.prepared.RequestBodyJSON), "cipher") || len(s.messages[0].EncryptedReasoning) != 0 {

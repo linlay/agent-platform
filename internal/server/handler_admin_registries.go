@@ -260,11 +260,17 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		if strings.TrimSpace(contracts.FirstNonEmptyString(root["apiKey"], root["api-key"])) == "" {
 			addWarning("missing_api_key", "provider apiKey is empty")
 		}
+		if _, err := models.ParseRequestIDHeader(root["requestIdHeader"]); err != nil {
+			addError("invalid_request_id_header", err.Error())
+		}
 		for rawProtocol, rawDefinition := range contracts.AnyMapNode(root["protocols"]) {
+			definition := contracts.AnyMapNode(rawDefinition)
+			if err := models.ValidatePlatformOwnedCompat(rawProtocol, definition["compat"]); err != nil {
+				addError("platform_owned_compat", err.Error())
+			}
 			if !strings.EqualFold(strings.TrimSpace(rawProtocol), "OPENAI") {
 				continue
 			}
-			definition := contracts.AnyMapNode(rawDefinition)
 			if _, err := models.ParseOpenAIResponseCompat(definition["compat"]); err != nil {
 				addError("invalid_openai_compat", err.Error())
 			}
@@ -291,6 +297,9 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 			if _, err := models.ParseOpenAIResponseCompat(root["compat"]); err != nil {
 				addError("invalid_openai_compat", err.Error())
 			}
+		}
+		if err := models.ValidatePlatformOwnedCompat(protocol, root["compat"]); err != nil {
+			addError("platform_owned_compat", err.Error())
 		}
 		if !models.IsACPPassthroughProtocol(protocol) {
 			provider := strings.TrimSpace(contracts.FirstNonEmptyString(root["provider"]))

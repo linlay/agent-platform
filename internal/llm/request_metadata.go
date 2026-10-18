@@ -60,9 +60,10 @@ func requestOptionsFromPreparedBody(body map[string]any) map[string]any {
 	out := make(map[string]any, len(body))
 	for key, value := range body {
 		switch key {
-		// The affinity key is derived from Chat ID on send, not persisted as
-		// part of the system profile or per-turn JSONL request options.
-		case "messages", "input", "instructions", "tools", "tool_choice", "model", "system", "prompt_cache_key":
+		// Affinity fields (prompt_cache_key, Anthropic metadata) are derived from
+		// the Chat ID on send, not persisted as part of the system profile or
+		// per-turn JSONL request options.
+		case "messages", "input", "instructions", "tools", "tool_choice", "model", "system", "prompt_cache_key", "metadata":
 			continue
 		default:
 			out[key] = value

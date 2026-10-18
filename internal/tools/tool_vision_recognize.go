@@ -67,7 +67,7 @@ func (t *RuntimeToolExecutor) invokeVisionRecognize(ctx context.Context, args ma
 	timeout := time.Duration(maxInt(profile.Timeout, 60)) * time.Second
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	content, usage, err := t.completeVisionRecognition(callCtx, model, provider, profile, outputFormat, prompt, images)
+	content, usage, err := t.completeVisionRecognition(callCtx, model, provider, profile, outputFormat, prompt, images, toolCallAffinityKey(execCtx))
 	contentTruncated := false
 	partialContent := ""
 	if errors.Is(err, errTextModelOutputTruncated) && strings.TrimSpace(content) != "" {
@@ -200,16 +200,16 @@ func visionImageSourcePolicy() toolImageSourcePolicy {
 	}
 }
 
-func (t *RuntimeToolExecutor) completeVisionRecognition(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, profile config.VisionRecognizeProfileConfig, outputFormat string, prompt string, images []multimodal.ImagePayload) (string, map[string]any, error) {
+func (t *RuntimeToolExecutor) completeVisionRecognition(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, profile config.VisionRecognizeProfileConfig, outputFormat string, prompt string, images []multimodal.ImagePayload, affinityKey string) (string, map[string]any, error) {
 	switch strings.ToUpper(strings.TrimSpace(model.Protocol)) {
 	case "OPENAI_RESPONSES":
 		content := []map[string]any{{"type": "text", "text": visionUserPrompt(prompt, outputFormat)}}
 		for _, image := range images {
 			content = append(content, multimodal.OpenAIImageBlock(image))
 		}
-		return t.completeResponsesModel(ctx, model, provider, []ModelMessage{{Role: "system", Content: visionSystemPrompt(profile, outputFormat)}, {Role: "user", Content: content}}, 0)
+		return t.completeResponsesModel(ctx, model, provider, []ModelMessage{{Role: "system", Content: visionSystemPrompt(profile, outputFormat)}, {Role: "user", Content: content}}, 0, affinityKey)
 	case "ANTHROPIC":
-		return t.completeVisionAnthropic(ctx, model, provider, profile, outputFormat, prompt, images)
+		return t.completeVisionAnthropic(ctx, model, provider, profile, outputFormat, prompt, images, affinityKey)
 	default:
 		return t.completeVisionOpenAI(ctx, model, provider, profile, outputFormat, prompt, images)
 	}
@@ -260,7 +260,7 @@ func (t *RuntimeToolExecutor) completeVisionOpenAI(ctx context.Context, model mo
 	return contentText, decoded.Usage, nil
 }
 
-func (t *RuntimeToolExecutor) completeVisionAnthropic(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, profile config.VisionRecognizeProfileConfig, outputFormat string, prompt string, images []multimodal.ImagePayload) (string, map[string]any, error) {
+func (t *RuntimeToolExecutor) completeVisionAnthropic(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, profile config.VisionRecognizeProfileConfig, outputFormat string, prompt string, images []multimodal.ImagePayload, affinityKey string) (string, map[string]any, error) {
 	content := []map[string]any{{"type": "text", "text": visionUserPrompt(prompt, outputFormat)}}
 	for _, image := range images {
 		content = append(content, map[string]any{
@@ -281,6 +281,7 @@ func (t *RuntimeToolExecutor) completeVisionAnthropic(ctx context.Context, model
 		},
 	}
 	body = mergeVisionRequestCompat(body, provider, model)
+	modelrequest.ApplyAnthropicMetadata(body, affinityKey)
 	data, err := t.postVisionJSON(ctx, provider, model, body, "ANTHROPIC")
 	if err != nil {
 		return "", nil, err

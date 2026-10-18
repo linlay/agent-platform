@@ -71,12 +71,12 @@ func normalizePreparedRequestBody(body []byte) (map[string]any, error) {
 	return requestBody, nil
 }
 
-func (e *LLMAgentEngine) executeProviderRequest(req *http.Request, firstResponseTimeout time.Duration) (*providerTurnStream, error) {
+func (e *LLMAgentEngine) executeProviderRequest(req *http.Request, firstResponseTimeout time.Duration, requestIDHeader string) (*providerTurnStream, error) {
 	client := e.modelClient
 	if client == nil {
 		client = modelclient.New(e.httpClient)
 	}
-	opened, err := client.OpenStream(req, firstResponseTimeout)
+	opened, err := client.OpenStream(req, firstResponseTimeout, requestIDHeader)
 	if err != nil {
 		return nil, err
 	}

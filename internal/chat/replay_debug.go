@@ -65,6 +65,9 @@ func usagePayloadFromMap(usage map[string]any, includeLLMChatCompletionCount boo
 	if reasoningEffort := firstStringFromKeys(usage, "reasoningEffort"); reasoningEffort != "" {
 		out["reasoningEffort"] = reasoningEffort
 	}
+	if requestID := firstStringFromKeys(usage, "upstreamRequestId"); requestID != "" {
+		out["upstreamRequestId"] = requestID
+	}
 	addUsageDetailsToMap(
 		out,
 		toNestedIntFromKeys(usage, "completionTokensDetails", "reasoningTokens"),

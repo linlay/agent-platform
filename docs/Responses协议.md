@@ -21,9 +21,9 @@ Provider 复用现有 `baseUrl`、`apiKey`。默认端点为 `/v1/responses`；b
 
 主模型调用固定 `stream:true`、`store:false`，将本地有效上下文转换为 `input`，请求 `include:["reasoning.encrypted_content"]`。不发送 `previous_response_id` 或 `conversation`，也不会通过 response ID 拉取历史。兼容配置不能覆盖本地上下文这一策略。
 
-有 Chat 上下文的 Responses 请求自动发送 `prompt_cache_key`，值为 `apc_` 加 `SHA256(chatId)` 的前 48 位小写十六进制字符（共 52 字符）。直接对实际 Chat ID 的 UTF-8 字节计算，不要求 UUID，不截断原始 ID 后再哈希。生成只依赖 Chat ID，同一 Chat 的模型轮次、工具续接、重试、跨 Run 续聊、HITL 恢复与 L2 摘要保持一致；不同 Chat 使用各自的 key。该规则是稳定的会话亲和约定，不能随版本、Run ID、模型档位或进程启动时间变化。
+所有 Responses 请求都发送 `prompt_cache_key`，值为平台会话亲和键：`apc_` 加 `SHA256(chatId)` 的前 48 位小写十六进制字符（共 52 字符）。直接对实际 Chat ID 的 UTF-8 字节计算，不要求 UUID，不截断原始 ID 后再哈希。生成只依赖 Chat ID，同一 Chat 的模型轮次、工具续接、重试、跨 Run 续聊、HITL 恢复与 L2 摘要保持一致；不同 Chat 使用各自的 key。该规则是稳定的会话亲和约定，不能随版本、模型档位或进程启动时间变化。没有 Chat 的调用改用 Run ID 派生，保证必有且不让无 Chat 调用共用一个值。同一个键也作为 Anthropic Messages 的 `metadata.user_id`，见 [配置化说明](配置化说明.md#会话亲和与上游请求-id)。
 
-`prompt_cache_key` 是请求体参数，不是 HTTP Header。它由已有 Chat ID 即时计算，不新增数据库、`.state` 或 JSONL 字段，也从 `system-init/react` 的 `requestOptions` 排除；旧 Chat 无需迁移。可选 `.llm-records` 原始请求 trace 仍记录实际发送的字段。无 Chat 上下文时省略；文本提取和视觉识别的独立一次性辅助调用也不生成。Provider/模型 compat 中的静态 `prompt_cache_key` 不覆盖此规则，避免所有会话共用一个值。
+`prompt_cache_key` 是请求体参数，不是 HTTP Header。它由已有 Chat ID 即时计算，不新增数据库、`.state` 或 JSONL 字段，也从 `system-init/react` 的 `requestOptions` 排除；旧 Chat 无需迁移。可选 `.llm-records` 原始请求 trace 仍记录实际发送的字段。`web_fetch` 文本提取和 `vision_recognize` 辅助调用使用发起工具的 Chat 的同一个键。`prompt_cache_key` 由平台拥有：Provider `protocols.OPENAI_RESPONSES.compat` 或模型 `compat` 的 `request.always/whenReasoningEnabled` 中出现该字段时加载失败，避免所有会话共用一个静态值。
 
 该字段不是 Responses 协议的必填项；平台默认发送是为了兼容依赖会话亲和的上游。固定 key 不保证已有失效密文恢复有效，也不用于推断服务商的具体路由机制。
 

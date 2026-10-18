@@ -106,6 +106,7 @@ type llmRunStream struct {
 	lastCallToolCallCount          int
 	lastCallFirstTokenLatencyMs    int64
 	lastCallGenerationDurationMs   int64
+	lastCallUpstreamRequestID      string
 	runPromptTokens                int
 	runCompletionTokens            int
 	runTotalTokens                 int

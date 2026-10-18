@@ -20,8 +20,11 @@ type ProviderDefinition struct {
 	APIKey       string
 	DefaultModel string
 	EndpointPath string
-	Protocols    map[string]ProtocolDefinition
-	Embedding    ProviderEmbeddingConfig
+	// RequestIDHeader names a relay's own request ID response header; it is
+	// read before the generic request ID headers for every protocol.
+	RequestIDHeader string
+	Protocols       map[string]ProtocolDefinition
+	Embedding       ProviderEmbeddingConfig
 }
 
 type ProtocolDefinition struct {
@@ -515,15 +518,20 @@ func loadProviders(dir string) (map[string]ProviderDefinition, error) {
 		if _, exists := values["memory"]; exists {
 			return nil, fmt.Errorf("load provider %s: memory is no longer supported; remove this field (KBASE uses embedding models)", entry.Name())
 		}
+		requestIDHeader, err := ParseRequestIDHeader(values["requestIdHeader"])
+		if err != nil {
+			return nil, fmt.Errorf("load provider %s: %w", entry.Name(), err)
+		}
 		embeddingConfig := loadProviderEmbedding(values)
 		result[key] = ProviderDefinition{
-			Key:          key,
-			BaseURL:      baseURL,
-			APIKey:       apiKey,
-			DefaultModel: strings.TrimSpace(stringNode(values["defaultModel"])),
-			EndpointPath: resolveProviderEndpointPath(values, baseURL, "OPENAI"),
-			Protocols:    protocols,
-			Embedding:    embeddingConfig,
+			Key:             key,
+			BaseURL:         baseURL,
+			APIKey:          apiKey,
+			DefaultModel:    strings.TrimSpace(stringNode(values["defaultModel"])),
+			EndpointPath:    resolveProviderEndpointPath(values, baseURL, "OPENAI"),
+			RequestIDHeader: requestIDHeader,
+			Protocols:       protocols,
+			Embedding:       embeddingConfig,
 		}
 	}
 	return result, nil
@@ -587,6 +595,9 @@ func loadProviderProtocols(values map[string]any, baseURL string) (map[string]Pr
 			if _, err := ParseOpenAIResponseCompat(node["compat"]); err != nil {
 				return nil, fmt.Errorf("protocols.OPENAI: %w", err)
 			}
+		}
+		if err := ValidatePlatformOwnedCompat(protocol, node["compat"]); err != nil {
+			return nil, fmt.Errorf("protocols.%s: %w", protocol, err)
 		}
 		result[protocol] = ProtocolDefinition{
 			EndpointPath: resolveProviderEndpointPath(values, baseURL, protocol),
@@ -686,6 +697,9 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 			if _, err := ParseOpenAIResponseCompat(values["compat"]); err != nil {
 				return nil, fmt.Errorf("load model %s: %w", entry.Name(), err)
 			}
+		}
+		if err := ValidatePlatformOwnedCompat(protocol, values["compat"]); err != nil {
+			return nil, fmt.Errorf("load model %s: %w", entry.Name(), err)
 		}
 		keepRecent := contracts.AnyIntNode(values["l1KeepRecentRounds"])
 		if raw, exists := values["l1KeepRecentRounds"]; exists && (keepRecent < 5 || keepRecent > 10 || fmt.Sprint(raw) != fmt.Sprint(keepRecent)) {

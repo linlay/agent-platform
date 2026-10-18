@@ -241,6 +241,30 @@ func TestAdminRegistryDiagnosticsValidateOpenAICompat(t *testing.T) {
 	assertAdminRegistryDiagnosticCode(t, modelDiagnostics, "invalid_openai_compat")
 }
 
+func TestAdminRegistryDiagnosticsRejectPlatformOwnedFields(t *testing.T) {
+	server := &Server{}
+	providerDiagnostics := server.adminRegistryDiagnostics("providers", "provider.yml", map[string]any{
+		"key":             "provider",
+		"baseUrl":         "https://example.com",
+		"apiKey":          "token",
+		"requestIdHeader": "X Bad",
+		"protocols": map[string]any{
+			"ANTHROPIC": map[string]any{"compat": map[string]any{"request": map[string]any{"always": map[string]any{"metadata": map[string]any{}}}}},
+		},
+	}, "/providers/provider.yml")
+	assertAdminRegistryDiagnosticCode(t, providerDiagnostics, "invalid_request_id_header")
+	assertAdminRegistryDiagnosticCode(t, providerDiagnostics, "platform_owned_compat")
+
+	modelDiagnostics := server.adminRegistryDiagnostics("models", "model.yml", map[string]any{
+		"key":      "model",
+		"provider": "unknown",
+		"protocol": "OPENAI_RESPONSES",
+		"modelId":  "model-id",
+		"compat":   map[string]any{"request": map[string]any{"always": map[string]any{"prompt_cache_key": "static"}}},
+	}, "/models/model.yml")
+	assertAdminRegistryDiagnosticCode(t, modelDiagnostics, "platform_owned_compat")
+}
+
 func assertAdminRegistryDiagnosticCode(t *testing.T, diagnostics []api.AdminAgentDiagnostic, code string) {
 	t.Helper()
 	for _, diagnostic := range diagnostics {

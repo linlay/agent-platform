@@ -215,6 +215,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) (events []StreamEven
 		}
 		addDetailedUsage(llmReturnUsage, value.LLMReturnReasoningTokens, value.LLMReturnPromptCacheHitTokens, value.LLMReturnPromptCacheMissTokens)
 		addSingleTimingUsage(llmReturnUsage, value.LLMReturnFirstTokenLatencyMs, value.LLMReturnGenerationDurationMs)
+		addUpstreamRequestID(llmReturnUsage, value.LLMReturnUpstreamRequestID)
 		runUsage := map[string]any{
 			"promptTokens":           value.RunPromptTokens,
 			"completionTokens":       value.RunCompletionTokens,
@@ -268,7 +269,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) (events []StreamEven
 		if value.RunTotalTokens > 0 || value.RunLLMChatCompletionCount > 0 || value.RunToolCallCount > 0 || value.RunFirstTokenLatencyCount > 0 || value.RunGenerationDurationMs > 0 {
 			d.state.runUsage = runUsageStateFromValues(value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs)
 		}
-		return []StreamEvent{usageSnapshotEvent(d.request.RunID, value.TaskID, value.ChatID, value.ModelKey, value.ReasoningEffort, value.ContextWindow, value.CurrentContextSize, value.EstimatedNextCallSize, value.LLMReturnPromptTokens, value.LLMReturnCompletionTokens, value.LLMReturnTotalTokens, value.LLMReturnReasoningTokens, value.LLMReturnPromptCacheHitTokens, value.LLMReturnPromptCacheMissTokens, value.LLMReturnLLMChatCompletionCount, value.LLMReturnToolCallCount, value.LLMReturnFirstTokenLatencyMs, value.LLMReturnGenerationDurationMs, value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs)}
+		return []StreamEvent{usageSnapshotEvent(d.request.RunID, value.TaskID, value.ChatID, value.ModelKey, value.ReasoningEffort, value.ContextWindow, value.CurrentContextSize, value.EstimatedNextCallSize, value.LLMReturnPromptTokens, value.LLMReturnCompletionTokens, value.LLMReturnTotalTokens, value.LLMReturnReasoningTokens, value.LLMReturnPromptCacheHitTokens, value.LLMReturnPromptCacheMissTokens, value.LLMReturnLLMChatCompletionCount, value.LLMReturnToolCallCount, value.LLMReturnFirstTokenLatencyMs, value.LLMReturnGenerationDurationMs, value.LLMReturnUpstreamRequestID, value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs)}
 	case InputRunActivity:
 		payload := map[string]any{
 			"runId":  d.request.RunID,
@@ -433,7 +434,7 @@ func validChatScopeURL(value string, chatID string) bool {
 	return true
 }
 
-func usageSnapshotEvent(runID string, taskID string, chatID string, modelKey string, reasoningEffort string, contextWindow int, currentContextSize int, estimatedNextCallSize int, currentPromptTokens int, currentCompletionTokens int, currentTotalTokens int, currentReasoningTokens int, currentPromptCacheHitTokens int, currentPromptCacheMissTokens int, currentLLMChatCompletionCount int, currentToolCallCount int, currentFirstTokenLatencyMs int64, currentGenerationDurationMs int64, runPromptTokens int, runCompletionTokens int, runTotalTokens int, runReasoningTokens int, runPromptCacheHitTokens int, runPromptCacheMissTokens int, runLLMChatCompletionCount int, runToolCallCount int, runFirstTokenLatencyTotalMs int64, runFirstTokenLatencyCount int, runGenerationDurationMs int64) StreamEvent {
+func usageSnapshotEvent(runID string, taskID string, chatID string, modelKey string, reasoningEffort string, contextWindow int, currentContextSize int, estimatedNextCallSize int, currentPromptTokens int, currentCompletionTokens int, currentTotalTokens int, currentReasoningTokens int, currentPromptCacheHitTokens int, currentPromptCacheMissTokens int, currentLLMChatCompletionCount int, currentToolCallCount int, currentFirstTokenLatencyMs int64, currentGenerationDurationMs int64, currentUpstreamRequestID string, runPromptTokens int, runCompletionTokens int, runTotalTokens int, runReasoningTokens int, runPromptCacheHitTokens int, runPromptCacheMissTokens int, runLLMChatCompletionCount int, runToolCallCount int, runFirstTokenLatencyTotalMs int64, runFirstTokenLatencyCount int, runGenerationDurationMs int64) StreamEvent {
 	currentUsage := usageMapFromValues(currentPromptTokens, currentCompletionTokens, currentTotalTokens, currentReasoningTokens, currentPromptCacheHitTokens, currentPromptCacheMissTokens, currentLLMChatCompletionCount, currentToolCallCount, currentFirstTokenLatencyMs, 0, currentGenerationDurationMs, false)
 	runUsage := usageMapFromValues(runPromptTokens, runCompletionTokens, runTotalTokens, runReasoningTokens, runPromptCacheHitTokens, runPromptCacheMissTokens, runLLMChatCompletionCount, runToolCallCount, runFirstTokenLatencyTotalMs, runFirstTokenLatencyCount, runGenerationDurationMs, true)
 	if modelKey != "" {
@@ -442,6 +443,7 @@ func usageSnapshotEvent(runID string, taskID string, chatID string, modelKey str
 	if reasoningEffort != "" {
 		currentUsage["reasoningEffort"] = reasoningEffort
 	}
+	addUpstreamRequestID(currentUsage, currentUpstreamRequestID)
 	contextWindowPayload := map[string]any{
 		"maxSize":               contextWindow,
 		"currentSize":           currentContextSize,
@@ -466,6 +468,14 @@ func usageSnapshotEvent(runID string, taskID string, chatID string, modelKey str
 		payload["taskId"] = taskID
 	}
 	return NewEvent("usage.snapshot", payload)
+}
+
+// addUpstreamRequestID records the provider/relay request ID of one model call
+// for troubleshooting; run-level usage has no single upstream request.
+func addUpstreamRequestID(usage map[string]any, requestID string) {
+	if requestID != "" {
+		usage["upstreamRequestId"] = requestID
+	}
 }
 
 func cloneMessagePayloads(messages []map[string]any) []any {

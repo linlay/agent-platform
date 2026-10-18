@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/modelrequest"
 	"agent-platform/internal/modelresponses"
 	"agent-platform/internal/models"
 )
@@ -49,7 +50,7 @@ func TestResponsesCacheKeyAcrossRetriesTurnsAndRestoredRuns(t *testing.T) {
 			t.Fatal(err)
 		}
 		prepared := s.modelCall.prepared
-		if prepared.RequestBody["prompt_cache_key"] != modelresponses.PromptCacheKey(chatID) {
+		if prepared.RequestBody["prompt_cache_key"] != modelrequest.AffinityKey(chatID, "") {
 			t.Fatal("Chat identity was not passed to request preparation")
 		}
 		for {
@@ -62,7 +63,7 @@ func TestResponsesCacheKeyAcrossRetriesTurnsAndRestoredRuns(t *testing.T) {
 			}
 			if d, ok := delta.(contracts.DeltaLLMRequest); ok {
 				data, _ := json.Marshal(d)
-				if strings.Contains(string(data), "prompt_cache_key") || strings.Contains(string(data), modelresponses.PromptCacheKey(chatID)) {
+				if strings.Contains(string(data), "prompt_cache_key") || strings.Contains(string(data), modelrequest.AffinityKey(chatID, "")) {
 					t.Fatal("derived key leaked into JSONL request metadata")
 				}
 			}
@@ -80,14 +81,14 @@ func TestResponsesCacheKeyAcrossRetriesTurnsAndRestoredRuns(t *testing.T) {
 			t.Fatal("summary/rebuilt request changed affinity")
 		}
 	}
-	if want := []string{modelresponses.PromptCacheKey(chatID), modelresponses.PromptCacheKey(chatID), modelresponses.PromptCacheKey(chatID)}; !reflect.DeepEqual(sentKeys, want) {
+	if want := []string{modelrequest.AffinityKey(chatID, ""), modelrequest.AffinityKey(chatID, ""), modelrequest.AffinityKey(chatID, "")}; !reflect.DeepEqual(sentKeys, want) {
 		t.Fatalf("retry/restored request keys=%v", sentKeys)
 	}
 }
 
 func TestResponsesCacheKeyOverridesCompatAndStaysOutOfMetadata(t *testing.T) {
 	p := &responsesProtocol{}
-	params := protocolStreamParams{chatID: "chat-a", provider: models.ProviderDefinition{BaseURL: "https://example.test", APIKey: "test"}, model: models.ModelDefinition{Protocol: modelresponses.Protocol}, protocolConfig: protocolRuntimeConfig{EndpointPath: "/v1/responses", Compat: map[string]any{"request": map[string]any{"always": map[string]any{"prompt_cache_key": "global-key"}}}}}
+	params := protocolStreamParams{runID: "run-a", chatID: "chat-a", provider: models.ProviderDefinition{BaseURL: "https://example.test", APIKey: "test"}, model: models.ModelDefinition{Protocol: modelresponses.Protocol}, protocolConfig: protocolRuntimeConfig{EndpointPath: "/v1/responses", Compat: map[string]any{"request": map[string]any{"always": map[string]any{"prompt_cache_key": "global-key"}}}}}
 	for _, chatID := range []string{"chat-a", "chat-b", ""} {
 		params.chatID = chatID
 		req, err := p.PrepareRequest(params)
@@ -98,12 +99,9 @@ func TestResponsesCacheKeyOverridesCompatAndStaysOutOfMetadata(t *testing.T) {
 		if err = json.Unmarshal(req.RequestBodyJSON, &wire); err != nil {
 			t.Fatal(err)
 		}
-		if chatID == "" {
-			if _, ok := wire["prompt_cache_key"]; ok {
-				t.Fatal("chatless call has key")
-			}
-		} else if wire["prompt_cache_key"] != modelresponses.PromptCacheKey(chatID) {
-			t.Fatal("wrong outgoing key")
+		// A chatless call still gets a key, scoped to its own Run.
+		if wire["prompt_cache_key"] != modelrequest.AffinityKey(chatID, params.runID) || wire["prompt_cache_key"] == "" {
+			t.Fatalf("wrong outgoing key %v", wire["prompt_cache_key"])
 		}
 		if _, ok := requestOptionsFromPreparedBody(req.RequestBody)["prompt_cache_key"]; ok {
 			t.Fatal("key would be saved in system-init or react metadata")

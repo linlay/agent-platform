@@ -189,7 +189,7 @@ func TestExecuteProviderRequestUsesFirstResponseTimeout(t *testing.T) {
 		t.Fatalf("new request: %v", err)
 	}
 	start := time.Now()
-	_, err = engine.executeProviderRequest(req, time.Second)
+	_, err = engine.executeProviderRequest(req, time.Second, "")
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("expected first response timeout")

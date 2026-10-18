@@ -2843,6 +2843,7 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 					},
 					"llmChatCompletionCount": 1,
 					"toolCallCount":          2,
+					"upstreamRequestId":      "relay-1",
 					"timing": map[string]any{
 						"firstTokenLatencyMs":   820,
 						"generationDurationMs":  2380,
@@ -2888,6 +2889,9 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 	}
 	if toIntValue(usage["toolCallCount"]) != 2 {
 		t.Fatalf("expected persisted usage snapshot toolCallCount, got %#v", lines[0])
+	}
+	if usage["upstreamRequestId"] != "relay-1" {
+		t.Fatalf("expected persisted per-call upstreamRequestId, got %#v", lines[0])
 	}
 	timing, _ := usage["timing"].(map[string]any)
 	if toIntValue(timing["firstTokenLatencyMs"]) != 820 || toIntValue(timing["generationDurationMs"]) != 2380 {

@@ -797,6 +797,7 @@ func (s *llmRunStream) resetContextEstimateAfterCompact() {
 	s.lastCallToolCallCount = 0
 	s.lastCallFirstTokenLatencyMs = 0
 	s.lastCallGenerationDurationMs = 0
+	s.lastCallUpstreamRequestID = ""
 }
 
 func estimateModelContext(messages []openAIMessage, tools []openAIToolSpec) int {

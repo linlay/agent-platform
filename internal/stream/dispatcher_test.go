@@ -1937,3 +1937,25 @@ func TestDispatcherClosesReplacedContentAndReasoningBlocks(t *testing.T) {
 	events = dispatcher.Dispatch(ReasoningDelta{ReasoningID: "run_1_r_2", Delta: "second"})
 	assertEventTypes(t, events, "reasoning.end", "reasoning.snapshot", "reasoning.start", "reasoning.delta")
 }
+
+func TestDispatcherUsageCarriesPerCallUpstreamRequestID(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{RunID: "run_1", ChatID: "chat_1"})
+	snapshot := dispatcher.Dispatch(InputUsageSnapshot{ChatID: "chat_1", LLMReturnPromptTokens: 10, LLMReturnTotalTokens: 12, LLMReturnUpstreamRequestID: "relay-1", RunPromptTokens: 10, RunTotalTokens: 12})
+	debug := dispatcher.Dispatch(InputDebugLLMChat{ChatID: "chat_1", LLMReturnPromptTokens: 10, LLMReturnUpstreamRequestID: "relay-1"})
+	usage, _ := snapshot[0].Data().Value("usage").(map[string]any)
+	current, _ := usage["current"].(map[string]any)
+	run, _ := usage["run"].(map[string]any)
+	if current["upstreamRequestId"] != "relay-1" || run["upstreamRequestId"] != nil {
+		t.Fatalf("usage.snapshot usage = %#v", usage)
+	}
+	data, _ := debug[0].Data().Value("data").(map[string]any)
+	llmReturn, _ := data["usage"].(map[string]any)["llmReturnUsage"].(map[string]any)
+	if llmReturn["upstreamRequestId"] != "relay-1" {
+		t.Fatalf("debug.llmChat usage = %#v", data["usage"])
+	}
+	empty := dispatcher.Dispatch(InputUsageSnapshot{ChatID: "chat_1", LLMReturnPromptTokens: 10, LLMReturnTotalTokens: 12})
+	usage, _ = empty[0].Data().Value("usage").(map[string]any)
+	if _, ok := usage["current"].(map[string]any)["upstreamRequestId"]; ok {
+		t.Fatal("missing upstream ID must be omitted")
+	}
+}

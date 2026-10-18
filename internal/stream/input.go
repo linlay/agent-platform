@@ -364,6 +364,7 @@ type InputDebugLLMChat struct {
 	LLMReturnToolCallCount          int
 	LLMReturnFirstTokenLatencyMs    int64
 	LLMReturnGenerationDurationMs   int64
+	LLMReturnUpstreamRequestID      string
 	RunPromptTokens                 int
 	RunCompletionTokens             int
 	RunTotalTokens                  int
@@ -417,6 +418,7 @@ type InputUsageSnapshot struct {
 	LLMReturnToolCallCount          int
 	LLMReturnFirstTokenLatencyMs    int64
 	LLMReturnGenerationDurationMs   int64
+	LLMReturnUpstreamRequestID      string
 	RunPromptTokens                 int
 	RunCompletionTokens             int
 	RunTotalTokens                  int

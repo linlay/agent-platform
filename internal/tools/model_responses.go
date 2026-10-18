@@ -2,6 +2,7 @@ package tools
 
 import (
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/modelrequest"
 	"agent-platform/internal/modelresponses"
 	"agent-platform/internal/models"
 	"context"
@@ -10,7 +11,7 @@ import (
 	"strings"
 )
 
-func (t *RuntimeToolExecutor) completeResponsesModel(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, messages []contracts.ModelMessage, maxTokens int) (string, map[string]any, error) {
+func (t *RuntimeToolExecutor) completeResponsesModel(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, messages []contracts.ModelMessage, maxTokens int, affinityKey string) (string, map[string]any, error) {
 	input, err := modelresponses.Input(messages, model.Key)
 	if err != nil {
 		return "", nil, err
@@ -23,9 +24,7 @@ func (t *RuntimeToolExecutor) completeResponsesModel(ctx context.Context, model 
 	body["input"] = input
 	body["store"] = false
 	body["stream"] = false
-	// Auxiliary text/vision calls are independent one-shot requests without a
-	// conversation history; do not inherit a global key from provider config.
-	modelresponses.ApplyPromptCacheKey(body, "")
+	modelrequest.ApplyPromptCacheKey(body, affinityKey)
 	for _, k := range []string{"previous_response_id", "conversation", "background", "messages", "max_tokens", "max_completion_tokens", "stream_options"} {
 		delete(body, k)
 	}

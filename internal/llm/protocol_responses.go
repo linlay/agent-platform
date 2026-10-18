@@ -2,6 +2,7 @@ package llm
 
 import (
 	"agent-platform/internal/apperrors"
+	"agent-platform/internal/modelrequest"
 	"agent-platform/internal/modelresponses"
 	"agent-platform/internal/models"
 	"bytes"
@@ -77,7 +78,7 @@ func (p *responsesProtocol) PrepareRequest(params protocolStreamParams) (prepare
 	body["stream"] = true
 	body["input"] = input
 	body["model"] = params.model.ModelID
-	modelresponses.ApplyPromptCacheKey(body, params.chatID)
+	modelrequest.ApplyPromptCacheKey(body, modelrequest.AffinityKey(params.chatID, params.runID))
 	for _, key := range []string{"previous_response_id", "conversation", "background", "messages", "stream_options", "max_tokens", "max_completion_tokens", "reasoning_effort"} {
 		delete(body, key)
 	}
@@ -104,7 +105,7 @@ func (p *responsesProtocol) OpenStream(ctx context.Context, params protocolStrea
 	for k, v := range prepared.Headers {
 		req.Header.Set(k, v)
 	}
-	return p.engine.executeProviderRequest(req, params.modelTimeout)
+	return p.engine.executeProviderRequest(req, params.modelTimeout, params.provider.RequestIDHeader)
 }
 func responsesInvalid(message string, opts ...apperrors.Option) error {
 	return apperrors.New(apperrors.CodeProviderStreamInvalid, message, opts...)

@@ -29,6 +29,7 @@ func (p *anthropicProtocol) PrepareRequest(params protocolStreamParams) (prepare
 	if err != nil {
 		return preparedProviderRequest{}, err
 	}
+	modelrequest.ApplyAnthropicMetadata(requestBody, modelrequest.AffinityKey(params.chatID, params.runID))
 	body, err := json.Marshal(requestBody)
 	if err != nil {
 		return preparedProviderRequest{}, err
@@ -70,7 +71,7 @@ func (p *anthropicProtocol) OpenStream(ctx context.Context, params protocolStrea
 		req.Header.Set(key, value)
 	}
 
-	return p.engine.executeProviderRequest(req, params.modelTimeout)
+	return p.engine.executeProviderRequest(req, params.modelTimeout, params.provider.RequestIDHeader)
 }
 
 // Anthropic stream events decode into typed fields so provider text reaches
