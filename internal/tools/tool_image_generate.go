@@ -89,8 +89,14 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 	}
 
 	start := time.Now()
-	callCtx, cancel := context.WithTimeout(ctx, time.Duration(imageGenerateTimeout(model, profile))*time.Second)
-	defer cancel()
+	// The router owns the tool deadline. Only an explicit profile timeout adds
+	// an image-specific limit; model defaults must not shorten the tool budget.
+	callCtx := ctx
+	if profile.Timeout > 0 {
+		var cancel context.CancelFunc
+		callCtx, cancel = context.WithTimeout(ctx, time.Duration(profile.Timeout)*time.Second)
+		defer cancel()
+	}
 	var decoded imageGenerateResponse
 	if len(inputImages) == 0 {
 		decoded, err = t.completeImageGenerate(callCtx, model, provider, prompt, size, responseFormat, n)
@@ -167,16 +173,6 @@ type imageGenerateErrorDetail struct {
 	Message string `json:"message"`
 	Type    string `json:"type"`
 	Code    any    `json:"code"`
-}
-
-func imageGenerateTimeout(model models.ModelDefinition, profile config.ImageGenerateProfileConfig) int {
-	if profile.Timeout > 0 {
-		return profile.Timeout
-	}
-	if model.Image.Timeout > 0 {
-		return model.Image.Timeout
-	}
-	return 180
 }
 
 func resolveImageGenerateResponseFormat(override string, fallback string, allowed []string) (string, bool) {

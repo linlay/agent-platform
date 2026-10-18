@@ -183,6 +183,8 @@ web-fetch:
 image-generate:
   enabled: true
   default-profile:
+  # 各 profile 的 timeout 可省略或设为 0，沿用有效 budget.tool.timeout（默认 600 秒）。
+  # 显式正数只增加图片调用时限，不能延长工具或 Run 时限；不继承模型 image.timeout。
   profiles:
     th-gpt-image-2_5-flare:
       model-key: th-gpt-image-2_5-flare

@@ -85,7 +85,7 @@ type ModelEmbeddingConfig struct {
 }
 
 type ModelImageConfig struct {
-	Timeout         int
+	Timeout         int // Retained for loading existing models; image_generate uses tool/profile deadlines.
 	DefaultSize     string
 	ResponseFormats []string
 	Generation      ModelImageGenerationConfig

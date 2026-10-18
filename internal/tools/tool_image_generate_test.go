@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
@@ -35,20 +36,78 @@ func TestImageGenerateDisabled(t *testing.T) {
 	}
 }
 
-func TestImageGenerateTimeoutPrecedenceAndDefault(t *testing.T) {
-	model := models.ModelDefinition{Image: models.ModelImageConfig{Timeout: 150}}
-	profile := config.ImageGenerateProfileConfig{Timeout: 90}
-	if got := imageGenerateTimeout(model, profile); got != 90 {
-		t.Fatalf("profile timeout = %d, want 90", got)
+func TestImageGenerateRequestDeadlines(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		modelTimeout   string
+		profileTimeout int
+		toolTimeout    int
+		runTimeout     time.Duration
+		wantTimeout    time.Duration
+	}{
+		{name: "model timeout does not override tool budget", modelTimeout: "120", toolTimeout: 600, wantTimeout: 600 * time.Second},
+		{name: "no implicit image timeout", modelTimeout: "0", toolTimeout: 600, wantTimeout: 600 * time.Second},
+		{name: "custom tool budget", modelTimeout: "120", toolTimeout: 240, wantTimeout: 240 * time.Second},
+		{name: "explicit profile timeout", modelTimeout: "120", profileTimeout: 90, toolTimeout: 600, wantTimeout: 90 * time.Second},
+		{name: "profile cannot extend tool budget", modelTimeout: "120", profileTimeout: 900, toolTimeout: 600, wantTimeout: 600 * time.Second},
+		{name: "run deadline remains effective", modelTimeout: "120", toolTimeout: 600, runTimeout: 10 * time.Second, wantTimeout: 10 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			registry := writeImageGenerateRegistryWithImageConfig(t, "https://image.test", true, []string{
+				"  timeout: " + tc.modelTimeout,
+				"  generation:",
+				"    endpointPath: /v1/images/generations",
+				"    requestFormat: openai-images-json",
+			})
+			cfg := defaultImageGenerateTestConfig()
+			profile := cfg.Profiles["general"]
+			profile.Timeout = tc.profileTimeout
+			cfg.Profiles["general"] = profile
+			executor := imageGenerateTestExecutor(cfg, registry, t.TempDir())
+			var paths []string
+			executor.httpClient = &http.Client{Transport: imageGenerateRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				deadline, ok := req.Context().Deadline()
+				if !ok {
+					t.Fatal("image request lost tool deadline")
+				}
+				if remaining := time.Until(deadline); remaining > tc.wantTimeout || remaining < tc.wantTimeout-time.Second {
+					t.Fatalf("request %s has %s remaining, want approximately %s", req.URL.Path, remaining, tc.wantTimeout)
+				}
+				paths = append(paths, req.URL.Path)
+				body := `{"data":[{"url":"https://image.test/image.png"}]}`
+				if req.URL.Path == "/image.png" {
+					body = "downloaded image bytes"
+				}
+				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"image/png"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+			})}
+			ctx := context.Background()
+			if tc.runTimeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tc.runTimeout)
+				defer cancel()
+			}
+			execCtx := &contracts.ExecutionContext{
+				Budget:  contracts.Budget{Tool: contracts.RetryPolicy{Timeout: tc.toolTimeout}},
+				Session: contracts.QuerySession{ChatID: "chat-1", RunID: "run-1"},
+			}
+			router := &ToolRouter{}
+			result, err := router.invokeWithPolicy(ctx, "image_generate", execCtx, func(callCtx context.Context) (contracts.ToolExecutionResult, error) {
+				return executor.invokeImageGenerate(callCtx, map[string]any{"prompt": "draw"}, execCtx)
+			})
+			if err != nil || result.Error != "" {
+				t.Fatalf("image_generate: err=%v result=%#v", err, result)
+			}
+			if got := strings.Join(paths, ","); got != "/v1/images/generations,/image.png" {
+				t.Fatalf("expected generation and image download, got %s", got)
+			}
+		})
 	}
-	profile.Timeout = 0
-	if got := imageGenerateTimeout(model, profile); got != 150 {
-		t.Fatalf("model timeout = %d, want 150", got)
-	}
-	model.Image.Timeout = 0
-	if got := imageGenerateTimeout(model, profile); got != 180 {
-		t.Fatalf("default timeout = %d, want 180", got)
-	}
+}
+
+type imageGenerateRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f imageGenerateRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func TestImageGenerateMissingProfile(t *testing.T) {
@@ -759,7 +818,6 @@ func defaultImageGenerateTestConfig() config.ImageGenerateConfig {
 		Profiles: map[string]config.ImageGenerateProfileConfig{
 			"general": {
 				ModelKey:        "image-model",
-				Timeout:         180,
 				Size:            "1024x1024",
 				ResponseFormat:  "b64_json",
 				OutputMimeType:  "image/png",

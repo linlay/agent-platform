@@ -335,7 +335,7 @@ type ImageGenerateConfig struct {
 
 type ImageGenerateProfileConfig struct {
 	ModelKey        string
-	Timeout         int // seconds
+	Timeout         int // seconds; <= 0 inherits the caller's tool deadline
 	Size            string
 	ResponseFormat  string
 	OutputMimeType  string
