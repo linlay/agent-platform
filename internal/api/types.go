@@ -1424,12 +1424,14 @@ type ActiveRunInfo struct {
 	RunID    string `json:"runId"`
 	AgentKey string `json:"agentKey,omitempty"`
 
-	State        string `json:"state"`
-	LastSeq      int64  `json:"lastSeq"`
-	OldestSeq    int64  `json:"oldestSeq"`
-	StartedAt    int64  `json:"startedAt"`
-	PlanningMode bool   `json:"planningMode,omitempty"`
-	EditingMode  bool   `json:"editingMode"`
+	State              string `json:"state"`
+	LastSeq            int64  `json:"lastSeq"`
+	OldestSeq          int64  `json:"oldestSeq"`
+	StartedAt          int64  `json:"startedAt"`
+	PlanningMode       bool   `json:"planningMode,omitempty"`
+	EditingMode        bool   `json:"editingMode"`
+	AccessLevel        string `json:"accessLevel"`
+	AccessLevelVersion int64  `json:"accessLevelVersion"`
 }
 
 type FeedbackRequest struct {

@@ -34,8 +34,10 @@ func toAPIActiveRunInfo(activeRun contracts.RunStatusInfo) *api.ActiveRunInfo {
 		StartedAt: activeRun.StartedAt,
 		// Both are the choices this Run was started with, so a client that
 		// reloads mid-Run shows them without replaying events.
-		PlanningMode: activeRun.PlanningMode,
-		EditingMode:  activeRun.EditingMode,
+		PlanningMode:       activeRun.PlanningMode,
+		EditingMode:        activeRun.EditingMode,
+		AccessLevel:        activeRun.AccessLevel,
+		AccessLevelVersion: activeRun.AccessLevelVersion,
 	}
 }
 
