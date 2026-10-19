@@ -115,9 +115,6 @@ func (m *Manager) Disconnect(ctx context.Context, id string) (DisconnectResult, 
 	}
 	defer m.endDisconnect(id)
 	m.retire(id)
-	if _, err = pkg.SetConfigured(false); err != nil {
-		return result, err
-	}
 	if err = m.cancelTokenValidation(ctx, id); err != nil {
 		return result, err
 	}
@@ -140,6 +137,9 @@ func (m *Manager) Disconnect(ctx context.Context, id string) (DisconnectResult, 
 		return result, err
 	}
 	defer unlock()
+	if _, err := m.sources.Load(id); err != nil {
+		return result, err
+	}
 	if err = changeAuthState(pkg.PersistentRoot(), id, true); err != nil {
 		return result, err
 	}
@@ -176,12 +176,16 @@ func (m *Manager) ConnectComponent(id, component string) (Session, error) {
 		return Session{}, fmt.Errorf("configure token credentials using the token endpoint")
 	}
 	if pkg.AuthMode == connector.AuthDelegated && !pkg.ManagedCLI() || pkg.AuthMode == connector.AuthOneID {
+		before, err := readAuthState(pkg.PersistentRoot(), pkg.ID)
+		if err != nil {
+			return Session{}, err
+		}
 		status, err := m.Status(m.ctx, id)
 		if err != nil {
 			return status, err
 		}
 		if status.Status == "authorized" || status.Status == "delegated" {
-			err = m.markConfiguredAt(pkg, generation)
+			err = m.markConfiguredAt(pkg, generation, before.Generation)
 		}
 		return status, err
 	}

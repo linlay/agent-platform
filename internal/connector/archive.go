@@ -276,6 +276,22 @@ func (p *PreparedArchive) PublishConditional(ctx context.Context, overwrite bool
 		return Package{}, err
 	}
 	defer release()
+	unlockState, err := AcquireStateLock(ctx, p.sources.PersistentRoot(), pkg.ID)
+	if err != nil {
+		return Package{}, err
+	}
+	previousControl, controlErr := ReadStateControl(p.sources.PersistentRoot(), pkg.ID)
+	pendingDeletion, pendingErr := readDeletionRecord(p.sources, pkg.ID)
+	unlockState()
+	if controlErr != nil || pendingErr != nil {
+		return Package{}, errors.Join(controlErr, pendingErr)
+	}
+	if pendingDeletion != nil {
+		return Package{}, ErrDeleteCleanup
+	}
+	if previousControl.Deleting {
+		return Package{}, fmt.Errorf("%w: connector deletion requires recovery", ErrBusy)
+	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return Package{}, err
 	}
@@ -324,6 +340,20 @@ func (p *PreparedArchive) PublishConditional(ctx context.Context, overwrite bool
 	if reload != nil {
 		err = reload()
 	}
+	activatedControl := false
+	if err == nil && previousControl.Deleted {
+		unlockState, err = AcquireStateLock(ctx, p.sources.PersistentRoot(), pkg.ID)
+		if err == nil {
+			// Keep the deletion fence throughout reload so another Manager cannot
+			// start authorization against a publication that may still roll back.
+			// The committed installation retains the generation fencing old jobs.
+			active := previousControl
+			active.Deleted, active.Deleting = false, false
+			activatedControl = true
+			err = WriteStateControl(p.sources.PersistentRoot(), pkg.ID, active)
+			unlockState()
+		}
+	}
 	if err != nil {
 		if restoreErr := renameArchiveDirectory(context.WithoutCancel(ctx), "rollback_publication", target, candidate); restoreErr != nil {
 			p.keepStage = true
@@ -333,6 +363,17 @@ func (p *PreparedArchive) PublishConditional(ctx context.Context, overwrite bool
 			if restoreErr := renameArchiveDirectory(context.WithoutCancel(ctx), "restore_previous", backup, target); restoreErr != nil {
 				p.keepStage = true
 				return Package{}, fmt.Errorf("reload: %v; cannot restore backup %s: %w", err, backup, restoreErr)
+			}
+		}
+		if activatedControl {
+			unlockState, restoreErr := AcquireStateLock(context.WithoutCancel(ctx), p.sources.PersistentRoot(), pkg.ID)
+			if restoreErr != nil {
+				return Package{}, fmt.Errorf("reload: %v; cannot lock lifecycle recovery: %w", err, restoreErr)
+			}
+			restoreErr = WriteStateControl(p.sources.PersistentRoot(), pkg.ID, previousControl)
+			unlockState()
+			if restoreErr != nil {
+				return Package{}, fmt.Errorf("reload: %v; cannot restore connector lifecycle: %w", err, restoreErr)
 			}
 		}
 		if reload != nil {

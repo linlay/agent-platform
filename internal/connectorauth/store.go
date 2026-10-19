@@ -24,46 +24,32 @@ var ErrOAuthRefreshFailed = errors.New("connector token refresh failed; saved cr
 var ErrOAuthAuthorizationRequired = errors.New("connector authorization has expired; sign in again")
 var ErrOAuthCredentialUnavailable = errors.New("connector authorization storage is unavailable; saved credentials were preserved")
 
-// A file lock also serializes the standalone login process with the runtime.
-// In particular, a refresh must not recreate credentials after logout returns.
+// The lock lives outside the deletable account directory. Root-only consumers
+// (including an existing MCP session) must not recreate it just to read a token.
 func lockCredentials(ctx context.Context, root, id string) (func(), error) {
-	dir, err := StateDir(root, id)
+	unlock, err := connector.AcquireStateLock(ctx, root, id)
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
+	control, err := connector.ReadStateControl(root, id)
+	if err == nil {
+		err = stateControlError(control)
 	}
-	path := filepath.Join(dir, "oauth.lock")
-	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("invalid credential lock file")
-	} else if err != nil && !os.IsNotExist(err) {
-		return nil, err
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
+		unlock()
 		return nil, err
 	}
-	for {
-		if err := ctx.Err(); err != nil {
-			f.Close()
-			return nil, err
-		}
-		locked, err := tryCredentialLock(f)
-		if err != nil {
-			f.Close()
-			return nil, err
-		}
-		if locked {
-			return func() { f.Close() }, nil
-		}
-		select {
-		case <-ctx.Done():
-			f.Close()
-			return nil, ctx.Err()
-		case <-time.After(20 * time.Millisecond):
-		}
+	return unlock, nil
+}
+
+func stateControlError(control connector.StateControl) error {
+	if control.Deleting {
+		return connector.ErrBusy
 	}
+	if control.Deleted {
+		return connector.ErrPackageNotFound
+	}
+	return nil
 }
 
 type oauthCredential struct {

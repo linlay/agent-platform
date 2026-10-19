@@ -219,6 +219,8 @@ func (s *Server) writeConnectorError(w http.ResponseWriter, err error) {
 		status, code = http.StatusNotFound, "connector_not_found"
 	case errors.Is(err, connector.ErrDeleteReload):
 		status, code = http.StatusInternalServerError, "connector_reload_failed"
+	case errors.Is(err, connector.ErrDeleteCleanup):
+		status, code = http.StatusInternalServerError, "connector_cleanup_pending"
 	case errors.Is(err, connector.ErrBusy):
 		status, code = http.StatusConflict, "connector_busy"
 	case errors.Is(err, connector.ErrBuiltinReadOnly):

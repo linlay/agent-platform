@@ -296,14 +296,6 @@ func (s Sources) CollectInstallations() {
 	}
 }
 
-// RemoveInstallations deletes every program of a deleted package. Credentials
-// in .state are kept, so a re-import only needs a new preparation.
-func RemoveInstallations(root, id string) {
-	if dir, err := InstallDir(root, id); err == nil {
-		_ = os.RemoveAll(dir)
-	}
-}
-
 func writeFileAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

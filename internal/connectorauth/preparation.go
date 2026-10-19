@@ -180,6 +180,9 @@ func (m *Manager) StartPreparation(id string) (Preparation, error) {
 func (m *Manager) startPreparation(id string) (Preparation, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.disconnecting[id] {
+		return Preparation{}, false, connector.ErrBusy
+	}
 	if job := m.preparations[id]; job != nil {
 		return job.state, false, nil
 	}

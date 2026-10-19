@@ -237,7 +237,26 @@ func (s *Server) handleConnectorDefinition(w http.ResponseWriter, r *http.Reques
 	case http.MethodDelete:
 		id := strings.TrimSpace(r.URL.Query().Get("id"))
 		reader, _ := s.deps.Registry.(adminsource.ConnectorUsageReader)
-		err := s.adminSources.DeleteConnector(r.Context(), sources, reader, id, func(ctx context.Context) error {
+		// Do not cancel a login for a package that cannot be deleted. The
+		// authoritative reference check runs again inside the Agent mutation.
+		if connector.ValidID(id) && !connector.IsBuiltin(id) && reader != nil {
+			keys, err := reader.ConnectorUsers(id)
+			if err != nil {
+				s.writeConnectorError(w, err)
+				return
+			}
+			if len(keys) > 0 {
+				s.writeConnectorError(w, &adminsource.ConnectorInUseError{AgentKeys: keys})
+				return
+			}
+		}
+		release, err := s.connectorAuth.BeginDelete(r.Context(), id)
+		if err != nil {
+			s.writeConnectorError(w, err)
+			return
+		}
+		defer release()
+		err = s.adminSources.DeleteConnector(r.Context(), sources, reader, id, func(ctx context.Context) error {
 			if s.deps.CatalogReloader != nil {
 				return s.deps.CatalogReloader.Reload(ctx, "connectors")
 			}
