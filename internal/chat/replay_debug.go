@@ -34,6 +34,23 @@ func synthesizedUsageSnapshotContextWindow(contextWindow map[string]any) map[str
 	return cw
 }
 
+// toolUsageEntryFromSnapshotEvent extracts a usage snapshot whose current
+// usage came from a model call inside a tool.
+func toolUsageEntryFromSnapshotEvent(event stream.EventData) (map[string]any, bool) {
+	usage, _ := event.Value("usage").(map[string]any)
+	current, _ := usage["current"].(map[string]any)
+	if strings.TrimSpace(stringFromAny(current["source"])) != "tool" {
+		return nil, false
+	}
+	out := usagePayloadFromMap(current, false)
+	for _, key := range []string{"toolId", "toolName", "operation"} {
+		if value := firstStringFromKeys(current, key); value != "" {
+			out[key] = value
+		}
+	}
+	return out, true
+}
+
 func usagePayloadFromSnapshotEvent(event stream.EventData, usage map[string]any, includeLLMChatCompletionCount bool) map[string]any {
 	out := usagePayloadFromMap(usage, includeLLMChatCompletionCount)
 	if _, ok := out["modelKey"]; !ok {

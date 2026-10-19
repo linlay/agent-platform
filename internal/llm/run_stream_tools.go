@@ -1585,6 +1585,7 @@ func (s *llmRunStream) emitToolResult(invocation *preparedToolInvocation, result
 		}
 	}
 	s.pending = append(s.pending, delta)
+	s.commitToolModelUsage(invocation, result.ModelUsage)
 }
 
 func (s *llmRunStream) resolveQueuedToolCallsAfterBudgetExceeded() {

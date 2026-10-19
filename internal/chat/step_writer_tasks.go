@@ -21,6 +21,7 @@ type taskStepBuffer struct {
 	lastTimestamp           int64
 	pendingSystemRef        map[string]any
 	pendingUsage            map[string]any
+	pendingToolUsage        []map[string]any
 	pendingContextWindowMax int
 	pendingContextCurrent   int
 	pendingEstimated        int
@@ -70,7 +71,7 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 		return
 	}
 	allowEmptySubAgentStep := strings.TrimSpace(buffer.taskAgentKey) != "" && strings.TrimSpace(buffer.taskStatus) != ""
-	if len(buffer.messages) == 0 && buffer.responseID == "" && !allowEmptySubAgentStep &&
+	if len(buffer.messages) == 0 && buffer.responseID == "" && !allowEmptySubAgentStep && len(buffer.pendingToolUsage) == 0 &&
 		(buffer.sources == nil || len(buffer.sources.Items) == 0) &&
 		(buffer.artifacts == nil || len(buffer.artifacts.Items) == 0) {
 		return
@@ -91,6 +92,9 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	}
 	if buffer.pendingUsage != nil {
 		line.Usage = buffer.pendingUsage
+	}
+	if len(buffer.pendingToolUsage) > 0 {
+		line.ToolUsage = buffer.pendingToolUsage
 	}
 	if systemRef := completeSystemRef(buffer.pendingSystemRef); len(systemRef) > 0 {
 		line.SystemRef = systemRef
@@ -127,6 +131,7 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	buffer.sources = nil
 	buffer.liveSeq = 0
 	buffer.pendingUsage = nil
+	buffer.pendingToolUsage = nil
 	buffer.pendingContextWindowMax = 0
 	buffer.pendingContextCurrent = 0
 	buffer.pendingEstimated = 0

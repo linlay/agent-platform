@@ -133,6 +133,7 @@ KBX 索引固定使用 `ru-kbases/<libraryId>/index.sqlite` 及配套存储；Ag
 - 新增能力优先放进对应 `internal/*` 模块，不在 server 层堆业务逻辑。
 - Native `ANTHROPIC` 的显式思考配置使用 `thinking.type: adaptive`、`thinking.display: summarized` 与 `output_config.effort`，由有效 stage 的 reasoning 设置控制，不按模型名分支；请求构造在合并 compat 后统一设置，累计 token 用量由协议适配映射到现有 usage 事件；模型级 `maxOutputTokens` 作为 Anthropic 默认请求预算与输出能力上限，不按模型名推断，见 [Anthropic 自适应思考](docs/配置化说明.md#anthropic-自适应思考)。
 - 会话亲和键由 `internal/modelrequest.AffinityKey` 从 chatId（无 Chat 时 runId）派生，无开关：Responses 固定发送 `prompt_cache_key`，Anthropic 固定发送 `metadata.user_id`，辅助工具调用沿用调用方 Chat；两字段归平台所有，compat 中出现即加载失败。provider `requestIdHeader` 声明中转请求 ID 头（BabelArk 必配 `X-Babelark-Request-Id`），成功调用写入 usage `upstreamRequestId` 并持久化，失败进入错误诊断，见 [会话亲和与上游请求 ID](docs/配置化说明.md#会话亲和与上游请求-id)。
+- 工具内部的模型调用（当前 image_generate、vision_recognize）经 `ToolExecutionResult.ModelUsage` 上报上游实际返回的 usage，归一化在 `internal/modelusage`；未返回按 0、不推算。Native 运行流把它计入 Run 累计并发出 `usage.current.source:"tool"` 快照，按工具模型自身 pricing 计价，不改变上下文窗口与 Run 主模型；不得在 Processor 另行累加，否则会被主模型的 run 快照覆盖。步骤行以 `toolUsage` 持久化并参与回放，见 [配置化说明](docs/配置化说明.md#工具内模型调用的用量与费用)。
 - TEAM 是公开 mode：通用机制归 `internal/agent`，调度归 `internal/agent/team`。总控与成员一起冻结版本和租约；成员不可为 TEAM/ACP、不可带 agent_invoke。规划 Run 禁用 agent_delegate，执行 Run 可委派。详见 [智能体配置](docs/智能体配置说明.md#team-agent-配置)。
 - 新增 API 保持统一 JSON 包裹、字段命名和错误语义。
 - 内置工具的显式 boolean 字段兼容精确字符串 `"true"` / `"false"`，公共方法归 `internal/toolinput`，在相关校验和审批前归一化；不转换普通文本或 MCP/开放参数，不放宽 HTTP/WS API 类型，详见 [MCP与工具交互](docs/MCP与工具交互.md#内置工具布尔参数兼容)。

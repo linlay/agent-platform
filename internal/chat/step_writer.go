@@ -58,6 +58,7 @@ type StepWriter struct {
 	pendingSubmitLiveSeq    int64
 	pendingSubmitTimestamp  int64
 	pendingUsage            map[string]any
+	pendingToolUsage        []map[string]any
 	pendingContextWindowMax int
 	pendingContextCurrent   int
 	pendingEstimated        int
@@ -756,6 +757,10 @@ func (w *StepWriter) flushAssistantStepBeforeToolResult(event stream.EventData) 
 }
 
 func (w *StepWriter) captureRootUsageSnapshot(event stream.EventData) {
+	if entry, ok := toolUsageEntryFromSnapshotEvent(event); ok {
+		w.pendingToolUsage = append(w.pendingToolUsage, entry)
+		return
+	}
 	contextWindow, _ := event.Value("contextWindow").(map[string]any)
 	if usage, ok := event.Value("usage").(map[string]any); ok {
 		if current, ok := usage["current"].(map[string]any); ok {
@@ -776,6 +781,10 @@ func (w *StepWriter) captureRootUsageSnapshot(event stream.EventData) {
 
 func (w *StepWriter) captureTaskUsageSnapshot(buffer *taskStepBuffer, event stream.EventData) {
 	if buffer == nil {
+		return
+	}
+	if entry, ok := toolUsageEntryFromSnapshotEvent(event); ok {
+		buffer.pendingToolUsage = append(buffer.pendingToolUsage, entry)
 		return
 	}
 	contextWindow, _ := event.Value("contextWindow").(map[string]any)
@@ -929,7 +938,7 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 		w.clearCurrentStep()
 		return
 	}
-	if len(w.messages) == 0 && w.responseID == "" && len(w.pendingAwaiting) == 0 && (w.pendingSources == nil || len(w.pendingSources.Items) == 0) {
+	if len(w.messages) == 0 && w.responseID == "" && len(w.pendingAwaiting) == 0 && len(w.pendingToolUsage) == 0 && (w.pendingSources == nil || len(w.pendingSources.Items) == 0) {
 		w.pendingUsage = nil
 		w.pendingContextWindowMax = 0
 		w.pendingContextCurrent = 0
@@ -971,6 +980,10 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	}
 	if w.pendingUsage != nil {
 		line.Usage = w.pendingUsage
+	}
+	if len(w.pendingToolUsage) > 0 {
+		line.ToolUsage = w.pendingToolUsage
+		w.pendingToolUsage = nil
 	}
 	if systemRef := completeSystemRef(w.pendingSystemRef); len(systemRef) > 0 {
 		line.SystemRef = systemRef
@@ -1019,6 +1032,8 @@ func (w *StepWriter) clearCurrentStep() {
 	w.pendingAwaiting = nil
 	w.pendingApproval = nil
 	w.pendingUsage = nil
+	// pendingToolUsage survives a discarded model turn: the tool's provider
+	// already billed it, so it is written with the next step instead.
 	w.pendingContextWindowMax = 0
 	w.pendingContextCurrent = 0
 	w.pendingEstimated = 0

@@ -35,6 +35,12 @@ func UsageDataFromMap(usage map[string]any) chat.UsageData {
 	return out
 }
 
+// IsToolUsage reports whether a snapshot's current usage comes from a model
+// call made inside a tool rather than from the agent model.
+func IsToolUsage(usage map[string]any) bool {
+	return strings.TrimSpace(contracts.AnyStringNode(usage["source"])) == "tool"
+}
+
 func MergeUsageMapIntoRunData(target *chat.UsageData, usage map[string]any) {
 	if target == nil || usage == nil {
 		return

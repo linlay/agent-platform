@@ -621,6 +621,28 @@ type ToolExecutionResult struct {
 	ExitCode          int
 	SubmitInfo        *SubmitInfo
 	SourcePublication *SourcePublication `json:"-"`
+	// ModelUsage carries provider-reported usage of model calls made inside the
+	// tool. The run stream counts it toward run usage and cost; it is never
+	// sent to the model.
+	ModelUsage []ModelUsage `json:"-"`
+}
+
+// ModelUsage is one auxiliary model call's provider-reported usage. Only
+// reported quantities are recorded; missing values stay zero, never estimated.
+type ModelUsage struct {
+	ModelKey  string
+	Operation string
+	// PromptTokens includes cached input; CacheHitTokens is its cached part.
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+	ReasoningTokens  int
+	CacheHitTokens   int
+	CacheMissTokens  int
+}
+
+func (u ModelUsage) HasTokens() bool {
+	return u.PromptTokens > 0 || u.CompletionTokens > 0 || u.TotalTokens > 0 || u.CacheHitTokens > 0 || u.CacheMissTokens > 0
 }
 
 type SubmitInfo struct {

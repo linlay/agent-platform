@@ -431,6 +431,15 @@ type InputUsageSnapshot struct {
 	RunFirstTokenLatencyTotalMs     int64
 	RunFirstTokenLatencyCount       int
 	RunGenerationDurationMs         int64
+	// Tool is set when current usage comes from a model call inside a tool.
+	Tool *UsageSnapshotTool
+}
+
+type UsageSnapshotTool struct {
+	ToolID    string
+	ToolName  string
+	ModelKey  string
+	Operation string
 }
 
 func (InputUsageSnapshot) streamInputTag() {}

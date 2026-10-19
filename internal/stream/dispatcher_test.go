@@ -1959,3 +1959,37 @@ func TestDispatcherUsageCarriesPerCallUpstreamRequestID(t *testing.T) {
 		t.Fatal("missing upstream ID must be omitted")
 	}
 }
+
+func TestDispatcherToolUsageSnapshotKeepsAgentContextWindow(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{RunID: "run_1", ChatID: "chat_1"})
+	events := dispatcher.Dispatch(InputUsageSnapshot{
+		ChatID:                    "chat_1",
+		ModelKey:                  "chat-model",
+		ReasoningEffort:           "HIGH",
+		ContextWindow:             128000,
+		CurrentContextSize:        100,
+		LLMReturnPromptTokens:     12,
+		LLMReturnCompletionTokens: 1000,
+		LLMReturnTotalTokens:      1012,
+		RunPromptTokens:           112,
+		RunCompletionTokens:       1020,
+		RunTotalTokens:            1132,
+		RunLLMChatCompletionCount: 1,
+		Tool:                      &UsageSnapshotTool{ToolID: "tool_1", ToolName: "image_generate", ModelKey: "image-model", Operation: "image.generation"},
+	})
+	assertEventTypes(t, events, "usage.snapshot")
+	data := events[0].Data()
+	usage, _ := data.Value("usage").(map[string]any)
+	current, _ := usage["current"].(map[string]any)
+	if current["source"] != "tool" || current["modelKey"] != "image-model" || current["toolId"] != "tool_1" ||
+		current["toolName"] != "image_generate" || current["operation"] != "image.generation" {
+		t.Fatalf("unexpected tool current usage %#v", current)
+	}
+	if _, exists := current["reasoningEffort"]; exists {
+		t.Fatalf("tool usage must not carry the agent reasoning effort: %#v", current)
+	}
+	contextWindow, _ := data.Value("contextWindow").(map[string]any)
+	if contextWindow["modelKey"] != "chat-model" || contextWindow["reasoningEffort"] != "HIGH" || contextWindow["currentSize"] != 100 {
+		t.Fatalf("context window must keep describing the agent model: %#v", contextWindow)
+	}
+}

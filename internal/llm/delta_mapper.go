@@ -463,6 +463,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			RunFirstTokenLatencyTotalMs:     value.RunFirstTokenLatencyTotalMs,
 			RunFirstTokenLatencyCount:       value.RunFirstTokenLatencyCount,
 			RunGenerationDurationMs:         value.RunGenerationDurationMs,
+			Tool:                            streamUsageSnapshotTool(value.Tool),
 		}}
 	case DeltaRunActivity:
 		m.lastKind = ""
@@ -657,4 +658,11 @@ func (m *DeltaMapper) resolveToolTranslations(name string) map[string]any {
 	}
 	value, _ := tool.Meta["toolI18n"].(map[string]any)
 	return i18n.CloneToolTranslations(value)
+}
+
+func streamUsageSnapshotTool(tool *UsageSnapshotTool) *stream.UsageSnapshotTool {
+	if tool == nil {
+		return nil
+	}
+	return &stream.UsageSnapshotTool{ToolID: tool.ToolID, ToolName: tool.ToolName, ModelKey: tool.ModelKey, Operation: tool.Operation}
 }

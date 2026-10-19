@@ -111,9 +111,10 @@ func completedToolResult(completed batchToolCallResult) ToolExecutionResult {
 		}
 		result.Output = MarshalJSON(result.Structured)
 		result.MCPResult = completed.result.MCPResult
+		result.ModelUsage = completed.result.ModelUsage
 		return result
 	}
-	return ToolExecutionResult{Output: completed.err.Error(), MCPResult: completed.result.MCPResult, Error: "tool_execution_failed", ExitCode: -1}
+	return ToolExecutionResult{Output: completed.err.Error(), MCPResult: completed.result.MCPResult, Error: "tool_execution_failed", ExitCode: -1, ModelUsage: completed.result.ModelUsage}
 }
 
 // This is a platform cancellation observation, not a claimed tool return. In

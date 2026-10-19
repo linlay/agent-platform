@@ -741,3 +741,105 @@ func writeUsageCostRegistry(t *testing.T) *models.ModelRegistry {
 	}
 	return registry
 }
+
+func toolUsageSnapshotEvent(taskID string, current map[string]any, run map[string]any) stream.EventData {
+	payload := map[string]any{
+		"contextWindow": map[string]any{"modelKey": "mock-model"},
+		"usage":         map[string]any{"current": current, "run": run},
+	}
+	if taskID != "" {
+		payload["taskId"] = taskID
+	}
+	return stream.EventData{Type: "usage.snapshot", Payload: payload}
+}
+
+func TestRunEventProcessorPricesToolModelUsageByToolModel(t *testing.T) {
+	runUsage := chat.UsageData{}
+	processor := NewProcessor(ProcessorOptions{
+		Billing:   config.BillingConfig{Currency: "CNY"},
+		Models:    writeUsageCostRegistry(t),
+		ChatUsage: chat.UsageData{TotalTokens: 10, EstimatedCostCurrency: "CNY", EstimatedCostTotal: 1},
+		RunUsage:  &runUsage,
+	})
+	events := []stream.EventData{
+		toolUsageSnapshotEvent("",
+			map[string]any{"modelKey": "mock-model", "promptTokens": 1_000_000, "totalTokens": 1_000_000},
+			map[string]any{"promptTokens": 1_000_000, "totalTokens": 1_000_000, "llmChatCompletionCount": 1}),
+		toolUsageSnapshotEvent("",
+			map[string]any{"source": "tool", "toolId": "tool_1", "toolName": "image_generate", "modelKey": "expensive-model", "completionTokens": 1_000_000, "totalTokens": 1_000_000},
+			map[string]any{"promptTokens": 1_000_000, "completionTokens": 1_000_000, "totalTokens": 2_000_000, "llmChatCompletionCount": 1}),
+		toolUsageSnapshotEvent("",
+			map[string]any{"modelKey": "mock-model", "promptTokens": 1_000_000, "totalTokens": 1_000_000},
+			map[string]any{"promptTokens": 2_000_000, "completionTokens": 1_000_000, "totalTokens": 3_000_000, "llmChatCompletionCount": 2}),
+	}
+	var toolCurrent map[string]any
+	var lastChat map[string]any
+	for index := range events {
+		event := events[index]
+		processor.Decorate(&event)
+		usage := event.Payload["usage"].(map[string]any)
+		if index == 1 {
+			toolCurrent = usage["current"].(map[string]any)
+		}
+		lastChat, _ = usage["chat"].(map[string]any)
+	}
+
+	cost, _ := toolCurrent["estimatedCost"].(map[string]any)
+	if FloatValue(cost["total"]) != 20 || toolCurrent["modelKey"] != "expensive-model" {
+		t.Fatalf("tool call must be priced by its own model, got %#v", toolCurrent)
+	}
+	if runUsage.ModelKey != "mock-model" {
+		t.Fatalf("tool model must not make the run model mixed, got %q", runUsage.ModelKey)
+	}
+	if runUsage.PromptTokens != 2_000_000 || runUsage.CompletionTokens != 1_000_000 || runUsage.TotalTokens != 3_000_000 {
+		t.Fatalf("later agent snapshot must not drop tool tokens, got %#v", runUsage)
+	}
+	if runUsage.EstimatedCostTotal != 26 || runUsage.LlmChatCompletionCount != 2 {
+		t.Fatalf("expected run cost 3+20+3 counted once, got %#v", runUsage)
+	}
+	chatCost, _ := lastChat["estimatedCost"].(map[string]any)
+	if FloatValue(chatCost["total"]) != 27 {
+		t.Fatalf("chat cost must include tool usage, got %#v", lastChat)
+	}
+
+	terminal := stream.EventData{Type: "run.complete", Payload: map[string]any{"runId": "run-tool"}}
+	processor.Decorate(&terminal)
+	terminalRun := terminal.Payload["usage"].(map[string]any)["run"].(map[string]any)
+	terminalCost, _ := terminalRun["estimatedCost"].(map[string]any)
+	if FloatValue(terminalCost["total"]) != 26 || contracts.AnyIntNode(terminalRun["totalTokens"]) != 3_000_000 {
+		t.Fatalf("terminal usage must match live totals, got %#v", terminalRun)
+	}
+}
+
+func TestRunEventProcessorAggregatesTeamMemberToolUsage(t *testing.T) {
+	runUsage := chat.UsageData{}
+	processor := NewProcessor(ProcessorOptions{
+		Billing:              config.BillingConfig{Currency: "CNY"},
+		Models:               writeUsageCostRegistry(t),
+		RunUsage:             &runUsage,
+		AggregateUsageByTask: true,
+	})
+	for _, event := range []stream.EventData{
+		toolUsageSnapshotEvent("task_a",
+			map[string]any{"modelKey": "mock-model", "promptTokens": 1_000_000, "totalTokens": 1_000_000},
+			map[string]any{"promptTokens": 1_000_000, "totalTokens": 1_000_000, "llmChatCompletionCount": 1}),
+		toolUsageSnapshotEvent("task_a",
+			map[string]any{"source": "tool", "toolId": "task_a:tool_1", "modelKey": "expensive-model", "completionTokens": 1_000_000, "totalTokens": 1_000_000},
+			map[string]any{"promptTokens": 1_000_000, "completionTokens": 1_000_000, "totalTokens": 2_000_000, "llmChatCompletionCount": 1}),
+		toolUsageSnapshotEvent("task_b",
+			map[string]any{"modelKey": "mock-model", "promptTokens": 1_000_000, "totalTokens": 1_000_000},
+			map[string]any{"promptTokens": 1_000_000, "totalTokens": 1_000_000, "llmChatCompletionCount": 1}),
+		toolUsageSnapshotEvent("task_b",
+			map[string]any{"source": "tool", "toolId": "task_b:tool_1", "modelKey": "expensive-model", "completionTokens": 1_000_000, "totalTokens": 1_000_000},
+			map[string]any{"promptTokens": 1_000_000, "completionTokens": 1_000_000, "totalTokens": 2_000_000, "llmChatCompletionCount": 1}),
+	} {
+		current := event
+		processor.Decorate(&current)
+	}
+	if runUsage.TotalTokens != 4_000_000 || runUsage.CompletionTokens != 2_000_000 {
+		t.Fatalf("team tokens must sum member tool usage, got %#v", runUsage)
+	}
+	if runUsage.EstimatedCostTotal != 46 {
+		t.Fatalf("expected (3+20)*2 for two members, got %#v", runUsage)
+	}
+}

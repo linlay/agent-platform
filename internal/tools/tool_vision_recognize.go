@@ -13,6 +13,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/modelrequest"
 	"agent-platform/internal/models"
+	"agent-platform/internal/modelusage"
 	"agent-platform/internal/multimodal"
 )
 
@@ -99,7 +100,9 @@ func (t *RuntimeToolExecutor) invokeVisionRecognize(ctx context.Context, args ma
 		if len(usage) > 0 {
 			diagnostics["usage"] = usage
 		}
-		return modelToolError(code, err.Error(), diagnostics), nil
+		result = modelToolError(code, err.Error(), diagnostics)
+		modelusage.Attach(&result, model.Key, modelusage.OperationVision, usage)
+		return result, nil
 	}
 	payload := map[string]any{
 		"ok":           true,
@@ -115,7 +118,9 @@ func (t *RuntimeToolExecutor) invokeVisionRecognize(ctx context.Context, args ma
 	if len(usage) > 0 {
 		payload["usage"] = usage
 	}
-	return structuredResult(payload), nil
+	result = structuredResult(payload)
+	modelusage.Attach(&result, model.Key, modelusage.OperationVision, usage)
+	return result, nil
 }
 
 func (t *RuntimeToolExecutor) loadVisionImages(args map[string]any, execCtx *ExecutionContext, profile config.VisionRecognizeProfileConfig) ([]multimodal.ImagePayload, ToolExecutionResult, bool) {

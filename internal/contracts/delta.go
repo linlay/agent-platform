@@ -394,6 +394,17 @@ type DeltaUsageSnapshot struct {
 	RunFirstTokenLatencyTotalMs     int64
 	RunFirstTokenLatencyCount       int
 	RunGenerationDurationMs         int64
+	// Tool marks a snapshot whose current usage is a model call made inside a
+	// tool. ModelKey and context fields still describe the agent model.
+	Tool *UsageSnapshotTool
+}
+
+// UsageSnapshotTool identifies the tool and model behind a tool usage snapshot.
+type UsageSnapshotTool struct {
+	ToolID    string
+	ToolName  string
+	ModelKey  string
+	Operation string
 }
 
 func (DeltaUsageSnapshot) agentDeltaTag() {}

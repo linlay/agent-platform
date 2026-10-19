@@ -298,6 +298,47 @@ func (s *llmRunStream) commitUsage(usage *openAIUsage) {
 	}
 }
 
+// commitToolModelUsage counts model calls made inside a tool toward the run's
+// cumulative usage, one snapshot per call so each is priced by its own model.
+// lastCall* stay untouched: they describe the agent model's context window.
+func (s *llmRunStream) commitToolModelUsage(invocation *preparedToolInvocation, usages []ModelUsage) {
+	if s == nil || invocation == nil {
+		return
+	}
+	for _, usage := range usages {
+		if !usage.HasTokens() || strings.TrimSpace(usage.ModelKey) == "" {
+			continue
+		}
+		s.runPromptTokens += usage.PromptTokens
+		s.runCompletionTokens += usage.CompletionTokens
+		s.runTotalTokens += usage.TotalTokens
+		s.runCachedTokens += usage.CacheHitTokens
+		s.runReasoningTokens += usage.ReasoningTokens
+		s.runPromptCacheHitTokens += usage.CacheHitTokens
+		s.runPromptCacheMissTokens += usage.CacheMissTokens
+		delta := s.buildUsageSnapshotDelta()
+		delta.LLMReturnPromptTokens = usage.PromptTokens
+		delta.LLMReturnCompletionTokens = usage.CompletionTokens
+		delta.LLMReturnTotalTokens = usage.TotalTokens
+		delta.LLMReturnCachedTokens = usage.CacheHitTokens
+		delta.LLMReturnReasoningTokens = usage.ReasoningTokens
+		delta.LLMReturnPromptCacheHitTokens = usage.CacheHitTokens
+		delta.LLMReturnPromptCacheMissTokens = usage.CacheMissTokens
+		delta.LLMReturnLLMChatCompletionCount = 0
+		delta.LLMReturnToolCallCount = 0
+		delta.LLMReturnFirstTokenLatencyMs = 0
+		delta.LLMReturnGenerationDurationMs = 0
+		delta.LLMReturnUpstreamRequestID = ""
+		delta.Tool = &UsageSnapshotTool{
+			ToolID:    invocation.toolID,
+			ToolName:  invocation.toolName,
+			ModelKey:  strings.TrimSpace(usage.ModelKey),
+			Operation: usage.Operation,
+		}
+		s.pending = append(s.pending, delta)
+	}
+}
+
 func (s *llmRunStream) buildUsageSnapshotDelta() DeltaUsageSnapshot {
 	return DeltaUsageSnapshot{
 		ChatID:                          s.session.ChatID,

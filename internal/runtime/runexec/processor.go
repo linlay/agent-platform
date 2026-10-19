@@ -285,7 +285,9 @@ func (p *Processor) decorateUsageSnapshot(data *stream.EventData) {
 	)
 	if current, _ := usage["current"].(map[string]any); current != nil {
 		currentUsage, hasCurrent = (UsageCostDecorator{Models: p.models, Billing: p.billing}).DecorateCurrentUsage(data)
-		if modelKey := strings.TrimSpace(currentUsage.ModelKey); modelKey != "" {
+		// A tool's model is priced by its own key but does not make the run's
+		// agent model mixed.
+		if modelKey := strings.TrimSpace(currentUsage.ModelKey); modelKey != "" && !IsToolUsage(current) {
 			p.recordRunModelKey(modelKey)
 		}
 	}

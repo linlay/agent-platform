@@ -269,7 +269,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) (events []StreamEven
 		if value.RunTotalTokens > 0 || value.RunLLMChatCompletionCount > 0 || value.RunToolCallCount > 0 || value.RunFirstTokenLatencyCount > 0 || value.RunGenerationDurationMs > 0 {
 			d.state.runUsage = runUsageStateFromValues(value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs)
 		}
-		return []StreamEvent{usageSnapshotEvent(d.request.RunID, value.TaskID, value.ChatID, value.ModelKey, value.ReasoningEffort, value.ContextWindow, value.CurrentContextSize, value.EstimatedNextCallSize, value.LLMReturnPromptTokens, value.LLMReturnCompletionTokens, value.LLMReturnTotalTokens, value.LLMReturnReasoningTokens, value.LLMReturnPromptCacheHitTokens, value.LLMReturnPromptCacheMissTokens, value.LLMReturnLLMChatCompletionCount, value.LLMReturnToolCallCount, value.LLMReturnFirstTokenLatencyMs, value.LLMReturnGenerationDurationMs, value.LLMReturnUpstreamRequestID, value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs)}
+		return []StreamEvent{usageSnapshotEvent(d.request.RunID, value.TaskID, value.ChatID, value.ModelKey, value.ReasoningEffort, value.ContextWindow, value.CurrentContextSize, value.EstimatedNextCallSize, value.LLMReturnPromptTokens, value.LLMReturnCompletionTokens, value.LLMReturnTotalTokens, value.LLMReturnReasoningTokens, value.LLMReturnPromptCacheHitTokens, value.LLMReturnPromptCacheMissTokens, value.LLMReturnLLMChatCompletionCount, value.LLMReturnToolCallCount, value.LLMReturnFirstTokenLatencyMs, value.LLMReturnGenerationDurationMs, value.LLMReturnUpstreamRequestID, value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs, value.Tool)}
 	case InputRunActivity:
 		payload := map[string]any{
 			"runId":  d.request.RunID,
@@ -434,14 +434,30 @@ func validChatScopeURL(value string, chatID string) bool {
 	return true
 }
 
-func usageSnapshotEvent(runID string, taskID string, chatID string, modelKey string, reasoningEffort string, contextWindow int, currentContextSize int, estimatedNextCallSize int, currentPromptTokens int, currentCompletionTokens int, currentTotalTokens int, currentReasoningTokens int, currentPromptCacheHitTokens int, currentPromptCacheMissTokens int, currentLLMChatCompletionCount int, currentToolCallCount int, currentFirstTokenLatencyMs int64, currentGenerationDurationMs int64, currentUpstreamRequestID string, runPromptTokens int, runCompletionTokens int, runTotalTokens int, runReasoningTokens int, runPromptCacheHitTokens int, runPromptCacheMissTokens int, runLLMChatCompletionCount int, runToolCallCount int, runFirstTokenLatencyTotalMs int64, runFirstTokenLatencyCount int, runGenerationDurationMs int64) StreamEvent {
+func usageSnapshotEvent(runID string, taskID string, chatID string, modelKey string, reasoningEffort string, contextWindow int, currentContextSize int, estimatedNextCallSize int, currentPromptTokens int, currentCompletionTokens int, currentTotalTokens int, currentReasoningTokens int, currentPromptCacheHitTokens int, currentPromptCacheMissTokens int, currentLLMChatCompletionCount int, currentToolCallCount int, currentFirstTokenLatencyMs int64, currentGenerationDurationMs int64, currentUpstreamRequestID string, runPromptTokens int, runCompletionTokens int, runTotalTokens int, runReasoningTokens int, runPromptCacheHitTokens int, runPromptCacheMissTokens int, runLLMChatCompletionCount int, runToolCallCount int, runFirstTokenLatencyTotalMs int64, runFirstTokenLatencyCount int, runGenerationDurationMs int64, tool *UsageSnapshotTool) StreamEvent {
 	currentUsage := usageMapFromValues(currentPromptTokens, currentCompletionTokens, currentTotalTokens, currentReasoningTokens, currentPromptCacheHitTokens, currentPromptCacheMissTokens, currentLLMChatCompletionCount, currentToolCallCount, currentFirstTokenLatencyMs, 0, currentGenerationDurationMs, false)
 	runUsage := usageMapFromValues(runPromptTokens, runCompletionTokens, runTotalTokens, runReasoningTokens, runPromptCacheHitTokens, runPromptCacheMissTokens, runLLMChatCompletionCount, runToolCallCount, runFirstTokenLatencyTotalMs, runFirstTokenLatencyCount, runGenerationDurationMs, true)
-	if modelKey != "" {
-		currentUsage["modelKey"] = modelKey
-	}
-	if reasoningEffort != "" {
-		currentUsage["reasoningEffort"] = reasoningEffort
+	if tool != nil {
+		// Current usage belongs to the tool's model and is priced by it; the
+		// context window keeps describing the agent model.
+		currentUsage["source"] = "tool"
+		currentUsage["modelKey"] = tool.ModelKey
+		if tool.ToolID != "" {
+			currentUsage["toolId"] = tool.ToolID
+		}
+		if tool.ToolName != "" {
+			currentUsage["toolName"] = tool.ToolName
+		}
+		if tool.Operation != "" {
+			currentUsage["operation"] = tool.Operation
+		}
+	} else {
+		if modelKey != "" {
+			currentUsage["modelKey"] = modelKey
+		}
+		if reasoningEffort != "" {
+			currentUsage["reasoningEffort"] = reasoningEffort
+		}
 	}
 	addUpstreamRequestID(currentUsage, currentUpstreamRequestID)
 	contextWindowPayload := map[string]any{

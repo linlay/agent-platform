@@ -297,12 +297,15 @@ type StepLine struct {
 	TaskStatus      string `json:"taskStatus,omitempty"`
 	TaskAgentKey    string `json:"taskAgentKey,omitempty"`
 
-	Presentation  string                    `json:"presentation,omitempty"`
-	SystemRef     map[string]any            `json:"systemRef,omitempty"`
-	Debug         map[string]any            `json:"debug,omitempty"`
-	Messages      []StoredMessage           `json:"messages"`
-	Awaiting      []map[string]any          `json:"awaiting,omitempty"`
-	Usage         map[string]any            `json:"usage,omitempty"`
+	Presentation string           `json:"presentation,omitempty"`
+	SystemRef    map[string]any   `json:"systemRef,omitempty"`
+	Debug        map[string]any   `json:"debug,omitempty"`
+	Messages     []StoredMessage  `json:"messages"`
+	Awaiting     []map[string]any `json:"awaiting,omitempty"`
+	Usage        map[string]any   `json:"usage,omitempty"`
+	// ToolUsage holds model calls made inside tools during this step, each
+	// priced by its own model. It never feeds context window or model metadata.
+	ToolUsage     []map[string]any          `json:"toolUsage,omitempty"`
 	ContextWindow map[string]any            `json:"contextWindow,omitempty"`
 	Type          string                    `json:"_type"`
 	Stage         string                    `json:"stage,omitempty"`

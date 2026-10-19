@@ -67,6 +67,7 @@ func (r *historyReplay) replayStep(line map[string]any) error {
 		return err
 	}
 	r.accumulateStepUsage(rd, stepUsage)
+	r.accumulateToolUsage(rd, line["toolUsage"])
 	if events := finishReplayedSubTaskIfTerminal(rd, taskID, taskStatus, ts, r.nextSeq); len(events) > 0 {
 		if r.isTeamRun(runID) {
 			events = decorateReplayedTeamTaskEvents(events, taskAgentKey, presentation)
@@ -161,6 +162,43 @@ func (r *historyReplay) accumulateStepUsage(rd *chatRunData, stepUsage map[strin
 		rd.chatTotalFirstTokenLatencyCount = r.usage.FirstTokenLatencyCount
 		rd.chatTotalGenerationDurationMs = r.usage.GenerationDurationMs
 	}
+	r.accumulateStepCost(rd, stepUsage)
+}
+
+// accumulateToolUsage adds model calls made inside tools. They count toward
+// tokens and cost only, never toward model call counts or timing.
+func (r *historyReplay) accumulateToolUsage(rd *chatRunData, raw any) {
+	entries, _ := raw.([]any)
+	for _, rawEntry := range entries {
+		entry, _ := rawEntry.(map[string]any)
+		if !hasLLMTokenUsagePayload(entry) {
+			continue
+		}
+		promptTokens := toIntFromKeys(entry, "promptTokens")
+		completionTokens := toIntFromKeys(entry, "completionTokens")
+		totalTokens := toIntFromKeys(entry, "totalTokens")
+		cacheHitTokens := usageCacheHitTokensFromMap(entry)
+		cacheMissTokens := usageCacheMissTokensFromMap(entry)
+		reasoningTokens := toNestedIntFromKeys(entry, "completionTokensDetails", "reasoningTokens")
+		rd.totalPromptTokens += promptTokens
+		rd.totalCompletionTokens += completionTokens
+		rd.totalTotalTokens += totalTokens
+		rd.totalCachedTokens += cacheHitTokens
+		rd.totalReasoningTokens += reasoningTokens
+		rd.totalPromptCacheHitTokens += cacheHitTokens
+		rd.totalPromptCacheMissTokens += cacheMissTokens
+		r.usage.PromptTokens += promptTokens
+		r.usage.CompletionTokens += completionTokens
+		r.usage.TotalTokens += totalTokens
+		r.usage.CachedTokens += cacheHitTokens
+		r.usage.ReasoningTokens += reasoningTokens
+		r.usage.PromptCacheHitTokens += cacheHitTokens
+		r.usage.PromptCacheMissTokens += cacheMissTokens
+		r.accumulateStepCost(rd, entry)
+	}
+}
+
+func (r *historyReplay) accumulateStepCost(rd *chatRunData, stepUsage map[string]any) {
 	currency, inputHit, inputMiss, output, total := extractStepCost(stepUsage)
 	if currency != "" {
 		if rd.estimatedCostCurrency == "" {

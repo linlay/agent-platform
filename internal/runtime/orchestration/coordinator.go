@@ -1057,6 +1057,11 @@ func RouteChildStreamInput(parentRunID string, taskID string, input stream.Strea
 		return value
 	case stream.InputUsageSnapshot:
 		value.TaskID = taskID
+		if value.Tool != nil {
+			tool := *value.Tool
+			tool.ToolID = NamespaceChildID(taskID, tool.ToolID)
+			value.Tool = &tool
+		}
 		return value
 	case stream.InputRunActivity:
 		value.TaskID = taskID

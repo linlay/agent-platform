@@ -642,6 +642,12 @@ PROXY/CHANNEL/ACP CODER 的 query 不接受用户 `params.cwd`（出现即返回
 
 响应包含 `accepted`、`status`、`runId`、`previousAccessLevel`、`accessLevel`、`version`、`detail`。更新只影响后续 host bash 与 file tools 的 access-policy 判断；已经开始执行的工具不会被中断。若 run 正在等待 access-policy approval，权限提升后会重新评估当前等待项，满足新权限时自动清理 awaiting 并继续执行。PROXY / ACP CODER run 当前返回 `status=unsupported`，不隐式透传。
 
+#### 工具内模型调用用量
+
+工具内部调用模型（目前为 `image_generate`、`vision_recognize`）且上游返回 usage 时，平台在该工具的 `tool.result` 之后发出一个 `usage.snapshot`：`usage.current` 为这次工具调用的用量，额外带 `source:"tool"`、`toolId`、`toolName`、`operation`（`image.generation` / `image.edit` / `image.inpainting` / `vision.recognize`），`modelKey` 为工具实际使用的模型，`estimatedCost` 按该模型价格计算，不带 `reasoningEffort` 与 `llmChatCompletionCount`；`usage.run`、`usage.chat` 已包含这次用量。`contextWindow` 与 `model` 仍描述 Agent 主模型，客户端无需区分来源即可按原逻辑显示。TEAM 成员快照带 `taskId`，`toolId` 使用成员命名空间。
+
+Chat JSONL 步骤行用可选数组 `toolUsage` 保存这些调用（字段同上，不含 `source`），与该步骤主模型的 `usage` 分开；回放把它们计入 Run/Chat 的 token 与费用，但不计入模型调用次数、计时、上下文窗口或步骤 `modelKey`。旧记录没有该字段时按 0 处理。
+
 #### CODER model options
 
 `GET /api/model-options` 返回聊天输入区运行时可选项。前端按当前 agent `mode` 自行决定是否展示该控件：

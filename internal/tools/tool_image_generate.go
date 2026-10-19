@@ -22,6 +22,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/httpclient"
 	"agent-platform/internal/models"
+	"agent-platform/internal/modelusage"
 )
 
 func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -106,12 +107,25 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 	if err != nil {
 		return modelToolError("image_generate_model_request_failed", err.Error(), map[string]any{"modelKey": model.Key, "profile": profileName}), nil
 	}
+	operation := "generation"
+	if len(inputImages) > 0 {
+		operation = "edit"
+	}
+	if inputMask != nil {
+		operation = "inpainting"
+	}
+	// The provider has billed this call once it responded, even if the
+	// returned images cannot be materialized below.
+	withUsage := func(result ToolExecutionResult) ToolExecutionResult {
+		modelusage.Attach(&result, model.Key, imageGenerateUsageOperation(operation), decoded.Usage)
+		return result
+	}
 	images, err := t.materializeGeneratedImages(callCtx, decoded.Data, profile, execCtx)
 	if err != nil {
-		return modelToolError("image_generate_model_response_invalid", err.Error(), map[string]any{"modelKey": model.Key, "profile": profileName}), nil
+		return withUsage(modelToolError("image_generate_model_response_invalid", err.Error(), map[string]any{"modelKey": model.Key, "profile": profileName})), nil
 	}
 	if len(images) == 0 {
-		return modelToolError("image_generate_model_response_invalid", "model returned no image data", map[string]any{"modelKey": model.Key, "profile": profileName}), nil
+		return withUsage(modelToolError("image_generate_model_response_invalid", "model returned no image data", map[string]any{"modelKey": model.Key, "profile": profileName})), nil
 	}
 
 	payload := map[string]any{
@@ -123,13 +137,6 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 		"images":         images,
 		"durationMs":     time.Since(start).Milliseconds(),
 	}
-	operation := "generation"
-	if len(inputImages) > 0 {
-		operation = "edit"
-	}
-	if inputMask != nil {
-		operation = "inpainting"
-	}
 	payload["operation"] = operation
 	if decoded.Created > 0 {
 		payload["rawCreated"] = decoded.Created
@@ -137,7 +144,18 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 	if len(decoded.Usage) > 0 {
 		payload["usage"] = decoded.Usage
 	}
-	return structuredResult(payload), nil
+	return withUsage(structuredResult(payload)), nil
+}
+
+func imageGenerateUsageOperation(operation string) string {
+	switch operation {
+	case "edit":
+		return modelusage.OperationImageEdit
+	case "inpainting":
+		return modelusage.OperationImageInpainting
+	default:
+		return modelusage.OperationImageGeneration
+	}
 }
 
 type imageGenerateResponse struct {
