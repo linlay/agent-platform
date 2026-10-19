@@ -272,8 +272,8 @@ func (m *Manager) lifecycleEnvironment(ctx context.Context, pkg connector.Packag
 	clean := []string{}
 	for _, entry := range env {
 		key, _, _ := strings.Cut(entry, "=")
-		switch key {
-		case "PATH", "SystemRoot", "WINDIR", "ComSpec", "LANG", "LC_ALL":
+		switch strings.ToUpper(key) {
+		case "PATH", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "LANG", "LC_ALL":
 			clean = append(clean, entry)
 		}
 	}
@@ -292,10 +292,23 @@ func (m *Manager) lifecycleEnvironment(ctx context.Context, pkg connector.Packag
 	if err != nil {
 		return nil, err
 	}
-	for key, name := range map[string]string{"HOME": "home", "USERPROFILE": "home", "XDG_CONFIG_HOME": "config", "XDG_CACHE_HOME": "cache", "XDG_DATA_HOME": "data", "XDG_STATE_HOME": "state", "TMPDIR": "tmp", "TMP": "tmp", "TEMP": "tmp"} {
-		env = hostenv.Set(env, key, filepath.Join(dir, name))
+	for key, value := range candidateCLIPrivateDirectories(dir, runtime.GOOS) {
+		env = hostenv.Set(env, key, value)
 	}
 	return env, nil
+}
+
+func candidateCLIPrivateDirectories(dir, goos string) map[string]string {
+	dirs := map[string]string{"HOME": "home", "USERPROFILE": "home", "XDG_CONFIG_HOME": "config", "XDG_CACHE_HOME": "cache", "XDG_DATA_HOME": "data", "XDG_STATE_HOME": "state", "TMPDIR": "tmp", "TMP": "tmp", "TEMP": "tmp"}
+	if goos == "windows" {
+		// Go's os.UserConfigDir requires APPDATA on Windows even when the CLI
+		// authenticates using env credentials. Keep both paths in the probe root.
+		dirs["APPDATA"], dirs["LOCALAPPDATA"] = "config", "data"
+	}
+	for key, name := range dirs {
+		dirs[key] = filepath.Join(dir, name)
+	}
+	return dirs
 }
 
 // lifecycleCommand runs one cli.json line through the OS shell, as WorkBuddy
@@ -550,8 +563,8 @@ func (b *boundedOutput) Write(p []byte) (int, error) {
 }
 func (b *boundedOutput) String() string { b.mu.Lock(); defer b.mu.Unlock(); return string(b.data) }
 
-// cliStatus reports whether the CLI is signed in. A nonzero exit means signed
-// out; a shell that cannot start the program is an installation failure.
+// cliStatus keeps traditional exit-code status handling for self-managed login.
+// Token validation distinguishes explicit authentication rejection from failures.
 func (m *Manager) cliStatus(ctx context.Context, pkg connector.Package) (bool, error) {
 	if _, err := cliSettingsFor(pkg); err != nil {
 		return false, err
@@ -582,6 +595,9 @@ func (m *Manager) cliStatus(ctx context.Context, pkg connector.Package) (bool, e
 	err = cmd.Run()
 	if ctx.Err() != nil {
 		return false, fmt.Errorf("CLI authorization status timed out")
+	}
+	if pkg.AuthMode == connector.AuthToken {
+		return tokenCLIStatusResult(pkg.CLI, stdout.String(), stderr.String(), err)
 	}
 	if err != nil {
 		var exit *exec.ExitError
