@@ -211,7 +211,7 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 	if err != nil {
 		return err
 	}
-	if err := savePrivateJSON(filepath.Join(dir, "discovery-"+grantKey(resource, oauthDestination(pkg))+".json"), map[string]any{"resource": prm, "authorizationServer": asm}); err != nil {
+	if err := saveLoginDiscovery(ctx, pkg, initialState.Generation, filepath.Join(dir, "discovery-"+grantKey(resource, oauthDestination(pkg))+".json"), map[string]any{"resource": prm, "authorizationServer": asm}); err != nil {
 		return err
 	}
 	if cfg.ClientID == "" && found.registration == "client_metadata" {

@@ -113,11 +113,26 @@ func (m *Manager) retire(id string) {
 	}
 	m.epochs[id]++
 }
-func (m *Manager) markConfiguredAt(pkg connector.Package, epoch uint64) error {
+func (m *Manager) markConfiguredAt(pkg connector.Package, epoch uint64, generation string) error {
+	unlock, err := lockCredentials(m.ctx, pkg.PersistentRoot(), pkg.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.epochs[pkg.ID] != epoch {
+	if m.epochs[pkg.ID] != epoch || m.disconnecting[pkg.ID] {
 		return fmt.Errorf("connector operation superseded")
+	}
+	if _, err := m.sources.Load(pkg.ID); err != nil {
+		return err
+	}
+	state, err := readAuthState(pkg.PersistentRoot(), pkg.ID)
+	if err != nil {
+		return err
+	}
+	if state.Generation != generation {
+		return fmt.Errorf("connector connection superseded")
 	}
 	return m.markConfigured(pkg)
 }

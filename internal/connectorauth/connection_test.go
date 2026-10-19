@@ -37,6 +37,10 @@ func TestConnectionConfigurationLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	generation := m.epoch(pkg.ID)
+	beforeDisconnect, err := readAuthState(pkg.PersistentRoot(), pkg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	dir, _ := pkg.ConnectorStateDir()
 	for _, name := range []string{"config/settings", "data/keep", "home/profile", "cache/item"} {
 		p := filepath.Join(dir, name)
@@ -47,7 +51,7 @@ func TestConnectionConfigurationLifecycle(t *testing.T) {
 	if err != nil || result.Configured {
 		t.Fatal(result, err)
 	}
-	if err := m.markConfiguredAt(pkg, generation); err == nil {
+	if err := m.markConfiguredAt(pkg, generation, beforeDisconnect.Generation); err == nil {
 		t.Fatal("late login restored configuration")
 	}
 	for _, name := range []string{"config/settings", "data/keep", "home/profile", "cache/item"} {

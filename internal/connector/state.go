@@ -19,7 +19,7 @@ func StateDir(root, id string) (string, error) {
 	}
 	for _, p := range []string{root, filepath.Join(root, id)} {
 		if info, err := os.Lstat(p); err == nil {
-			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			if !info.IsDir() || unsafeDirectoryAlias(p, info) {
 				return "", fmt.Errorf("connector state must be a real directory: %s", p)
 			}
 		} else if !os.IsNotExist(err) {

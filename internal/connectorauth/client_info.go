@@ -33,6 +33,10 @@ func clientInfoPath(pkg connector.Package) (string, error) {
 }
 
 func (m *Manager) SetOAuthClient(ctx context.Context, id, component string, info OAuthClientInfo) (Session, error) {
+	epoch := m.epoch(id)
+	if m.changing(id) {
+		return Session{}, connector.ErrBusy
+	}
 	pkg, err := m.sources.Load(id)
 	if err != nil {
 		return Session{}, err
@@ -69,11 +73,27 @@ func (m *Manager) SetOAuthClient(ctx context.Context, id, component string, info
 	if err != nil {
 		return Session{}, err
 	}
+	before, err := readAuthState(pkg.PersistentRoot(), id)
+	if err != nil {
+		return Session{}, err
+	}
 	unlock, err := lockCredentials(ctx, pkg.PersistentRoot(), id)
 	if err != nil {
 		return Session{}, err
 	}
 	defer unlock()
+	after, err := readAuthState(pkg.PersistentRoot(), id)
+	if err != nil || after != before {
+		return Session{}, fmt.Errorf("connector OAuth client operation superseded")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.epochs[id] != epoch || m.disconnecting[id] {
+		return Session{}, connector.ErrBusy
+	}
+	if _, err := m.sources.Load(id); err != nil {
+		return Session{}, err
+	}
 	if err := changeAuthState(pkg.PersistentRoot(), id, true); err != nil {
 		return Session{}, err
 	}
