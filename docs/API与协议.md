@@ -606,7 +606,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 
 输入来源只由平台判定的 `origin` 表达（见上文），不决定 chat 摘要的 `source`；外部请求不能通过任何字段（包括 `role`）伪造 automation 来源。旧记录中 `role:"automation"/"system"` 的 query 继续不参与搜索和导出。普通 HTTP `/api/query` 传入 `sourceUser` 也不会改变 source；该字段只在受信 channel/gateway 上下文中作为远端用户提示使用。
 
-Markdown 与 Snapshot 导出统一由 `Summary + LoadChat` 投影一次内部 `ConversationSnapshotV1`。它包含已绑定的可见根 query、reasoning/content、工具、来源、计划、子任务、运行终态，以及已发布 HTML 附件的声明；不包含系统提示、任意原始 payload 或附件文件字节。构建过程只执行一次 JSON 序列化，同一份字节用于 20 MiB 校验和 `format=snapshot` 响应；当前 Platform 对每个 turn 最多保留 2000 个节点。Markdown 仅消费同一 Snapshot 结构体，写出已完成轮次的用户问题和最后一个 assistant 正文回答。
+Markdown 与 Snapshot 导出统一由 `Summary + LoadChat` 投影一次内部 `ConversationSnapshotV1`。它包含已绑定的可见根 query、reasoning/content、工具、来源、计划、子任务、运行终态，以及已发布 HTML 附件的声明；不包含系统提示、任意原始 payload 或附件文件字节。构建过程只执行一次 JSON 序列化，同一份字节在导出出口按 `configs/runtime.yml` 的 `conversation-export.max-snapshot-mib`（默认 50，正整数，重启生效）校验并用于 `format=snapshot` 响应；Snapshot 响应携带 `X-Conversation-Export-Max-Bytes` 字节额度头，CORS 暴露该头。HTTP/工具每次导出只构建一次，普通会话投影不应用导出额度。当前 Platform 对每个 turn 最多保留 2000 个节点。Markdown 仅消费同一 Snapshot 结构体，写出已完成轮次的用户问题和最后一个 assistant 正文回答。
 
 `GET /api/chat/export` 的空 `format` 与 `format=markdown` 返回 `text/markdown`；`format=snapshot` 返回 `application/json` 和 `<title>.snapshot.json` 文件名。响应的 `Content-Disposition` 使用标准媒体类型参数序列化：ASCII 文件名使用 `filename`，含非 ASCII 字符的文件名使用 RFC 编码的 `filename*`，响应头不会包含裸 Unicode。客户端必须按标准媒体类型参数解析文件名。Platform 不提供 `format=html`、模板加载、资源域名 Header 或创建、列表、撤销分享 API，也不接收 Tunnel site token。WebClient 拥有 HTML 模板和运行时，Desktop Worker 负责本地 HTML 生成，Tunnel 协议、RFC3339 分享元数据和链接生命周期由 Desktop/Tunnel 边界负责。
 

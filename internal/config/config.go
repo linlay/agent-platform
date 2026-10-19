@@ -10,7 +10,12 @@ import (
 	"agent-platform/internal/httpclient"
 )
 
+type ConversationExportConfig struct {
+	MaxSnapshotBytes int
+}
+
 type Config struct {
+	Export           ConversationExportConfig
 	PresetTools      []string
 	PresetConnectors []string
 	ModePresets      map[string]AgentPresets

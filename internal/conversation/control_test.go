@@ -2,9 +2,11 @@ package conversation
 
 import (
 	"agent-platform/internal/chat"
+	"agent-platform/internal/conversationexport"
 	"agent-platform/internal/operationstate"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,6 +32,7 @@ func controlChatFixture(t *testing.T) (*Service, *chat.FileStore, ControlCaller)
 		}
 	}
 	service := NewService(store, nil, nil, nil)
+	service.ExportMaxBytes = 50 << 20
 	service.ControlReceipts = &operationstate.Receipts[ControlReceipt]{}
 	return service, store, ControlCaller{Subject: "user", ChatID: "current", AgentKey: "agent", RunID: "caller-run", ToolID: "tool-1"}
 }
@@ -85,6 +88,39 @@ func TestControlChatOwnerAndVisiblePagination(t *testing.T) {
 		t.Fatalf("bad visible pagination: pages=%d runes=%d", pages, len([]rune(content.String())))
 	}
 }
+func TestControlExportPreservesEmptyMarkdownAndUsesConfiguredQuota(t *testing.T) {
+	for _, tc := range []struct {
+		name, format string
+		withRun      bool
+		limit        int
+		want         error
+	}{
+		{"empty markdown", "markdown", false, 1024, nil},
+		{"empty snapshot", "snapshot", false, 1024, conversationexport.ErrNoRootTurn},
+		{"markdown quota", "markdown", true, 1024, conversationexport.ErrTooLarge},
+		{"snapshot quota", "snapshot", true, 1024, conversationexport.ErrTooLarge},
+		{"missing configuration", "markdown", false, 0, ErrNotConfigured},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, store, caller := controlChatFixture(t)
+			s.ExportMaxBytes = tc.limit
+			if tc.withRun {
+				controlAppendRun(t, store, "target", "run-1", strings.Repeat("x", 1024))
+			}
+			result, err := s.ControlManage(caller, "export", map[string]any{"chatId": "target", "format": tc.format}, "")
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("export err=%v want=%v", err, tc.want)
+			}
+			if err == nil {
+				body, err := os.ReadFile(filepath.Join(store.ChatDir("current"), result["url"].(string)))
+				if err != nil || string(body) != "# target\n\n" {
+					t.Fatalf("empty markdown=%q err=%v", body, err)
+				}
+			}
+		})
+	}
+}
+
 func TestControlExportReceiptsAndDeleteRevision(t *testing.T) {
 	s, store, c := controlChatFixture(t)
 	controlAppendRun(t, store, "target", "run-1", "answer")

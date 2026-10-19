@@ -178,6 +178,19 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if len(values) == 0 {
 		return nil
 	}
+	if raw, exists := values["conversation-export"]; exists {
+		values, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("conversation-export must be a mapping")
+		}
+		if raw, exists := values["max-snapshot-mib"]; exists {
+			mib, ok := raw.(int64)
+			if !ok || mib <= 0 || uint64(mib) > min(uint64((1<<53)-1), uint64(^uint(0)>>1))/(1<<20) {
+				return fmt.Errorf("conversation-export.max-snapshot-mib must be a positive, safely representable integer in MiB")
+			}
+			c.Export.MaxSnapshotBytes = int(mib << 20)
+		}
+	}
 	if raw, exists := values["kbx"]; exists {
 		if err := c.applyKBXValues(raw); err != nil {
 			return err

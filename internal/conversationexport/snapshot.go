@@ -16,11 +16,10 @@ import (
 )
 
 const (
-	SnapshotVersion  = 1
-	MaxSnapshotBytes = 20 * 1024 * 1024
-	MaxItems         = 2_000
-	MaxTitleBytes    = 300
-	MaxLabelBytes    = 300
+	SnapshotVersion = 1
+	MaxItems        = 2_000
+	MaxTitleBytes   = 300
+	MaxLabelBytes   = 300
 )
 
 var (
@@ -36,14 +35,10 @@ type SizeLimitError struct {
 }
 
 func (e *SizeLimitError) Error() string {
-	return fmt.Sprintf("conversation export is %d bytes; limit is %d bytes (20 MiB)", e.Actual, e.Limit)
+	return fmt.Sprintf("conversation export is %d bytes; limit is %d bytes", e.Actual, e.Limit)
 }
 
 func (e *SizeLimitError) Unwrap() error { return ErrTooLarge }
-
-func newSizeLimitError(actual, limit int) error {
-	return &SizeLimitError{Actual: actual, Limit: limit}
-}
 
 type AssistantV1 struct {
 	Name     string `json:"name"`
@@ -550,9 +545,6 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, att
 	encoded, err := json.Marshal(snapshot)
 	if err != nil {
 		return SnapshotDocument{}, err
-	}
-	if len(encoded) > MaxSnapshotBytes {
-		return SnapshotDocument{}, newSizeLimitError(len(encoded), MaxSnapshotBytes)
 	}
 	return SnapshotDocument{Snapshot: snapshot, JSON: encoded}, nil
 }

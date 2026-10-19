@@ -225,8 +225,12 @@ func (s *Service) controlMessages(c ControlCaller, id string, archived bool, ref
 	if e != nil {
 		return nil, nil, e
 	}
+	return summary, controlSnapshotMessages(doc.Snapshot), nil
+}
+
+func controlSnapshotMessages(snapshot conversationexport.SnapshotV1) []ControlMessage {
 	messages := []ControlMessage{}
-	for _, turn := range doc.Snapshot.Turns {
+	for _, turn := range snapshot.Turns {
 		for _, n := range turn.Nodes {
 			if n.Role != "user" && n.Role != "assistant" {
 				continue
@@ -239,7 +243,7 @@ func (s *Service) controlMessages(c ControlCaller, id string, archived bool, ref
 			}
 		}
 	}
-	return summary, messages, nil
+	return messages
 }
 func (s *Service) ControlRead(c ControlCaller, args map[string]any) (map[string]any, error) {
 	id := controlString(args, "chatId")
@@ -701,53 +705,59 @@ func (s *Service) ControlManage(c ControlCaller, action string, args map[string]
 					return nil, err
 				}
 			}
-			_, messages, e := s.ControlMessages(c, id, archived)
-			if e != nil {
-				return nil, e
-			}
 			format := controlString(args, "format")
 			var body []byte
 			ext := ".snapshot.json"
-			if format == "snapshot" {
-				var detail chat.Detail
-				if archived {
-					var a *chat.ArchivedChat
-					a, e = s.Archives.LoadArchived(id)
-					if e == nil && a != nil {
-						detail = a.Detail
-					}
-				} else {
-					detail, e = s.Chats.LoadChat(id)
-				}
-				if e != nil {
-					return nil, e
-				}
-				var attachments []conversationexport.AttachmentV1
-				if reader, ok := s.Chats.(interface {
-					PublishedArtifacts(string) ([]chat.ArtifactManifestItem, error)
-				}); ok && !archived {
-					items, err := reader.PublishedArtifacts(id)
-					if err != nil {
-						return nil, err
-					}
-					attachments, _ = conversationexport.BuildSnapshotAttachments(id, items)
-				}
-				var doc conversationexport.SnapshotDocument
-				doc, e = conversationexport.BuildSnapshotDocument(sum, detail.Events, attachments, time.Now().UnixMilli(), "zh-CN", nil)
-				body = doc.JSON
-			} else if format == "markdown" {
-				ext = ".md"
-				var b strings.Builder
-				fmt.Fprintf(&b, "# %s\n\n", sum.ChatName)
-				for _, m := range messages {
-					fmt.Fprintf(&b, "## %s\n\n%s\n\n", m.Role, m.Content)
-				}
-				body = []byte(b.String())
-			} else {
+			if format != "snapshot" && format != "markdown" {
 				return nil, fmt.Errorf("format must be markdown or snapshot")
+			}
+
+			var detail chat.Detail
+			if archived {
+				var a *chat.ArchivedChat
+				a, e = s.Archives.LoadArchived(id)
+				if e == nil && a != nil {
+					detail = a.Detail
+				}
+			} else {
+				detail, e = s.Chats.LoadChat(id)
 			}
 			if e != nil {
 				return nil, e
+			}
+			var attachments []conversationexport.AttachmentV1
+			if reader, ok := s.Chats.(interface {
+				PublishedArtifacts(string) ([]chat.ArtifactManifestItem, error)
+			}); ok && !archived && format == "snapshot" {
+				items, err := reader.PublishedArtifacts(id)
+				if err != nil {
+					return nil, err
+				}
+				attachments, _ = conversationexport.BuildSnapshotAttachments(id, items)
+			}
+			if s.ExportMaxBytes <= 0 {
+				return nil, ErrNotConfigured
+			}
+			var doc conversationexport.SnapshotDocument
+			doc, e = conversationexport.BuildSnapshotDocument(sum, detail.Events, attachments, time.Now().UnixMilli(), "zh-CN", nil)
+			if format == "markdown" && errors.Is(e, conversationexport.ErrNoRootTurn) {
+				e = nil // Preserve the existing empty Markdown export.
+			}
+			if e != nil {
+				return nil, e
+			}
+			if len(doc.JSON) > s.ExportMaxBytes {
+				return nil, &conversationexport.SizeLimitError{Actual: len(doc.JSON), Limit: s.ExportMaxBytes}
+			}
+			body = doc.JSON
+			if format == "markdown" {
+				ext = ".md"
+				var b strings.Builder
+				fmt.Fprintf(&b, "# %s\n\n", sum.ChatName)
+				for _, m := range controlSnapshotMessages(doc.Snapshot) {
+					fmt.Fprintf(&b, "## %s\n\n%s\n\n", m.Role, m.Content)
+				}
+				body = []byte(b.String())
 			}
 			filename := stem + ext
 			path := filepath.Join(s.Chats.ChatDir(c.ChatID), filename)

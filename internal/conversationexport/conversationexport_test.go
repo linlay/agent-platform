@@ -167,7 +167,7 @@ func TestBuildSnapshotValidatesEnvelopeTimes(t *testing.T) {
 	}
 }
 
-func TestBuildSnapshotFailsEarlyWhenProjectedTextExceedsJSONLimit(t *testing.T) {
+func TestBuildSnapshotDoesNotApplyExportQuota(t *testing.T) {
 	events := make([]stream.EventData, 0, 42)
 	for index := 0; index < 21; index++ {
 		runID := "run-" + string(rune('a'+index))
@@ -176,13 +176,9 @@ func TestBuildSnapshotFailsEarlyWhenProjectedTextExceedsJSONLimit(t *testing.T) 
 			stream.EventData{Type: "run.complete", Timestamp: testEpoch + int64(index*10+2), Payload: map[string]any{"runId": runID}},
 		)
 	}
-	if _, err := buildSnapshotForTest(&chat.Summary{ChatName: "Large", CreatedAt: testEpoch}, events, testEpoch+1_000); !errors.Is(err, ErrTooLarge) {
-		t.Fatalf("oversized projected text err=%v", err)
-	} else {
-		var sizeErr *SizeLimitError
-		if !errors.As(err, &sizeErr) || sizeErr.Actual <= MaxSnapshotBytes || sizeErr.Limit != MaxSnapshotBytes {
-			t.Fatalf("oversized projected text details err=%v", err)
-		}
+	snapshot, err := buildSnapshotForTest(&chat.Summary{ChatName: "Large", CreatedAt: testEpoch}, events, testEpoch+1_000)
+	if err != nil || len(snapshot.Turns) != 21 {
+		t.Fatalf("large projection: turns=%d err=%v", len(snapshot.Turns), err)
 	}
 }
 
