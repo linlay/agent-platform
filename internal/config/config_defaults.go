@@ -35,6 +35,7 @@ func defaultConfig(options LoadOptions) Config {
 		SkillsCenterDir:     filepath.Join(runtimeRoot, "skills-center"),
 	}
 	return Config{
+		Export:          ConversationExportConfig{MaxSnapshotBytes: 50 << 20},
 		DocumentPreview: documentpreview.DefaultConfig(),
 		HTTPProxy:       httpclient.Config{Mode: "auto", SystemRefreshInterval: httpclient.DefaultRefreshInterval},
 		IdentityFile:    options.IdentityFile,

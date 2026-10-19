@@ -51,6 +51,8 @@ func TestResolveExportAssistantUsesPublicIdentityAndSafeIcon(t *testing.T) {
 
 func TestHandleChatExportSnapshotReturnsJSONDocument(t *testing.T) {
 	fixture := newTestFixture(t)
+	fixture.server.deps.Config.CORS.Enabled = true
+	fixture.server.deps.Config.CORS.ExposedHeaders = []string{"X-Existing"}
 	seedCompletedConversationExport(t, fixture, "chat-snapshot-export")
 
 	rec := httptest.NewRecorder()
@@ -64,6 +66,14 @@ func TestHandleChatExportSnapshotReturnsJSONDocument(t *testing.T) {
 	}
 	if rec.Header().Get("Content-Length") != strconv.Itoa(rec.Body.Len()) {
 		t.Fatalf("content-length=%q body=%d", rec.Header().Get("Content-Length"), rec.Body.Len())
+	}
+	if got := strings.Join(rec.Header().Values("Access-Control-Expose-Headers"), ","); got != "X-Existing,X-Conversation-Export-Max-Bytes" {
+		t.Fatalf("export exposed headers=%q", got)
+	}
+	other := httptest.NewRecorder()
+	fixture.server.ServeHTTP(other, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
+	if got := other.Header().Get("Access-Control-Expose-Headers"); got != "X-Existing" {
+		t.Fatalf("unrelated exposed headers=%q", got)
 	}
 	var snapshot conversationexport.SnapshotV1
 	if err := json.Unmarshal(rec.Body.Bytes(), &snapshot); err != nil {
@@ -139,6 +149,7 @@ func TestHandleChatExportKeepsBodyWhenManifestIsUnreadable(t *testing.T) {
 
 func TestHandleChatExportSnapshotRetainsJSONSizeLimit(t *testing.T) {
 	fixture := newTestFixture(t)
+	fixture.server.deps.Config.Export.MaxSnapshotBytes = 1024
 	const chatID = "chat-snapshot-too-large"
 	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "large"); err != nil {
 		t.Fatal(err)
@@ -153,7 +164,7 @@ func TestHandleChatExportSnapshotRetainsJSONSizeLimit(t *testing.T) {
 	}
 	if err := fixture.chats.AppendEvent(chatID, stream.EventData{
 		Type: "content.snapshot", Timestamp: startedAt,
-		Payload: map[string]any{"runId": "run-large", "contentId": "large", "text": strings.Repeat("x", conversationexport.MaxSnapshotBytes)},
+		Payload: map[string]any{"runId": "run-large", "contentId": "large", "text": strings.Repeat("x", 1024)},
 	}); err != nil {
 		t.Fatal(err)
 	}

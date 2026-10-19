@@ -289,6 +289,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	}
 
 	cfg := config.Config{
+		Export: config.ConversationExportConfig{MaxSnapshotBytes: 50 << 20},
 		Server: config.ServerConfig{
 			Port: "18080",
 		},

@@ -395,6 +395,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	chatResourceService := chatresource.NewService(chatStore)
 	terminalManager := terminal.NewManager()
 	conversationService := conversation.NewService(chatStore, archiveStore, archiver, runManager)
+	conversationService.ExportMaxBytes = cfg.Export.MaxSnapshotBytes
 	conversationService.Notifications = notifications
 	conversationService.ControlReceipts = &operationstate.Receipts[conversation.ControlReceipt]{}
 	if err := toolExecutor.RegisterHandler(runenvops.NewToolHandler(cfg.RunEnv)); err != nil {

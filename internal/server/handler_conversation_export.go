@@ -69,6 +69,9 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		document, err = s.loadConversationSnapshot(chatID, attachments, time.Now().UnixMilli(), locale)
 	}
+	if err == nil && len(document.JSON) > s.deps.Config.Export.MaxSnapshotBytes {
+		err = &conversationexport.SizeLimitError{Actual: len(document.JSON), Limit: s.deps.Config.Export.MaxSnapshotBytes}
+	}
 	if err == nil {
 		title = document.Snapshot.Title
 		if format == chatSnapshotExportFormat {
@@ -83,6 +86,12 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filename := safeExportFilenameWithExtension(title, chatID, extension)
+	if format == chatSnapshotExportFormat {
+		w.Header().Set("X-Conversation-Export-Max-Bytes", strconv.Itoa(s.deps.Config.Export.MaxSnapshotBytes))
+		if s.deps.Config.CORS.Enabled {
+			w.Header().Add("Access-Control-Expose-Headers", "X-Conversation-Export-Max-Bytes")
+		}
+	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
