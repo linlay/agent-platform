@@ -16,6 +16,7 @@ import (
 var ErrNotConfigured = errors.New("conversation service is not configured")
 
 type Service struct {
+	ExportMaxBytes  int
 	ControlReceipts *operationstate.Receipts[ControlReceipt] // fork/export outcomes for this process
 	controlMutation sync.Mutex
 	mutationOwner   *Service
@@ -292,7 +293,7 @@ func (s *Service) LockMutation() func() {
 // WithDependencies creates an explicit view without copying synchronization state.
 // This supports embedders replacing transport dependencies while sharing the same lock.
 func (s *Service) WithDependencies(chats chat.Store, archives *chat.ArchiveStore, archiver *chat.Archiver, runs contracts.RunManager, notifications contracts.NotificationSink) *Service {
-	view := &Service{ControlReceipts: s.ControlReceipts, Chats: s.Chats, Archives: s.Archives, Archiver: s.Archiver, Runs: s.Runs, Notifications: notifications, mutationOwner: s}
+	view := &Service{ExportMaxBytes: s.ExportMaxBytes, ControlReceipts: s.ControlReceipts, Chats: s.Chats, Archives: s.Archives, Archiver: s.Archiver, Runs: s.Runs, Notifications: notifications, mutationOwner: s}
 	if chats != nil {
 		view.Chats = chats
 	}

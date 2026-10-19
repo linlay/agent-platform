@@ -11,6 +11,28 @@ import (
 	"agent-platform/internal/deprecation"
 )
 
+func TestConversationExportConfiguredLimit(t *testing.T) {
+	for value, want := range map[string]int{"50": 50 << 20, "2": 2 << 20, "0": 0, "-1": 0, "1.5": 0, "null": 0, "bad": 0, "8589934592": 0} {
+		t.Run(value, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "runtime.yml")
+			if err := os.WriteFile(file, []byte("conversation-export:\n  max-snapshot-mib: "+value+"\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg := defaultConfig(LoadOptions{})
+			err := cfg.applyRuntimeFile(file)
+			if want == 0 {
+				if err == nil {
+					t.Fatal("invalid quota accepted")
+				}
+				return
+			}
+			if err != nil || cfg.Export.MaxSnapshotBytes != want {
+				t.Fatal(cfg.Export, err)
+			}
+		})
+	}
+}
+
 func TestDefaultReadonlyRootsMatchToolsExample(t *testing.T) {
 	want := []string{"@agent", "@skills"}
 	cfg := Config{AccessPolicy: defaultAccessPolicyConfig()}
