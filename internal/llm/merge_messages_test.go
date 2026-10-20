@@ -252,3 +252,34 @@ func TestRawMessageToOpenAI_PreservesReasoningContentWhenEnabled(t *testing.T) {
 		t.Fatalf("expected reasoning_content parts to be preserved, got %q", withPartsReasoning.ReasoningContent)
 	}
 }
+
+func TestMergeRawMessagesByMsgID_ReusedMsgIDAcrossSteerStaysInPlace(t *testing.T) {
+	// Older history reused one _msgId for a text-only turn and the tool-call
+	// turn that followed a steer.
+	raw := []map[string]any{
+		{"role": "assistant", "content": "page loaded", "_msgId": "m_1"},
+		{"role": "user", "content": "add it to the cart"},
+		{"role": "assistant", "content": "on it", "_msgId": "m_1"},
+		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "t1"}}, "_msgId": "m_1"},
+		{"role": "tool", "tool_call_id": "t1", "content": "r1"},
+	}
+
+	result := mergeRawMessagesByMsgID(raw)
+
+	if len(result) != 4 {
+		t.Fatalf("expected 4 messages, got %d: %#v", len(result), result)
+	}
+	if result[0]["content"] != "page loaded" || result[0]["tool_calls"] != nil {
+		t.Fatalf("first turn must keep only its own content: %#v", result[0])
+	}
+	if result[1]["role"] != "user" {
+		t.Fatalf("steer must stay between the turns: %#v", result[1])
+	}
+	calls, _ := result[2]["tool_calls"].([]any)
+	if result[2]["content"] != "on it" || len(calls) != 1 {
+		t.Fatalf("second turn must carry its content and tool call: %#v", result[2])
+	}
+	if result[3]["role"] != "tool" {
+		t.Fatalf("tool result must directly follow its call: %#v", result[3])
+	}
+}
