@@ -3,7 +3,6 @@ package llm
 import (
 	"context"
 	"encoding/json"
-	"strings"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
@@ -17,24 +16,26 @@ func (s *llmRunStream) prepareSummaryRequest(prepared *preparedProviderRequest) 
 	for _, key := range []string{"tools", "tool_choice", "parallel_tool_calls", "functions", "function_call"} {
 		delete(body, key)
 	}
-	_, legacyLimit := body["max_tokens"]
-	if strings.EqualFold(s.model.Protocol, "OPENAI_RESPONSES") {
-		body["max_output_tokens"] = s.stageSettings.MaxOutputTokens
-		delete(body, "max_tokens")
-		delete(body, "max_completion_tokens")
-	} else if strings.EqualFold(s.model.Protocol, "ANTHROPIC") || legacyLimit {
-		body["max_tokens"] = s.stageSettings.MaxOutputTokens
-		delete(body, "max_completion_tokens")
-	} else {
-		body["max_completion_tokens"] = s.stageSettings.MaxOutputTokens
-		delete(body, "max_tokens")
-	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
-	if chat.EstimateTextTokens(string(encoded))+s.stageSettings.MaxOutputTokens > s.effectiveContextWindow() {
+	inputTokens := chat.EstimateTextTokens(string(encoded))
+	remaining := s.effectiveContextWindow() - inputTokens - 64
+	if remaining < s.summaryTargetTokens {
 		return chat.ErrCompactSummaryInputTooLarge
+	}
+	// No platform output cap: only a limit the provider itself requires
+	// (Anthropic max_tokens, or one set by compat) is kept, clamped to what the
+	// window leaves beside the actual input.
+	for _, key := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens"} {
+		if limit := AnyIntNode(body[key]); limit > remaining {
+			body[key] = remaining
+		}
+	}
+	encoded, err = json.Marshal(body)
+	if err != nil {
+		return err
 	}
 	prepared.RequestBodyJSON = encoded
 	return nil
@@ -49,7 +50,7 @@ func (e *LLMAgentEngine) EstimateContext(ctx context.Context, req api.QueryReque
 	return stream.(*llmRunStream).fallbackContextEstimate(), nil
 }
 
-func (e *LLMAgentEngine) StreamSummary(ctx context.Context, req api.QueryRequest, session QuerySession, prompt string, maxOutputTokens int) (AgentStream, error) {
+func (e *LLMAgentEngine) StreamSummary(ctx context.Context, req api.QueryRequest, session QuerySession, prompt string, targetTokens int) (AgentStream, error) {
 	session.RequestID, session.RunID = req.RequestID, req.RunID
 	session.Mode, session.SubTaskID = "ONESHOT", ""
 	session.ToolNames, session.ModeToolDefinitions = nil, nil
@@ -60,7 +61,7 @@ func (e *LLMAgentEngine) StreamSummary(ctx context.Context, req api.QueryRequest
 	session.RunLimits = RunLimits{}
 	session.ResolvedBudget = NormalizeBudget(Budget{MaxSteps: 1})
 	stream, err := e.newRunStreamWithOptions(ctx, req, session, false, runStreamOptions{
-		SummaryOutputTokens: maxOutputTokens,
+		SummaryTargetTokens: targetTokens,
 		Stage:               "summary", MaxSteps: 1,
 		Messages:                     []openAIMessage{{Role: "user", Content: prompt}},
 		PreserveProvidedSystemPrompt: true,

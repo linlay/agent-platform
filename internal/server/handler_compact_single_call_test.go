@@ -26,8 +26,11 @@ func TestSummaryCompactSingleCallBudgetAndFailure(t *testing.T) {
 				if body["tools"] != nil || body["tool_choice"] != nil {
 					t.Error("summary sent tools")
 				}
-				if output, _ := body["max_completion_tokens"].(float64); output <= 0 || output > 4096 {
-					t.Errorf("missing bounded output: %v", body["max_completion_tokens"])
+				if body["max_completion_tokens"] != nil || body["max_tokens"] != nil {
+					t.Errorf("summary output capped: %v / %v", body["max_completion_tokens"], body["max_tokens"])
+				}
+				if raw, _ := json.Marshal(body["messages"]); !strings.Contains(string(raw), "token 以内") {
+					t.Error("summary prompt missing length target")
 				}
 				if name == "provider-error" {
 					http.Error(w, "temporary upstream error", http.StatusServiceUnavailable)

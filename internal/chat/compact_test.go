@@ -638,7 +638,7 @@ func TestCompactPromptKeepsMiddleHistoryAndRejectsOversizedSingleCall(t *testing
 		{"role": "assistant", "content": "middle-anchor " + strings.Repeat("m", 2000)},
 		{"role": "user", "content": "tail-anchor " + strings.Repeat("t", 2000)},
 	}
-	prompt, err := BuildCompactPromptWithinBudget(messages, 10000)
+	prompt, err := BuildCompactPromptWithinBudget(messages, 10000, 0)
 	if err != nil {
 		t.Fatalf("BuildCompactPromptWithinBudget: %v", err)
 	}
@@ -647,7 +647,7 @@ func TestCompactPromptKeepsMiddleHistoryAndRejectsOversizedSingleCall(t *testing
 			t.Fatalf("prompt dropped %q", anchor)
 		}
 	}
-	if _, err := BuildCompactPromptWithinBudget(messages, 10); !errors.Is(err, ErrCompactSummaryInputTooLarge) {
+	if _, err := BuildCompactPromptWithinBudget(messages, 10, 0); !errors.Is(err, ErrCompactSummaryInputTooLarge) {
 		t.Fatalf("oversized prompt err = %v", err)
 	}
 }
@@ -707,7 +707,7 @@ func TestHistoryCompactSnapshotUsesMediaSafeEstimateAndPromptProjection(t *testi
 	if !bytes.Contains(rawMessages, []byte(dataURL)) {
 		t.Fatal("history snapshot mutated the stored inline image")
 	}
-	prompt, err := BuildCompactPromptWithinBudget(snapshot.CoveredMessages, 10_000)
+	prompt, err := BuildCompactPromptWithinBudget(snapshot.CoveredMessages, 10_000, 0)
 	if err != nil {
 		t.Fatalf("BuildCompactPromptWithinBudget: %v", err)
 	}

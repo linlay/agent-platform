@@ -55,7 +55,7 @@ func TestResponsesStatelessRequestAndLegacyIsolation(t *testing.T) {
 	if err = s.prepareSummaryRequest(&req); err != nil {
 		t.Fatal(err)
 	}
-	if req.RequestBody["max_completion_tokens"] != nil || req.RequestBody["tools"] != nil || req.RequestBody["max_output_tokens"] != 2048 {
+	if req.RequestBody["max_completion_tokens"] != nil || req.RequestBody["tools"] != nil || contracts.AnyIntNode(req.RequestBody["max_output_tokens"]) != 2048 {
 		t.Fatal("summary request broke protocol")
 	}
 }
