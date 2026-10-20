@@ -27,6 +27,7 @@ DEPLOY_AI_VISION_GENERAL_MODEL_KEY=""
 DEPLOY_AI_VISION_OCR_MODEL_KEY=""
 DEPLOY_AI_WEB_FETCH_MODEL_KEY=""
 DEPLOY_AI_IMAGE_GENERATE_MODEL_KEY=""
+DEPLOY_AI_SPEECH_GENERATE_MODEL_KEY=""
 DEPLOY_GENERAL_MODEL_KEY=""
 DEPLOY_CODER_MODEL_KEY=""
 DEPLOY_CODER_REASONING_EFFORT=""
@@ -179,6 +180,11 @@ program_apply_deploy_flags() {
       --general-model-key)
         [[ $# -ge 2 ]] || program_die "missing value for --general-model-key"
         DEPLOY_GENERAL_MODEL_KEY="$2"
+        shift 2
+        ;;
+      --ai-speech-generate-model-key)
+        [[ $# -ge 2 ]] || program_die "missing value for --ai-speech-generate-model-key"
+        DEPLOY_AI_SPEECH_GENERATE_MODEL_KEY="$2"
         shift 2
         ;;
       --coder-model-key)
@@ -495,6 +501,20 @@ program_render_ai_tools_file() {
   local target="$2"
 
   cp "$source" "$target"
+  if [[ -n "$DEPLOY_AI_SPEECH_GENERATE_MODEL_KEY" ]]; then
+    if ! awk -v profile="$DEPLOY_AI_SPEECH_GENERATE_MODEL_KEY" '
+      /^[^[:space:]#][^:]*:/ { in_section = ($0 == "speech-generate:"); in_profiles = 0 }
+      in_section && /^  profiles:/ { in_profiles = 1 }
+      in_section && in_profiles && /^    [A-Za-z0-9_-]+:/ {
+        key = $1; sub(/:$/, "", key)
+        if (key == profile) found = 1
+      }
+      END { exit !found }
+    ' "$target"; then
+      program_die "unknown speech-generate profile: $DEPLOY_AI_SPEECH_GENERATE_MODEL_KEY"
+    fi
+    program_set_yaml_section_value "$target" "speech-generate" "default-profile" "$DEPLOY_AI_SPEECH_GENERATE_MODEL_KEY"
+  fi
   if [[ -n "$DEPLOY_AI_VISION_GENERAL_MODEL_KEY" ]]; then
     program_set_ai_tools_model_key "$target" "vision-recognize" "general" "$DEPLOY_AI_VISION_GENERAL_MODEL_KEY"
   fi
