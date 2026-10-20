@@ -281,24 +281,37 @@ func (o *Orchestrator) runRegistration(reg *Registration) {
 	defer o.wg.Done()
 	for {
 		nextRun := reg.automation.Next(time.Now().In(reg.location))
-		timer := time.NewTimer(time.Until(nextRun))
-		select {
-		case <-reg.ctx.Done():
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
+		if !waitForAutomationTime(reg.ctx, nextRun, time.Now) {
 			return
+		}
+		stop, err := o.fire(reg)
+		if err != nil {
+			log.Printf("[automation] dispatch failed for %s: %v", reg.Definition.ID, err)
+		}
+		if stop {
+			return
+		}
+	}
+}
+
+// A timer wakeup is not proof that the wall-clock cron deadline has arrived.
+// Clock adjustments or early wakeups must not dispatch into the previous second.
+func waitForAutomationTime(ctx context.Context, deadline time.Time, now func() time.Time) bool {
+	for {
+		if ctx.Err() != nil {
+			return false
+		}
+		remaining := deadline.Sub(now())
+		if remaining <= 0 {
+			return true
+		}
+		timer := time.NewTimer(remaining)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return false
 		case <-timer.C:
-			stop, err := o.fire(reg)
-			if err != nil {
-				log.Printf("[automation] dispatch failed for %s: %v", reg.Definition.ID, err)
-			}
-			if stop {
-				return
-			}
+			// Re-read the wall clock; keep waiting if it is still before the deadline.
 		}
 	}
 }
