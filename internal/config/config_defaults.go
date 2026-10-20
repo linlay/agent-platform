@@ -59,6 +59,10 @@ func defaultConfig(options LoadOptions) Config {
 			Enabled:        false,
 			DefaultProfile: "general",
 		},
+		SpeechGenerate: SpeechGenerateConfig{
+			Enabled:        false,
+			DefaultProfile: "general",
+		},
 		ACP: ACPSettingsConfig{
 			ACPBridges: map[string]ACPBridgeConfig{},
 		},
@@ -374,6 +378,7 @@ func (c *Config) normalize(configRoot string) error {
 	c.VisionRecognize = normalizeVisionRecognizeConfig(c.VisionRecognize)
 	c.WebFetch = normalizeWebFetchConfig(c.WebFetch)
 	c.ImageGenerate = normalizeImageGenerateConfig(c.ImageGenerate)
+	c.SpeechGenerate = normalizeSpeechGenerateConfig(c.SpeechGenerate)
 	c.ContainerHub.Enabled = strings.TrimSpace(c.ContainerHub.BaseURL) != ""
 	c.AccessPolicy = normalizeAccessPolicyConfig(c.AccessPolicy)
 	if c.FileTools.MaxReadBytes <= 0 {
@@ -535,6 +540,47 @@ func normalizeImageGenerateResponseFormat(value string) string {
 	default:
 		return "b64_json"
 	}
+}
+
+const (
+	defaultSpeechMaxTextChars  = 3000
+	defaultSpeechMaxAudioBytes = 50 << 20
+)
+
+func normalizeSpeechGenerateConfig(cfg SpeechGenerateConfig) SpeechGenerateConfig {
+	cfg.DefaultProfile = strings.TrimSpace(cfg.DefaultProfile)
+	if cfg.DefaultProfile == "" {
+		cfg.DefaultProfile = "general"
+	}
+	if len(cfg.Profiles) == 0 {
+		return cfg
+	}
+	profiles := make(map[string]SpeechGenerateProfileConfig, len(cfg.Profiles))
+	for key, profile := range cfg.Profiles {
+		normalizedKey := strings.TrimSpace(key)
+		if normalizedKey == "" {
+			continue
+		}
+		profile.ModelKey = strings.TrimSpace(profile.ModelKey)
+		profile.Voice = strings.TrimSpace(profile.Voice)
+		profile.Format = strings.ToLower(strings.TrimSpace(profile.Format))
+		voices := make([]string, 0, len(profile.Voices))
+		for _, voice := range profile.Voices {
+			if voice = strings.TrimSpace(voice); voice != "" {
+				voices = append(voices, voice)
+			}
+		}
+		profile.Voices = voices
+		if profile.MaxTextChars <= 0 {
+			profile.MaxTextChars = defaultSpeechMaxTextChars
+		}
+		if profile.MaxAudioBytes <= 0 {
+			profile.MaxAudioBytes = defaultSpeechMaxAudioBytes
+		}
+		profiles[normalizedKey] = profile
+	}
+	cfg.Profiles = profiles
+	return cfg
 }
 
 func normalizeAccessPolicyConfig(cfg AccessPolicyConfig) AccessPolicyConfig {

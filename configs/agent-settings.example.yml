@@ -46,6 +46,7 @@ planning-mode:
     - file_edit
     - artifact_publish
     - image_generate
+    - speech_generate
     - plan_add_tasks
     - plan_update_task
     - agent_invoke

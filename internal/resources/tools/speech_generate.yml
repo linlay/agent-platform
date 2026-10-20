@@ -1,0 +1,73 @@
+name: speech_generate
+i18n:
+  en:
+    label: "Generate Speech"
+  zh-CN:
+    label: "语音合成"
+description: |
+  Synthesize speech audio from text through the globally configured
+  text-to-speech model. Use this when the user explicitly asks to read text
+  aloud, produce a voiceover, or create an audio file of spoken text. The
+  successful result contains audio.path and audio.url. path may be an absolute
+  host path and is only for passing to another tool; never show it, mention
+  it, or put it in Markdown. To give the user the audio, copy the exact
+  audio.url into a Markdown link, for example [audio](@chat/speech.mp3). The
+  returned url is @chat/<filename>, a literal path in the current Chat; it
+  never contains chatId or the internal /api/resource transport endpoint.
+  Never construct or encode a resource URL. Optional voice controls are
+  supported only when the configured model's protocol supports them; an
+  unsupported control fails with speech_generate_param_unsupported, so omit
+  controls the user did not ask for. If the result has no valid url, do not
+  fabricate a link; tell the user that speech generation failed.
+explicitOnly: true
+inputSchema:
+  type: object
+  properties:
+    text:
+      type: string
+      minLength: 1
+      description: Required. The exact text to speak. Keep it as the user wants it read; do not add stage directions.
+    profile:
+      type: string
+      description: Optional. Profile name from configs/tools.yml > speech-generate. Omit it to use the configured default profile. Available values are injected at startup.
+    voice:
+      type: string
+      description: Optional. Provider voice ID, overriding the profile default. Voice IDs are specific to the model provider; use only an ID the user gave or one listed for the profile.
+    language:
+      type: string
+      description: Optional. Language hint such as Chinese, English, or auto.
+    speed:
+      type: number
+      description: Optional. Speaking speed multiplier; 1 is normal. MINIMAX_TTS only, 0.5 to 2.
+    pitch:
+      type: integer
+      description: Optional. Pitch shift in semitones; 0 is normal. MINIMAX_TTS only, -12 to 12.
+    volume:
+      type: number
+      description: Optional. Volume; 1 is normal. MINIMAX_TTS only, greater than 0 and at most 10.
+    emotion:
+      type: string
+      description: Optional. Speaking emotion. MINIMAX_TTS only.
+      enum:
+        - happy
+        - sad
+        - angry
+        - fearful
+        - disgusted
+        - surprised
+        - calm
+        - fluent
+        - whisper
+    format:
+      type: string
+      description: Optional. Audio file format, overriding the profile. MINIMAX_TTS supports mp3, wav, and flac; DASHSCOPE_TTS returns wav only.
+      enum:
+        - mp3
+        - wav
+        - flac
+    sampleRate:
+      type: integer
+      description: Optional. Sample rate in Hz, overriding the profile. MINIMAX_TTS only.
+  required:
+    - text
+  additionalProperties: false

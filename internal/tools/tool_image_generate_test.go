@@ -172,7 +172,7 @@ func TestImageGenerateRejectsNonImageModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invokeImageGenerate: %v", err)
 	}
-	if result.Error != "image_generate_model_not_image_generation" {
+	if result.Error != "image_generate_model_type_invalid" {
 		t.Fatalf("expected model type error, got %#v", result)
 	}
 }
@@ -844,7 +844,7 @@ func imageGenerateTestExecutor(cfg config.ImageGenerateConfig, registry *models.
 }
 
 func writeImageGenerateRegistry(t *testing.T, baseURL string, withAPIKey bool) *models.ModelRegistry {
-	return writeImageGenerateRegistryWithType(t, baseURL, withAPIKey, models.ModelTypeImageGeneration)
+	return writeImageGenerateRegistryWithType(t, baseURL, withAPIKey, models.ModelTypeImage)
 }
 
 func writeImageGenerateRegistryWithType(t *testing.T, baseURL string, withAPIKey bool, modelType string) *models.ModelRegistry {
@@ -861,7 +861,7 @@ func writeImageGenerateRegistryWithType(t *testing.T, baseURL string, withAPIKey
 }
 
 func writeImageGenerateRegistryWithImageConfig(t *testing.T, baseURL string, withAPIKey bool, imageLines []string) *models.ModelRegistry {
-	return writeImageGenerateRegistryWithModel(t, baseURL, withAPIKey, models.ModelTypeImageGeneration, imageLines)
+	return writeImageGenerateRegistryWithModel(t, baseURL, withAPIKey, models.ModelTypeImage, imageLines)
 }
 
 func writeImageGenerateRegistryWithModel(t *testing.T, baseURL string, withAPIKey bool, modelType string, imageLines []string) *models.ModelRegistry {

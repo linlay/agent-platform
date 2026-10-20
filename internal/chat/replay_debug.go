@@ -101,6 +101,9 @@ func usagePayloadFromMap(usage map[string]any, includeLLMChatCompletionCount boo
 	if count := toIntFromKeys(usage, "toolCallCount"); count > 0 {
 		out["toolCallCount"] = count
 	}
+	if characters := toIntFromKeys(usage, "characters"); characters > 0 {
+		out["characters"] = characters
+	}
 	if estimatedCost, ok := usage["estimatedCost"].(map[string]any); ok && len(estimatedCost) > 0 {
 		out["estimatedCost"] = cloneStringAnyMap(estimatedCost)
 	}
@@ -153,6 +156,12 @@ func hasProviderUsagePayload(usage map[string]any) bool {
 	return hasLLMTokenUsagePayload(usage) ||
 		toIntFromKeys(usage, "toolCallCount") > 0 ||
 		len(usageTimingPayloadFromMap(usage)) > 0
+}
+
+// hasToolBillableUsagePayload also accepts character-billed tool calls, which
+// report no tokens.
+func hasToolBillableUsagePayload(usage map[string]any) bool {
+	return hasLLMTokenUsagePayload(usage) || toIntFromKeys(usage, "characters") > 0
 }
 
 func hasLLMTokenUsagePayload(usage map[string]any) bool {

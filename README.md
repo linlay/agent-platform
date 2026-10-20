@@ -78,6 +78,7 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 - 工具执行中取消会先收尾工具结果，再保存 Run 终态；活动异步工具在整批共享 2 秒期限内保留真实返回，无法确认时明确记录副作用未知。旧的缺失结果历史不会自动重写，人工恢复流程见 [会话存储与回放](./docs/会话存储与回放.md)。
 - 文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传继续使用 `POST /api/upload`，实际下载继续使用 `GET /api/resource?file=...`；上传、生成图片和发布产物的 `url` 是相对于当前 Chat、按路径段编码的 `<relativePath>`，不含 `chatId`；Markdown 原样使用返回的 `url`，客户端资源 adapter 加入当前 `chatId` 后转换成该 HTTP 请求。发布产物 URL 指向发布副本。历史 endpoint Markdown 不迁移且不再预览，HTTP 数据面仍保留。`path` 只供智能体工具读取或继续发布，绝不进入 Markdown；`/ws` 只传文件引用与状态，不承载文件字节。
 - 产物发布成功后逐个发送 `artifact.published`，仅已认证 Desktop Main WS 接收，不依赖当前 Chat 或网关；BTW、Explain 及其他 WS 不接收，attach/回放不重发。`resource.pushed` 只表示实际上传网关成功。
+- `speech_generate` 把文本合成为音频并保存到当前 Chat，模型为 `type: tts`，请求/响应按 `MINIMAX_TTS` 或 `DASHSCOPE_TTS` 协议在源码实现；用量按上游计费字符数以 `per_10k_characters` 计价。见 [配置化说明](docs/配置化说明.md#语音合成模型type-tts)。
 - `image_generate` 对 Agent 使用统一参数：无输入图时文生图，最多四张 Chat/本地输入图时图生图；生成和编辑端点及请求格式完全由模型 YAML 选择 Images JSON、Images Multipart 或 Chat Completions，不按模型名/provider 分支。生成与编辑可分别配置 `omitResponseFormat`，省略上游不接受的返回格式参数。可选 mask 支持 alpha、白区编辑和黑区编辑三种显式语义，仅在模型声明原生 `openai-alpha` 能力时执行局部重绘。
 - 文件工具与 Bash 共享 `AccessPolicy`；普通和临时脚本在 `default` 按调用与内容版本审批，`auto_approve` 自动审计，`full_access` 允许；本 Run 在 Chat 目录中通过文件工具写入且内容未变的自写脚本免执行审批，选中技能入口保留独立凭据。有效 `.state` 等私有目录在三档均拒绝普通工具读写。连接器凭据仅注入已验证的直接子进程，业务 Hook 独立生效。Host 并发批准继续按 toolID 隔离。见 [工具目录权限](docs/工具目录权限.md) 与 [权限与审批边界](docs/AccessPolicy与HITL改造.md)。
 - Skill 调度遵守用户任务范围与交付形态，见 [Skill 调度范围](docs/Agent运行时组装.md#skill-调度范围)。

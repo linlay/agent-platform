@@ -1617,7 +1617,7 @@ func TestAgentEditorOptionsOnlyIncludeChatModels(t *testing.T) {
 			for key, modelConfig := range map[string]string{
 				"vision-chat": "type: chat\nisVision: true",
 				"embedding":   "type: embedding\nembedding:\n  dimension: 1024",
-				"image":       "type: image-generation\nimage:\n  generation:\n    endpointPath: /v1/images/generations\n    requestFormat: openai-images-json",
+				"image":       "type: image\nimage:\n  generation:\n    endpointPath: /v1/images/generations\n    requestFormat: openai-images-json",
 				"vl":          "type: vl\nisVision: true",
 			} {
 				content := strings.Join([]string{

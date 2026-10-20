@@ -14,6 +14,7 @@ const (
 	OperationImageEdit       = "image.edit"
 	OperationImageInpainting = "image.inpainting"
 	OperationVision          = "vision.recognize"
+	OperationSpeech          = "speech.generation"
 )
 
 // FromProvider converts a raw provider usage object. It accepts the Chat
@@ -72,6 +73,21 @@ func Attach(result *contracts.ToolExecutionResult, modelKey string, operation st
 	if usage, ok := FromProvider(modelKey, operation, raw); ok {
 		result.ModelUsage = append(result.ModelUsage, usage)
 	}
+}
+
+// AttachCharacters records a call billed per character when the provider
+// reported a billed character count. Callers pass only the provider's own
+// figure, never a locally counted text length.
+func AttachCharacters(result *contracts.ToolExecutionResult, modelKey string, operation string, characters int, upstreamRequestID string) {
+	if result == nil || characters <= 0 {
+		return
+	}
+	result.ModelUsage = append(result.ModelUsage, contracts.ModelUsage{
+		ModelKey:          strings.TrimSpace(modelKey),
+		Operation:         strings.TrimSpace(operation),
+		Characters:        characters,
+		UpstreamRequestID: strings.TrimSpace(upstreamRequestID),
+	})
 }
 
 func hasAnyKey(values map[string]any, keys ...string) bool {

@@ -13,7 +13,7 @@ Use providers_dir and models_dir. Existing definitions are .yml or .yaml files. 
 
 ## Model YAML
 
-Use models_dir. Core identity and binding fields are key, provider, protocol and modelId; name and icon are display fields. Type is chat, embedding, image-generation or vl. Select actual supported protocols and an existing provider rather than inventing enum values.
+Use models_dir. Core identity and binding fields are key, provider, protocol and modelId; name and icon are display fields. Type is chat, embedding, reranker, image, vl or tts; tts requires protocol MINIMAX_TTS or DASHSCOPE_TTS and prices with unit per_10k_characters plus characters. Select actual supported protocols and an existing provider rather than inventing enum values.
 
 Current options include isFunction, isReasoner, isVision, maxInputTokens, l1KeepRecentRounds, timeout, headers, compat, reasoningEfforts, reasoningEffortMapping, serviceTiers, embedding and image. Check the current loader and target model type before adding an option; preserve existing unrelated options. l1KeepRecentRounds, when configured, is an integer 5–10. maxInputTokens represents the context window; do not copy the old maxOutputTokens field as a supported Model loader setting.
 

@@ -639,10 +639,20 @@ type ModelUsage struct {
 	ReasoningTokens  int
 	CacheHitTokens   int
 	CacheMissTokens  int
+	// Characters is the provider-billed character count of models priced per
+	// character, such as speech synthesis.
+	Characters        int
+	UpstreamRequestID string
 }
 
 func (u ModelUsage) HasTokens() bool {
 	return u.PromptTokens > 0 || u.CompletionTokens > 0 || u.TotalTokens > 0 || u.CacheHitTokens > 0 || u.CacheMissTokens > 0
+}
+
+// HasBillableUsage reports whether the provider reported tokens or billed
+// characters.
+func (u ModelUsage) HasBillableUsage() bool {
+	return u.HasTokens() || u.Characters > 0
 }
 
 type SubmitInfo struct {

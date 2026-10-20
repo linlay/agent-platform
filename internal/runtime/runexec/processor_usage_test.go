@@ -727,6 +727,19 @@ func writeUsageCostRegistry(t *testing.T) *models.ModelRegistry {
 	}, "\n")), 0o644); err != nil {
 		t.Fatalf("write expensive model: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(root, "models", "speech.yml"), []byte(strings.Join([]string{
+		"key: speech-model",
+		"provider: mock",
+		"type: tts",
+		"protocol: MINIMAX_TTS",
+		"modelId: speech-2.8-hd",
+		"pricing:",
+		"  currency: CNY",
+		"  unit: per_10k_characters",
+		"  characters: 3.5",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("write speech model: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "models", "no-pricing.yml"), []byte(strings.Join([]string{
 		"key: no-pricing-model",
 		"provider: mock",
@@ -808,6 +821,38 @@ func TestRunEventProcessorPricesToolModelUsageByToolModel(t *testing.T) {
 	terminalCost, _ := terminalRun["estimatedCost"].(map[string]any)
 	if FloatValue(terminalCost["total"]) != 26 || contracts.AnyIntNode(terminalRun["totalTokens"]) != 3_000_000 {
 		t.Fatalf("terminal usage must match live totals, got %#v", terminalRun)
+	}
+}
+
+func TestRunEventProcessorPricesToolCharactersPer10K(t *testing.T) {
+	runUsage := chat.UsageData{}
+	processor := NewProcessor(ProcessorOptions{
+		Billing:  config.BillingConfig{Currency: "CNY"},
+		Models:   writeUsageCostRegistry(t),
+		RunUsage: &runUsage,
+	})
+	events := []stream.EventData{
+		toolUsageSnapshotEvent("",
+			map[string]any{"modelKey": "mock-model", "promptTokens": 1_000_000, "totalTokens": 1_000_000},
+			map[string]any{"promptTokens": 1_000_000, "totalTokens": 1_000_000, "llmChatCompletionCount": 1}),
+		toolUsageSnapshotEvent("",
+			map[string]any{"source": "tool", "toolId": "tool_1", "toolName": "speech_generate", "modelKey": "speech-model", "promptTokens": 0, "totalTokens": 0, "characters": 20_000},
+			map[string]any{"promptTokens": 1_000_000, "totalTokens": 1_000_000, "llmChatCompletionCount": 1}),
+	}
+	var toolCurrent map[string]any
+	for index := range events {
+		event := events[index]
+		processor.Decorate(&event)
+		if index == 1 {
+			toolCurrent = event.Payload["usage"].(map[string]any)["current"].(map[string]any)
+		}
+	}
+	cost, _ := toolCurrent["estimatedCost"].(map[string]any)
+	if FloatValue(cost["total"]) != 7 || FloatValue(cost["output"]) != 0 || cost["currency"] != "CNY" {
+		t.Fatalf("20k characters at 3.5/10k must cost 7, got %#v", toolCurrent)
+	}
+	if runUsage.EstimatedCostTotal != 10 || runUsage.TotalTokens != 1_000_000 {
+		t.Fatalf("run must add character cost without tokens, got %#v", runUsage)
 	}
 }
 

@@ -40,6 +40,7 @@ type Config struct {
 	VisionRecognize  VisionRecognizeConfig
 	WebFetch         WebFetchConfig
 	ImageGenerate    ImageGenerateConfig
+	SpeechGenerate   SpeechGenerateConfig
 	Providers        CatalogConfig
 	Models           CatalogConfig
 	Query            QueryConfig
@@ -348,6 +349,23 @@ type ImageGenerateProfileConfig struct {
 	MaxImages       int
 	MaxImageBytes   int
 	PersistArtifact bool
+}
+
+type SpeechGenerateConfig struct {
+	Enabled        bool
+	DefaultProfile string
+	Profiles       map[string]SpeechGenerateProfileConfig
+}
+
+type SpeechGenerateProfileConfig struct {
+	ModelKey      string
+	Timeout       int // seconds; <= 0 inherits the caller's tool deadline
+	Voice         string
+	Voices        []string // optional allowlist; empty accepts any voice
+	Format        string
+	SampleRate    int
+	MaxTextChars  int
+	MaxAudioBytes int
 }
 
 type AutomationConfig struct {
@@ -836,7 +854,7 @@ type PlanningModeConfig struct {
 func DefaultPlanningModeConfig() PlanningModeConfig {
 	return PlanningModeConfig{
 		ExcludeTools: []string{
-			"bash", "bash_sandbox", "file_write", "file_edit", "artifact_publish", "image_generate",
+			"bash", "bash_sandbox", "file_write", "file_edit", "artifact_publish", "image_generate", "speech_generate",
 			"plan_add_tasks", "plan_update_task",
 			"agent_invoke", "chat_start", "chat_interrupt", "chat_steer", "chat_manage",
 			"automation_manage", "catalog_manage", "run_env", "ask_user_form",

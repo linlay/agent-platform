@@ -171,7 +171,7 @@ func (r *historyReplay) accumulateToolUsage(rd *chatRunData, raw any) {
 	entries, _ := raw.([]any)
 	for _, rawEntry := range entries {
 		entry, _ := rawEntry.(map[string]any)
-		if !hasLLMTokenUsagePayload(entry) {
+		if !hasToolBillableUsagePayload(entry) {
 			continue
 		}
 		promptTokens := toIntFromKeys(entry, "promptTokens")

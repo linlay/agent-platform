@@ -19,6 +19,7 @@ func UsageDataFromMap(usage map[string]any) chat.UsageData {
 		ReasoningTokens:        UsageDetailInt(usage, "completionTokensDetails", "reasoningTokens"),
 		LlmChatCompletionCount: contracts.AnyIntNode(usage["llmChatCompletionCount"]),
 		ToolCallCount:          contracts.AnyIntNode(usage["toolCallCount"]),
+		Characters:             contracts.AnyIntNode(usage["characters"]),
 	}
 	cacheHitTokens, cacheMissTokens := usageCacheTokensFromMap(usage)
 	out.CachedTokens = cacheHitTokens

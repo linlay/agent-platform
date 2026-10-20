@@ -204,3 +204,23 @@ image-generate:
       max-images: 4
       max-image-bytes: 20971520
       persist-artifact: true
+
+speech-generate:
+  enabled: false
+  default-profile: minimax-hd
+  # 模型必须是 type: tts；请求与响应格式由模型 protocol（MINIMAX_TTS / DASHSCOPE_TTS）在源码中实现。
+  # voice 为默认音色 ID（各 provider 专属）；voices 可选，列出后只允许这些音色，并在启动时写入工具说明。
+  # timeout 可省略或设为 0，沿用有效 budget.tool.timeout；显式正数只缩短语音调用时限。
+  # max-text-chars 默认 3000，max-audio-bytes 默认 52428800。
+  profiles:
+    minimax-hd:
+      model-key: minimax-speech-2_8-hd
+      voice: male-qn-qingse
+      format: mp3
+      sample-rate: 32000
+      max-text-chars: 3000
+    qwen-flash:
+      model-key: dashscope-qwen3-tts-flash
+      voice: Cherry
+      # Qwen TTS 单次文本上限 600 字，输出固定为 24kHz WAV。
+      max-text-chars: 600

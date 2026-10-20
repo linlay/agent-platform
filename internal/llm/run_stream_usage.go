@@ -306,7 +306,7 @@ func (s *llmRunStream) commitToolModelUsage(invocation *preparedToolInvocation, 
 		return
 	}
 	for _, usage := range usages {
-		if !usage.HasTokens() || strings.TrimSpace(usage.ModelKey) == "" {
+		if !usage.HasBillableUsage() || strings.TrimSpace(usage.ModelKey) == "" {
 			continue
 		}
 		s.runPromptTokens += usage.PromptTokens
@@ -328,12 +328,13 @@ func (s *llmRunStream) commitToolModelUsage(invocation *preparedToolInvocation, 
 		delta.LLMReturnToolCallCount = 0
 		delta.LLMReturnFirstTokenLatencyMs = 0
 		delta.LLMReturnGenerationDurationMs = 0
-		delta.LLMReturnUpstreamRequestID = ""
+		delta.LLMReturnUpstreamRequestID = strings.TrimSpace(usage.UpstreamRequestID)
 		delta.Tool = &UsageSnapshotTool{
-			ToolID:    invocation.toolID,
-			ToolName:  invocation.toolName,
-			ModelKey:  strings.TrimSpace(usage.ModelKey),
-			Operation: usage.Operation,
+			ToolID:     invocation.toolID,
+			ToolName:   invocation.toolName,
+			ModelKey:   strings.TrimSpace(usage.ModelKey),
+			Operation:  usage.Operation,
+			Characters: usage.Characters,
 		}
 		s.pending = append(s.pending, delta)
 	}
