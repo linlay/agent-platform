@@ -113,9 +113,9 @@ func (s *Server) handleChatArtifact(w http.ResponseWriter, r *http.Request) {
 		var item chatresource.Artifact
 		var e error
 		if req.SourceRef != "" {
-			f, item, e = s.chatResources.OpenArtifactByRef(req.ChatID, req.SourceRef)
+			f, item, e = s.chatResources.OpenArtifactByRef(r.Context(), req.ChatID, req.SourceRef)
 		} else {
-			f, item, e = s.chatResources.OpenArtifact(req.ChatID, req.ArtifactID, req.RunID)
+			f, item, e = s.chatResources.OpenArtifact(r.Context(), req.ChatID, req.ArtifactID, req.RunID)
 		}
 		if e != nil {
 			fail(e)

@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -725,21 +726,15 @@ func (s *Service) ControlManage(c ControlCaller, action string, args map[string]
 			if e != nil {
 				return nil, e
 			}
-			var attachments []conversationexport.AttachmentV1
-			if reader, ok := s.Chats.(interface {
-				PublishedArtifacts(string) ([]chat.ArtifactManifestItem, error)
-			}); ok && !archived && format == "snapshot" {
-				items, err := reader.PublishedArtifacts(id)
-				if err != nil {
-					return nil, err
-				}
-				attachments, _ = conversationexport.BuildSnapshotAttachments(id, items)
-			}
 			if s.ExportMaxBytes <= 0 {
 				return nil, ErrNotConfigured
 			}
 			var doc conversationexport.SnapshotDocument
-			doc, e = conversationexport.BuildSnapshotDocument(sum, detail.Events, attachments, time.Now().UnixMilli(), "zh-CN", nil)
+			if format == "snapshot" && !archived {
+				doc, e = conversationexport.BuildSnapshotExportDocument(context.Background(), sum, detail.Events, s.Chats, time.Now().UnixMilli(), "zh-CN", nil)
+			} else {
+				doc, e = conversationexport.BuildSnapshotDocument(sum, detail.Events, nil, time.Now().UnixMilli(), "zh-CN", nil)
+			}
 			if format == "markdown" && errors.Is(e, conversationexport.ErrNoRootTurn) {
 				e = nil // Preserve the existing empty Markdown export.
 			}

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"mime"
 	"net/http"
@@ -84,7 +85,7 @@ func TestHandleChatExportSnapshotReturnsJSONDocument(t *testing.T) {
 	}
 }
 
-func TestHandleChatExportMapsManifestWithoutReadingArtifactFile(t *testing.T) {
+func TestHandleChatExportMapsManifestWithoutHashingNonHTMLArtifact(t *testing.T) {
 	fixture := newTestFixture(t)
 	const chatID = "chat-snapshot-manifest"
 	seedCompletedConversationExport(t, fixture, chatID)
@@ -97,6 +98,14 @@ func TestHandleChatExportMapsManifestWithoutReadingArtifactFile(t *testing.T) {
 		"mimeType": "application/pdf", "sizeBytes": 123,
 		"sha256": strings.Repeat("a", 64), "url": "artifacts/run-1/report.pdf",
 	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	filename := filepath.Join(fixture.chats.ChatDir(chatID), "artifacts", "run-1", "report.pdf")
+	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filename, []byte(strings.Repeat("x", 123)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -113,7 +122,7 @@ func TestHandleChatExportMapsManifestWithoutReadingArtifactFile(t *testing.T) {
 		snapshot.Attachments[0].Size != 123 || snapshot.Attachments[0].SHA256 != strings.Repeat("a", 64) {
 		t.Fatalf("attachments=%#v", snapshot.Attachments)
 	}
-	document, err := fixture.server.loadConversationSnapshot(chatID, nil, time.Now().UnixMilli(), "zh-CN")
+	document, err := fixture.server.loadConversationSnapshot(context.Background(), chatID, false, time.Now().UnixMilli(), "zh-CN")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +151,7 @@ func TestHandleChatExportKeepsBodyWhenManifestIsUnreadable(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Title != "rollback plan" || len(snapshot.Turns) != 1 || len(snapshot.Attachments) != 0 {
+	if snapshot.Title != "rollback plan" || len(snapshot.Turns) != 1 || len(snapshot.Attachments) != 0 || len(snapshot.OmittedResources) != 1 || snapshot.OmittedResources[0].Reason != "read_failed" {
 		t.Fatalf("unexpected snapshot: %#v", snapshot)
 	}
 }

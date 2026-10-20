@@ -1,9 +1,9 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"log"
 	"mime"
 	"net/http"
 	"strconv"
@@ -20,10 +20,6 @@ const (
 	chatMarkdownExportFormat = "markdown"
 	chatSnapshotExportFormat = "snapshot"
 )
-
-type publishedArtifactReader interface {
-	PublishedArtifacts(string) ([]chat.ArtifactManifestItem, error)
-}
 
 func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	format, err := parseConversationExportFormat(r)
@@ -45,20 +41,7 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	var extension string
 	var title string
 	locale := requestLocale(r, i18n.LocaleZhCN)
-	var attachments []conversationexport.AttachmentV1
 	if format == chatSnapshotExportFormat {
-		reader, ok := s.deps.Chats.(publishedArtifactReader)
-		if ok {
-			if items, readErr := reader.PublishedArtifacts(chatID); readErr == nil {
-				var skipped int
-				attachments, skipped = conversationexport.BuildSnapshotAttachments(chatID, items)
-				if skipped > 0 {
-					log.Printf("[chat] snapshot omitted %d invalid artifacts chatId=%s", skipped, chatID)
-				}
-			} else {
-				log.Printf("[chat] snapshot artifact manifest unavailable chatId=%s: %v", chatID, readErr)
-			}
-		}
 		contentType = "application/json; charset=utf-8"
 		extension = ".snapshot.json"
 	} else {
@@ -67,7 +50,7 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	}
 	var document conversationexport.SnapshotDocument
 	if err == nil {
-		document, err = s.loadConversationSnapshot(chatID, attachments, time.Now().UnixMilli(), locale)
+		document, err = s.loadConversationSnapshot(r.Context(), chatID, format == chatSnapshotExportFormat, time.Now().UnixMilli(), locale)
 	}
 	if err == nil && len(document.JSON) > s.deps.Config.Export.MaxSnapshotBytes {
 		err = &conversationexport.SizeLimitError{Actual: len(document.JSON), Limit: s.deps.Config.Export.MaxSnapshotBytes}
@@ -99,7 +82,7 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
-func (s *Server) loadConversationSnapshot(chatID string, attachments []conversationexport.AttachmentV1, capturedAt int64, locale string) (conversationexport.SnapshotDocument, error) {
+func (s *Server) loadConversationSnapshot(ctx context.Context, chatID string, includeResources bool, capturedAt int64, locale string) (conversationexport.SnapshotDocument, error) {
 	summary, err := s.deps.Chats.Summary(chatID)
 	if err != nil {
 		return conversationexport.SnapshotDocument{}, err
@@ -115,7 +98,10 @@ func (s *Server) loadConversationSnapshot(chatID string, attachments []conversat
 	for index := range detail.Events {
 		detail.Events[index] = localizeStreamEventData(locale, detail.Events[index])
 	}
-	return conversationexport.BuildSnapshotDocument(summary, detail.Events, attachments, capturedAt, locale, s.resolveExportAssistant)
+	if includeResources {
+		return conversationexport.BuildSnapshotExportDocument(ctx, summary, detail.Events, s.deps.Chats, capturedAt, locale, s.resolveExportAssistant)
+	}
+	return conversationexport.BuildSnapshotDocument(summary, detail.Events, nil, capturedAt, locale, s.resolveExportAssistant)
 }
 
 func parseConversationExportFormat(r *http.Request) (string, error) {

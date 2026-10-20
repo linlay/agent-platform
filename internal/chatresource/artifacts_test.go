@@ -2,6 +2,7 @@ package chatresource
 
 import (
 	"agent-platform/internal/chat"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -36,7 +37,7 @@ func TestArtifactsRequireChatResolveAmbiguityAndVerifyContent(t *testing.T) {
 	if _, err = service.GetArtifact("chat-b", "same", ""); !errors.Is(err, ErrArtifactNotFound) {
 		t.Fatal("cross-chat resolution", err)
 	}
-	f, meta, err := service.OpenArtifact("chat-a", "same", "run-a")
+	f, meta, err := service.OpenArtifact(context.Background(), "chat-a", "same", "run-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +46,7 @@ func TestArtifactsRequireChatResolveAmbiguityAndVerifyContent(t *testing.T) {
 		t.Fatal(meta)
 	}
 	os.WriteFile(path, []byte("modified!"), 0600)
-	if _, _, err = service.OpenArtifact("chat-a", "same", ""); !errors.Is(err, ErrArtifactChanged) {
+	if _, _, err = service.OpenArtifact(context.Background(), "chat-a", "same", ""); !errors.Is(err, ErrArtifactChanged) {
 		t.Fatal("changed content accepted", err)
 	}
 	if err = store.AppendArtifactManifest("chat-a", "run-b", 2, []map[string]any{item}); err != nil {
@@ -100,7 +101,7 @@ func TestOpenArtifactByRefUsesPublishedManifestAndLatestEntry(t *testing.T) {
 	publish("latest", 2, []byte("latest"))
 
 	service := NewService(store)
-	f, artifact, err := service.OpenArtifactByRef("chat-ref-a", sourceRef)
+	f, artifact, err := service.OpenArtifactByRef(context.Background(), "chat-ref-a", sourceRef)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,18 +113,53 @@ func TestOpenArtifactByRefUsesPublishedManifestAndLatestEntry(t *testing.T) {
 	if err != nil || string(data) != "latest" {
 		t.Fatalf("data=%q err=%v", data, err)
 	}
-	if _, _, err = service.OpenArtifactByRef("chat-ref-a", "artifacts/run-1/missing.pdf"); !errors.Is(err, ErrArtifactNotFound) {
+	for _, duringResolve := range []bool{false, true} {
+		ctx, cancel := context.WithCancel(context.Background())
+		var reader chat.Store = store
+		if duringResolve {
+			reader = &cancelArtifactResolveStore{Store: store, cancel: cancel}
+		} else {
+			cancel()
+		}
+		opened, _, err := NewService(reader).OpenArtifactByRef(ctx, "chat-ref-a", sourceRef)
+		cancel()
+		if opened != nil {
+			opened.Close()
+			t.Fatal("cancelled read returned an open file")
+		}
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("duringResolve=%v: err=%v", duringResolve, err)
+		}
+	}
+	if _, _, err = service.OpenArtifactByRef(context.Background(), "chat-ref-a", "artifacts/run-1/missing.pdf"); !errors.Is(err, ErrArtifactNotFound) {
 		t.Fatalf("unpublished sourceRef error=%v", err)
 	}
-	if _, _, err = service.OpenArtifactByRef("chat-ref-b", sourceRef); !errors.Is(err, ErrArtifactNotFound) {
+	if _, _, err = service.OpenArtifactByRef(context.Background(), "chat-ref-b", sourceRef); !errors.Is(err, ErrArtifactNotFound) {
 		t.Fatalf("cross-chat sourceRef error=%v", err)
 	}
 	if err = os.WriteFile(path, []byte("changed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = service.OpenArtifactByRef("chat-ref-a", sourceRef); !errors.Is(err, ErrArtifactChanged) {
+	if _, _, err = service.OpenArtifactByRef(context.Background(), "chat-ref-a", sourceRef); !errors.Is(err, ErrArtifactChanged) {
 		t.Fatalf("changed sourceRef error=%v", err)
 	}
+}
+
+type cancelArtifactResolveStore struct {
+	chat.Store
+	cancel context.CancelFunc
+}
+
+func (s *cancelArtifactResolveStore) PublishedArtifacts(chatID string) ([]chat.ArtifactManifestItem, error) {
+	return s.Store.(interface {
+		PublishedArtifacts(string) ([]chat.ArtifactManifestItem, error)
+	}).PublishedArtifacts(chatID)
+}
+
+func (s *cancelArtifactResolveStore) ResolveResource(key string) (string, error) {
+	path, err := s.Store.ResolveResource(key)
+	s.cancel()
+	return path, err
 }
 
 // An @chat/ reference is a literal path, so "?" and "#" in a file name are
@@ -155,14 +191,14 @@ func TestOpenArtifactByRefAcceptsLiteralChatAlias(t *testing.T) {
 	}
 	service := NewService(store)
 	for _, ref := range []string{sourceRef, "artifacts/run-1/%E5%A4%8F%E6%97%A5%20%231%3F.txt"} {
-		f, artifact, err := service.OpenArtifactByRef("chat-alias", ref)
+		f, artifact, err := service.OpenArtifactByRef(context.Background(), "chat-alias", ref)
 		if err != nil || artifact.ArtifactID != "alias" {
 			t.Fatalf("%s: artifact=%#v err=%v", ref, artifact, err)
 		}
 		f.Close()
 	}
 	// The bare form is a URL reference and still reserves these characters.
-	if _, _, err = service.OpenArtifactByRef("chat-alias", "artifacts/run-1/夏日 #1?.txt"); !errors.Is(err, ErrArtifactNotFound) {
+	if _, _, err = service.OpenArtifactByRef(context.Background(), "chat-alias", "artifacts/run-1/夏日 #1?.txt"); !errors.Is(err, ErrArtifactNotFound) {
 		t.Fatalf("bare literal error=%v", err)
 	}
 }
@@ -190,7 +226,7 @@ func TestOpenArtifactByRefRejectsNonCanonicalReferences(t *testing.T) {
 		" artifacts/run-1/report.pdf",
 	} {
 		t.Run(sourceRef, func(t *testing.T) {
-			if _, _, err := service.OpenArtifactByRef("chat-ref-invalid", sourceRef); !errors.Is(err, ErrArtifactNotFound) {
+			if _, _, err := service.OpenArtifactByRef(context.Background(), "chat-ref-invalid", sourceRef); !errors.Is(err, ErrArtifactNotFound) {
 				t.Fatalf("sourceRef=%q error=%v", sourceRef, err)
 			}
 		})

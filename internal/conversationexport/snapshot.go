@@ -59,13 +59,14 @@ const (
 // SnapshotV1 contains only the facts needed to reconstruct a frozen timeline.
 // It deliberately excludes live tool output and arbitrary protocol payloads.
 type SnapshotV1 struct {
-	Version     int            `json:"version"`
-	Title       string         `json:"title"`
-	Locale      string         `json:"locale"`
-	CreatedAt   int64          `json:"createdAt"`
-	CapturedAt  int64          `json:"capturedAt"`
-	Turns       []TurnV1       `json:"turns"`
-	Attachments []AttachmentV1 `json:"attachments"`
+	Version          int                 `json:"version"`
+	Title            string              `json:"title"`
+	Locale           string              `json:"locale"`
+	CreatedAt        int64               `json:"createdAt"`
+	CapturedAt       int64               `json:"capturedAt"`
+	Turns            []TurnV1            `json:"turns"`
+	Attachments      []AttachmentV1      `json:"attachments"`
+	OmittedResources []OmittedResourceV1 `json:"omittedResources,omitempty"`
 }
 
 type SnapshotDocument struct {
@@ -85,6 +86,8 @@ type TurnV1 struct {
 }
 
 type NodeV1 struct {
+	AttachmentIDs   []string `json:"attachmentIds,omitempty"`
+	resourceRefs    []string
 	SteerID         string             `json:"steerId,omitempty"`
 	Origin          *queryinput.Origin `json:"origin,omitempty"`
 	ID              string             `json:"id"`
@@ -142,12 +145,13 @@ type TaskV1 struct {
 }
 
 type AttachmentV1 struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	MIMEType  string `json:"mimeType"`
-	Size      int64  `json:"size"`
-	SHA256    string `json:"sha256"`
-	SourceRef string `json:"sourceRef"`
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	MIMEType  string            `json:"mimeType"`
+	Size      int64             `json:"size"`
+	SHA256    string            `json:"sha256,omitempty"`
+	SourceRef string            `json:"sourceRef"`
+	MediaRefs map[string]string `json:"mediaRefs,omitempty"`
 }
 
 func sourceV1FromEvent(event stream.EventData) ([]SourceV1, int) {
@@ -255,25 +259,27 @@ func toolResultFailed(value any) bool {
 	return false
 }
 
-func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, attachments []AttachmentV1, capturedAt int64, locale string, resolveAssistant ResolveAssistant) (SnapshotDocument, error) {
+// forExport retains resource-bearing queries and human steers only for snapshot
+// exports; Markdown and conversation reads keep their existing projection.
+func projectSnapshot(summary *chat.Summary, events []stream.EventData, attachments []AttachmentV1, capturedAt int64, locale string, resolveAssistant ResolveAssistant, forExport bool) (SnapshotV1, error) {
 	if summary == nil {
-		return SnapshotDocument{}, ErrInvalidTimeline
+		return SnapshotV1{}, ErrInvalidTimeline
 	}
 	if err := timecontract.ValidateEpochMillis(summary.CreatedAt, "createdAt", "conversation.snapshot.createdAt"); err != nil {
-		return SnapshotDocument{}, err
+		return SnapshotV1{}, err
 	}
 	if err := timecontract.ValidateEpochMillis(capturedAt, "capturedAt", "conversation.snapshot.capturedAt"); err != nil {
-		return SnapshotDocument{}, err
+		return SnapshotV1{}, err
 	}
 	if capturedAt < summary.CreatedAt {
-		return SnapshotDocument{}, ErrInvalidTimeline
+		return SnapshotV1{}, ErrInvalidTimeline
 	}
 	title := strings.TrimSpace(summary.ChatName)
 	if title == "" {
 		title = "Chat"
 	}
 	if len(title) > MaxTitleBytes {
-		return SnapshotDocument{}, ErrTooLarge
+		return SnapshotV1{}, ErrTooLarge
 	}
 	if i18n.ResolveLocale(i18n.LocaleZhCN, locale) == i18n.LocaleEN {
 		locale = "en-US"
@@ -289,22 +295,26 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, att
 	pendingTurn := -1
 	for ordinal, event := range events {
 		if err := timecontract.ValidateEpochMillis(event.Timestamp, "timestamp", "conversation.snapshot.events"); err != nil {
-			return SnapshotDocument{}, err
+			return SnapshotV1{}, err
 		}
 		if event.Type == "request.query" && event.String("taskId") == "" && requestQueryVisible(event) {
 			text := event.String("message")
-			if strings.TrimSpace(text) == "" {
+			var refs []string
+			if forExport {
+				refs = queryResourceRefs(event.Value("references"))
+			}
+			if strings.TrimSpace(text) == "" && len(refs) == 0 {
 				pendingTurn = -1
 				continue
 			}
 			runID := strings.TrimSpace(event.String("runId"))
 			if runID != "" {
 				if _, exists := turnByRun[runID]; exists {
-					return SnapshotDocument{}, ErrInvalidTimeline
+					return SnapshotV1{}, ErrInvalidTimeline
 				}
 			}
 			turn := TurnV1{RunID: runID, QueryAt: event.Timestamp, StartedAt: event.Timestamp, Outcome: OutcomeRunning,
-				Nodes: []NodeV1{{ID: fmt.Sprintf("query_%d_%d", event.Seq, ordinal), Kind: "message", Role: "user", Text: text, At: event.Timestamp, RunID: runID}}}
+				Nodes: []NodeV1{{ID: fmt.Sprintf("query_%d_%d", event.Seq, ordinal), Kind: "message", Role: "user", Text: text, At: event.Timestamp, RunID: runID, resourceRefs: refs}}}
 			snapshot.Turns = append(snapshot.Turns, turn)
 			index := len(snapshot.Turns) - 1
 			if runID == "" {
@@ -366,15 +376,19 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, att
 			if raw := event.Value("origin"); raw != nil {
 				data, err := json.Marshal(raw)
 				if err != nil || json.Unmarshal(data, &origin) != nil {
-					return SnapshotDocument{}, ErrInvalidTimeline
+					return SnapshotV1{}, ErrInvalidTimeline
 				}
 			}
-			// Preserve the historical projection for human steers; only the new
-			// Agent instruction carries provenance into the export timeline.
-			if origin == nil {
+			var refs []string
+			if forExport {
+				refs = queryResourceRefs(event.Value("references"))
+				if strings.TrimSpace(event.String("message")) == "" && len(refs) == 0 {
+					continue
+				}
+			} else if origin == nil {
 				continue
 			}
-			turn.Nodes = append(turn.Nodes, NodeV1{ID: id, Kind: "message", Role: "user", Text: event.String("message"), At: event.Timestamp, RunID: runID, SteerID: event.String("steerId"), Origin: origin})
+			turn.Nodes = append(turn.Nodes, NodeV1{ID: id, Kind: "message", Role: "user", Text: event.String("message"), At: event.Timestamp, RunID: runID, SteerID: event.String("steerId"), Origin: origin, resourceRefs: refs})
 		case "reasoning.snapshot", "content.snapshot", "planning.snapshot":
 			text := event.String("text")
 			if strings.TrimSpace(text) == "" {
@@ -476,6 +490,9 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, att
 			if event.String("error") != "" || toolResultFailed(value) {
 				node.Status = "failed"
 			}
+			if forExport && node.Status == "success" && node.ToolName == "image_generate" {
+				node.resourceRefs = generatedImageRefs(value)
+			}
 			if text, ok := value.(string); ok {
 				node.ResultText = text
 			} else if value != nil {
@@ -525,7 +542,7 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, att
 				SourceCount: len(sources), ChunkCount: chunks, Sources: sources})
 		}
 		if len(turn.Nodes) > MaxItems {
-			return SnapshotDocument{}, ErrTooLarge
+			return SnapshotV1{}, ErrTooLarge
 		}
 	}
 	filtered := make([]TurnV1, 0, len(snapshot.Turns))
@@ -540,8 +557,22 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, att
 	}
 	snapshot.Turns = filtered
 	if len(snapshot.Turns) == 0 {
-		return SnapshotDocument{}, ErrNoRootTurn
+		return SnapshotV1{}, ErrNoRootTurn
 	}
+	return snapshot, nil
+}
+
+// BuildSnapshotDocument is the pure projection used by Markdown/control reads.
+// Only the actual snapshot export entry enriches file metadata before encoding.
+func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, attachments []AttachmentV1, capturedAt int64, locale string, resolveAssistant ResolveAssistant) (SnapshotDocument, error) {
+	snapshot, err := projectSnapshot(summary, events, attachments, capturedAt, locale, resolveAssistant, false)
+	if err != nil {
+		return SnapshotDocument{}, err
+	}
+	return encodeSnapshot(snapshot)
+}
+
+func encodeSnapshot(snapshot SnapshotV1) (SnapshotDocument, error) {
 	encoded, err := json.Marshal(snapshot)
 	if err != nil {
 		return SnapshotDocument{}, err

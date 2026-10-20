@@ -15,9 +15,9 @@ import (
 // BuildSnapshotAttachments maps the published manifest into the public
 // Snapshot V1 contract. Artifact bytes remain owned by chatresource and are
 // deliberately not opened while exporting the timeline.
-func BuildSnapshotAttachments(chatID string, items []chat.ArtifactManifestItem) ([]AttachmentV1, int) {
+func BuildSnapshotAttachments(chatID string, items []chat.ArtifactManifestItem) ([]AttachmentV1, []OmittedResourceV1) {
 	if !chat.ValidChatID(chatID) {
-		return nil, 0
+		return nil, nil
 	}
 	latest := make(map[string]int, len(items))
 	for index, item := range items {
@@ -26,44 +26,43 @@ func BuildSnapshotAttachments(chatID string, items []chat.ArtifactManifestItem) 
 
 	attachments := make([]AttachmentV1, 0, len(latest))
 	ids := make(map[string]string, len(latest))
-	skipped := 0
+	var omitted []OmittedResourceV1
 	for index, item := range items {
 		if latest[item.URL] != index {
 			continue
 		}
 		ref, runID, err := canonicalSnapshotArtifactRef(chatID, item.URL)
 		if err != nil || item.Type != "file" || runID != item.RunID {
-			skipped++
+			omitted = append(omitted, omittedResource(item.URL, "invalid"))
 			continue
 		}
 		if item.Name == "" || !utf8.ValidString(item.Name) || len(item.Name) > 255 ||
 			strings.ContainsAny(item.Name, `/\`) || strings.ContainsFunc(item.Name, unicode.IsControl) {
-			skipped++
+			omitted = append(omitted, omittedResource(item.URL, "invalid"))
 			continue
 		}
 		mimeType, _, err := mime.ParseMediaType(item.MimeType)
 		mimeType = strings.ToLower(strings.TrimSpace(mimeType))
 		if err != nil || !strings.Contains(mimeType, "/") {
-			skipped++
+			omitted = append(omitted, omittedResource(item.URL, "invalid"))
 			continue
 		}
 		if item.SizeBytes < 0 {
-			skipped++
+			omitted = append(omitted, omittedResource(item.URL, "invalid"))
 			continue
 		}
 		fileHash := strings.TrimSpace(item.SHA256)
 		if item.SHA256 != fileHash || fileHash != strings.ToLower(fileHash) || len(fileHash) != sha256.Size*2 {
-			skipped++
+			omitted = append(omitted, omittedResource(item.URL, "invalid"))
 			continue
 		}
 		if _, err := hex.DecodeString(fileHash); err != nil {
-			skipped++
+			omitted = append(omitted, omittedResource(item.URL, "invalid"))
 			continue
 		}
-		digest := sha256.Sum256([]byte(ref))
-		id := hex.EncodeToString(digest[:12])
+		id := snapshotResourceID(ref)
 		if previous, exists := ids[id]; exists && previous != ref {
-			skipped++
+			omitted = append(omitted, omittedResource(item.URL, "invalid"))
 			continue
 		}
 		ids[id] = ref
@@ -72,7 +71,7 @@ func BuildSnapshotAttachments(chatID string, items []chat.ArtifactManifestItem) 
 			Size: item.SizeBytes, SHA256: fileHash, SourceRef: ref,
 		})
 	}
-	return attachments, skipped
+	return attachments, omitted
 }
 
 func canonicalSnapshotArtifactRef(chatID, raw string) (string, string, error) {

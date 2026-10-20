@@ -1,6 +1,7 @@
 package chatresource
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -137,23 +138,26 @@ func (s *Service) GetArtifact(chatID, id, runID string) (Artifact, error) {
 	entry, err := s.findArtifact(chatID, id, runID)
 	return projectArtifact(chatID, entry), err
 }
-func (s *Service) OpenArtifact(chatID, id, runID string) (*os.File, Artifact, error) {
+func (s *Service) OpenArtifact(ctx context.Context, chatID, id, runID string) (*os.File, Artifact, error) {
 	entry, err := s.findArtifact(chatID, id, runID)
 	if err != nil {
 		return nil, Artifact{}, err
 	}
-	return s.openArtifact(chatID, entry)
+	return s.openArtifact(ctx, chatID, entry)
 }
 
-func (s *Service) OpenArtifactByRef(chatID, sourceRef string) (*os.File, Artifact, error) {
+func (s *Service) OpenArtifactByRef(ctx context.Context, chatID, sourceRef string) (*os.File, Artifact, error) {
 	entry, err := s.findArtifactByRef(chatID, sourceRef)
 	if err != nil {
 		return nil, Artifact{}, err
 	}
-	return s.openArtifact(chatID, entry)
+	return s.openArtifact(ctx, chatID, entry)
 }
 
-func (s *Service) openArtifact(chatID string, entry chat.ArtifactManifestItem) (*os.File, Artifact, error) {
+func (s *Service) openArtifact(ctx context.Context, chatID string, entry chat.ArtifactManifestItem) (*os.File, Artifact, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, Artifact{}, err
+	}
 	// Only published ChatScope references, never a caller-supplied file or URL.
 	ref := chat.BareChatScopeRef(entry.URL)
 	if !strings.HasPrefix(ref, "artifacts/") {
@@ -178,18 +182,31 @@ func (s *Service) openArtifact(chatID string, entry chat.ArtifactManifestItem) (
 			f.Close()
 		}
 	}()
+	stop := context.AfterFunc(ctx, func() { f.Close() })
+	defer stop()
 	info, err := f.Stat()
+	if err := ctx.Err(); err != nil {
+		return nil, Artifact{}, err
+	}
 	if err != nil || !info.Mode().IsRegular() || info.Size() != entry.SizeBytes || entry.SHA256 == "" {
 		return nil, Artifact{}, ErrArtifactChanged
 	}
 	hash := sha256.New()
-	if _, err = io.Copy(hash, f); err != nil {
+	written, err := io.Copy(hash, io.LimitReader(f, info.Size()+1))
+	if err := ctx.Err(); err != nil {
 		return nil, Artifact{}, err
 	}
-	if hex.EncodeToString(hash.Sum(nil)) != entry.SHA256 {
+	if err != nil {
+		return nil, Artifact{}, err
+	}
+	if written != entry.SizeBytes || hex.EncodeToString(hash.Sum(nil)) != entry.SHA256 {
 		return nil, Artifact{}, ErrArtifactChanged
 	}
-	if _, err = f.Seek(0, io.SeekStart); err != nil {
+	_, err = f.Seek(0, io.SeekStart)
+	if err := ctx.Err(); err != nil {
+		return nil, Artifact{}, err
+	}
+	if err != nil {
 		return nil, Artifact{}, err
 	}
 	valid = true

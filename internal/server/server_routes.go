@@ -372,6 +372,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/archive/delete", s.method(http.MethodPost, s.handleArchiveDelete))
 	s.router.HandleFunc("/api/archive/restore", s.method(http.MethodPost, s.handleArchiveRestore))
 	s.router.HandleFunc("/api/chat/export", s.method(http.MethodGet, s.handleChatExport))
+	s.router.HandleFunc("/api/chat/export/resources/read", s.method(http.MethodPost, s.handleChatExportResource))
 	s.router.HandleFunc("/api/chat/jsonl", s.method(http.MethodGet, s.handleChatJSONL))
 	s.router.HandleFunc("/api/chat/system-prompt", s.method(http.MethodGet, s.handleChatSystemPrompt))
 	s.router.HandleFunc("/api/chat/llm-trace", s.method(http.MethodGet, s.handleChatLLMTrace))
