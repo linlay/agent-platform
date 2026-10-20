@@ -110,3 +110,26 @@ func TestCreateRejectsUnavailableConcreteModel(t *testing.T) {
 		t.Fatalf("unexpected response: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestNativeCreationTypesExposeTheirOwnDefaultModels(t *testing.T) {
+	fixture := newTestFixture(t)
+	cfg := &fixture.server.deps.Config
+	cfg.GeneralSettings.DefaultAgent.ModelKey = "mock-model"
+	cfg.CoderSettings.DefaultAgent.ModelKey = "mock-model"
+	cfg.KBase.DefaultAgent.ModelKey = "mock-model"
+	defaults := fixture.server.buildAgentCreationDefaults("en-US")
+	for _, typ := range defaults.Types {
+		if typ.Key != "general" && typ.Key != "coder" && typ.Key != "kbase" {
+			continue
+		}
+		if typ.DefaultModelKey != "mock-model" || !typ.DefaultModelAvailable {
+			t.Fatalf("%s default not selectable: %#v", typ.Key, typ)
+		}
+	}
+	cfg.GeneralSettings.DefaultAgent.ModelKey = "missing-model"
+	for _, typ := range fixture.server.buildAgentCreationDefaults("en-US").Types {
+		if typ.Key == "general" && typ.DefaultModelAvailable {
+			t.Fatal("unavailable GENERAL default must not select an arbitrary model")
+		}
+	}
+}

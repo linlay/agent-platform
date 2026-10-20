@@ -26,6 +26,7 @@ $Script:DeployAIVisionGeneralModelKey = ''
 $Script:DeployAIVisionOCRModelKey = ''
 $Script:DeployAIWebFetchModelKey = ''
 $Script:DeployAIImageGenerateModelKey = ''
+$Script:DeployGeneralModelKey = ''
 $Script:DeployCoderModelKey = ''
 $Script:DeployCoderReasoningEffort = ''
 $Script:DeployKBaseModelKey = ''
@@ -123,6 +124,7 @@ function Set-ProgramDeployOption([string]$Name, [string]$Value) {
     '--ai-vision-ocr-model-key' { $Script:DeployAIVisionOCRModelKey = $Value }
     '--ai-web-fetch-model-key' { $Script:DeployAIWebFetchModelKey = $Value }
     '--ai-image-generate-model-key' { $Script:DeployAIImageGenerateModelKey = $Value }
+    '--general-model-key' { $Script:DeployGeneralModelKey = $Value }
     '--coder-model-key' { $Script:DeployCoderModelKey = $Value }
     '--coder-reasoning-effort' {
       if (@('NONE', 'LOW', 'MEDIUM', 'HIGH', 'XHIGH', 'MAX') -notcontains $Value) {
@@ -174,6 +176,7 @@ function Set-ProgramDeployArgs([string[]]$Arguments) {
       '--ai-vision-ocr-model-key',
       '--ai-web-fetch-model-key',
       '--ai-image-generate-model-key',
+      '--general-model-key',
       '--coder-model-key',
       '--coder-reasoning-effort',
       '--kbase-model-key',
@@ -468,6 +471,7 @@ function Set-ProgramYamlNestedValue([string]$Path, [string]$Section, [string]$Ch
 }
 function New-ProgramDeployAgentSettingsFile([string]$Source, [string]$Target) {
   Copy-Item -LiteralPath $Source -Destination $Target
+  if ($Script:DeployGeneralModelKey) { Set-ProgramYamlNestedValue $Target 'general' 'default-agent' 'modelKey' $Script:DeployGeneralModelKey }
   if ($Script:DeployCoderModelKey) { Set-ProgramYamlNestedValue $Target 'coder' 'default-agent' 'modelKey' $Script:DeployCoderModelKey }
   if ($Script:DeployCoderReasoningEffort) { Set-ProgramYamlNestedValue $Target 'coder' 'default-agent' 'reasoningEffort' $Script:DeployCoderReasoningEffort }
   if ($Script:DeployKBaseModelKey) { Set-ProgramYamlNestedValue $Target 'kbase' 'default-agent' 'modelKey' $Script:DeployKBaseModelKey }

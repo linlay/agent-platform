@@ -113,8 +113,9 @@ try {
   Invoke-TestDeploy $PreviewOutput ($ResetArgs + @('--document-preview-api-base-url', 'https://new-api.test', '--document-preview-public-base-url', 'https://new-public.test'))
   Assert-Test ([IO.File]::ReadAllText($PreviewFile).Contains('public-base-url: "https://new-public.test"')) 'reset did not render preview origin'
   $ModeOutput = Join-Path $TempRoot 'mode-settings'
-  Invoke-TestDeploy $ModeOutput @('--document-preview-api-base-url','http://hub:8090','--document-preview-public-base-url','https://docs.example.test','--coder-model-key','coder-fixture','--kbase-model-key','answer-fixture','--kbase-embedding-model-key','embedding-fixture')
+  Invoke-TestDeploy $ModeOutput @('--document-preview-api-base-url','http://hub:8090','--document-preview-public-base-url','https://docs.example.test','--general-model-key','general-fixture','--coder-model-key','coder-fixture','--kbase-model-key','answer-fixture','--kbase-embedding-model-key','embedding-fixture')
   $ModeContent = [IO.File]::ReadAllText((Join-Path $ModeOutput 'configs/agent-settings.yml'))
+  Assert-Test ($ModeContent.Contains('    modelKey: general-fixture')) 'GENERAL model not nested correctly'
   Assert-Test ($ModeContent.Contains('    modelKey: coder-fixture')) 'coder model not nested correctly'
   Assert-Test ($ModeContent.Contains('    modelKey: answer-fixture')) 'KBASE agent model not nested correctly'
   Assert-Test ([IO.File]::ReadAllText((Join-Path $ModeOutput 'configs/runtime.yml')).Contains('    model-key: embedding-fixture')) 'KBX model not in runtime'

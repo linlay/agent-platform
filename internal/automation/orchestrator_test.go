@@ -1182,3 +1182,48 @@ func automationBodyWithDescription(message string, cronExpr string, extra string
 		"query:\n" +
 		"  message: " + message + "\n"
 }
+
+func TestAutomationWaitRechecksDeadlineAfterEarlyWakeup(t *testing.T) {
+	deadline := time.Date(2026, 10, 20, 16, 30, 0, 0, time.UTC)
+	// Reproduce the previous-second execution record without depending on the OS clock.
+	times := []time.Time{deadline.Add(-time.Nanosecond), deadline.Add(-25 * time.Millisecond), deadline.Add(-time.Nanosecond), deadline}
+	reads := 0
+	now := func() time.Time {
+		if reads >= len(times) {
+			t.Fatal("deadline wait did not finish when due")
+		}
+		value := times[reads]
+		reads++
+		return value
+	}
+	if !waitForAutomationTime(context.Background(), deadline, now) {
+		t.Fatal("due execution was canceled")
+	}
+	if reads != len(times) {
+		t.Fatalf("execution released before the wall-clock deadline: clock reads=%d", reads)
+	}
+}
+
+func TestAutomationWaitStopsWhenCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	deadline := time.Now().Add(time.Hour)
+	if waitForAutomationTime(ctx, deadline, func() time.Time {
+		cancel()
+		return deadline.Add(-time.Hour)
+	}) {
+		t.Fatal("canceled schedule must not fire")
+	}
+}
+
+func TestAutomationWaitAllowsOverdueExecution(t *testing.T) {
+	deadline := time.Now().Add(-time.Second)
+	if !waitForAutomationTime(context.Background(), deadline, time.Now) {
+		t.Fatal("overdue execution must not be skipped")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if waitForAutomationTime(ctx, deadline, time.Now) {
+		t.Fatal("already canceled execution must not fire even when overdue")
+	}
+}

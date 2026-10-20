@@ -255,7 +255,8 @@ grep -Fq 'public-base-url: "https://new-public.test"' "$preview_file"
 echo '[program-deploy-test] preview initialization and reset passed'
 
 mode_output="$tmp_dir/mode-settings"
-run_deploy "$mode_output" --document-preview-api-base-url http://hub:8090 --document-preview-public-base-url https://docs.example.test --coder-model-key coder-fixture --coder-reasoning-effort HIGH --kbase-model-key answer-fixture --kbase-reasoning-effort MEDIUM --kbase-embedding-model-key embedding-fixture
+run_deploy "$mode_output" --document-preview-api-base-url http://hub:8090 --document-preview-public-base-url https://docs.example.test --general-model-key general-fixture --coder-model-key coder-fixture --coder-reasoning-effort HIGH --kbase-model-key answer-fixture --kbase-reasoning-effort MEDIUM --kbase-embedding-model-key embedding-fixture
+grep -Fq '    modelKey: general-fixture' "$mode_output/configs/agent-settings.yml"
 grep -Fq '    modelKey: coder-fixture' "$mode_output/configs/agent-settings.yml"
 grep -Fq '    modelKey: answer-fixture' "$mode_output/configs/agent-settings.yml"
 grep -Fq '    model-key: embedding-fixture' "$mode_output/configs/runtime.yml"
