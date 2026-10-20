@@ -963,7 +963,8 @@ func (s *llmRunStream) mergeConcurrentExecutionContext(execCtx *ExecutionContext
 		s.execCtx.ReadFileState = map[string]ReadFileSnapshot{}
 	}
 	for path, snapshot := range execCtx.ReadFileState {
-		s.execCtx.ReadFileState[path] = snapshot
+		// Parallel calls may read different pages of one file version.
+		s.execCtx.ReadFileState[path] = MergeReadFileSnapshot(s.execCtx.ReadFileState[path], snapshot)
 	}
 }
 
@@ -995,7 +996,7 @@ func cloneReadFileState(values map[string]ReadFileSnapshot) map[string]ReadFileS
 	}
 	out := make(map[string]ReadFileSnapshot, len(values))
 	for key, value := range values {
-		out[key] = value
+		out[key] = value.Clone()
 	}
 	return out
 }

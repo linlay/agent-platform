@@ -535,8 +535,8 @@ func TestInvokeReadLineRangeCanStartBeyondInitialReadLimit(t *testing.T) {
 	if result.Error != "" || result.Structured["content"] != "line-20\n" {
 		t.Fatalf("expected high-offset line, got %#v", result.Structured)
 	}
-	if result.Structured["truncated"] != false {
-		t.Fatalf("expected selected range not to be truncated, got %#v", result.Structured["truncated"])
+	if result.Structured["endLine"] != 20 || result.Structured["hasMore"] != false || result.Structured["longLineTruncated"] != nil {
+		t.Fatalf("expected complete selected line, got %#v", result.Structured)
 	}
 }
 
@@ -2025,7 +2025,7 @@ func TestInvokeReadAfterWriteAndEditReturnsFreshContent(t *testing.T) {
 	}
 }
 
-func TestInvokeWriteAndEditRejectPartialOrTruncatedRead(t *testing.T) {
+func TestInvokeWriteAndEditRequireReadCoverage(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "write.md"), []byte("one\ntwo\n"), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
@@ -2054,24 +2054,20 @@ func TestInvokeWriteAndEditRejectPartialOrTruncatedRead(t *testing.T) {
 		t.Fatalf("expected partial-read write rejection, got %#v", writeResult.Structured)
 	}
 	assertErrorMessageContains(t, writeResult, "fully read")
+	assertLineRanges(t, writeResult.Structured["unseenRanges"], "2-2")
 
 	editCtx := fileToolExecutionContext(root)
 	if _, err := executor.invokeRead(map[string]any{"filePath": "edit.md", "limit": float64(1), "addLineNumbers": false}, editCtx); err != nil {
 		t.Fatalf("partial read for edit: %v", err)
 	}
-	editResult, err := executor.invokeEdit(context.Background(), map[string]any{
-		"filePath":    "edit.md",
-		"oldString":   "one",
-		"newString":   "uno",
-		"description": "编辑 owner 文档",
-	}, editCtx)
-	if err != nil {
-		t.Fatalf("invokeEdit: %v", err)
+	unseen := invokeEditForTest(t, executor, editCtx, "edit.md", "two", "dos", false)
+	if unseen.ExitCode == 0 || unseen.Structured["error"] != "file_edit_unseen_region" {
+		t.Fatalf("expected unseen-region edit rejection, got %#v", unseen.Structured)
 	}
-	if editResult.ExitCode == 0 || editResult.Structured["error"] != "file_edit_partial_read" {
-		t.Fatalf("expected partial-read edit rejection, got %#v", editResult.Structured)
+	assertLineRanges(t, unseen.Structured["unseenRanges"], "2-2")
+	if seen := invokeEditForTest(t, executor, editCtx, "edit.md", "one", "uno", false); seen.ExitCode != 0 {
+		t.Fatalf("expected edit inside read lines to succeed, got %#v", seen.Structured)
 	}
-	assertErrorMessageContains(t, editResult, "fully read")
 
 	executor.cfg.FileTools.MaxReadBytes = 3
 	truncatedCtx := fileToolExecutionContext(root)
@@ -2079,8 +2075,8 @@ func TestInvokeWriteAndEditRejectPartialOrTruncatedRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("truncated read: %v", err)
 	}
-	if readResult.Structured["truncated"] != true {
-		t.Fatalf("expected truncated read, got %#v", readResult.Structured)
+	if readResult.Structured["longLineTruncated"] != 1 || readResult.Structured["content"] != "abc" {
+		t.Fatalf("expected truncated first line, got %#v", readResult.Structured)
 	}
 	truncatedWrite, err := executor.invokeWrite(context.Background(), map[string]any{
 		"filePath":    "truncated.md",
@@ -2093,7 +2089,6 @@ func TestInvokeWriteAndEditRejectPartialOrTruncatedRead(t *testing.T) {
 	if truncatedWrite.ExitCode == 0 || truncatedWrite.Structured["error"] != "file_write_partial_read" {
 		t.Fatalf("expected truncated-read write rejection, got %#v", truncatedWrite.Structured)
 	}
-	assertErrorMessageContains(t, truncatedWrite, "fully read")
 }
 
 func TestInvokeWriteReportsLineStatsForNewFile(t *testing.T) {
@@ -2497,7 +2492,7 @@ func TestInvokeEditRequiresReadForExistingFileAndRejectsExternalChanges(t *testi
 	if notRead.ExitCode == 0 || notRead.Structured["error"] != "file_edit_not_read" {
 		t.Fatalf("expected not-read rejection, got %#v", notRead.Structured)
 	}
-	assertErrorMessageContains(t, notRead, "fully read")
+	assertErrorMessageContains(t, notRead, "has not been read")
 
 	if _, err := executor.invokeRead(map[string]any{"filePath": "owner.md", "addLineNumbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)

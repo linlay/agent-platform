@@ -97,6 +97,7 @@ bash:
   #   - "{{command}}"
 
 file-tools:
+  # file_read 的单次原始载入上限（文本按 40000 字节模型预算分页，可翻页读完更大的文件）；/api/file 与 diff 仍以它作为文件上限。
   max-read-bytes: 1048576
   max-write-bytes: 1048576
   require-write-approval: true

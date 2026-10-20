@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -14,12 +13,14 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/credentialview"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/multimodal"
+	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/textcodec"
 )
 
@@ -51,27 +52,13 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 	limit := int64Arg(args, "limit")
 	lineNumbered := addLineNumbersArg(args)
 	requestedEncoding := stringArg(args, "encoding")
-	snapshotOffset := int64(0)
-	if offset > 0 {
-		snapshotOffset = offset
-	}
-	snapshotLimit := int64(0)
-	if limit > 0 {
-		snapshotLimit = limit
-	}
+	window := ReadWindow{Offset: max(offset, 0), Limit: max(limit, 0), LineNumbered: lineNumbered}
 	if execCtx != nil && strings.TrimSpace(requestedEncoding) == "" {
-		if execCtx.ReadFileState == nil {
-			execCtx.ReadFileState = map[string]ReadFileSnapshot{}
-		}
 		if snap, ok := execCtx.ReadFileState[resolved.Path]; ok &&
 			snap.ModifiedUnixMs == info.ModTime().UnixMilli() &&
 			snap.SizeBytes == info.Size() &&
-			snap.Offset == snapshotOffset &&
-			snap.Limit == snapshotLimit &&
 			snap.Source == "read" &&
-			!snap.Partial &&
-			!snap.Truncated &&
-			snap.LineNumbered == lineNumbered &&
+			snap.LastRead == window &&
 			!fileSnapshotExpired(snap, time.Now().UnixMilli(), t.fileReadMaxAge()) &&
 			snap.SHA256 != "" && fileSHA256(resolved.Path) == snap.SHA256 {
 			return structuredResult(map[string]any{
@@ -89,17 +76,20 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 		if result.ExitCode != 0 || result.Error != "" {
 			return result, nil
 		}
-		if execCtx != nil {
-			snap := recordReadSnapshot(execCtx, resolved.Path, info, image["sha256"].(string), snapshotOffset, snapshotLimit, "read", lineNumbered, false, false)
-			t.recordChatFileVersion(execCtx, resolved.Path, snap, "read", false)
-		}
+		t.recordReadProof(execCtx, resolved.Path, ReadFileSnapshot{
+			ModifiedUnixMs: info.ModTime().UnixMilli(),
+			SizeBytes:      info.Size(),
+			SHA256:         image["sha256"].(string),
+			LastRead:       window,
+			ReadAtUnixMs:   time.Now().UnixMilli(),
+			Source:         "read",
+		})
 		appendAccessPolicyMetadata(image, access)
 		return structuredResult(image), nil
 	}
 	if filetools.IsBinaryExtension(resolved.Path) {
 		return fileToolError("file_read_binary_unsupported", "binary file extension is not supported by read"), nil
 	}
-	maxBytes := maxInt(t.cfg.FileTools.MaxReadBytes, 1<<20)
 	file, err := os.Open(resolved.Path)
 	if err != nil {
 		return fileToolError("file_read_failed", err.Error()), nil
@@ -110,72 +100,109 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 	if offset > 0 {
 		startLine = int(offset)
 	}
-	lineLimited := offset > 0 || limit > 0
-	partial := startLine > 1 || limit > 0
-	var data []byte
-	truncated := false
-	if lineLimited {
-		data, truncated, err = readLineRangeLimited(file, startLine, int(limit), maxBytes)
-		if err != nil {
-			return fileToolError("file_read_failed", err.Error()), nil
-		}
-	} else {
-		data, err = io.ReadAll(io.LimitReader(file, int64(maxBytes)+1))
-		if err != nil {
-			return fileToolError("file_read_failed", err.Error()), nil
-		}
-		truncated = len(data) > maxBytes
-		if truncated {
-			data = data[:maxBytes]
-		}
+	scan, err := scanFileWindow(file, startLine, int(window.Limit), maxInt(t.cfg.FileTools.MaxReadBytes, 1<<20))
+	if err != nil {
+		return fileToolError("file_read_failed", err.Error()), nil
 	}
-
-	sha := fileSHA256(resolved.Path)
 	payload := map[string]any{
 		"filePath":       resolved.Path,
 		"sizeBytes":      info.Size(),
-		"readBytes":      len(data),
-		"sha256":         sha,
+		"sha256":         scan.SHA256,
 		"mode":           info.Mode().String(),
 		"modifiedUnixMs": info.ModTime().UnixMilli(),
-		"truncated":      truncated,
+		"totalLines":     scan.TotalLines,
+		"startLine":      startLine,
 	}
-	if lineLimited {
-		payload["offset"] = startLine
-		if limit > 0 {
-			payload["limit"] = limit
-		}
-	}
-	if decoded, ok, decodeErr := textcodec.DecodeFileText(data, requestedEncoding, t.runtimeInfo()); decodeErr != nil {
+	wholeFile := startLine == 1 && window.Limit == 0 && !scan.WindowCut
+	var covered []LineRange
+	decoded, ok, decodeErr := decodeFileWindow(scan, requestedEncoding, t.runtimeInfo())
+	policy := credentialview.FromConfig(t.cfg)
+	switch {
+	case decodeErr != nil:
 		return fileToolError("file_read_invalid_encoding", decodeErr.Error()), nil
-	} else if ok {
-		content := credentialview.FromConfig(t.cfg).Text(resolved.Path, decoded.Content, partial || truncated)
-		redacted := content != decoded.Content
-		payload["encoding"] = decoded.Encoding
-		payload["kind"] = "text"
-		if lineNumbered {
-			content = addLineNumbers(content, startLine)
-			payload["lineNumbered"] = true
-		}
-		payload["content"] = content
-		if redacted {
-			payload["redacted"] = true
-		}
-	} else {
+	case !ok:
 		payload["encoding"] = "base64"
 		payload["kind"] = "binary"
-		payload["contentBase64"] = base64.StdEncoding.EncodeToString(data)
-		if credentialview.FromConfig(t.cfg).Source(resolved.Path) != credentialview.Ordinary {
+		payload["contentBase64"] = base64.StdEncoding.EncodeToString(scan.Window)
+		if policy.Source(resolved.Path) != credentialview.Ordinary {
 			payload["contentBase64"] = credentialview.Hidden
 			payload["redacted"] = true
 		}
+		payload["hasMore"] = !wholeFile
+		if wholeFile && scan.TotalLines > 0 {
+			covered = []LineRange{{Start: 1, End: scan.TotalLines}}
+		}
+	case policy.Source(resolved.Path) != credentialview.Ordinary:
+		// Credential views mask the whole document, so they are not paged.
+		content := policy.Text(resolved.Path, decoded.Content, !wholeFile)
+		payload["encoding"] = decoded.Encoding
+		payload["kind"] = "text"
+		payload["content"] = content
+		payload["hasMore"] = false
+		if content != decoded.Content {
+			payload["redacted"] = true
+		}
+		if wholeFile {
+			payload["endLine"] = scan.TotalLines
+			if scan.TotalLines > 0 {
+				covered = []LineRange{{Start: 1, End: scan.TotalLines}}
+			}
+		} else {
+			payload["endLine"] = startLine - 1
+		}
+	default:
+		lastLineComplete := !scan.WindowCut || bytes.HasSuffix(scan.Window, []byte("\n"))
+		page := fitFilePage(decoded.Content, startLine, scan.TotalLines, lineNumbered, lastLineComplete, ToolModelOutputMaxBytes)
+		endLine := startLine + page.Lines - 1
+		nextOffset := endLine + 1
+		if page.LongLineTruncated {
+			nextOffset = startLine + 1
+			payload["longLineTruncated"] = startLine
+		}
+		if page.Lines > 0 {
+			covered = []LineRange{{Start: startLine, End: endLine}}
+		}
+		payload["encoding"] = decoded.Encoding
+		payload["kind"] = "text"
+		payload["content"] = page.Content
+		payload["endLine"] = endLine
+		payload["hasMore"] = nextOffset <= scan.TotalLines
+		if nextOffset <= scan.TotalLines {
+			payload["nextOffset"] = nextOffset
+		}
+		if startLine > max(scan.TotalLines, 1) {
+			payload["message"] = fmt.Sprintf("offset %d is beyond the end of the file (totalLines=%d)", startLine, scan.TotalLines)
+		}
+		if lineNumbered {
+			payload["lineNumbered"] = true
+		}
 	}
-	if execCtx != nil {
-		snap := recordReadSnapshot(execCtx, resolved.Path, info, sha, snapshotOffset, snapshotLimit, "read", lineNumbered, partial, truncated)
-		t.recordChatFileVersion(execCtx, resolved.Path, snap, "read", truncated)
-	}
+	t.recordReadProof(execCtx, resolved.Path, ReadFileSnapshot{
+		ModifiedUnixMs: info.ModTime().UnixMilli(),
+		SizeBytes:      info.Size(),
+		SHA256:         scan.SHA256,
+		TotalLines:     scan.TotalLines,
+		Ranges:         covered,
+		LastRead:       window,
+		ReadAtUnixMs:   time.Now().UnixMilli(),
+		Source:         "read",
+	})
 	appendAccessPolicyMetadata(payload, access)
 	return structuredResult(payload), nil
+}
+
+// decodeFileWindow decodes the captured window. A whole-file UTF-8 result
+// fixes the encoding for every page; otherwise the window is detected alone.
+func decodeFileWindow(scan fileWindowScan, requestedEncoding string, env runtimeenv.Info) (textcodec.DecodedText, bool, error) {
+	if strings.TrimSpace(requestedEncoding) == "" && scan.UTF8 {
+		window := scan.Window
+		// A window cut by the raw byte limit may end inside a rune.
+		for scan.WindowCut && len(window) > 0 && !utf8.Valid(window) {
+			window = window[:len(window)-1]
+		}
+		return textcodec.DecodedText{Content: string(window), Encoding: "utf-8"}, true, nil
+	}
+	return textcodec.DecodeFileText(scan.Window, requestedEncoding, env)
 }
 
 func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -255,7 +282,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		execCtx.EnsureAuthoredScripts()
 		execCtx.AuthoredScripts.Record(execCtx.ScriptOwner(), plan.FilePath, writeBytes, "", true)
 	}
-	after := fileSHA256(plan.FilePath)
+	after := bytesSHA256(writeBytes)
 	info, _ := os.Stat(plan.FilePath)
 	lineStats := computeLineDiffStats(beforeContent, contentText)
 	_ = t.recordFileHistory(execCtx, plan.FilePath, beforeRaw, beforeExists, writeBytes, true)
@@ -275,10 +302,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 	if info != nil {
 		payload["sizeBytes"] = info.Size()
 		payload["modifiedUnixMs"] = info.ModTime().UnixMilli()
-		if execCtx != nil {
-			snap := recordReadSnapshot(execCtx, plan.FilePath, info, after, 0, 0, "write", false, false, false)
-			t.recordChatFileVersion(execCtx, plan.FilePath, snap, "write", false)
-		}
+		t.recordReadProof(execCtx, plan.FilePath, mutationReadProof(info, after, "write", CountTextLines(contentText), fullLineRange(CountTextLines(contentText))))
 	}
 	appendAccessPolicyMetadata(payload, access)
 	t.appendFileChangeHookResults(ctx, execCtx, payload, FileChangeEvent{
@@ -327,10 +351,14 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		result.Error = "file_edit_approval_required"
 		return result, nil
 	}
+	var proof ReadFileSnapshot
+	proofRequired := false
 	if t.cfg.FileTools.RequireReadBeforeWrite {
-		if result, ok := t.validateReadBeforeFileMutation(plan.FilePath, execCtx, "file_edit"); ok {
+		snap, exists, result, blocked := t.readProofForMutation(plan.FilePath, execCtx, "file_edit")
+		if blocked {
 			return result, nil
 		}
+		proof, proofRequired = snap, exists
 	}
 
 	before, beforeExists := fileSHA256IfExists(plan.FilePath)
@@ -354,6 +382,10 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 			return fileToolError("file_edit_failed", err.Error()), nil
 		}
 		currentRaw = data
+		before = bytesSHA256(data)
+		if proofRequired && before != proof.SHA256 {
+			return fileToolError("file_edit_modified_since_read", "file has been modified since last read; re-read before writing"), nil
+		}
 		decoded, ok, decodeErr := textcodec.DecodeFileText(data, plan.Encoding, t.runtimeInfo())
 		if decodeErr != nil {
 			return fileToolError("file_edit_invalid_encoding", decodeErr.Error()), nil
@@ -376,6 +408,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 
 	updatedContent := ""
 	replacements := 0
+	var lineEdits []LineEdit
 	if oldString == "" {
 		if beforeExists && normalizedContent != "" {
 			return fileToolError("file_edit_file_exists", "oldString is empty but file already has content"), nil
@@ -389,6 +422,12 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		}
 		if replacements > 1 && !plan.ReplaceAll {
 			return fileToolError("file_edit_multiple_matches", fmt.Sprintf("oldString matched %d times; set replaceAll=true or provide more context", replacements)), nil
+		}
+		lineEdits = lineEditsForMatches(normalizedContent, oldString, newString, plan.ReplaceAll)
+		if proofRequired {
+			if result, blocked := unseenEditRegionResult(proof, lineEdits); blocked {
+				return result, nil
+			}
 		}
 		if lineEndings == "MIXED" {
 			updatedContent, replacements = replaceNormalizedMatchesPreservingLineEndings(currentContent, normalizedContent, oldString, newString, plan.ReplaceAll)
@@ -420,7 +459,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		execCtx.EnsureAuthoredScripts()
 		execCtx.AuthoredScripts.Record(execCtx.ScriptOwner(), plan.FilePath, updatedBytes, before, false)
 	}
-	after := fileSHA256(plan.FilePath)
+	after := bytesSHA256(updatedBytes)
 	info, _ := os.Stat(plan.FilePath)
 	lineStats := computeLineDiffStats(currentContent, updatedContent)
 	_ = t.recordFileHistory(execCtx, plan.FilePath, currentRaw, beforeExists, updatedBytes, true)
@@ -440,10 +479,13 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	if info != nil {
 		payload["sizeBytes"] = info.Size()
 		payload["modifiedUnixMs"] = info.ModTime().UnixMilli()
-		if execCtx != nil {
-			snap := recordReadSnapshot(execCtx, plan.FilePath, info, after, 0, 0, "edit", false, false, false)
-			t.recordChatFileVersion(execCtx, plan.FilePath, snap, "edit", false)
+		totalLines := CountTextLines(updatedContent)
+		covered := fullLineRange(totalLines)
+		if proofRequired && proof.TotalLines > 0 {
+			// Lines the model has not read stay unread after the edit.
+			covered = ClampLineRanges(ApplyLineEdits(proof.Ranges, lineEdits), totalLines)
 		}
+		t.recordReadProof(execCtx, plan.FilePath, mutationReadProof(info, after, "edit", totalLines, covered))
 	}
 	appendAccessPolicyMetadata(payload, access)
 	t.appendFileChangeHookResults(ctx, execCtx, payload, FileChangeEvent{
@@ -620,23 +662,36 @@ func readImageFile(path string, info os.FileInfo) (map[string]any, bool, ToolExe
 	}, true, ToolExecutionResult{}
 }
 
+// validateReadBeforeWrite requires every line of an existing file to have
+// been read, because file_write replaces the whole document.
 func (t *RuntimeToolExecutor) validateReadBeforeWrite(path string, execCtx *ExecutionContext) (ToolExecutionResult, bool) {
-	return t.validateReadBeforeFileMutation(path, execCtx, "file_write")
+	proof, exists, result, blocked := t.readProofForMutation(path, execCtx, "file_write")
+	if blocked {
+		return result, true
+	}
+	if exists && !proof.Complete() {
+		return fileToolErrorWithFields("file_write_partial_read", "file was not fully read; read the remaining lines with file_read (follow nextOffset until hasMore=false) before overwriting", map[string]any{
+			"totalLines":   proof.TotalLines,
+			"unseenRanges": lineRangesPayload(proof.Uncovered(1, proof.TotalLines)),
+		}), true
+	}
+	return ToolExecutionResult{}, false
 }
 
-func (t *RuntimeToolExecutor) validateReadBeforeFileMutation(path string, execCtx *ExecutionContext, errorPrefix string) (ToolExecutionResult, bool) {
-	notReadCode := errorPrefix + "_not_read"
+// readProofForMutation returns the current read proof of an existing file.
+// It rejects a missing, expired or outdated proof; line coverage is checked
+// by the caller because file_write and file_edit need different lines.
+func (t *RuntimeToolExecutor) readProofForMutation(path string, execCtx *ExecutionContext, errorPrefix string) (ReadFileSnapshot, bool, ToolExecutionResult, bool) {
 	modifiedCode := errorPrefix + "_modified_since_read"
-	partialCode := errorPrefix + "_partial_read"
 	if errorPrefix == "file_write" {
 		modifiedCode = "file_modified_since_read"
 	}
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return ToolExecutionResult{}, false
+			return ReadFileSnapshot{}, false, ToolExecutionResult{}, false
 		}
-		return fileToolError(errorPrefix+"_failed", err.Error()), true
+		return ReadFileSnapshot{}, false, fileToolError(errorPrefix+"_failed", err.Error()), true
 	}
 	var snap ReadFileSnapshot
 	var ok bool
@@ -647,21 +702,18 @@ func (t *RuntimeToolExecutor) validateReadBeforeFileMutation(path string, execCt
 		snap, ok = t.loadChatFileVersionSnapshot(execCtx, path)
 	}
 	if !ok {
-		return fileToolError(notReadCode, "file exists but was not fully read in the configured scope; call file_read without offset/limit and ensure truncated=false before retrying"), true
-	}
-	if snapshotBlocksMutation(snap) {
-		return fileToolError(partialCode, "file was not fully read; call file_read without offset/limit and ensure truncated=false before retrying"), true
+		return ReadFileSnapshot{}, true, fileToolError(errorPrefix+"_not_read", "file exists but has not been read in the configured scope; call file_read before retrying"), true
 	}
 	now := time.Now().UnixMilli()
 	maxAge := t.fileReadMaxAge()
 	if fileSnapshotExpired(snap, now, maxAge) {
 		age := int64(0)
-		message := "文件缓存过期：观察时间缺失或异常，请重新调用 file_read 完整读取文件。"
+		message := "文件缓存过期：观察时间缺失或异常，请重新调用 file_read 读取文件。"
 		if snap.ReadAtUnixMs > 0 && snap.ReadAtUnixMs <= now {
 			age = now - snap.ReadAtUnixMs
-			message = fmt.Sprintf("文件缓存过期：距上次有效观察已过 %.1f 分钟，有效期为 %.1f 分钟，请重新调用 file_read 完整读取文件。", float64(age)/60000, maxAge.Minutes())
+			message = fmt.Sprintf("文件缓存过期：距上次有效观察已过 %.1f 分钟，有效期为 %.1f 分钟，请重新调用 file_read 读取文件。", float64(age)/60000, maxAge.Minutes())
 		}
-		return fileToolErrorWithFields(errorPrefix+"_cache_expired", message, map[string]any{
+		return ReadFileSnapshot{}, true, fileToolErrorWithFields(errorPrefix+"_cache_expired", message, map[string]any{
 			"observedAtUnixMs": snap.ReadAtUnixMs,
 			"ageMs":            age,
 			"maxAgeMs":         maxAge.Milliseconds(),
@@ -669,7 +721,7 @@ func (t *RuntimeToolExecutor) validateReadBeforeFileMutation(path string, execCt
 	}
 	currentSHA := fileSHA256(path)
 	if currentSHA == "" || currentSHA != snap.SHA256 {
-		return fileToolError(modifiedCode, "file has been modified since last read; re-read before writing"), true
+		return ReadFileSnapshot{}, true, fileToolError(modifiedCode, "file has been modified since last read; re-read before writing"), true
 	}
 	snap.ModifiedUnixMs = info.ModTime().UnixMilli()
 	snap.SizeBytes = info.Size()
@@ -679,7 +731,71 @@ func (t *RuntimeToolExecutor) validateReadBeforeFileMutation(path string, execCt
 		}
 		execCtx.ReadFileState[path] = snap
 	}
-	return ToolExecutionResult{}, false
+	return snap, true, ToolExecutionResult{}, false
+}
+
+// unseenEditRegionResult rejects an edit whose matched lines were not all
+// delivered to the model for the current file version.
+func unseenEditRegionResult(proof ReadFileSnapshot, edits []LineEdit) (ToolExecutionResult, bool) {
+	var unseen []LineRange
+	for _, edit := range edits {
+		unseen = append(unseen, proof.Uncovered(edit.Start, edit.End)...)
+	}
+	unseen = NormalizeLineRanges(unseen)
+	if len(unseen) == 0 {
+		return ToolExecutionResult{}, false
+	}
+	matches := make([]LineRange, 0, len(edits))
+	for _, edit := range edits {
+		matches = append(matches, LineRange{Start: edit.Start, End: edit.End})
+	}
+	return fileToolErrorWithFields("file_edit_unseen_region", "oldString matches lines that were not read; read unseenRanges with file_read (offset/limit) and retry", map[string]any{
+		"unseenRanges": lineRangesPayload(unseen),
+		"matchRanges":  lineRangesPayload(matches),
+	}), true
+}
+
+// lineEditsForMatches locates the non-overlapping matches that the edit
+// replaces, in the same order strings.Replace/ReplaceAll apply them.
+func lineEditsForMatches(content string, oldString string, newString string, replaceAll bool) []LineEdit {
+	if oldString == "" {
+		return nil
+	}
+	delta := strings.Count(newString, "\n") - strings.Count(oldString, "\n")
+	span := strings.Count(oldString[:len(oldString)-1], "\n")
+	var edits []LineEdit
+	line := 1
+	scanned := 0
+	for from := 0; from <= len(content); {
+		index := strings.Index(content[from:], oldString)
+		if index < 0 {
+			break
+		}
+		start := from + index
+		line += strings.Count(content[scanned:start], "\n")
+		scanned = start
+		edits = append(edits, LineEdit{Start: line, End: line + span, Delta: delta})
+		if !replaceAll {
+			break
+		}
+		from = start + len(oldString)
+	}
+	return edits
+}
+
+func lineRangesPayload(ranges []LineRange) []any {
+	out := make([]any, 0, len(ranges))
+	for _, item := range ranges {
+		out = append(out, map[string]any{"start": item.Start, "end": item.End})
+	}
+	return out
+}
+
+func fullLineRange(totalLines int) []LineRange {
+	if totalLines <= 0 {
+		return nil
+	}
+	return []LineRange{{Start: 1, End: totalLines}}
 }
 
 func (t *RuntimeToolExecutor) fileReadMaxAge() time.Duration {
@@ -691,13 +807,6 @@ func (t *RuntimeToolExecutor) fileReadMaxAge() time.Duration {
 
 func fileSnapshotExpired(snap ReadFileSnapshot, now int64, maxAge time.Duration) bool {
 	return snap.ReadAtUnixMs <= 0 || snap.ReadAtUnixMs > now || now-snap.ReadAtUnixMs > maxAge.Milliseconds()
-}
-
-func snapshotBlocksMutation(snap ReadFileSnapshot) bool {
-	if snap.Partial || snap.Truncated {
-		return true
-	}
-	return snap.Source == "read" && (snap.Offset > 1 || snap.Limit > 0)
 }
 
 func normalizeEditLineEndings(content string) (string, string) {
@@ -871,27 +980,37 @@ func previousLineEnding(content string, start int) string {
 	return ""
 }
 
-func recordReadSnapshot(execCtx *ExecutionContext, path string, info os.FileInfo, sha string, offset int64, limit int64, source string, lineNumbered bool, partial bool, truncated bool) ReadFileSnapshot {
+// recordReadProof stores snap as the file's read proof, accumulating line
+// ranges with an unexpired proof of the same version from this run or the
+// Chat ledger.
+func (t *RuntimeToolExecutor) recordReadProof(execCtx *ExecutionContext, path string, snap ReadFileSnapshot) {
 	if execCtx == nil {
-		return ReadFileSnapshot{}
+		return
 	}
 	if execCtx.ReadFileState == nil {
 		execCtx.ReadFileState = map[string]ReadFileSnapshot{}
 	}
-	snap := ReadFileSnapshot{
+	prev, ok := execCtx.ReadFileState[path]
+	if !ok {
+		prev, ok = t.loadChatFileVersionSnapshot(execCtx, path)
+	}
+	if ok && !fileSnapshotExpired(prev, time.Now().UnixMilli(), t.fileReadMaxAge()) {
+		snap = MergeReadFileSnapshot(prev, snap)
+	}
+	execCtx.ReadFileState[path] = snap
+	t.recordChatFileVersion(execCtx, path, snap)
+}
+
+func mutationReadProof(info os.FileInfo, sha string, source string, totalLines int, covered []LineRange) ReadFileSnapshot {
+	return ReadFileSnapshot{
 		ModifiedUnixMs: info.ModTime().UnixMilli(),
 		SizeBytes:      info.Size(),
 		SHA256:         sha,
-		Offset:         offset,
-		Limit:          limit,
+		TotalLines:     totalLines,
+		Ranges:         covered,
 		ReadAtUnixMs:   time.Now().UnixMilli(),
 		Source:         source,
-		LineNumbered:   lineNumbered,
-		Partial:        partial,
-		Truncated:      truncated,
 	}
-	execCtx.ReadFileState[path] = snap
-	return snap
 }
 
 func addLineNumbersArg(args map[string]any) bool {
@@ -899,26 +1018,6 @@ func addLineNumbersArg(args map[string]any) bool {
 		return false
 	}
 	return boolArg(args, "addLineNumbers")
-}
-
-func addLineNumbers(content string, startLine int) string {
-	if content == "" {
-		return ""
-	}
-	lines := strings.SplitAfter(content, "\n")
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-	maxLine := startLine + len(lines) - 1
-	width := len(fmt.Sprintf("%d", maxLine))
-	if width < 6 {
-		width = 6
-	}
-	var builder strings.Builder
-	for idx, line := range lines {
-		builder.WriteString(fmt.Sprintf("%*d\t%s", width, startLine+idx, line))
-	}
-	return builder.String()
 }
 
 func fileToolError(code string, message string) ToolExecutionResult {
@@ -962,46 +1061,6 @@ func fileAccessApprovalRequired(code string, message string, plan filetools.Acce
 	return result
 }
 
-func readLineRangeLimited(file *os.File, startLine int, limit int, maxBytes int) ([]byte, bool, error) {
-	if startLine < 1 {
-		startLine = 1
-	}
-	if maxBytes <= 0 {
-		maxBytes = 1 << 20
-	}
-	reader := bufio.NewReader(file)
-	var builder bytes.Buffer
-	lineNumber := 1
-	capturedLines := 0
-	for {
-		line, err := reader.ReadBytes('\n')
-		if len(line) > 0 {
-			if lineNumber >= startLine && (limit <= 0 || capturedLines < limit) {
-				remaining := maxBytes - builder.Len()
-				if remaining <= 0 {
-					return builder.Bytes(), true, nil
-				}
-				if len(line) > remaining {
-					builder.Write(line[:remaining])
-					return builder.Bytes(), true, nil
-				}
-				builder.Write(line)
-				capturedLines++
-				if limit > 0 && capturedLines >= limit {
-					return builder.Bytes(), false, nil
-				}
-			}
-			lineNumber++
-		}
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return builder.Bytes(), false, nil
-			}
-			return nil, false, err
-		}
-	}
-}
-
 func atomicWriteFile(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".write-*")
@@ -1033,6 +1092,11 @@ func fileSHA256IfExists(path string) (string, bool) {
 		return "", false
 	}
 	return fileSHA256(path), true
+}
+
+func bytesSHA256(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func fileSHA256(path string) string {
