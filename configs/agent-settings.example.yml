@@ -14,6 +14,7 @@ preset-tools:
   - file_glob
   - file_grep
   - run_env
+  - web_search
   - web_fetch
   - vision_recognize
   - image_generate

@@ -45,6 +45,7 @@ visibleBuiltinTools:
   - regex
   - vision_recognize
   - web_fetch
+  - web_search
   - awcp_invoke
   - awcp_manual
   - surface_activate

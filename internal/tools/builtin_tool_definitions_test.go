@@ -52,6 +52,9 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	if !byName["web_fetch"] {
 		t.Fatal("expected web_fetch builtin tool definition")
 	}
+	if !byName["web_search"] {
+		t.Fatal("expected web_search builtin tool definition")
+	}
 	if !byName["image_generate"] {
 		t.Fatal("expected image_generate builtin tool definition")
 	}
@@ -243,7 +246,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 		"finalize_planning": true, "image_generate": true,
 		"kbase_list": true, "kbase_files": true, "kbase_read": true, "kbase_search": true, "kbase_status": true,
 		"plan_add_tasks": true, "plan_get_tasks": true, "plan_update_task": true,
-		"automation_query": true, "automation_manage": true, "catalog_query": true, "catalog_manage": true, "kbase_library_query": true, "kbase_library_manage": true, "chat_query": true, "chat_manage": true, "platform_inspect": true, "run_env": true, "regex": true, "vision_recognize": true, "web_fetch": true,
+		"automation_query": true, "automation_manage": true, "catalog_query": true, "catalog_manage": true, "kbase_library_query": true, "kbase_library_manage": true, "chat_query": true, "chat_manage": true, "platform_inspect": true, "run_env": true, "regex": true, "vision_recognize": true, "web_fetch": true, "web_search": true,
 	}
 	for _, def := range defs {
 		visible, ok := def.Meta["catalogVisible"].(bool)
@@ -373,7 +376,7 @@ func TestWebFetchToolSchemaMatchesContract(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected web_fetch required array, got %#v", webFetchDef["required"])
 	}
-	if len(required) != 2 || required[0] != "url" || required[1] != "prompt" {
+	if len(required) != 1 || required[0] != "url" {
 		t.Fatalf("unexpected web_fetch required fields: %#v", required)
 	}
 }

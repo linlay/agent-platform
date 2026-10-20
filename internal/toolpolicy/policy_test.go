@@ -14,6 +14,7 @@ func TestAllowsReadOnlyUsesBuiltinAllowlistAndExplicitMetadata(t *testing.T) {
 		want  bool
 	}{
 		{name: "builtin read", def: api.ToolDetailResponse{Name: "file_read", Meta: map[string]any{"sourceCategory": "platform"}}, found: true, want: true},
+		{name: "web search is read only", def: api.ToolDetailResponse{Name: "web_search", Meta: map[string]any{"sourceCategory": "platform"}}, found: true, want: true},
 		{name: "external cannot impersonate builtin", def: api.ToolDetailResponse{Name: "file_read", Meta: map[string]any{"kind": "external", "sourceCategory": "external"}}, found: true, want: false},
 		{name: "builtin write", def: api.ToolDetailResponse{Name: "file_write", Meta: map[string]any{"sourceCategory": "platform"}}, found: true, want: false},
 		{name: "explicit external read", def: api.ToolDetailResponse{Name: "remote_lookup", Meta: map[string]any{"kind": "external", "readOnly": true}}, found: true, want: true},

@@ -305,9 +305,12 @@ func (c *Config) applyAgentPromptFile(path string) error {
 }
 
 func validateAIToolValues(values map[string]any) error {
+	if err := validateWebSearchValues(values); err != nil {
+		return err
+	}
 	schemas := map[string][]string{
 		"vision-recognize": {"model-key", "timeout", "max-images", "max-image-bytes", "output-format", "system-prompt"},
-		"web-fetch":        {"model-key", "timeout", "fetch-timeout", "max-url-length", "max-response-bytes", "max-markdown-chars", "max-output-tokens", "system-prompt"},
+		"web-fetch":        {"backend", "provider-key", "model-key", "timeout", "fetch-timeout", "max-url-length", "max-response-bytes", "max-markdown-chars", "max-output-tokens", "system-prompt"},
 		"image-generate":   {"model-key", "timeout", "size", "response-format", "output-mime-type", "max-prompt-chars", "max-images", "max-image-bytes", "persist-artifact"},
 	}
 	for section, fields := range schemas {
@@ -359,8 +362,43 @@ func validateAIToolValues(values map[string]any) error {
 						if _, err := configText(p, key, path); err != nil {
 							return err
 						}
+						if section == "web-fetch" && key == "backend" {
+							backend := strings.ToLower(strings.TrimSpace(stringValue(value, "")))
+							if backend != "" && backend != "direct" && backend != "deepseek" {
+								return fmt.Errorf("%s.backend must be direct or deepseek", path)
+							}
+						}
 					}
 				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateWebSearchValues(values map[string]any) error {
+	raw, exists := values["web-search"]
+	if !exists {
+		return nil
+	}
+	const path = "tools.web-search"
+	v, err := configMap(raw, path, "enabled", "provider-key", "timeout", "max-response-bytes")
+	if err != nil {
+		return err
+	}
+	if raw, ok := v["enabled"]; ok {
+		if _, ok := raw.(bool); !ok {
+			return fmt.Errorf("%s.enabled must be boolean", path)
+		}
+	}
+	if _, err := configText(v, "provider-key", path); err != nil {
+		return err
+	}
+	for _, key := range []string{"timeout", "max-response-bytes"} {
+		if raw, exists := v[key]; exists {
+			value, ok := raw.(int64)
+			if !ok || value <= 0 {
+				return fmt.Errorf("%s.%s must be a positive integer", path, key)
 			}
 		}
 	}

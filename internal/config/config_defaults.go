@@ -51,6 +51,11 @@ func defaultConfig(options LoadOptions) Config {
 			Enabled:        false,
 			DefaultProfile: "general",
 		},
+		WebSearch: WebSearchConfig{
+			Enabled:          false,
+			Timeout:          60,
+			MaxResponseBytes: 10 * 1024 * 1024,
+		},
 		WebFetch: WebFetchConfig{
 			Enabled:        false,
 			DefaultProfile: "general",
@@ -372,6 +377,7 @@ func (c *Config) normalize(configRoot string) error {
 		c.ContainerHub.DefaultSandboxLevel = "run"
 	}
 	c.VisionRecognize = normalizeVisionRecognizeConfig(c.VisionRecognize)
+	c.WebSearch = normalizeWebSearchConfig(c.WebSearch)
 	c.WebFetch = normalizeWebFetchConfig(c.WebFetch)
 	c.ImageGenerate = normalizeImageGenerateConfig(c.ImageGenerate)
 	c.ContainerHub.Enabled = strings.TrimSpace(c.ContainerHub.BaseURL) != ""
@@ -425,6 +431,17 @@ func normalizeVisionOutputFormat(value string) string {
 	}
 }
 
+func normalizeWebSearchConfig(cfg WebSearchConfig) WebSearchConfig {
+	cfg.ProviderKey = strings.TrimSpace(cfg.ProviderKey)
+	if cfg.Timeout <= 0 {
+		cfg.Timeout = 60
+	}
+	if cfg.MaxResponseBytes <= 0 {
+		cfg.MaxResponseBytes = 10 * 1024 * 1024
+	}
+	return cfg
+}
+
 func normalizeWebFetchConfig(cfg WebFetchConfig) WebFetchConfig {
 	cfg.DefaultProfile = strings.TrimSpace(cfg.DefaultProfile)
 	if cfg.DefaultProfile == "" {
@@ -440,6 +457,11 @@ func normalizeWebFetchConfig(cfg WebFetchConfig) WebFetchConfig {
 		if normalizedKey == "" {
 			continue
 		}
+		profile.Backend = strings.ToLower(strings.TrimSpace(profile.Backend))
+		if profile.Backend == "" {
+			profile.Backend = "direct"
+		}
+		profile.ProviderKey = strings.TrimSpace(profile.ProviderKey)
 		profile.ModelKey = strings.TrimSpace(profile.ModelKey)
 		if profile.Timeout <= 0 {
 			profile.Timeout = 60
@@ -449,6 +471,9 @@ func normalizeWebFetchConfig(cfg WebFetchConfig) WebFetchConfig {
 		}
 		if profile.MaxURLLength <= 0 {
 			profile.MaxURLLength = 2000
+			if profile.Backend == "deepseek" {
+				profile.MaxURLLength = 8192
+			}
 		}
 		if profile.MaxResponseBytes <= 0 {
 			profile.MaxResponseBytes = 10 * 1024 * 1024

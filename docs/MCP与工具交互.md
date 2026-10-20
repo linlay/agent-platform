@@ -69,6 +69,30 @@ SDK 负责 session ID、协议头、JSON/SSE、初始化通知和标准关闭；
 
 本地 `plan_add_tasks`、`plan_get_tasks`、`plan_update_task` 使用有序、单活动任务状态机。新 task 固定为 `init` 且不会自动启动；只允许最前面的非终态 task 由 `init` 进入 `in_progress` 或直接进入 `completed/failed/canceled`，且只有当前活动 task 可由 `in_progress` 进入任一终态。相同状态更新幂等，终态重试通过追加新 task 表达。非法更新不改变内存或 snapshot，工具结果分别使用稳定错误码 `plan_task_predecessor_incomplete`、`plan_task_not_current`、`invalid_plan_task_transition`，并在 structured result 中返回未变化的 plan 和状态诊断。 Plan 状态转移错误额外提供 `message` 与 `recovery`，明确本次更新未生效、当前/阻塞任务及纠正方向；应直接使用返回快照纠正调用，必要时再调用 `plan_get_tasks`，不要原样重试或为解除阻塞将任务标为完成。`plan_update_task` 成功时向模型返回与 Structured 相同的 JSON 快照（`planId`、`plan`、有活动项时的 `currentTaskId`），不再只返回 `OK`；`plan_add_tasks` 的新增任务文本返回保持不变。
 
+## 联网搜索与网页抓取
+
+`web_search` 和 `web_fetch` 是普通 Platform 工具，不依赖当前主对话模型的厂商或托管搜索能力。前者调用 DeepSeek Search，返回结构化来源和相关片段；后者读取选定网页，抓取方式由 profile 明确选择。两者沿用现有工具目录、Agent 挂载、只读门禁和并发调度，不新增 Desktop IPC 或独立对话接口。
+
+抓取默认仍为 `direct`，保留本机公开 URL 校验、HTTP 抓取和配置模型按 prompt 提取的流程。显式选择 `deepseek` 时，Platform 把公开 URL 发送给 DeepSeek Fetch，由上游返回 Markdown；始终通过已有 `result` 字段返回正文，由当前调用 Agent 理解与整理；可选 prompt 通过 `extractionPrompt` 保留提取要求，不额外请求 profile 的摘要模型，避免搜索能力依赖另一个模型 Provider。上游不提供最终跳转 URL，因此 DeepSeek 抓取结果只声明请求的 URL，不伪造 `finalUrl`。两种后端不互相静默降级，失败不会被当作成功网页交给模型。
+
+搜索与 DeepSeek 抓取通过 `provider-key` 引用已有 Provider registry 的 baseUrl 和 API key，不要求绑定聊天模型。凭据不进入工具参数；上游 API 路径由实现固定，模型只能提供搜索条件或目标网页。API 请求复用统一 HTTP 客户端与系统代理，并拒绝 API 重定向，避免把凭据带往另一个地址；非成功响应不向模型回显原始错误体。普通网页结果始终作为外部资料，不能替代用户指令，回答应保留实际来源链接。
+
+Search 的空结果与缺失正文属于有效响应；Fetch 的标题可以为空。HTTP 超时、限流或上游服务器错误进行有界重试，并共用调用的取消与超时预算；限流响应没有等待提示时，默认退避跨过当前按秒限流窗口。响应体有大小上限，两种工具都限制送入模型的 JSON 大小并保留完整 Structured 证据。Search 预览保留可容纳的完整来源 URL，跳过超长来源后仍检查后续结果；图标和未知附加信息不能挤掉有效来源，全部来源因大小被省略时明确区分于没有匹配结果。
+
+DeepSeek Fetch 的正文配置上限只影响模型预览，原文继续受 HTTP 响应限额保护。长正文在普通 Run 的 Chat 内部工具目录保存为 Markdown，返回 `resultRef` 供已挂载的 `file_read` 按行回读；保存使用 Chat 根内的受限文件操作和排他创建，目录符号链接不能导向 Chat 外，也不覆盖已有文件。只读 Run、没有 Chat 目录或保存失败时不伪造文件引用，仍返回有界预览并明确原文不可回读。接口失败、鉴权失败、余额不足和未获取到可用正文均返回失败工具结果，不允许以模型猜测补成抓取成功。配置入口与示例见 `configs/tools.example.yml`，精确参数见 `internal/resources/tools/web_search.yml` 与 `web_fetch.yml`；启用后需分别用真实账号验证搜索和抓取，离线测试不能证明账号权限或线上可用性。
+
+### 配置地址与 API Key
+
+沿用 WebClient 的“注册配置 → 供应商”入口，或编辑运行目录的 `registries/providers/<key>.yml`。搜索服务可使用独立 Provider，不要求创建聊天模型；例如：
+
+```yaml
+key: deepseek-web
+baseUrl: https://api.deepseek.com
+apiKey: "<DeepSeek 官方平台签发的 Key>"
+```
+
+`configs/tools.yml` 中，`web-search.provider-key` 与 `web-fetch.profiles.<profile>.provider-key` 分别选择凭据来源。两者可以引用同一个 Provider 共用 Key，也可以引用不同 Provider 分开管理。真实 Provider 文件留在本机，建议权限为 `0600`；源码、分发模板和工具参数不保存真实 Key。修改 Provider 内容沿用现有注册表发布与重载流程；修改工具启用项、profile 或 Provider 引用后需重启 Platform，再用新 Run 验证。更换小君聊天模型不会改变搜索 Key。
+
 ## 图片生成与产物发布 URL
 
 `image_generate` 统一覆盖文生图、图生图和局部重绘：省略 `images` 是文生图；传入 1–4 张 `images` 时，第一张固定为编辑主体，其余为参考图；可选 `mask` 固定作用于第一张图。图片和 mask 每项使用 `{"sourceType":"referenceName","value":"image.png"}` 或 `{"sourceType":"filePath","value":"@chat/image.png"}`；旧属性和字符串元素会在 provider 调用前失败。路径继续经过 AccessPolicy/HITL。运行时保留输入原始字节和 Alpha 通道，不使用视觉识别工具的大图 JPEG 重编码。

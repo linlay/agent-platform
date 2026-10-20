@@ -170,7 +170,10 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 		return ToolExecutionResult{Error: "invalid_tool_arguments", Output: err.Error(), ExitCode: -1}, nil
 	}
 	result, err := t.invoke(ctx, toolName, args, execCtx)
-	if err == nil && runtimeToolUsesCompactModelOutput(toolName) {
+	// DeepSeek Fetch retains full evidence in Structured and supplies its own
+	// bounded model preview; rebuilding it here would restore the full Markdown.
+	hasWebFetchPreview := strings.EqualFold(strings.TrimSpace(toolName), "web_fetch") && result.Structured["backend"] == "deepseek"
+	if err == nil && runtimeToolUsesCompactModelOutput(toolName) && !hasWebFetchPreview {
 		result.Output = CompactToolModelOutput(result.Structured, result.Output)
 	}
 	return result, err
@@ -239,6 +242,8 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 		return t.invokeImageGenerate(ctx, args, execCtx)
 	case "web_fetch", "WebFetch":
 		return t.invokeWebFetch(ctx, args, execCtx)
+	case "web_search":
+		return t.invokeWebSearch(ctx, args)
 	case "bash":
 		if execCtx != nil && hasRuntimeSandbox(execCtx.Session) {
 			if !t.cfg.ContainerHub.Enabled {

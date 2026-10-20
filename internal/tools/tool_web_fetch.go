@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -28,6 +29,7 @@ import (
 const webFetchMaxRedirects = 10
 
 type webFetchContent struct {
+	Title         string
 	Content       string
 	Bytes         int
 	Code          int
@@ -50,17 +52,11 @@ func (t *RuntimeToolExecutor) invokeWebFetch(ctx context.Context, args map[strin
 	if !cfg.Enabled {
 		return modelToolError("web_fetch_disabled", "web_fetch is disabled by configs/tools.yml", nil), nil
 	}
-	if t.models == nil {
-		return modelToolError("web_fetch_model_registry_unavailable", "model registry is not configured for web_fetch", nil), nil
-	}
 	rawURL := strings.TrimSpace(AnyStringNode(args["url"]))
 	if rawURL == "" {
 		return modelToolError("web_fetch_url_required", "url is required", nil), nil
 	}
 	prompt := strings.TrimSpace(AnyStringNode(args["prompt"]))
-	if prompt == "" {
-		return modelToolError("web_fetch_prompt_required", "prompt is required", nil), nil
-	}
 	profileName := strings.TrimSpace(AnyStringNode(args["profile"]))
 	if profileName == "" {
 		profileName = cfg.DefaultProfile
@@ -72,21 +68,53 @@ func (t *RuntimeToolExecutor) invokeWebFetch(ctx context.Context, args map[strin
 	if !ok {
 		return modelToolError("web_fetch_profile_not_found", "web_fetch profile not found: "+profileName, map[string]any{"profile": profileName}), nil
 	}
-	if strings.TrimSpace(profile.ModelKey) == "" {
-		return modelToolError("web_fetch_profile_model_missing", "web_fetch profile model-key is required: "+profileName, map[string]any{"profile": profileName}), nil
+	backend := strings.TrimSpace(profile.Backend)
+	if backend == "" {
+		backend = "direct"
 	}
-	model, provider, err := t.models.Get(profile.ModelKey)
-	if err != nil {
-		return modelToolError("web_fetch_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
+	if backend != "direct" && backend != "deepseek" {
+		return modelToolError("web_fetch_backend_invalid", "web-fetch backend must be direct or deepseek.", nil), nil
 	}
-	if strings.TrimSpace(provider.BaseURL) == "" || strings.TrimSpace(provider.APIKey) == "" {
-		return modelToolError("web_fetch_provider_config_invalid", "provider baseUrl and apiKey are required", map[string]any{"provider": provider.Key}), nil
+	// DeepSeek already extracts Markdown. Let the calling Agent interpret it;
+	// adding a second model call introduces unrelated provider failures/latency.
+	rawMarkdown := backend == "deepseek"
+	if backend == "direct" && prompt == "" {
+		return modelToolError("web_fetch_prompt_required", "prompt is required for the direct backend.", nil), nil
+	}
+	var model models.ModelDefinition
+	var provider models.ProviderDefinition
+	if !rawMarkdown {
+		if t.models == nil {
+			return modelToolError("web_fetch_model_registry_unavailable", "model registry is not configured for web_fetch", nil), nil
+		}
+		if strings.TrimSpace(profile.ModelKey) == "" {
+			return modelToolError("web_fetch_profile_model_missing", "web_fetch profile model-key is required when applying a prompt: "+profileName, map[string]any{"profile": profileName}), nil
+		}
+		var err error
+		model, provider, err = t.models.Get(profile.ModelKey)
+		if err != nil {
+			return modelToolError("web_fetch_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
+		}
+		if strings.TrimSpace(provider.BaseURL) == "" || strings.TrimSpace(provider.APIKey) == "" {
+			return modelToolError("web_fetch_provider_config_invalid", "provider baseUrl and apiKey are required", map[string]any{"provider": provider.Key}), nil
+		}
 	}
 
 	start := time.Now()
 	fetchCtx, cancel := context.WithTimeout(ctx, time.Duration(maxInt(profile.FetchTimeout, 60))*time.Second)
 	defer cancel()
-	response, redirect, err := t.fetchWebFetchContent(fetchCtx, rawURL, profile, execCtx)
+	var response *webFetchContent
+	var redirect *webFetchRedirect
+	var err error
+	if backend == "deepseek" {
+		var failure *ToolExecutionResult
+		response, failure = t.fetchDeepSeekWebContent(fetchCtx, rawURL, profile)
+		if failure != nil {
+			return *failure, nil
+		}
+	} else {
+		response, redirect, err = t.fetchWebFetchContent(fetchCtx, rawURL, profile, execCtx)
+	}
 	if err != nil {
 		return modelToolError("web_fetch_request_failed", err.Error(), map[string]any{"url": rawURL}), nil
 	}
@@ -127,13 +155,13 @@ func (t *RuntimeToolExecutor) invokeWebFetch(ctx context.Context, args map[strin
 
 	content := response.Content
 	truncated := false
-	if profile.MaxMarkdownChars > 0 && len(content) > profile.MaxMarkdownChars {
+	if !rawMarkdown && profile.MaxMarkdownChars > 0 && len(content) > profile.MaxMarkdownChars {
 		content = strings.ToValidUTF8(content[:profile.MaxMarkdownChars], "") + "\n\n[Content truncated due to length...]"
 		truncated = true
 	}
 
 	isPreapproved := webFetchHostPreapproved(response.FinalURL, cfg.PreapprovedHosts)
-	directReturn := isPreapproved && strings.Contains(strings.ToLower(response.ContentType), "text/markdown") && len(content) < maxInt(profile.MaxMarkdownChars, 100000)
+	directReturn := rawMarkdown || backend == "direct" && isPreapproved && strings.Contains(strings.ToLower(response.ContentType), "text/markdown") && len(content) < maxInt(profile.MaxMarkdownChars, 100000)
 	result := content
 	var usage map[string]any
 	resultTruncated := false
@@ -178,7 +206,19 @@ func (t *RuntimeToolExecutor) invokeWebFetch(ctx context.Context, args map[strin
 		"durationMs":  time.Since(start).Milliseconds(),
 		"result":      result,
 		"profile":     profileName,
-		"modelKey":    model.Key,
+	}
+	if !rawMarkdown {
+		payload["modelKey"] = model.Key
+	}
+	if backend == "deepseek" {
+		payload["backend"] = backend
+		payload["provider"] = profile.ProviderKey
+		payload["title"] = response.Title
+		if prompt != "" {
+			payload["extractionPrompt"] = prompt
+		}
+		// DeepSeek returns content but does not expose the final redirect URL.
+		delete(payload, "finalUrl")
 	}
 	if truncated {
 		payload["contentTruncated"] = true
@@ -196,6 +236,9 @@ func (t *RuntimeToolExecutor) invokeWebFetch(ctx context.Context, args map[strin
 	if response.PersistedPath != "" {
 		payload["persistedPath"] = response.PersistedPath
 		payload["persistedSize"] = response.PersistedSize
+	}
+	if rawMarkdown {
+		return deepSeekWebFetchResult(payload, profile, execCtx), nil
 	}
 	return structuredResult(payload), nil
 }
@@ -462,21 +505,48 @@ func isWebFetchBinaryContentType(contentType string) bool {
 
 func persistWebFetchBinary(data []byte, contentType string, execCtx *ExecutionContext) (string, error) {
 	chatDir := webFetchChatDir(execCtx)
-	if chatDir == "" {
+	if chatDir == "" || !filepath.IsAbs(chatDir) {
 		return "", errors.New("chat context unavailable")
 	}
-	dir := filepath.Join(chatDir, chat.ToolRootDirName, "web-fetch")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// Root keeps every filesystem operation beneath the trusted Chat directory,
+	// including when a directory or file is replaced by a symlink concurrently.
+	root, err := os.OpenRoot(chatDir)
+	if err != nil {
 		return "", err
+	}
+	defer root.Close()
+	dir := filepath.Join(chat.ToolRootDirName, "web-fetch")
+	// Creating each known component also handles concurrent first-time fetches:
+	// another call may have created the directory between our operations.
+	for _, component := range []string{chat.ToolRootDirName, dir} {
+		if err := root.Mkdir(component, 0o700); err != nil {
+			if !os.IsExist(err) {
+				return "", err
+			}
+			info, statErr := root.Stat(component)
+			if statErr != nil {
+				return "", statErr
+			}
+			if !info.IsDir() {
+				return "", fmt.Errorf("web-fetch storage path is not a directory")
+			}
+		}
 	}
 	sum := sha256.Sum256(data)
 	ext := webFetchExtension(contentType)
-	name := "webfetch-" + time.Now().UTC().Format("20060102T150405") + "-" + hex.EncodeToString(sum[:])[:12] + ext
+	name := "webfetch-" + time.Now().UTC().Format("20060102T150405") + "-" + hex.EncodeToString(sum[:])[:12] + "-" + rand.Text() + ext
 	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	file, err := root.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
 		return "", err
 	}
-	return path, nil
+	_, writeErr := file.Write(data)
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		_ = root.Remove(path)
+		return "", errors.Join(writeErr, closeErr)
+	}
+	return filepath.Join(chatDir, path), nil
 }
 
 func webFetchChatDir(execCtx *ExecutionContext) string {
@@ -491,6 +561,9 @@ func webFetchChatDir(execCtx *ExecutionContext) string {
 
 func webFetchExtension(contentType string) string {
 	contentType = strings.TrimSpace(strings.Split(contentType, ";")[0])
+	if strings.EqualFold(contentType, "text/markdown") {
+		return ".md"
+	}
 	extensions, err := mime.ExtensionsByType(contentType)
 	if err == nil && len(extensions) > 0 {
 		return extensions[0]

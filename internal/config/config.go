@@ -38,6 +38,7 @@ type Config struct {
 	TeamSettings     GeneralSettingsConfig
 	KBase            KBaseConfig
 	VisionRecognize  VisionRecognizeConfig
+	WebSearch        WebSearchConfig
 	WebFetch         WebFetchConfig
 	ImageGenerate    ImageGenerateConfig
 	Providers        CatalogConfig
@@ -314,6 +315,13 @@ type VisionRecognizeProfileConfig struct {
 	SystemPrompt  string
 }
 
+type WebSearchConfig struct {
+	Enabled          bool
+	ProviderKey      string
+	Timeout          int // seconds
+	MaxResponseBytes int
+}
+
 type WebFetchConfig struct {
 	Enabled          bool
 	DefaultProfile   string
@@ -322,6 +330,8 @@ type WebFetchConfig struct {
 }
 
 type WebFetchProfileConfig struct {
+	Backend          string
+	ProviderKey      string
 	ModelKey         string
 	Timeout          int // seconds
 	FetchTimeout     int // seconds
