@@ -79,7 +79,7 @@ func (s *Server) handleConnectorImport(w http.ResponseWriter, r *http.Request) {
 // HTTP MCP imports: connector operation lock, package revalidation and reload.
 func (s *Server) publishPreparedConnector(ctx context.Context, prepared *connector.PreparedArchive, overwrite bool) (connector.Package, error) {
 	return withCatalogDirectoryTransaction(ctx, s, "connectors", func(ctx context.Context) (connector.Package, error) {
-		return prepared.Publish(ctx, overwrite, mcp.ValidateConnectorPackages, func() error {
+		return prepared.Publish(ctx, overwrite, mcp.ValidateConnectorImportPackages, func() error {
 			if s.deps.CatalogReloader != nil {
 				return s.deps.CatalogReloader.Reload(context.WithoutCancel(ctx), "connectors")
 			}

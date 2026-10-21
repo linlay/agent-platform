@@ -60,21 +60,22 @@ func (s Sources) Load(id string) (Package, error) {
 // LoadAll isolates invalid packages so one connector cannot make the runtime or
 // the healthy connector catalog unavailable. Source-root traversal still fails.
 func (s Sources) LoadAll() ([]Package, error) {
-	return s.loadAll("", true)
+	return s.loadAll("", nil)
 }
 
-// Import validation remains strict, including checks against installed packages.
+// Only healthy installed packages participate in import conflict validation.
+// The candidate itself is validated strictly by PrepareArchive.
 func (s Sources) loadAllExcept(exclude string) ([]Package, error) {
-	return s.loadAll(exclude, false)
+	return s.loadAll(exclude, nil)
 }
 
-func (s Sources) loadAll(exclude string, skipInvalid bool) ([]Package, error) {
+func (s Sources) loadAll(exclude string, onInvalid func(string, error)) ([]Package, error) {
 	packages := []Package{}
 	load := func(id string) error {
 		pkg, err := s.Load(id)
 		if err != nil {
-			if !skipInvalid {
-				return err
+			if onInvalid != nil {
+				onInvalid(id, err)
 			}
 			log.Printf("[connectors] warning: skipping invalid connector %q: %v", id, err)
 			return nil

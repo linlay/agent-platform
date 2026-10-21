@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +10,59 @@ import (
 	"strings"
 	"testing"
 )
+
+func installInvalidConnectorFixture(t *testing.T, root string) {
+	t.Helper()
+	dir := filepath.Join(root, "tencent-map")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		"connector.json":    `{"id":"tencent-map","name":"Map","version":"1.0.0","type":"mcp","authMode":"token"}`,
+		"token-schema.json": `{"title_en":"Map","fields":[{"key":"TOKEN"}]}`,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestConnectorMCPImportIsolatesInvalidInstalledPackage(t *testing.T) {
+	f := setupAdminRegistriesFixture(t)
+	installInvalidConnectorFixture(t, f.cfg.Paths.EffectiveConnectorsCenterDir())
+	rec := httptest.NewRecorder()
+	f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/connectors/import-mcp", strings.NewReader(`{"mcpUrl":"http://127.0.0.1:8081/mcp"}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("invalid unrelated package blocked import: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/connectors", nil))
+	var response struct {
+		Data struct {
+			Connectors []struct {
+				ID     string `json:"id"`
+				Status string `json:"status"`
+				Error  string `json:"error"`
+				HasMCP bool   `json:"hasMcp"`
+			} `json:"connectors"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("admin catalog: %d %s %v", rec.Code, rec.Body.String(), err)
+	}
+	foundInvalid, foundImported := false, false
+	for _, item := range response.Data.Connectors {
+		if item.ID == "tencent-map" {
+			foundInvalid = item.Status == "invalid" && strings.Contains(item.Error, `unknown field "title_en"`) && !item.HasMCP
+		}
+		if item.ID == "127.0.0.1" {
+			foundImported = item.Status == "" && item.HasMCP
+		}
+	}
+	if !foundInvalid || !foundImported {
+		t.Fatalf("missing isolated diagnostic or imported package: %s", rec.Body.String())
+	}
+}
 
 func TestConnectorMCPImportCreatesHTTPMCPPackage(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)

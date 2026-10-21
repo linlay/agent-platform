@@ -112,7 +112,7 @@ func connectorIconURL(item connector.Summary) string {
 
 func (s *Server) handleAdminConnectors(w http.ResponseWriter, _ *http.Request) {
 	sources := s.connectorSources()
-	items, err := sources.Summaries()
+	items, err := sources.AdminSummaries()
 	if err != nil {
 		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusServiceUnavailable, "connector_catalog_unavailable", err.Error()))
 		return
@@ -139,6 +139,10 @@ func (s *Server) handleAdminConnectors(w http.ResponseWriter, _ *http.Request) {
 	for _, item := range items {
 		value := entry{Summary: item, Tools: []api.ToolSummary{}}
 		value.Manifest = item.Manifest.Localized(responseLocale(w))
+		if item.Status == "invalid" {
+			result = append(result, value)
+			continue
+		}
 		if item.HasCLI && !item.Builtin {
 			prepared, err := s.connectorAuth.PreparationStatus(item.ID)
 			if err != nil {
@@ -150,9 +154,15 @@ func (s *Server) handleAdminConnectors(w http.ResponseWriter, _ *http.Request) {
 		}
 		value.IconURL = connectorIconURL(item)
 		pkg, err := sources.Load(item.ID)
+		if err == nil {
+			err = mcp.ValidateConnectorPackage(pkg)
+		}
 		if err != nil {
-			s.writeAgentHTTPResponse(w, nil, err)
-			return
+			// A concurrent source edit must only invalidate this entry.
+			value.Summary = connector.Summary{Manifest: connector.Manifest{ID: item.ID, Name: item.ID}, Status: "invalid", Error: err.Error(), Builtin: item.Builtin, ReadOnly: item.Builtin, Skills: []string{}}
+			value.IconURL, value.Preparation = "", nil
+			result = append(result, value)
+			continue
 		}
 
 		for _, sourceKey := range pkg.ServerKeys() {

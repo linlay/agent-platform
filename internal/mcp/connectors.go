@@ -369,3 +369,38 @@ func ValidateConnectorPackages(packages []connector.Package) error {
 	}
 	return nil
 }
+
+// ValidateConnectorImportPackages receives the candidate as the last package.
+// Existing invalid packages are isolated just as they are during runtime load;
+// only the candidate and conflicts with healthy installed routes can reject it.
+func ValidateConnectorImportPackages(packages []connector.Package) error {
+	if len(packages) == 0 {
+		return nil
+	}
+	candidate := packages[len(packages)-1]
+	if err := ValidateConnectorPackage(candidate); err != nil {
+		return err
+	}
+	healthy := make([]connector.Package, 0, len(packages))
+	seen := map[string]bool{}
+	for _, pkg := range packages[:len(packages)-1] {
+		err := ValidateConnectorPackage(pkg)
+		if err == nil {
+			for _, key := range pkg.ServerKeys() {
+				if seen[key] {
+					err = fmt.Errorf("duplicate connector MCP server key %q", key)
+					break
+				}
+			}
+		}
+		if err != nil {
+			log.Printf("[mcp] warning: skipping invalid connector %q during import: %v", pkg.ID, err)
+			continue
+		}
+		for _, key := range pkg.ServerKeys() {
+			seen[key] = true
+		}
+		healthy = append(healthy, pkg)
+	}
+	return ValidateConnectorPackages(append(healthy, candidate))
+}
