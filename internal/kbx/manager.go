@@ -137,6 +137,10 @@ func (m *Manager) ProbeRuntime(ctx context.Context) (bool, knowledge.RuntimeStat
 	return required, s, err
 }
 func (m *Manager) config(l library, embedding bool) ([]byte, error) {
+	return m.configWithCredentials(l, embedding, true)
+}
+
+func (m *Manager) configWithCredentials(l library, embedding, credentials bool) ([]byte, error) {
 	if m.frozenConfig != nil {
 		return append([]byte(nil), m.frozenConfig...), nil
 	}
@@ -148,7 +152,7 @@ func (m *Manager) config(l library, embedding bool) ([]byte, error) {
 		if m.options.ConfigSource.Registry != nil {
 			copy.models = m.options.ConfigSource.Registry
 		}
-		return copy.config(l, embedding)
+		return copy.configWithCredentials(l, embedding, credentials)
 	}
 	cfg := map[string]any{"models": map[string]any{"embedding": nil, "query_expansion": nil, "reranker": nil, "graph_extraction": nil}}
 	defaults := knowledge.ChunkSettings{}
@@ -199,7 +203,7 @@ func (m *Manager) config(l library, embedding bool) ([]byte, error) {
 		if model.Embedding.BatchSize > 0 {
 			role["batch_size"] = model.Embedding.BatchSize
 		}
-		if provider.HasCredential() {
+		if credentials && provider.HasCredential() {
 			// Resolved per KBX invocation so a renewed access token is used next call.
 			credential, err := provider.Credential()
 			if err != nil {

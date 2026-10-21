@@ -35,6 +35,21 @@ type ModelConfigSource struct {
 func NewLibraryEngineWithSource(source *ModelConfigSource) *LibraryEngine {
 	return &LibraryEngine{runner: libraryConfigRunner{source: source}, embedding: source.ModelKey != "", configSource: source}
 }
+
+// Validate checks deployment defaults without reading a login token or publishing
+// credentials. Desktop may sign in after Platform has already started.
+func (s *ModelConfigSource) Validate() error {
+	if !filepath.IsAbs(s.File) {
+		return fmt.Errorf("KBX config file must be absolute")
+	}
+	if s.Prompt != "" && s.Prompt != "raw" && s.Prompt != "qwen3" && s.Prompt != "embeddinggemma" {
+		return fmt.Errorf("invalid KBX embedding prompt")
+	}
+	m := NewManager(Options{DefaultEmbeddingModelKey: s.ModelKey, EmbeddingPrompt: s.Prompt}, nil, s.Registry)
+	_, err := m.configWithCredentials(library{spec: knowledge.AgentSpec{Config: knowledge.DefaultConfig()}}, true, false)
+	return err
+}
+
 func (s *ModelConfigSource) Snapshot() ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

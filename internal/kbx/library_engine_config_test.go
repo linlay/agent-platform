@@ -125,3 +125,74 @@ func TestSharedModelSourceIgnoresAgentOverrideAndRetainsChunking(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestStartupValidationDefersDesktopTokenUntilInvocation(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"models", "providers"} {
+		if err := os.Mkdir(filepath.Join(root, dir), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, content := range map[string]string{
+		"providers/test.yml": "key: test\nbaseUrl: https://example.test\nuseAccessToken: true\n",
+		"models/embed.yml":   "key: embed\nprovider: test\ntype: embedding\nmodelId: embed\nembedding:\n  dimension: 8\n",
+	} {
+		if err := os.WriteFile(filepath.Join(root, path), []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	identity := filepath.Join(root, "identity", "access-token")
+	registry, err := models.LoadModelRegistryWithIdentityFile(root, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &ModelConfigSource{File: filepath.Join(root, "state", "index.yml"), Registry: registry, ModelKey: "embed"}
+	if err := source.Validate(); err != nil {
+		t.Fatalf("signed-out startup: %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(source.File)); !os.IsNotExist(err) {
+		t.Fatalf("validation published config: %v", err)
+	}
+	m := NewManager(Options{ConfigSource: source}, nil, registry)
+	l := library{}
+	if _, err := m.config(l, true); err == nil {
+		t.Fatal("signed-out embedding accepted")
+	}
+	engine := NewLibraryEngineWithSource(source)
+	signedOutFingerprint := engine.VectorFingerprint(kbases.Definition{})
+	if err := os.MkdirAll(filepath.Dir(identity), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{"first-test-token", "renewed-test-token"} {
+		if err := os.WriteFile(identity, []byte(token), 0600); err != nil {
+			t.Fatal(err)
+		}
+		raw, err := m.config(l, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(raw, []byte(token)) {
+			t.Fatal("current token not used")
+		}
+		if engine.VectorFingerprint(kbases.Definition{}) != signedOutFingerprint {
+			t.Fatal("login state changed the vector contract")
+		}
+	}
+	if err := os.Remove(identity); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.config(l, true); err == nil {
+		t.Fatal("signed-out embedding retained token")
+	}
+	if _, err := m.config(l, false); err != nil {
+		t.Fatalf("full-text required token: %v", err)
+	}
+	source.ModelKey = "missing"
+	if err := source.Validate(); err == nil {
+		t.Fatal("invalid model accepted at startup")
+	}
+	source.ModelKey, source.Prompt = "embed", "invalid"
+	if err := source.Validate(); err == nil {
+		t.Fatal("invalid prompt accepted at startup")
+	}
+}

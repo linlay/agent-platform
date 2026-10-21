@@ -76,7 +76,9 @@ func (e *LibraryEngine) VectorFingerprint(d kbases.Definition) string {
 		return ""
 	}
 	contract := map[string]any{"key": key, "prompt": prompt}
-	cfg, err := e.libraryConfig(d, true)
+	// Never read credentials here: a signed-out access token must not look like a contract change.
+	m := NewManager(Options{ConfigSource: e.configSource}, nil, nil)
+	cfg, err := m.configWithCredentials(library{definition: d}, true, false)
 	if err != nil {
 		contract["unavailable"] = true
 	} else {
