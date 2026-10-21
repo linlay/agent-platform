@@ -15,14 +15,16 @@ func Reached(tokens, window, percent int) bool {
 
 func Target(window int) int { return window * TargetPercent / 100 }
 
-// SummaryBudget reserves output and protocol overhead before opening a model
-// stream. The output must also fit beside the unmodified retained context.
-func SummaryBudget(window, retainedTokens int) (input, output int) {
-	output = min(4096, window/10, window-retainedTokens-64)
-	if output <= 0 {
+// SummaryBudget returns the summary input budget and the summary length
+// target. The target is a prompt instruction and the post-compact planning
+// reserve, not a provider output cap: the summary request leaves output open
+// and reserves the target only so the requested length fits beside the input.
+func SummaryBudget(window, retainedTokens int) (input, target int) {
+	target = min(4096, window/10, window-retainedTokens-64)
+	if target <= 0 {
 		return 0, 0
 	}
-	return max(0, window-output-64), output
+	return max(0, window-target-64), target
 }
 
 // KeepRecentRounds is the L1 completed-model-call protection window.

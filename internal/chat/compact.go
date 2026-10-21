@@ -145,7 +145,7 @@ func (s *FileStore) BuildCompactSnapshot(chatID string, keptRunCount int) (Compa
 		PreCompactEstimatedTokens:  preTokens,
 		PostCompactEstimatedTokens: postTokens,
 		CompressionRatio:           ratio,
-		Prompt:                     buildCompactPrompt(coveredMessages),
+		Prompt:                     buildCompactPrompt(coveredMessages, 0),
 		CoveredMessages:            coveredMessages,
 		TailMessages:               tailMessages,
 	}, nil
@@ -395,7 +395,7 @@ func cloneJSONLineMap(src map[string]any) map[string]any {
 	return dst
 }
 
-func buildCompactPrompt(messages []map[string]any) string {
+func buildCompactPrompt(messages []map[string]any, targetTokens int) string {
 	mediaProjected, _ := projectCompactMediaMessages(messages, true)
 	rendered := renderMessagesForCompact(normalizeCompactSummaryMessages(mediaProjected), 0)
 	if strings.TrimSpace(rendered) == "" {
@@ -410,18 +410,28 @@ func buildCompactPrompt(messages []map[string]any) string {
 - 工具记录已经做过确定性降噪；从中提取重要事实，不要复述工具协议包装。
 - 不要编造未出现的信息。
 - 输出中文，使用简洁的分段或要点。
-- 不要解释你在做压缩，也不要包含寒暄。
+- 不要解释你在做压缩，也不要包含寒暄。` + compactLengthRequirement(targetTokens) + `
 
 历史消息如下：
 
 ` + rendered)
 }
 
+func compactLengthRequirement(targetTokens int) string {
+	if targetTokens <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("\n- 摘要篇幅控制在约 %d token 以内；信息取舍优先保留继续工作必需的内容。", targetTokens)
+}
+
 // BuildCompactPromptWithinBudget always renders the complete normalized
 // history. If one summary model call cannot contain it, callers must fail
 // explicitly rather than dropping the middle or recursively summarizing.
-func BuildCompactPromptWithinBudget(messages []map[string]any, maxInputTokens int) (string, error) {
-	prompt := buildCompactPrompt(messages)
+//
+// targetTokens is the expected summary length. It is stated in the prompt; the
+// summary request itself does not cap provider output.
+func BuildCompactPromptWithinBudget(messages []map[string]any, maxInputTokens, targetTokens int) (string, error) {
+	prompt := buildCompactPrompt(messages, targetTokens)
 	if strings.TrimSpace(prompt) == "" {
 		return "", nil
 	}

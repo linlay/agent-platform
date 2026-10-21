@@ -243,7 +243,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 		"surface_screenshot": true, "surface_evaluate": true, "surface_click": true, "surface_element": true, "surface_login": true, "surface_cdp": true,
 		"awcp_manual": true, "awcp_invoke": true,
 		"file_edit": true, "file_glob": true, "file_grep": true, "file_read": true, "file_write": true,
-		"finalize_planning": true, "image_generate": true,
+		"finalize_planning": true, "image_generate": true, "speech_generate": true,
 		"kbase_list": true, "kbase_files": true, "kbase_read": true, "kbase_search": true, "kbase_status": true,
 		"plan_add_tasks": true, "plan_get_tasks": true, "plan_update_task": true,
 		"automation_query": true, "automation_manage": true, "catalog_query": true, "catalog_manage": true, "kbase_library_query": true, "kbase_library_manage": true, "chat_query": true, "chat_manage": true, "platform_inspect": true, "run_env": true, "regex": true, "vision_recognize": true, "web_fetch": true, "web_search": true,

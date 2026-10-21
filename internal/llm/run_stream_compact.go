@@ -323,15 +323,15 @@ func (s *llmRunStream) executeContextCompact() error {
 	rawCandidates := modelMessagesToMaps(work.plan.candidates)
 	baseMessages := append(cloneModelMessages(work.plan.system), work.plan.pinned...)
 	baseMessages = append(baseMessages, work.plan.retained...)
-	maxInputTokens, maxOutputTokens := compaction.SummaryBudget(s.effectiveContextWindow(), s.estimateCompactContext(baseMessages))
+	maxInputTokens, targetTokens := compaction.SummaryBudget(s.effectiveContextWindow(), s.estimateCompactContext(baseMessages))
 	work.setDiagnostic("candidateMessages", len(work.plan.candidates))
 	work.setDiagnostic("retainedMessages", len(work.plan.retained))
 	work.setDiagnostic("summaryMaxInputTokens", maxInputTokens)
-	work.setDiagnostic("summaryMaxOutputTokens", maxOutputTokens)
-	if maxOutputTokens <= 0 {
+	work.setDiagnostic("summaryTargetTokens", targetTokens)
+	if targetTokens <= 0 {
 		return s.failContextCompact(work, "context_window_uncompactable", false, nil)
 	}
-	prompt, err := chat.BuildCompactPromptWithinBudget(rawCandidates, maxInputTokens)
+	prompt, err := chat.BuildCompactPromptWithinBudget(rawCandidates, maxInputTokens, targetTokens)
 	if errors.Is(err, chat.ErrCompactSummaryInputTooLarge) {
 		return s.failContextCompact(work, "summary_input_too_large", false, nil)
 	}
@@ -348,7 +348,7 @@ func (s *llmRunStream) executeContextCompact() error {
 	usage := map[string]any{}
 	detail := "completed"
 	summaryStartedAt := time.Now()
-	modelSummary, modelUsage, modelErr := s.generateContextCompactSummaryWithBudget(work.request, prompt, maxOutputTokens)
+	modelSummary, modelUsage, modelErr := s.generateContextCompactSummary(work.request, prompt, targetTokens)
 	work.setDiagnostic("summaryDurationMs", time.Since(summaryStartedAt).Milliseconds())
 	if len(modelUsage) > 0 {
 		usage = modelUsage
@@ -363,7 +363,7 @@ func (s *llmRunStream) executeContextCompact() error {
 	if summary == "" || summary == "Model returned no assistant content." {
 		return s.failContextCompact(work, "summary_empty", true, nil)
 	}
-	targetTokens := s.effectiveContextWindow() - 64
+	windowLimit := s.effectiveContextWindow() - 64
 
 	summaryMessage := openAIMessage{Role: "user", Content: chat.CompactCheckpointSummaryMessage(summary)}
 	newMessages := make([]openAIMessage, 0, len(work.plan.system)+1+len(work.plan.pinned)+len(work.plan.retained))
@@ -381,9 +381,9 @@ func (s *llmRunStream) executeContextCompact() error {
 	newPinnedEnd := len(newMessages)
 	newMessages = append(newMessages, work.plan.retained...)
 	postTokens := s.estimateCompactContext(newMessages)
-	if postTokens >= work.preTokens || postTokens > targetTokens {
+	if postTokens >= work.preTokens || postTokens > windowLimit {
 		work.setDiagnostic("postCompactEstimatedTokens", postTokens)
-		work.setDiagnostic("targetTokens", targetTokens)
+		work.setDiagnostic("targetTokens", windowLimit)
 		return s.failContextCompact(work, "context_window_uncompactable", false, nil)
 	}
 	s.messages = newMessages
@@ -463,7 +463,9 @@ func (s *llmRunStream) executeToolContextCompact(work *contextCompactWork) error
 		work.setDiagnostic("postCompactEstimatedTokens", postTokens)
 		return s.failContextCompact(work, "no_compactable_tools", false, nil)
 	}
-	needsSummary := work.request.Trigger == "auto" && (compaction.Reached(postTokens, s.effectiveContextWindow(), compaction.SummaryPercent))
+	// Progressive compaction: an automatic L1 that cannot bring the context
+	// down to the target hands over to L2 in the same cycle.
+	needsSummary := work.request.Trigger == "auto" && postTokens > compaction.Target(s.effectiveContextWindow())
 	projection := chat.ProjectL1(modelMessagesToMaps(s.messages), compaction.KeepRecentRounds(s.effectiveContextWindow(), s.model.L1KeepRecentRounds), s.pinnedMessageStart, s.pinnedMessageEnd, preserveReasoningContent(s.protocolConfig, s.stageSettings))
 	start, end := 0, 0
 	for i, m := range projection.Messages {
@@ -733,7 +735,7 @@ func (s *llmRunStream) currentCompactAwaitingID() string {
 	return ""
 }
 
-func (s *llmRunStream) generateContextCompactSummaryWithBudget(request CompactControlRequest, prompt string, maxOutputTokens int) (string, map[string]any, error) {
+func (s *llmRunStream) generateContextCompactSummary(request CompactControlRequest, prompt string, targetTokens int) (string, map[string]any, error) {
 	summaryReq := api.QueryRequest{
 		RequestID: request.RequestID,
 		RunID:     request.CompactID,
@@ -743,7 +745,7 @@ func (s *llmRunStream) generateContextCompactSummaryWithBudget(request CompactCo
 		Role:    api.QueryRoleSystem,
 		Message: prompt,
 	}
-	stream, err := s.engine.StreamSummary(s.ctx, summaryReq, s.session, prompt, maxOutputTokens)
+	stream, err := s.engine.StreamSummary(s.ctx, summaryReq, s.session, prompt, targetTokens)
 	if err != nil {
 		return "", nil, err
 	}

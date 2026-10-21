@@ -45,5 +45,5 @@ func logicalCompactSnapshot(chatID string, records []jsonLineRecord, data []byte
 	if len(covered) == 0 {
 		return CompactSnapshot{}, ErrNoCompactableHistory
 	}
-	return CompactSnapshot{ChatID: chatID, FileHash: jsonlContentHash(data), InsertAfterIndex: boundary - 1, CoveredLineCount: boundary, ProjectedMessageCount: len(covered), PreCompactEstimatedTokens: EstimateRawMessageTokens(rawMessagesFromJSONLLines(recordValues(records))), PostCompactEstimatedTokens: EstimateRawMessageTokens(tail), CoveredMessages: covered, TailMessages: tail, Prompt: buildCompactPrompt(covered)}, nil
+	return CompactSnapshot{ChatID: chatID, FileHash: jsonlContentHash(data), InsertAfterIndex: boundary - 1, CoveredLineCount: boundary, ProjectedMessageCount: len(covered), PreCompactEstimatedTokens: EstimateRawMessageTokens(rawMessagesFromJSONLLines(recordValues(records))), PostCompactEstimatedTokens: EstimateRawMessageTokens(tail), CoveredMessages: covered, TailMessages: tail, Prompt: buildCompactPrompt(covered, 0)}, nil
 }

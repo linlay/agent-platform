@@ -170,7 +170,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 
 	modelRegistryStartedAt := time.Now()
-	modelRegistry, err := models.LoadModelRegistry(cfg.Paths.RegistriesDir)
+	modelRegistry, err := models.LoadModelRegistryWithIdentityFile(cfg.Paths.RegistriesDir, cfg.IdentityFile)
 	if err != nil {
 		return nil, fmt.Errorf("load model registry (%s): %w", cfg.Paths.RegistriesDir, err)
 	}
@@ -256,7 +256,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	mcpToolSync.ReconcileRegistry()
 	kbaseSource := knowledgeCatalogSource{registry: registry}
 	kbxConfig := &kbx.ModelConfigSource{File: filepath.Join(cfg.Paths.StateDir, "kbx", "index.yml"), Registry: modelRegistry, ModelKey: cfg.KBX.Embedding.ModelKey, Prompt: cfg.KBX.Embedding.Prompt}
-	if _, err := kbxConfig.Snapshot(); err != nil {
+	if err := kbxConfig.Validate(); err != nil {
 		return nil, fmt.Errorf("configure KBX: %w", err)
 	}
 	knowledgeManager := kbx.NewManager(kbx.Options{StateDir: cfg.Paths.StateDir, ConfigSource: kbxConfig}, kbaseSource, modelRegistry)

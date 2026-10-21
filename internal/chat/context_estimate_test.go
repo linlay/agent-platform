@@ -53,7 +53,7 @@ func TestCompactMediaEstimateDoesNotCountBase64AsText(t *testing.T) {
 	if got := EstimateRawMessageTokens(messages); got < compactImageFallbackTokens || got > compactImageFallbackTokens+1000 {
 		t.Fatalf("media-safe estimate = %d, want bounded fallback", got)
 	}
-	prompt, err := BuildCompactPromptWithinBudget(messages, 10_000)
+	prompt, err := BuildCompactPromptWithinBudget(messages, 10_000, 0)
 	if err != nil {
 		t.Fatalf("BuildCompactPromptWithinBudget: %v", err)
 	}

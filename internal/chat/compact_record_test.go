@@ -43,7 +43,7 @@ func TestCompactRecordLinesAuditEveryOutcomeWithoutLeakingToReplay(t *testing.T)
 		"startedAt":     testEpochMillis(400),
 		"modelKey":      "m1",
 		"contextWindow": 262144,
-		"diagnostics":   map[string]any{"summaryMaxOutputTokens": 4096},
+		"diagnostics":   map[string]any{"summaryTargetTokens": 4096},
 		"error":         map[string]any{"code": "provider_timeout", "message": "model stream idle timeout after 60 seconds"},
 	}
 	writer.OnEvent(stream.EventData{Seq: 11, Type: "context.compact.failed", Timestamp: testEpochMillis(460), Payload: failed})
@@ -84,7 +84,7 @@ func TestCompactRecordLinesAuditEveryOutcomeWithoutLeakingToReplay(t *testing.T)
 		t.Fatalf("completed record = %#v", ok)
 	}
 	bad := records[1]
-	if bad.Status != "failed" || bad.Detail != "summary_model_failed" || !bad.Retryable || bad.DurationMs != 60 || bad.Error["code"] != "provider_timeout" || bad.Diagnostics["summaryMaxOutputTokens"] == nil {
+	if bad.Status != "failed" || bad.Detail != "summary_model_failed" || !bad.Retryable || bad.DurationMs != 60 || bad.Error["code"] != "provider_timeout" || bad.Diagnostics["summaryTargetTokens"] == nil {
 		t.Fatalf("failed record = %#v", bad)
 	}
 	if failedEvent == nil || failedEvent[CompactRecordEventKey] != nil {

@@ -156,10 +156,14 @@ func (p *openAIProtocol) PrepareRequest(params protocolStreamParams) (preparedPr
 	if err != nil {
 		return preparedProviderRequest{}, err
 	}
+	authHeader, authValue, err := params.provider.AuthHeader("")
+	if err != nil {
+		return preparedProviderRequest{}, err
+	}
 	headers := map[string]string{
-		"Content-Type":  "application/json",
-		"Accept":        "text/event-stream",
-		"Authorization": "Bearer " + params.provider.APIKey,
+		"Content-Type": "application/json",
+		"Accept":       "text/event-stream",
+		authHeader:     authValue,
 	}
 	for key, value := range params.protocolConfig.Headers {
 		headers[key] = value
@@ -416,7 +420,7 @@ func sanitizeOpenAIToolResultMessages(messages []openAIMessage) []openAIMessage 
 		if _, ok := structured["contentBase64"]; !ok {
 			continue
 		}
-		data, err := json.Marshal(contracts.CompactStructuredForModel(structured))
+		data, err := contracts.MarshalModelJSON(contracts.CompactStructuredForModel(structured))
 		if err != nil {
 			continue
 		}
@@ -425,14 +429,17 @@ func sanitizeOpenAIToolResultMessages(messages []openAIMessage) []openAIMessage 
 	return out
 }
 
-// mergeRawMessagesByMsgID merges multiple raw assistant messages that share the
-// same _msgId into a single entry. This is necessary because the storage layer
-// writes reasoning, content, and each tool_call as separate StoredMessage
+// mergeRawMessagesByMsgID merges consecutive raw assistant messages that share
+// the same _msgId into a single entry. This is necessary because the storage
+// layer writes reasoning, content, and each tool_call as separate StoredMessage
 // entries (with a shared _msgId), but the OpenAI protocol requires all
-// tool_calls from one turn to be in a single assistant message.
+// tool_calls from one turn to be in a single assistant message. Only adjacent
+// entries merge: older history may reuse a _msgId across a steer, and merging
+// across the intervening user message would move tool_calls away from their
+// results.
 func mergeRawMessagesByMsgID(raw []map[string]any) []map[string]any {
 	var result []map[string]any
-	msgIDIndex := map[string]int{} // _msgId → index in result
+	openMsgID := "" // _msgId of the assistant entry at the end of result
 
 	for _, entry := range raw {
 		role, _ := entry["role"].(string)
@@ -440,24 +447,24 @@ func mergeRawMessagesByMsgID(raw []map[string]any) []map[string]any {
 
 		// Only merge assistant messages with a _msgId
 		if role != "assistant" || msgID == "" {
+			openMsgID = ""
 			result = append(result, entry)
 			continue
 		}
 
-		idx, seen := msgIDIndex[msgID]
-		if !seen {
-			// First occurrence: clone the entry and record its position
+		if msgID != openMsgID {
+			// Start of a new run of entries: clone the entry and keep it open
 			merged := map[string]any{}
 			for k, v := range entry {
 				merged[k] = v
 			}
-			msgIDIndex[msgID] = len(result)
+			openMsgID = msgID
 			result = append(result, merged)
 			continue
 		}
 
-		// Merge into existing entry at idx
-		existing := result[idx]
+		// Merge into the open entry at the end of result
+		existing := result[len(result)-1]
 
 		// Merge content (string concatenation)
 		if newContent, _ := entry["content"].(string); newContent != "" {

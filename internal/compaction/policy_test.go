@@ -16,12 +16,12 @@ func TestThresholdBoundaries(t *testing.T) {
 	}
 }
 
-func TestSummaryBudgetReservesOutputAndRetainedContext(t *testing.T) {
-	input, output := SummaryBudget(10000, 5000)
-	if output != 1000 || input+output+64 != 10000 {
-		t.Fatalf("budget %d/%d", input, output)
+func TestSummaryBudgetReservesTargetAndRetainedContext(t *testing.T) {
+	input, target := SummaryBudget(10000, 5000)
+	if target != 1000 || input+target+64 != 10000 {
+		t.Fatalf("budget %d/%d", input, target)
 	}
-	if input, output := SummaryBudget(10000, 9936); input != 0 || output != 0 {
+	if input, target := SummaryBudget(10000, 9936); input != 0 || target != 0 {
 		t.Fatal("uncompactable retained context accepted")
 	}
 }

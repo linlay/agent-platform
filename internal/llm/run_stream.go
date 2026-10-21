@@ -33,6 +33,7 @@ type llmRunStream struct {
 	pinnedMessageStart          int
 	pinnedMessageEnd            int
 	summaryCall                 bool
+	summaryTargetTokens         int
 	compactEstimateScale        float64
 	lastRequestRawTokens        int
 	lastCallUseProjectedContext bool

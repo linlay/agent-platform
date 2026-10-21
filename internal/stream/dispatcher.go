@@ -451,6 +451,9 @@ func usageSnapshotEvent(runID string, taskID string, chatID string, modelKey str
 		if tool.Operation != "" {
 			currentUsage["operation"] = tool.Operation
 		}
+		if tool.Characters > 0 {
+			currentUsage["characters"] = tool.Characters
+		}
 	} else {
 		if modelKey != "" {
 			currentUsage["modelKey"] = modelKey

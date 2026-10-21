@@ -108,8 +108,12 @@ func (m *Manager) queryConfig(raw []byte, d kbases.Definition, method string, o 
 			timeout = 30
 		}
 		value := map[string]any{"url": endpoint, "model": model.ModelID, "timeout_ms": timeout * 1000}
-		if provider.APIKey != "" {
-			value["api_key"] = provider.APIKey
+		if provider.HasCredential() {
+			credential, err := provider.Credential()
+			if err != nil {
+				return nil, err
+			}
+			value["api_key"] = credential
 		}
 		cfg["models"].(map[string]any)[role.name] = value
 	}

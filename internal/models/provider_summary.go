@@ -1,9 +1,6 @@
 package models
 
-import (
-	"sort"
-	"strings"
-)
+import "sort"
 
 // ProviderSummary is an allowlisted discovery projection. Endpoints, headers,
 // compatibility payloads and credentials must never be serialized here.
@@ -23,7 +20,7 @@ func (r *ModelRegistry) ProviderSummaries() []ProviderSummary {
 	defer r.mu.RUnlock()
 	result := make([]ProviderSummary, 0, len(r.providers))
 	for key, p := range r.providers {
-		v := ProviderSummary{Key: key, Protocols: []string{}, ModelKeys: []string{}, CredentialConfigured: strings.TrimSpace(p.APIKey) != "", DefaultModel: p.DefaultModel}
+		v := ProviderSummary{Key: key, Protocols: []string{}, ModelKeys: []string{}, CredentialConfigured: p.HasCredential(), DefaultModel: p.DefaultModel}
 		for protocol := range p.Protocols {
 			v.Protocols = append(v.Protocols, protocol)
 		}

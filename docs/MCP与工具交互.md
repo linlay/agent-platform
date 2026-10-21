@@ -105,6 +105,10 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 
 `image_generate` 和 `artifact_publish` 的工具说明共同约束模型输出：`path` 只用于工具间传递，可以是经授权的当前 Workspace/Chat 内 Host 绝对路径，禁止展示、写进 Markdown 或转换成 `file://`；用户可见内容只能逐字复制工具返回的 `url`，禁止手工拼接或编码资源地址。图片生成后使用 `images[n].url`；再次发布后改用 `publishedArtifacts[n].url`，因为后者指向 `artifacts/<runId>/` 发布副本。缺少有效 `url` 时必须报告资源物化或发布失败，不得伪造 Markdown。
 
+## 语音合成
+
+`speech_generate` 由 `configs/tools.yml -> speech-generate` 显式启用，按 profile 选择 `type: tts` 模型、默认音色与输出格式；模型协议 `MINIMAX_TTS` / `DASHSCOPE_TTS` 决定请求与响应，代码不按模型名或 provider 分支。参数为必填 `text` 与可选 `profile`、`voice`、`language`、`speed`、`pitch`、`volume`、`emotion`、`format`、`sampleRate`；协议不支持的参数返回 `speech_generate_param_unsupported`。成功音频写入当前 Chat，用户可见内容只使用 `audio.url`（`@chat/<filename>`），`audio.path` 与图片一样仅供工具间传递。上游返回的临时 URL 会立即下载保存，不依赖其有效期。错误只带上游错误码、截断后的消息和请求 ID，不回显请求体或凭据。用量与计价见 [配置化说明](配置化说明.md#语音合成模型type-tts)。
+
 ```markdown
 ![夏日海报](generated.png)
 [下载夏日海报](artifacts/run_01/generated.png)

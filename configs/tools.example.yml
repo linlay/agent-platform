@@ -97,6 +97,7 @@ bash:
   #   - "{{command}}"
 
 file-tools:
+  # file_read 的单次原始载入上限（文本按 40000 字节模型预算分页，可翻页读完更大的文件）；/api/file 与 diff 仍以它作为文件上限。
   max-read-bytes: 1048576
   max-write-bytes: 1048576
   require-write-approval: true
@@ -223,3 +224,23 @@ image-generate:
       max-images: 4
       max-image-bytes: 20971520
       persist-artifact: true
+
+speech-generate:
+  enabled: true
+  default-profile:
+  # 模型必须是 type: tts；请求与响应格式由模型 protocol（MINIMAX_TTS / DASHSCOPE_TTS）在源码中实现。
+  # voice 为默认音色 ID（各 provider 专属）；voices 可选，列出后只允许这些音色，并在启动时写入工具说明。
+  # timeout 可省略或设为 0，沿用有效 budget.tool.timeout；显式正数只缩短语音调用时限。
+  # max-text-chars 默认 3000，max-audio-bytes 默认 52428800。
+  profiles:
+    th-minimax-speech-2_8-hd:
+      model-key: th-minimax-speech-2_8-hd
+      voice: male-qn-qingse
+      format: mp3
+      sample-rate: 32000
+      max-text-chars: 3000
+    qwen-flash:
+      model-key: dashscope-qwen3-tts-flash
+      voice: Cherry
+      # Qwen TTS 单次文本上限 600 字，输出固定为 24kHz WAV。
+      max-text-chars: 600

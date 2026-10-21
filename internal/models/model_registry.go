@@ -10,16 +10,22 @@ import (
 	"strings"
 	"sync"
 
+	"agent-platform/internal/agentconfig"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 )
 
 type ProviderDefinition struct {
-	Key          string
-	BaseURL      string
-	APIKey       string
-	DefaultModel string
-	EndpointPath string
+	Key     string
+	BaseURL string
+	APIKey  string
+	// UseAccessToken sends the Desktop identity token (--identity-file) as the
+	// bearer credential instead of apiKey; the file is read per request.
+	UseAccessToken  bool
+	AccessTokenFile string
+	DefaultModel    string
+	EndpointPath    string
 	// RequestIDHeader names a relay's own request ID response header; it is
 	// read before the generic request ID headers for every protocol.
 	RequestIDHeader string
@@ -68,12 +74,24 @@ type ModelDefinition struct {
 const (
 	ProtocolACPPassthrough = "ACP_PASSTHROUGH"
 
-	ModelTypeChat            = "chat"
-	ModelTypeEmbedding       = "embedding"
-	ModelTypeReranker        = "reranker"
-	ModelTypeImageGeneration = "image-generation"
-	ModelTypeVL              = "vl"
+	ModelTypeChat      = "chat"
+	ModelTypeEmbedding = "embedding"
+	ModelTypeReranker  = "reranker"
+	ModelTypeImage     = "image"
+	ModelTypeVL        = "vl"
+	ModelTypeTTS       = "tts"
+
+	// Speech protocols carry their own request and response code in
+	// internal/tools; type: tts models must declare one of them.
+	ProtocolMiniMaxTTS   = "MINIMAX_TTS"
+	ProtocolDashScopeTTS = "DASHSCOPE_TTS"
+
+	PricingUnitPer1MTokens      = "per_1m_tokens"
+	PricingUnitPer10KCharacters = "per_10k_characters"
 )
+
+// TTSProtocols lists the speech protocols implemented by speech_generate.
+var TTSProtocols = []string{ProtocolMiniMaxTTS, ProtocolDashScopeTTS}
 
 type ModelRerankerConfig struct{ EndpointPath string }
 
@@ -121,10 +139,14 @@ type ModelPricing struct {
 	InputCacheHit  float64
 	InputCacheMiss float64
 	Output         float64
+	// Characters is the price per 10k provider-billed characters; it applies
+	// only with unit per_10k_characters.
+	Characters float64
 }
 
 type ModelRegistry struct {
-	root string
+	root         string
+	identityFile string
 
 	mu        sync.RWMutex
 	providers map[string]ProviderDefinition
@@ -145,6 +167,15 @@ func (p ProviderDefinition) Protocol(protocol string) ProtocolDefinition {
 	return ProtocolDefinition{}
 }
 
+// ResolvedEndpointPath returns the endpoint configured under
+// protocols.<protocol>, or the protocol's built-in default.
+func (p ProviderDefinition) ResolvedEndpointPath(protocol string) string {
+	if path := strings.TrimSpace(p.Protocol(protocol).EndpointPath); path != "" {
+		return path
+	}
+	return defaultEndpointPath(protocol, p.BaseURL)
+}
+
 func IsACPPassthroughProtocol(protocol string) bool {
 	return strings.EqualFold(strings.TrimSpace(protocol), ProtocolACPPassthrough)
 }
@@ -163,23 +194,79 @@ func NormalizeModelType(value string) (string, bool) {
 		return ModelTypeEmbedding, true
 	case ModelTypeReranker:
 		return ModelTypeReranker, true
-	case ModelTypeImageGeneration:
-		return ModelTypeImageGeneration, true
+	case ModelTypeImage:
+		return ModelTypeImage, true
 	case ModelTypeVL:
 		return ModelTypeVL, true
+	case ModelTypeTTS:
+		return ModelTypeTTS, true
 	default:
 		return "", false
 	}
 }
 
+// InvalidModelTypeMessage explains a rejected type, naming the replacement for
+// renamed types.
+func InvalidModelTypeMessage(value string) string {
+	if strings.EqualFold(strings.TrimSpace(value), "image-generation") {
+		return "model type image-generation was renamed to image"
+	}
+	return "model type must be chat, embedding, reranker, image, vl, or tts"
+}
+
+func IsTTSProtocol(protocol string) bool {
+	normalized := strings.ToUpper(strings.TrimSpace(protocol))
+	for _, item := range TTSProtocols {
+		if normalized == item {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateModelTypeProtocol keeps speech protocols and type: tts paired.
+func ValidateModelTypeProtocol(modelType string, protocol string) error {
+	if modelType == ModelTypeTTS {
+		if !IsTTSProtocol(protocol) {
+			return fmt.Errorf("type: tts requires protocol %s", strings.Join(TTSProtocols, " or "))
+		}
+		return nil
+	}
+	if IsTTSProtocol(protocol) {
+		return fmt.Errorf("protocol %s is only supported for type: tts", strings.ToUpper(strings.TrimSpace(protocol)))
+	}
+	return nil
+}
+
+// ValidateModelPricing checks that character pricing is used only with its
+// unit, and that tts models are not priced per token.
+func ValidateModelPricing(pricing ModelPricing, modelType string) error {
+	tokenPriced := pricing.InputCacheHit > 0 || pricing.InputCacheMiss > 0 || pricing.Output > 0
+	if pricing.Unit == PricingUnitPer10KCharacters {
+		if pricing.Characters <= 0 {
+			return fmt.Errorf("pricing.characters must be greater than 0 for unit %s", PricingUnitPer10KCharacters)
+		}
+		if tokenPriced {
+			return fmt.Errorf("pricing unit %s does not accept inputCacheHit, inputCacheMiss or output", PricingUnitPer10KCharacters)
+		}
+		return nil
+	}
+	if pricing.Characters > 0 {
+		return fmt.Errorf("pricing.characters requires unit %s", PricingUnitPer10KCharacters)
+	}
+	if modelType == ModelTypeTTS && tokenPriced {
+		return fmt.Errorf("type: tts pricing must use unit %s", PricingUnitPer10KCharacters)
+	}
+	return nil
+}
 func IsChatModel(model ModelDefinition) bool {
 	modelType, ok := NormalizeModelType(model.Type)
 	return ok && modelType == ModelTypeChat
 }
 
-func IsImageGenerationModel(model ModelDefinition) bool {
+func IsImageModel(model ModelDefinition) bool {
 	modelType, ok := NormalizeModelType(model.Type)
-	return ok && modelType == ModelTypeImageGeneration
+	return ok && modelType == ModelTypeImage
 }
 
 func IsVLModel(model ModelDefinition) bool {
@@ -187,8 +274,19 @@ func IsVLModel(model ModelDefinition) bool {
 	return ok && modelType == ModelTypeVL
 }
 
+func IsTTSModel(model ModelDefinition) bool {
+	modelType, ok := NormalizeModelType(model.Type)
+	return ok && modelType == ModelTypeTTS
+}
+
 func LoadModelRegistry(registriesDir string) (*ModelRegistry, error) {
-	registry := &ModelRegistry{root: registriesDir}
+	return LoadModelRegistryWithIdentityFile(registriesDir, "")
+}
+
+// LoadModelRegistryWithIdentityFile binds useAccessToken providers to the
+// shared Desktop identity file.
+func LoadModelRegistryWithIdentityFile(registriesDir, identityFile string) (*ModelRegistry, error) {
+	registry := &ModelRegistry{root: registriesDir, identityFile: strings.TrimSpace(identityFile)}
 	if err := registry.Reload(); err != nil {
 		return nil, err
 	}
@@ -205,7 +303,7 @@ func (r *ModelRegistry) Reload() error {
 // ReloadProviders reloads only provider definitions. Independent of models —
 // model definitions still resolve providers by key from the latest map.
 func (r *ModelRegistry) ReloadProviders() error {
-	providers, err := loadProviders(filepath.Join(r.root, "providers"))
+	providers, err := loadProviders(filepath.Join(r.root, "providers"), r.identityFile)
 	if err != nil {
 		return err
 	}
@@ -235,12 +333,16 @@ func (r *ModelRegistry) GetEmbedding(key string) (ModelDefinition, ProviderDefin
 	return r.GetTyped(key, ModelTypeEmbedding)
 }
 
-func (r *ModelRegistry) GetImageGeneration(key string) (ModelDefinition, ProviderDefinition, error) {
-	return r.GetTyped(key, ModelTypeImageGeneration)
+func (r *ModelRegistry) GetImage(key string) (ModelDefinition, ProviderDefinition, error) {
+	return r.GetTyped(key, ModelTypeImage)
 }
 
 func (r *ModelRegistry) GetVL(key string) (ModelDefinition, ProviderDefinition, error) {
 	return r.GetTyped(key, ModelTypeVL)
+}
+
+func (r *ModelRegistry) GetTTS(key string) (ModelDefinition, ProviderDefinition, error) {
+	return r.GetTyped(key, ModelTypeTTS)
 }
 
 func (r *ModelRegistry) GetTyped(key string, modelType string) (ModelDefinition, ProviderDefinition, error) {
@@ -290,7 +392,7 @@ func validateModelForRuntime(model ModelDefinition, modelType string) error {
 	if modelType == ModelTypeEmbedding && model.Embedding.BatchSize < 0 {
 		return fmt.Errorf("model %s embedding.batchSize must be positive when configured", model.Key)
 	}
-	if modelType == ModelTypeImageGeneration {
+	if modelType == ModelTypeImage {
 		if err := ValidateModelImageConfig(model.Image); err != nil {
 			return fmt.Errorf("model %s image: %w", model.Key, err)
 		}
@@ -483,10 +585,50 @@ func matchProviderDefault(models map[string]ModelDefinition, provider ProviderDe
 }
 
 func providerHasAPIKey(provider ProviderDefinition) bool {
-	return strings.TrimSpace(provider.APIKey) != ""
+	return provider.HasCredential()
 }
 
-func loadProviders(dir string) (map[string]ProviderDefinition, error) {
+// HasCredential reports whether a credential source is configured without
+// reading secrets; an access token provider may still be signed out.
+func (p ProviderDefinition) HasCredential() bool {
+	return p.UseAccessToken || strings.TrimSpace(p.APIKey) != ""
+}
+
+// Credential resolves the secret for one outbound request. Access token
+// providers re-read the identity file on every call so Desktop renewals reach
+// running tasks without a provider reload.
+func (p ProviderDefinition) Credential() (string, error) {
+	if !p.UseAccessToken {
+		// Static keys keep their existing callers' empty-key checks.
+		return strings.TrimSpace(p.APIKey), nil
+	}
+	token, err := agentconfig.ReadAccessTokenFile(p.AccessTokenFile)
+	if err != nil {
+		return "", apperrors.Wrap(apperrors.CodeProviderNotConfigured, fmt.Errorf("provider %s access token unavailable: %w", p.Key, err))
+	}
+	if token == "" {
+		return "", apperrors.New(apperrors.CodeProviderNotConfigured, fmt.Sprintf("provider %s requires a signed-in Desktop access token", p.Key))
+	}
+	return token, nil
+}
+
+// AuthHeader resolves the request credential header. Requests must call it
+// per outbound request so an access token renewed by Desktop applies to the
+// next call. Access token providers always use Authorization because relays
+// accept identity tokens only there; apiKeyHeader (e.g. X-Api-Key) applies to
+// static keys, empty means Bearer.
+func (p ProviderDefinition) AuthHeader(apiKeyHeader string) (string, string, error) {
+	credential, err := p.Credential()
+	if err != nil {
+		return "", "", err
+	}
+	if apiKeyHeader != "" && !p.UseAccessToken {
+		return apiKeyHeader, credential, nil
+	}
+	return "Authorization", "Bearer " + credential, nil
+}
+
+func loadProviders(dir, identityFile string) (map[string]ProviderDefinition, error) {
 	result := map[string]ProviderDefinition{}
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
@@ -523,10 +665,19 @@ func loadProviders(dir string) (map[string]ProviderDefinition, error) {
 			return nil, fmt.Errorf("load provider %s: %w", entry.Name(), err)
 		}
 		embeddingConfig := loadProviderEmbedding(values)
+		useAccessToken := parseTruthy(stringNode(values["useAccessToken"]))
+		accessTokenFile := ""
+		if useAccessToken {
+			// apiKey is ignored so a stale registered key can never shadow the login identity.
+			apiKey = ""
+			accessTokenFile = identityFile
+		}
 		result[key] = ProviderDefinition{
 			Key:             key,
 			BaseURL:         baseURL,
 			APIKey:          apiKey,
+			UseAccessToken:  useAccessToken,
+			AccessTokenFile: accessTokenFile,
 			DefaultModel:    strings.TrimSpace(stringNode(values["defaultModel"])),
 			EndpointPath:    resolveProviderEndpointPath(values, baseURL, "OPENAI"),
 			RequestIDHeader: requestIDHeader,
@@ -638,6 +789,16 @@ func defaultEndpointPath(protocol string, baseURL string) string {
 			return "/chat/completions"
 		}
 		return "/v1/chat/completions"
+	case ProtocolMiniMaxTTS:
+		if normalizedBasePath(baseURL) == "/v1" {
+			return "/t2a_v2"
+		}
+		return "/v1/t2a_v2"
+	case ProtocolDashScopeTTS:
+		if normalizedBasePath(baseURL) == "/api/v1" {
+			return "/services/aigc/multimodal-generation/generation"
+		}
+		return "/api/v1/services/aigc/multimodal-generation/generation"
 	default:
 		return ""
 	}
@@ -683,11 +844,18 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 		}
 		modelType, ok := NormalizeModelType(stringNode(values["type"]))
 		if !ok {
-			return nil, fmt.Errorf("load model %s: invalid type %q", entry.Name(), stringNode(values["type"]))
+			return nil, fmt.Errorf("load model %s: invalid type %q: %s", entry.Name(), stringNode(values["type"]), InvalidModelTypeMessage(stringNode(values["type"])))
 		}
 		protocol := strings.ToUpper(strings.TrimSpace(stringNode(values["protocol"])))
 		if IsACPPassthroughProtocol(protocol) && modelType != ModelTypeChat {
 			return nil, fmt.Errorf("load model %s: ACP_PASSTHROUGH is only supported for type: chat", entry.Name())
+		}
+		if err := ValidateModelTypeProtocol(modelType, protocol); err != nil {
+			return nil, fmt.Errorf("load model %s: %w", entry.Name(), err)
+		}
+		pricing := ParseModelPricing(values["pricing"])
+		if err := ValidateModelPricing(pricing, modelType); err != nil {
+			return nil, fmt.Errorf("load model %s: %w", entry.Name(), err)
 		}
 		reasoningEffortMapping, err := ParseReasoningEffortMapping(values["reasoningEffortMapping"], modelType, protocol)
 		if err != nil {
@@ -724,7 +892,7 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 			ContextWindow:          contracts.AnyIntNode(values["maxInputTokens"]),
 			MaxOutputTokens:        maxOutput,
 			Timeout:                intNode(values["timeout"]),
-			Pricing:                loadModelPricing(values["pricing"]),
+			Pricing:                pricing,
 			Headers:                stringMapNode(values["headers"]),
 			Compat:                 contracts.CloneAnyMap(contracts.AnyMapNode(values["compat"])),
 			ReasoningEfforts:       stringSliceNode(values["reasoningEfforts"]),
@@ -734,7 +902,7 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 			Reranker:               ModelRerankerConfig{EndpointPath: strings.TrimSpace(stringNode(contracts.AnyMapNode(values["reranker"])["endpointPath"]))},
 			Image:                  loadModelImage(values["image"]),
 		}
-		if modelType == ModelTypeImageGeneration {
+		if modelType == ModelTypeImage {
 			imageValues := contracts.AnyMapNode(values["image"])
 			if _, exists := imageValues["endpointPath"]; exists {
 				return nil, fmt.Errorf("load model %s: image.endpointPath is no longer supported; configure image.generation.endpointPath", entry.Name())
@@ -818,17 +986,18 @@ func firstStringSliceNode(values ...any) []string {
 	return nil
 }
 
-func loadModelPricing(raw any) ModelPricing {
+func ParseModelPricing(raw any) ModelPricing {
 	values := contracts.AnyMapNode(raw)
 	if len(values) == 0 {
 		return ModelPricing{}
 	}
 	return ModelPricing{
 		Currency:       strings.ToUpper(strings.TrimSpace(stringNode(values["currency"]))),
-		Unit:           strings.TrimSpace(stringNode(values["unit"])),
+		Unit:           strings.ToLower(strings.TrimSpace(stringNode(values["unit"]))),
 		InputCacheHit:  floatNode(values["inputCacheHit"]),
 		InputCacheMiss: floatNode(values["inputCacheMiss"]),
 		Output:         floatNode(values["output"]),
+		Characters:     floatNode(values["characters"]),
 	}
 }
 

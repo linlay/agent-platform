@@ -12,23 +12,44 @@ import (
 	. "agent-platform/internal/contracts"
 )
 
+// fileVersionLedgerVersion 2 stores read coverage as line ranges. Ledgers of
+// other versions are ignored, so older proofs require a fresh file_read.
+const fileVersionLedgerVersion = 2
+
 type fileVersionLedger struct {
 	Version int                            `json:"version"`
 	Files   map[string]fileVersionSnapshot `json:"files"`
 }
 
 type fileVersionSnapshot struct {
-	SHA256           string `json:"sha256"`
-	SizeBytes        int64  `json:"sizeBytes"`
-	ModifiedUnixMs   int64  `json:"modifiedUnixMs"`
-	ObservedAtUnixMs int64  `json:"observedAtUnixMs"`
-	Source           string `json:"source"`
-	RunID            string `json:"runId,omitempty"`
-	Offset           int64  `json:"offset,omitempty"`
-	Limit            int64  `json:"limit,omitempty"`
-	LineNumbered     bool   `json:"lineNumbered,omitempty"`
-	Partial          bool   `json:"partial,omitempty"`
-	Truncated        bool   `json:"truncated,omitempty"`
+	SHA256           string   `json:"sha256"`
+	SizeBytes        int64    `json:"sizeBytes"`
+	ModifiedUnixMs   int64    `json:"modifiedUnixMs"`
+	ObservedAtUnixMs int64    `json:"observedAtUnixMs"`
+	Source           string   `json:"source"`
+	RunID            string   `json:"runId,omitempty"`
+	TotalLines       int      `json:"totalLines"`
+	Ranges           [][2]int `json:"ranges,omitempty"`
+}
+
+func (item fileVersionSnapshot) readFileSnapshot() ReadFileSnapshot {
+	source := strings.TrimSpace(item.Source)
+	if source == "" {
+		source = "read"
+	}
+	ranges := make([]LineRange, 0, len(item.Ranges))
+	for _, pair := range item.Ranges {
+		ranges = append(ranges, LineRange{Start: pair[0], End: pair[1]})
+	}
+	return ReadFileSnapshot{
+		ModifiedUnixMs: item.ModifiedUnixMs,
+		SizeBytes:      item.SizeBytes,
+		SHA256:         item.SHA256,
+		TotalLines:     item.TotalLines,
+		Ranges:         NormalizeLineRanges(ranges),
+		ReadAtUnixMs:   item.ObservedAtUnixMs,
+		Source:         source,
+	}
 }
 
 func (t *RuntimeToolExecutor) chatReadBeforeWriteEnabled(execCtx *ExecutionContext) bool {
@@ -51,39 +72,39 @@ func (t *RuntimeToolExecutor) chatFileVersionsPath(execCtx *ExecutionContext) (s
 	return filepath.Join(t.chats.ChatDir(chatID), chat.ToolRootDirName, chat.ToolStateDirName, chat.FileVersionsFileName), true
 }
 
-func (t *RuntimeToolExecutor) recordChatFileVersion(execCtx *ExecutionContext, path string, snap ReadFileSnapshot, source string, truncated bool) {
+func (t *RuntimeToolExecutor) recordChatFileVersion(execCtx *ExecutionContext, path string, snap ReadFileSnapshot) {
 	ledgerPath, ok := t.chatFileVersionsPath(execCtx)
 	if !ok || strings.TrimSpace(path) == "" || strings.TrimSpace(snap.SHA256) == "" {
 		return
 	}
-	observedAt := snap.ReadAtUnixMs
-	if observedAt <= 0 {
-		observedAt = time.Now().UnixMilli()
-	}
-	snapshotSource := strings.TrimSpace(source)
-	if strings.TrimSpace(snap.Source) != "" {
-		snapshotSource = strings.TrimSpace(snap.Source)
+	if snap.ReadAtUnixMs <= 0 {
+		snap.ReadAtUnixMs = time.Now().UnixMilli()
 	}
 	t.fileStateMu.Lock()
 	defer t.fileStateMu.Unlock()
 
 	ledger := loadFileVersionLedger(ledgerPath)
-	if ledger.Files == nil {
-		ledger.Files = map[string]fileVersionSnapshot{}
+	// Concurrent tool calls of one Chat may page the same version; merge under
+	// the lock so neither page is lost.
+	if existing, ok := ledger.Files[path]; ok && strings.TrimSpace(existing.SHA256) != "" {
+		prev := existing.readFileSnapshot()
+		if !fileSnapshotExpired(prev, time.Now().UnixMilli(), t.fileReadMaxAge()) {
+			snap = MergeReadFileSnapshot(prev, snap)
+		}
 	}
-	ledger.Version = 1
+	ranges := make([][2]int, 0, len(snap.Ranges))
+	for _, item := range NormalizeLineRanges(snap.Ranges) {
+		ranges = append(ranges, [2]int{item.Start, item.End})
+	}
 	ledger.Files[path] = fileVersionSnapshot{
 		SHA256:           snap.SHA256,
 		SizeBytes:        snap.SizeBytes,
 		ModifiedUnixMs:   snap.ModifiedUnixMs,
-		ObservedAtUnixMs: observedAt,
-		Source:           snapshotSource,
+		ObservedAtUnixMs: snap.ReadAtUnixMs,
+		Source:           strings.TrimSpace(snap.Source),
 		RunID:            strings.TrimSpace(execCtx.Session.RunID),
-		Offset:           snap.Offset,
-		Limit:            snap.Limit,
-		LineNumbered:     snap.LineNumbered,
-		Partial:          snap.Partial,
-		Truncated:        truncated || snap.Truncated,
+		TotalLines:       snap.TotalLines,
+		Ranges:           ranges,
 	}
 	data, err := json.MarshalIndent(ledger, "", "  ")
 	if err != nil {
@@ -105,49 +126,32 @@ func (t *RuntimeToolExecutor) loadChatFileVersionSnapshot(execCtx *ExecutionCont
 	defer t.fileStateMu.Unlock()
 
 	ledger, err := readFileVersionLedger(ledgerPath)
-	if err != nil || ledger.Files == nil {
+	if err != nil {
 		return ReadFileSnapshot{}, false
 	}
 	item, ok := ledger.Files[path]
 	if !ok || strings.TrimSpace(item.SHA256) == "" {
 		return ReadFileSnapshot{}, false
 	}
-	source := strings.TrimSpace(item.Source)
-	if source == "" {
-		source = "read"
-	}
-	return ReadFileSnapshot{
-		ModifiedUnixMs: item.ModifiedUnixMs,
-		SizeBytes:      item.SizeBytes,
-		SHA256:         item.SHA256,
-		Offset:         item.Offset,
-		Limit:          item.Limit,
-		ReadAtUnixMs:   item.ObservedAtUnixMs,
-		Source:         source,
-		LineNumbered:   item.LineNumbered,
-		Partial:        item.Partial || (source == "read" && (item.Offset > 1 || item.Limit > 0)),
-		Truncated:      item.Truncated,
-	}, true
+	return item.readFileSnapshot(), true
 }
 
 func loadFileVersionLedger(path string) fileVersionLedger {
 	ledger, err := readFileVersionLedger(path)
 	if err != nil {
-		return fileVersionLedger{Version: 1, Files: map[string]fileVersionSnapshot{}}
-	}
-	if ledger.Version <= 0 {
-		ledger.Version = 1
-	}
-	if ledger.Files == nil {
-		ledger.Files = map[string]fileVersionSnapshot{}
+		return emptyFileVersionLedger()
 	}
 	return ledger
+}
+
+func emptyFileVersionLedger() fileVersionLedger {
+	return fileVersionLedger{Version: fileVersionLedgerVersion, Files: map[string]fileVersionSnapshot{}}
 }
 
 func readFileVersionLedger(path string) (fileVersionLedger, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return fileVersionLedger{Version: 1, Files: map[string]fileVersionSnapshot{}}, nil
+		return emptyFileVersionLedger(), nil
 	}
 	if err != nil {
 		return fileVersionLedger{}, err
@@ -156,8 +160,8 @@ func readFileVersionLedger(path string) (fileVersionLedger, error) {
 	if err := json.Unmarshal(data, &ledger); err != nil {
 		return fileVersionLedger{}, err
 	}
-	if ledger.Files == nil {
-		ledger.Files = map[string]fileVersionSnapshot{}
+	if ledger.Version != fileVersionLedgerVersion || ledger.Files == nil {
+		return emptyFileVersionLedger(), nil
 	}
 	return ledger, nil
 }

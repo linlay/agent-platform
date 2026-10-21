@@ -664,5 +664,5 @@ func streamUsageSnapshotTool(tool *UsageSnapshotTool) *stream.UsageSnapshotTool 
 	if tool == nil {
 		return nil
 	}
-	return &stream.UsageSnapshotTool{ToolID: tool.ToolID, ToolName: tool.ToolName, ModelKey: tool.ModelKey, Operation: tool.Operation}
+	return &stream.UsageSnapshotTool{ToolID: tool.ToolID, ToolName: tool.ToolName, ModelKey: tool.ModelKey, Operation: tool.Operation, Characters: tool.Characters}
 }

@@ -67,6 +67,7 @@ var requiredBuiltinToolNames = []string{
 	"regex",
 	"vision_recognize",
 	"image_generate",
+	"speech_generate",
 	"web_fetch",
 	"web_search",
 	"bash_sandbox",

@@ -133,14 +133,14 @@ func compactHistory(store CompactStore, baseResp api.CompactResponse, window, ov
 	trace.set("keptRunCount", keptRunCount)
 	trace.set("candidateMessages", len(snapshot.CoveredMessages))
 	trace.set("retainedMessages", len(snapshot.TailMessages))
-	summaryInputTokens, summaryOutputTokens := compaction.SummaryBudget(window, overhead+chat.EstimateRawMessageTokens(snapshot.TailMessages))
+	summaryInputTokens, summaryTargetTokens := compaction.SummaryBudget(window, overhead+chat.EstimateRawMessageTokens(snapshot.TailMessages))
 	trace.set("summaryMaxInputTokens", summaryInputTokens)
-	trace.set("summaryMaxOutputTokens", summaryOutputTokens)
-	if summaryOutputTokens <= 0 {
+	trace.set("summaryTargetTokens", summaryTargetTokens)
+	if summaryTargetTokens <= 0 {
 		baseResp.Status, baseResp.Detail = "failed", "context_window_uncompactable"
 		return baseResp, nil
 	}
-	prompt, promptErr := chat.BuildCompactPromptWithinBudget(snapshot.CoveredMessages, summaryInputTokens)
+	prompt, promptErr := chat.BuildCompactPromptWithinBudget(snapshot.CoveredMessages, summaryInputTokens, summaryTargetTokens)
 	if errors.Is(promptErr, chat.ErrCompactSummaryInputTooLarge) {
 		baseResp.CompactID = compactID
 		baseResp.Status = "failed"
@@ -157,7 +157,7 @@ func compactHistory(store CompactStore, baseResp api.CompactResponse, window, ov
 	trace.set("summaryPromptChars", len(prompt))
 	trace.set("summaryPromptEstimatedTokens", chat.EstimateTextTokens(prompt))
 	summaryStartedAt := time.Now()
-	summaryText, compactionUsage, modelErr := generate(prompt, summaryOutputTokens)
+	summaryText, compactionUsage, modelErr := generate(prompt, summaryTargetTokens)
 	trace.set("summaryDurationMs", time.Since(summaryStartedAt).Milliseconds())
 	if modelErr != nil {
 		trace.summaryErr = modelErr

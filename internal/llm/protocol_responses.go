@@ -90,7 +90,11 @@ func (p *responsesProtocol) PrepareRequest(params protocolStreamParams) (prepare
 	if err != nil {
 		return preparedProviderRequest{}, err
 	}
-	headers := map[string]string{"Content-Type": "application/json", "Accept": "text/event-stream", "Authorization": "Bearer " + params.provider.APIKey}
+	authHeader, authValue, err := params.provider.AuthHeader("")
+	if err != nil {
+		return preparedProviderRequest{}, err
+	}
+	headers := map[string]string{"Content-Type": "application/json", "Accept": "text/event-stream", authHeader: authValue}
 	for k, v := range params.protocolConfig.Headers {
 		headers[k] = v
 	}

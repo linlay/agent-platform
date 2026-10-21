@@ -371,6 +371,10 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			buffer.lastTimestamp = event.Timestamp
 		} else {
 			w.flushCurrentStep()
+			// Each model call is its own assistant message. A text-only turn
+			// followed by a steer has no tool.result to rotate the id, and a
+			// shared _msgId would merge the later turn across the steer.
+			w.needNewMsgID = true
 			w.modelTurnCommitRequired = true
 			w.modelTurnCommitted = false
 			w.awaitingTurnResults = false

@@ -22,6 +22,11 @@ func (modelUsageToolExecutor) Invoke(_ context.Context, _ string, args map[strin
 			PromptTokens: 12, CompletionTokens: 1000, TotalTokens: 1012, CacheHitTokens: 2, CacheMissTokens: 10,
 		}}
 	}
+	if args["characters"] == true {
+		result.ModelUsage = []contracts.ModelUsage{{
+			ModelKey: "speech-model", Operation: "speech.generation", Characters: 42, UpstreamRequestID: "trace-1",
+		}}
+	}
 	return result, nil
 }
 
@@ -85,5 +90,49 @@ func TestToolModelUsageCountsTowardRunWithoutTouchingContext(t *testing.T) {
 	next, ok := stream.pending[len(stream.pending)-1].(contracts.DeltaUsageSnapshot)
 	if !ok || next.Tool != nil || next.RunTotalTokens != 1342 {
 		t.Fatalf("next agent call must keep tool usage in run totals: %#v", stream.pending)
+	}
+}
+
+func TestToolCharacterUsageEmitsSnapshotWithoutTokens(t *testing.T) {
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		engine:  &LLMAgentEngine{tools: modelUsageToolExecutor{}},
+		session: contracts.QuerySession{RunID: "run_speech_usage", ChatID: "chat_speech_usage"},
+		model:   models.ModelDefinition{Key: "chat-model", ContextWindow: 128000},
+		execCtx: &contracts.ExecutionContext{
+			StartedAt: time.Now(),
+			Budget:    contracts.Budget{Tool: contracts.RetryPolicy{MaxCalls: 10}},
+		},
+	}
+	stream.commitUsage(&openAIUsage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120})
+	stream.pending = nil
+
+	if err := stream.startToolCallBatch([]*preparedToolInvocation{{toolID: "tool_speech", toolName: "speech_generate", args: map[string]any{"characters": true}}}); err != nil {
+		t.Fatalf("start batch: %v", err)
+	}
+	var snapshots []contracts.DeltaUsageSnapshot
+	for stream.activeToolBatch != nil {
+		if err := stream.consumeActiveToolBatch(); err != nil {
+			t.Fatalf("consume batch: %v", err)
+		}
+		for _, delta := range stream.pending {
+			if snapshot, ok := delta.(contracts.DeltaUsageSnapshot); ok {
+				snapshots = append(snapshots, snapshot)
+			}
+		}
+		stream.pending = nil
+	}
+	if len(snapshots) != 1 {
+		t.Fatalf("character-billed usage must emit one snapshot, got %#v", snapshots)
+	}
+	snapshot := snapshots[0]
+	if snapshot.Tool == nil || snapshot.Tool.Characters != 42 || snapshot.Tool.ModelKey != "speech-model" || snapshot.Tool.Operation != "speech.generation" {
+		t.Fatalf("unexpected tool marker %#v", snapshot.Tool)
+	}
+	if snapshot.LLMReturnUpstreamRequestID != "trace-1" {
+		t.Fatalf("upstream request id = %q", snapshot.LLMReturnUpstreamRequestID)
+	}
+	if snapshot.LLMReturnTotalTokens != 0 || snapshot.RunTotalTokens != 120 {
+		t.Fatalf("characters must not change token totals: %#v", snapshot)
 	}
 }

@@ -95,7 +95,7 @@ func (t *RuntimeToolExecutor) invokeWebFetch(ctx context.Context, args map[strin
 		if err != nil {
 			return modelToolError("web_fetch_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
 		}
-		if strings.TrimSpace(provider.BaseURL) == "" || strings.TrimSpace(provider.APIKey) == "" {
+		if strings.TrimSpace(provider.BaseURL) == "" || !provider.HasCredential() {
 			return modelToolError("web_fetch_provider_config_invalid", "provider baseUrl and apiKey are required", map[string]any{"provider": provider.Key}), nil
 		}
 	}

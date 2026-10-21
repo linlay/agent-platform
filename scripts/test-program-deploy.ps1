@@ -44,7 +44,7 @@ try {
   $ConfiguredFile = Join-Path (Join-Path $ConfiguredOutput 'configs') 'tools.yml'
   $ConfiguredContent = [System.IO.File]::ReadAllText($ConfiguredFile).Replace("`r`n", "`n")
   $ImageStart = $ConfiguredContent.IndexOf("image-generate:`n")
-  $ImageEnd = $ConfiguredContent.IndexOf("speech:`n", $ImageStart)
+  $ImageEnd = $ConfiguredContent.IndexOf("speech-generate:`n", $ImageStart)
   Assert-Test ($ImageStart -ge 0 -and $ImageEnd -gt $ImageStart) 'image-generate section was not rendered'
   $ImageBlock = $ConfiguredContent.Substring($ImageStart, $ImageEnd - $ImageStart)
   Assert-Test ($ImageBlock.Contains("  enabled: true`n")) 'image-generate was not enabled'
@@ -53,6 +53,26 @@ try {
   Assert-Test (-not $ImageBlock.Contains("    general:")) 'image general profile must not exist'
   $BlankModelKeys = ([regex]::Matches($ConfiguredContent, '(?m)^      model-key:$')).Count
   Assert-Test ($BlankModelKeys -eq 3) 'an unrelated AI tool model key changed'
+
+  $SpeechOutput = Join-Path $TempRoot 'speech'
+  Invoke-TestDeploy $SpeechOutput @('--ai-speech-generate-model-key', 'qwen-flash')
+  $SpeechContent = [System.IO.File]::ReadAllText((Join-Path (Join-Path $SpeechOutput 'configs') 'tools.yml')).Replace("`r`n", "`n")
+  $SpeechTemplate = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'configs/tools.example.yml')).Replace("`r`n", "`n")
+  Assert-Test ($SpeechContent.Replace('  default-profile: qwen-flash', '  default-profile:') -ceq $SpeechTemplate) 'speech selection must only change default-profile'
+  Assert-Test ($SpeechContent.Contains("speech-generate:`n  enabled: true`n")) 'speech-generate must be enabled by default'
+  foreach ($Case in @(
+    @{ Args = @('--ai-speech-generate-model-key', 'missing-profile'); Error = 'unknown speech-generate profile: missing-profile'; Dir = 'speech-invalid' },
+    @{ Args = @('--ai-speech-generate-model-key'); Error = 'missing value for --ai-speech-generate-model-key'; Dir = 'speech-missing-value' }
+  )) {
+    $Failed = $false
+    try {
+      Invoke-TestDeploy (Join-Path $TempRoot $Case.Dir) $Case.Args
+    } catch {
+      $Failed = $true
+      Assert-Test ($_.Exception.Message.Contains($Case.Error)) 'speech argument returned an unexpected error'
+    }
+    Assert-Test $Failed 'invalid speech argument unexpectedly succeeded'
+  }
 
   $DefaultOutput = Join-Path $TempRoot 'default'
   Invoke-TestDeploy $DefaultOutput @()
@@ -65,7 +85,7 @@ try {
   New-Item -ItemType Directory -Force -Path $ExistingConfigDir | Out-Null
   $ExistingFile = Join-Path $ExistingConfigDir 'tools.yml'
   [System.IO.File]::WriteAllText($ExistingFile, "custom-tools-config`r`n")
-  Invoke-TestDeploy $ExistingOutput @('--ai-image-generate-model-key', 'ignored-model-key')
+  Invoke-TestDeploy $ExistingOutput @('--ai-image-generate-model-key', 'ignored-model-key', '--ai-speech-generate-model-key', 'ignored-profile')
   Assert-Test ([System.IO.File]::ReadAllText($ExistingFile) -ceq "custom-tools-config`r`n") 'existing tools.yml was overwritten'
 
   $MissingValueFailed = $false
@@ -113,8 +133,9 @@ try {
   Invoke-TestDeploy $PreviewOutput ($ResetArgs + @('--document-preview-api-base-url', 'https://new-api.test', '--document-preview-public-base-url', 'https://new-public.test'))
   Assert-Test ([IO.File]::ReadAllText($PreviewFile).Contains('public-base-url: "https://new-public.test"')) 'reset did not render preview origin'
   $ModeOutput = Join-Path $TempRoot 'mode-settings'
-  Invoke-TestDeploy $ModeOutput @('--document-preview-api-base-url','http://hub:8090','--document-preview-public-base-url','https://docs.example.test','--coder-model-key','coder-fixture','--kbase-model-key','answer-fixture','--kbase-embedding-model-key','embedding-fixture')
+  Invoke-TestDeploy $ModeOutput @('--document-preview-api-base-url','http://hub:8090','--document-preview-public-base-url','https://docs.example.test','--general-model-key','general-fixture','--coder-model-key','coder-fixture','--kbase-model-key','answer-fixture','--kbase-embedding-model-key','embedding-fixture')
   $ModeContent = [IO.File]::ReadAllText((Join-Path $ModeOutput 'configs/agent-settings.yml'))
+  Assert-Test ($ModeContent.Contains('    modelKey: general-fixture')) 'GENERAL model not nested correctly'
   Assert-Test ($ModeContent.Contains('    modelKey: coder-fixture')) 'coder model not nested correctly'
   Assert-Test ($ModeContent.Contains('    modelKey: answer-fixture')) 'KBASE agent model not nested correctly'
   Assert-Test ([IO.File]::ReadAllText((Join-Path $ModeOutput 'configs/runtime.yml')).Contains('    model-key: embedding-fixture')) 'KBX model not in runtime'

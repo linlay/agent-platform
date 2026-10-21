@@ -33,10 +33,10 @@ func TestCompactToolModelOutputSanitizesWithoutMutatingStructuredResult(t *testi
 }
 
 func TestCompactToolModelOutputTruncatesContentAtSafetyLimit(t *testing.T) {
-	content := strings.Repeat("x", ToolModelOutputMaxChars+50)
+	content := strings.Repeat("x", ToolModelOutputMaxBytes+50)
 	output := CompactToolModelOutput(map[string]any{"content": content}, "")
 	if !strings.Contains(output, `"contentTruncatedForLLM":true`) ||
-		!strings.Contains(output, `"contentChars":20050`) ||
+		!strings.Contains(output, `"contentBytes":40050`) ||
 		!strings.Contains(output, "content truncated for LLM") {
 		t.Fatalf("expected bounded compact output, got length=%d suffix=%q", len(output), output[len(output)-120:])
 	}
@@ -48,5 +48,28 @@ func TestCompactToolModelOutputTruncatesContentAtSafetyLimit(t *testing.T) {
 func TestCompactToolModelOutputUsesFallbackWithoutStructuredResult(t *testing.T) {
 	if got := CompactToolModelOutput(nil, "standard output"); got != "standard output" {
 		t.Fatalf("expected standard output fallback, got %q", got)
+	}
+}
+
+func TestCompactToolModelOutputCutsOnRuneBoundaryAndKeepsMarkup(t *testing.T) {
+	content := "<a>&" + strings.Repeat("中", ToolModelOutputMaxBytes/3+10)
+	output := CompactToolModelOutput(map[string]any{"content": content}, "")
+	if strings.Contains(output, `\u003c`) || strings.Contains(output, `\u0026`) || !strings.Contains(output, `<a>&`) {
+		t.Fatalf("expected markup without HTML escaping, got prefix %q", output[:40])
+	}
+	if strings.ContainsRune(output, '\uFFFD') {
+		t.Fatal("truncation split a multi-byte rune")
+	}
+}
+
+func TestModelJSONStringLenMatchesEncoder(t *testing.T) {
+	for _, value := range []string{"", "plain", "a\"b\\c\n\r\t", "\x01\x1f", "<tag>&", "中文\u2028\u2029", "bad\xff"} {
+		data, err := MarshalModelJSON(value)
+		if err != nil {
+			t.Fatalf("marshal %q: %v", value, err)
+		}
+		if got, want := ModelJSONStringLen(value), len(data)-2; got != want {
+			t.Fatalf("ModelJSONStringLen(%q)=%d, encoder=%d (%s)", value, got, want, data)
+		}
 	}
 }

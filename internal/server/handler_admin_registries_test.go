@@ -424,7 +424,7 @@ func TestAdminRegistryDetailSaveValidateAndPathGuard(t *testing.T) {
 		t.Fatalf("expected embedding dimension diagnostics, got %#v", validateResp.Data)
 	}
 
-	validateBody = bytes.NewBufferString(`{"category":"models","file":"draft-image.yml","content":"key: draft-image\nprovider: mock\nmodelId: gpt-image-1\ntype: image-generation\nimage:\n  generation:\n    endpointPath: /v1/images/generations\n    requestFormat: openai-images-json\n  edit:\n    endpointPath: /v1/images/edits\n    requestFormat: openai-images-multipart\n    maskProtocol: openai-alpha\n"}`)
+	validateBody = bytes.NewBufferString(`{"category":"models","file":"draft-image.yml","content":"key: draft-image\nprovider: mock\nmodelId: gpt-image-1\ntype: image\nimage:\n  generation:\n    endpointPath: /v1/images/generations\n    requestFormat: openai-images-json\n  edit:\n    endpointPath: /v1/images/edits\n    requestFormat: openai-images-multipart\n    maskProtocol: openai-alpha\n"}`)
 	rec = httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/registries/validate", validateBody))
 	if rec.Code != http.StatusOK {
@@ -434,11 +434,11 @@ func TestAdminRegistryDetailSaveValidateAndPathGuard(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &validateResp); err != nil {
 		t.Fatalf("decode image validate response: %v", err)
 	}
-	if validateResp.Data.Status != "ready" || validateResp.Data.Summary["type"] != "image-generation" {
+	if validateResp.Data.Status != "ready" || validateResp.Data.Summary["type"] != "image" {
 		t.Fatalf("expected ready image validate response, got %#v", validateResp.Data)
 	}
 
-	validateBody = bytes.NewBufferString(`{"category":"models","file":"bad-image.yml","content":"key: bad-image\nprovider: mock\nmodelId: bad-image\ntype: image-generation\nimage:\n  generation:\n    endpointPath: /v1/chat/completions\n    requestFormat: openai-chat-completions\n  edit:\n    endpointPath: /v1/chat/completions\n    requestFormat: openai-chat-completions\n    maskProtocol: openai-alpha\n"}`)
+	validateBody = bytes.NewBufferString(`{"category":"models","file":"bad-image.yml","content":"key: bad-image\nprovider: mock\nmodelId: bad-image\ntype: image\nimage:\n  generation:\n    endpointPath: /v1/chat/completions\n    requestFormat: openai-chat-completions\n  edit:\n    endpointPath: /v1/chat/completions\n    requestFormat: openai-chat-completions\n    maskProtocol: openai-alpha\n"}`)
 	rec = httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/registries/validate", validateBody))
 	if rec.Code != http.StatusOK {
@@ -457,8 +457,11 @@ func TestAdminRegistryDetailSaveValidateAndPathGuard(t *testing.T) {
 		content string
 		code    string
 	}{
-		{name: "missing generation", content: "key: missing-generation\nprovider: mock\nmodelId: image\ntype: image-generation\nimage:\n  timeout: 120\n", code: "invalid_image_generation"},
-		{name: "legacy endpoint", content: "key: legacy-image\nprovider: mock\nmodelId: image\ntype: image-generation\nimage:\n  endpointPath: /v1/images/generations\n", code: "legacy_image_endpoint"},
+		{name: "missing generation", content: "key: missing-generation\nprovider: mock\nmodelId: image\ntype: image\nimage:\n  timeout: 120\n", code: "invalid_image_generation"},
+		{name: "legacy endpoint", content: "key: legacy-image\nprovider: mock\nmodelId: image\ntype: image\nimage:\n  endpointPath: /v1/images/generations\n", code: "legacy_image_endpoint"},
+		{name: "renamed image type", content: "key: old-image\nprovider: mock\nmodelId: image\ntype: image-generation\n", code: "invalid_type"},
+		{name: "tts without speech protocol", content: "key: speech\nprovider: mock\nmodelId: speech\ntype: tts\nprotocol: OPENAI\n", code: "invalid_protocol"},
+		{name: "tts priced per token", content: "key: speech\nprovider: mock\nmodelId: speech\ntype: tts\nprotocol: MINIMAX_TTS\npricing:\n  output: 1\n", code: "invalid_pricing"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			body, err := json.Marshal(map[string]any{"category": "models", "file": "invalid-image.yml", "content": test.content})

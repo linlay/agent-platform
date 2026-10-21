@@ -744,6 +744,56 @@ func TestLoadImageGenerateConfigRejectsProfileEndpointOverride(t *testing.T) {
 	})
 }
 
+func TestLoadSpeechGenerateConfigFromFile(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "" +
+			"speech-generate:\n" +
+			"  enabled: true\n" +
+			"  default-profile: hd\n" +
+			"  profiles:\n" +
+			"    hd:\n" +
+			"      model-key: minimax-speech-2_8-hd\n" +
+			"      voice: male-qn-qingse\n" +
+			"      voices: [male-qn-qingse, female-shaonv]\n" +
+			"      format: MP3\n" +
+			"      sample-rate: 32000\n" +
+			"      timeout: 60\n"
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if !cfg.SpeechGenerate.Enabled || cfg.SpeechGenerate.DefaultProfile != "hd" {
+				t.Fatalf("unexpected speech config: %#v", cfg.SpeechGenerate)
+			}
+			profile := cfg.SpeechGenerate.Profiles["hd"]
+			if profile.ModelKey != "minimax-speech-2_8-hd" || profile.Voice != "male-qn-qingse" ||
+				strings.Join(profile.Voices, ",") != "male-qn-qingse,female-shaonv" ||
+				profile.Format != "mp3" || profile.SampleRate != 32000 || profile.Timeout != 60 ||
+				profile.MaxTextChars != 3000 || profile.MaxAudioBytes != 50<<20 {
+				t.Fatalf("unexpected profile: %#v", profile)
+			}
+		})
+	})
+}
+
+func TestLoadSpeechGenerateConfigRejectsUnknownAndMistypedFields(t *testing.T) {
+	for _, tc := range []struct{ field, want string }{
+		{"      speed: 1.2\n", "unknown or retired field tools.speech-generate.profiles.hd.speed"},
+		{"      sample-rate: fast\n", "tools.speech-generate.profiles.hd.sample-rate must be an integer"},
+		{"      voices: male\n", "tools.speech-generate.profiles.hd.voices must be a list of strings"},
+	} {
+		withIsolatedEnv(t, nil, func() {
+			content := "speech-generate:\n  enabled: true\n  profiles:\n    hd:\n      model-key: m\n" + tc.field
+			withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
+				if _, err := Load(); err == nil || !strings.Contains(err.Error(), tc.want) {
+					t.Fatalf("error = %v, want %q", err, tc.want)
+				}
+			})
+		})
+	}
+}
+
 func TestLoadAIToolsConfigFromFile(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
