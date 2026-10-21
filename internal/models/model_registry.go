@@ -10,16 +10,22 @@ import (
 	"strings"
 	"sync"
 
+	"agent-platform/internal/agentconfig"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 )
 
 type ProviderDefinition struct {
-	Key          string
-	BaseURL      string
-	APIKey       string
-	DefaultModel string
-	EndpointPath string
+	Key     string
+	BaseURL string
+	APIKey  string
+	// UseAccessToken sends the Desktop identity token (--identity-file) as the
+	// bearer credential instead of apiKey; the file is read per request.
+	UseAccessToken  bool
+	AccessTokenFile string
+	DefaultModel    string
+	EndpointPath    string
 	// RequestIDHeader names a relay's own request ID response header; it is
 	// read before the generic request ID headers for every protocol.
 	RequestIDHeader string
@@ -139,7 +145,8 @@ type ModelPricing struct {
 }
 
 type ModelRegistry struct {
-	root string
+	root         string
+	identityFile string
 
 	mu        sync.RWMutex
 	providers map[string]ProviderDefinition
@@ -273,7 +280,13 @@ func IsTTSModel(model ModelDefinition) bool {
 }
 
 func LoadModelRegistry(registriesDir string) (*ModelRegistry, error) {
-	registry := &ModelRegistry{root: registriesDir}
+	return LoadModelRegistryWithIdentityFile(registriesDir, "")
+}
+
+// LoadModelRegistryWithIdentityFile binds useAccessToken providers to the
+// shared Desktop identity file.
+func LoadModelRegistryWithIdentityFile(registriesDir, identityFile string) (*ModelRegistry, error) {
+	registry := &ModelRegistry{root: registriesDir, identityFile: strings.TrimSpace(identityFile)}
 	if err := registry.Reload(); err != nil {
 		return nil, err
 	}
@@ -290,7 +303,7 @@ func (r *ModelRegistry) Reload() error {
 // ReloadProviders reloads only provider definitions. Independent of models —
 // model definitions still resolve providers by key from the latest map.
 func (r *ModelRegistry) ReloadProviders() error {
-	providers, err := loadProviders(filepath.Join(r.root, "providers"))
+	providers, err := loadProviders(filepath.Join(r.root, "providers"), r.identityFile)
 	if err != nil {
 		return err
 	}
@@ -572,10 +585,50 @@ func matchProviderDefault(models map[string]ModelDefinition, provider ProviderDe
 }
 
 func providerHasAPIKey(provider ProviderDefinition) bool {
-	return strings.TrimSpace(provider.APIKey) != ""
+	return provider.HasCredential()
 }
 
-func loadProviders(dir string) (map[string]ProviderDefinition, error) {
+// HasCredential reports whether a credential source is configured without
+// reading secrets; an access token provider may still be signed out.
+func (p ProviderDefinition) HasCredential() bool {
+	return p.UseAccessToken || strings.TrimSpace(p.APIKey) != ""
+}
+
+// Credential resolves the secret for one outbound request. Access token
+// providers re-read the identity file on every call so Desktop renewals reach
+// running tasks without a provider reload.
+func (p ProviderDefinition) Credential() (string, error) {
+	if !p.UseAccessToken {
+		// Static keys keep their existing callers' empty-key checks.
+		return strings.TrimSpace(p.APIKey), nil
+	}
+	token, err := agentconfig.ReadAccessTokenFile(p.AccessTokenFile)
+	if err != nil {
+		return "", apperrors.Wrap(apperrors.CodeProviderNotConfigured, fmt.Errorf("provider %s access token unavailable: %w", p.Key, err))
+	}
+	if token == "" {
+		return "", apperrors.New(apperrors.CodeProviderNotConfigured, fmt.Sprintf("provider %s requires a signed-in Desktop access token", p.Key))
+	}
+	return token, nil
+}
+
+// AuthHeader resolves the request credential header. Requests must call it
+// per outbound request so an access token renewed by Desktop applies to the
+// next call. Access token providers always use Authorization because relays
+// accept identity tokens only there; apiKeyHeader (e.g. X-Api-Key) applies to
+// static keys, empty means Bearer.
+func (p ProviderDefinition) AuthHeader(apiKeyHeader string) (string, string, error) {
+	credential, err := p.Credential()
+	if err != nil {
+		return "", "", err
+	}
+	if apiKeyHeader != "" && !p.UseAccessToken {
+		return apiKeyHeader, credential, nil
+	}
+	return "Authorization", "Bearer " + credential, nil
+}
+
+func loadProviders(dir, identityFile string) (map[string]ProviderDefinition, error) {
 	result := map[string]ProviderDefinition{}
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
@@ -612,10 +665,19 @@ func loadProviders(dir string) (map[string]ProviderDefinition, error) {
 			return nil, fmt.Errorf("load provider %s: %w", entry.Name(), err)
 		}
 		embeddingConfig := loadProviderEmbedding(values)
+		useAccessToken := parseTruthy(stringNode(values["useAccessToken"]))
+		accessTokenFile := ""
+		if useAccessToken {
+			// apiKey is ignored so a stale registered key can never shadow the login identity.
+			apiKey = ""
+			accessTokenFile = identityFile
+		}
 		result[key] = ProviderDefinition{
 			Key:             key,
 			BaseURL:         baseURL,
 			APIKey:          apiKey,
+			UseAccessToken:  useAccessToken,
+			AccessTokenFile: accessTokenFile,
 			DefaultModel:    strings.TrimSpace(stringNode(values["defaultModel"])),
 			EndpointPath:    resolveProviderEndpointPath(values, baseURL, "OPENAI"),
 			RequestIDHeader: requestIDHeader,

@@ -170,7 +170,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 
 	modelRegistryStartedAt := time.Now()
-	modelRegistry, err := models.LoadModelRegistry(cfg.Paths.RegistriesDir)
+	modelRegistry, err := models.LoadModelRegistryWithIdentityFile(cfg.Paths.RegistriesDir, cfg.IdentityFile)
 	if err != nil {
 		return nil, fmt.Errorf("load model registry (%s): %w", cfg.Paths.RegistriesDir, err)
 	}

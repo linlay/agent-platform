@@ -48,7 +48,7 @@ func (t *RuntimeToolExecutor) invokeSpeechGenerate(ctx context.Context, args map
 	if err != nil {
 		return modelToolError("speech_generate_model_invalid", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
 	}
-	if strings.TrimSpace(provider.BaseURL) == "" || strings.TrimSpace(provider.APIKey) == "" {
+	if strings.TrimSpace(provider.BaseURL) == "" || !provider.HasCredential() {
 		return modelToolError("speech_generate_provider_config_invalid", "provider baseUrl and apiKey are required", map[string]any{"provider": provider.Key}), nil
 	}
 	protocol, ok := speechProtocols[model.Protocol]

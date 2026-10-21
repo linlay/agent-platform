@@ -257,7 +257,8 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		if strings.TrimSpace(contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"])) == "" {
 			addError("missing_base_url", "provider baseUrl is required")
 		}
-		if strings.TrimSpace(contracts.FirstNonEmptyString(root["apiKey"], root["api-key"])) == "" {
+		useAccessToken, _ := root["useAccessToken"].(bool)
+		if !useAccessToken && strings.TrimSpace(contracts.FirstNonEmptyString(root["apiKey"], root["api-key"])) == "" {
 			addWarning("missing_api_key", "provider apiKey is empty")
 		}
 		if _, err := models.ParseRequestIDHeader(root["requestIdHeader"]); err != nil {

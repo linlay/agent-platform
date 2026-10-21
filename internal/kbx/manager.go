@@ -199,8 +199,13 @@ func (m *Manager) config(l library, embedding bool) ([]byte, error) {
 		if model.Embedding.BatchSize > 0 {
 			role["batch_size"] = model.Embedding.BatchSize
 		}
-		if provider.APIKey != "" {
-			role["api_key"] = provider.APIKey
+		if provider.HasCredential() {
+			// Resolved per KBX invocation so a renewed access token is used next call.
+			credential, err := provider.Credential()
+			if err != nil {
+				return nil, err
+			}
+			role["api_key"] = credential
 		}
 		cfg["models"].(map[string]any)["embedding"] = role
 	}

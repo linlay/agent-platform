@@ -182,13 +182,16 @@ func (t *RuntimeToolExecutor) postModelJSON(ctx context.Context, provider models
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	switch strings.ToUpper(strings.TrimSpace(protocol)) {
-	case "ANTHROPIC":
-		req.Header.Set("X-Api-Key", provider.APIKey)
+	apiKeyHeader := ""
+	if strings.EqualFold(strings.TrimSpace(protocol), "ANTHROPIC") {
+		apiKeyHeader = "X-Api-Key"
 		req.Header.Set("anthropic-version", "2023-06-01")
-	default:
-		req.Header.Set("Authorization", "Bearer "+provider.APIKey)
 	}
+	authHeader, authValue, err := provider.AuthHeader(apiKeyHeader)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set(authHeader, authValue)
 	for key, value := range visionProtocolHeaders(provider, model, protocol) {
 		req.Header.Set(key, value)
 	}

@@ -239,6 +239,7 @@ Provider `apiKey` 按明文字符串读取：
 
 - 未配置时保留为空值：`apiKey:`
 - runtime 不再支持 provider `apiKey` 加密或解密；包括 `AES(...)` 在内的任何值都会作为普通字符串使用。
+- 声明 `useAccessToken: true` 的 Provider 改用 Desktop 登录身份：每次模型请求读取有效 identity 文件（`--identity-file`），所有协议统一发送 `Authorization: Bearer <access token>`，忽略 `apiKey`。用于 Transit Hub 员工 access token 直调，详见 [配置化说明](./docs/配置化说明.md#provider--model-registry)。
 
 ### `configs/` 目录
 

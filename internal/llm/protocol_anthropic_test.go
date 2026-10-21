@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -422,4 +423,34 @@ func anthropicTestWithoutCache(t *testing.T, body map[string]any) []byte {
 		t.Fatal(err)
 	}
 	return encoded
+}
+
+func TestAnthropicPrepareRequestSendsAccessTokenAsBearer(t *testing.T) {
+	identity := t.TempDir() + "/access-token"
+	if err := os.WriteFile(identity, []byte("employee-jwt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	provider := models.ProviderDefinition{Key: "th-main", BaseURL: "https://example.com", UseAccessToken: true, AccessTokenFile: identity}
+	model := models.ModelDefinition{Protocol: "ANTHROPIC", ModelID: "claude-haiku-5-5"}
+	prepared, err := (&anthropicProtocol{}).PrepareRequest(protocolStreamParams{
+		provider: provider, model: model,
+		protocolConfig: resolveProtocolRuntimeConfig(provider, model),
+		messages:       []openAIMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.Headers["Authorization"] != "Bearer employee-jwt" || prepared.Headers["X-Api-Key"] != "" {
+		t.Fatalf("access token headers = %#v", prepared.Headers)
+	}
+	if err = os.Remove(identity); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = (&anthropicProtocol{}).PrepareRequest(protocolStreamParams{
+		provider: provider, model: model,
+		protocolConfig: resolveProtocolRuntimeConfig(provider, model),
+		messages:       []openAIMessage{{Role: "user", Content: "hi"}},
+	}); err == nil || strings.Contains(err.Error(), "employee-jwt") {
+		t.Fatalf("signed-out request error = %v", err)
+	}
 }

@@ -445,7 +445,11 @@ func (t *RuntimeToolExecutor) completeImageGenerateChat(ctx context.Context, mod
 }
 
 func (t *RuntimeToolExecutor) doImageGenerateRequest(req *http.Request, model models.ModelDefinition, provider models.ProviderDefinition, operation string) (imageGenerateResponse, error) {
-	req.Header.Set("Authorization", "Bearer "+provider.APIKey)
+	authHeader, authValue, err := provider.AuthHeader("")
+	if err != nil {
+		return imageGenerateResponse{}, err
+	}
+	req.Header.Set(authHeader, authValue)
 	for key, value := range visionProtocolHeaders(provider, model, model.Protocol) {
 		req.Header.Set(key, value)
 	}

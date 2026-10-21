@@ -145,7 +145,7 @@ func (s *Server) shouldShowModelOption(model models.ModelDefinition) bool {
 	if err != nil {
 		return false
 	}
-	return strings.TrimSpace(provider.APIKey) != ""
+	return provider.HasCredential()
 }
 
 func (s *Server) serviceTierOptionsForAgent(agentKey string, modelOptions []api.CoderModelOption) []api.ServiceTierOption {
