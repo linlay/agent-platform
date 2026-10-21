@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -274,5 +275,49 @@ func mustWriteDeriveResource(t *testing.T, store *FileStore, chatID string, relP
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write resource %s: %v", relPath, err)
+	}
+}
+
+func TestCopyDerivedChatDirSkipsNonRegularEntries(t *testing.T) {
+	root, err := os.MkdirTemp("", "dcd")
+	if err != nil {
+		t.Fatalf("temp dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	source := filepath.Join(root, "s")
+	target := filepath.Join(root, "t")
+	profile := filepath.Join(source, ".chrome-profile")
+	if err := os.MkdirAll(profile, 0o755); err != nil {
+		t.Fatalf("mkdir profile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "game.html"), []byte("<html></html>"), 0o644); err != nil {
+		t.Fatalf("write html: %v", err)
+	}
+	outside := filepath.Join(root, "outside.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatalf("write outside: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(root, "missing"), filepath.Join(profile, "SingletonLock")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(source, "linked.txt")); err != nil {
+		t.Fatalf("symlink outside: %v", err)
+	}
+	if listener, err := net.Listen("unix", filepath.Join(profile, "S")); err == nil {
+		defer listener.Close()
+	} else {
+		t.Logf("unix socket unavailable: %v", err)
+	}
+
+	if err := copyDerivedChatDir(source, target); err != nil {
+		t.Fatalf("copy chat dir: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(target, "game.html")); err != nil || string(data) != "<html></html>" {
+		t.Fatalf("regular file not copied: %q %v", data, err)
+	}
+	for _, rel := range []string{"linked.txt", filepath.Join(".chrome-profile", "SingletonLock"), filepath.Join(".chrome-profile", "S")} {
+		if _, err := os.Lstat(filepath.Join(target, rel)); !os.IsNotExist(err) {
+			t.Fatalf("non-regular entry %s copied: %v", rel, err)
+		}
 	}
 }

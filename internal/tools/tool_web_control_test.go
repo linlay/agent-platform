@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
@@ -420,53 +421,82 @@ func TestWorkPanelStateRejectsCallerSelectedChatOrFile(t *testing.T) {
 	}
 }
 
-func TestWorkPanelCloseRequiresRecordedFilePath(t *testing.T) {
-	workspace := webControlWorkspace(
-		webControlWebItem("item-web", "https://example.com/docs"),
-		webControlFileItem("item-html", "report.html", "artifacts/report.html"),
-		webControlFileItem("item-pdf", "notes.pdf", ""),
-	)
+func TestWorkPanelItemSurfacesOnlyActivateOrClose(t *testing.T) {
 	respond := func(request ClientRequest) map[string]any {
-		if request.Type == "desktop.workpanel.getState" {
-			return map[string]any{"ok": true, "result": map[string]any{"workspaceId": "ws-1", "state": workspace, "activeFile": nil}}
-		}
-		return map[string]any{"ok": true, "result": map[string]any{"closedItemId": request.Payload["tabId"], "workspace": webControlWorkspace()}}
+		return map[string]any{"ok": true, "result": map[string]any{"workspaceId": "ws-1", "state": webControlWorkspace()}}
 	}
-	for url, wantItem := range map[string]string{
-		"@workspace/artifacts/report.html": "item-html",
-	} {
+	for tool, action := range map[string]string{"surface_activate": "desktop.workpanel.activateTab", "surface_close": "desktop.workpanel.closeTab"} {
 		executor, execCtx, invoker := webControlTestRuntime(t, respond)
-		result, err := executor.Invoke(context.Background(), "workpanel_close", map[string]any{"url": url}, execCtx)
+		result, err := executor.Invoke(context.Background(), tool, map[string]any{"surfaceId": "workpanel-item:tab-7"}, execCtx)
 		if err != nil || result.ExitCode != 0 {
-			t.Fatalf("%s: %#v %v", url, result, err)
+			t.Fatalf("%s: %#v %v", tool, result, err)
+		}
+		if len(invoker.requests) != 1 || invoker.requests[0].Type != action || !reflect.DeepEqual(invoker.requests[0].Payload, map[string]any{"tabId": "tab-7"}) {
+			t.Fatalf("%s requests: %#v", tool, invoker.requests)
 		}
 		assertNoWebControlInternalIdentity(t, result)
-		if len(invoker.requests) != 2 || invoker.requests[1].Type != "desktop.workpanel.closeTab" || !reflect.DeepEqual(invoker.requests[1].Payload, map[string]any{"tabId": wantItem}) {
-			t.Fatalf("%s requests: %#v", url, invoker.requests)
-		}
 	}
 
 	executor, execCtx, invoker := webControlTestRuntime(t, respond)
-	result, err := executor.Invoke(context.Background(), "workpanel_close", map[string]any{"url": "@workspace/other.html"}, execCtx)
-	if err != nil || result.Error != "workpanel_item_not_found" || len(invoker.requests) != 1 {
-		t.Fatalf("missing item: %#v %v %#v", result, err, invoker.requests)
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"surface_state", map[string]any{"surfaceId": "workpanel-item:tab-7"}},
+		{"surface_screenshot", map[string]any{"surfaceId": "workpanel-item:tab-7"}},
+		{"surface_evaluate", map[string]any{"surfaceId": "workpanel-item:tab-7", "expression": "1"}},
+		{"surface_click", map[string]any{"surfaceId": "workpanel-item:tab-7", "selector": "a"}},
+		{"surface_viewport", map[string]any{"surfaceId": "workpanel-item:tab-7", "reset": true}},
+		{"awcp_manual", map[string]any{"surfaceId": "workpanel-item:tab-7"}},
+	} {
+		result, err := executor.Invoke(context.Background(), tc.tool, tc.args, execCtx)
+		if err != nil || result.Error != "capability_denied" || !strings.Contains(result.Output, `"capabilities":["activate","close"]`) {
+			t.Fatalf("%s on an item surface: %#v %v", tc.tool, result, err)
+		}
+	}
+	if result, _ := executor.Invoke(context.Background(), "surface_close", map[string]any{"surfaceId": "workpanel-item:"}, execCtx); result.Error != "invalid_args" {
+		t.Fatalf("empty item identity: %#v", result)
+	}
+	if len(invoker.requests) != 0 {
+		t.Fatalf("rejected item calls reached the client: %#v", invoker.requests)
+	}
+}
+
+func TestWorkPanelOpenFileReportsItsSurface(t *testing.T) {
+	previous, previousPoll := webControlSurfaceWait, webControlSurfacePoll
+	webControlSurfaceWait, webControlSurfacePoll = time.Second, time.Millisecond
+	t.Cleanup(func() { webControlSurfaceWait, webControlSurfacePoll = previous, previousPoll })
+	file := func(surfaceID any) map[string]any {
+		item := webControlFileItem("tab-html", "game.html", "game.html")
+		item["surfaceId"] = surfaceID
+		item["capabilities"] = []any{"activate", "close", "state", "reload", "screenshot", "script", "input", "cdp", "viewport"}
+		return item
+	}
+	states := 0
+	executor, execCtx, invoker := webControlTestRuntime(t, func(request ClientRequest) map[string]any {
+		if request.Type == "desktop.workpanel.getState" {
+			states++
+			surfaceID := any(nil)
+			if states >= 2 {
+				surfaceID = "page:html"
+			}
+			return map[string]any{"ok": true, "result": map[string]any{"workspaceId": "ws-1", "state": webControlWorkspace(file(surfaceID))}}
+		}
+		return map[string]any{"ok": true, "result": map[string]any{"workspaceId": "ws-1", "state": webControlWorkspace(file(nil))}}
+	})
+	mustWriteFile(t, filepath.Join(execCtx.Session.WorkspaceRoot, "game.html"), "<html></html>")
+	result, err := executor.Invoke(context.Background(), "workpanel_open", map[string]any{"url": "@workspace/game.html"}, execCtx)
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("open: %#v %v", result, err)
+	}
+	actionResult := result.Structured["response"].(map[string]any)["result"].(map[string]any)
+	if actionResult["surfaceId"] != "page:html" || !webControlCapabilitiesInclude(actionResult["capabilities"], "script") {
+		t.Fatalf("opened file surface: %s", result.Output)
+	}
+	if !strings.Contains(result.Output, `"surfaceId":"page:html"`) || states != 2 || invoker.requests[0].Type != "desktop.workpanel.openLocalFile" {
+		t.Fatalf("surface wait: states=%d %s", states, result.Output)
 	}
 	assertNoWebControlInternalIdentity(t, result)
-
-	// Even a unique basename does not prove that the requested file is open.
-	executor, execCtx, invoker = webControlTestRuntime(t, respond)
-	result, err = executor.Invoke(context.Background(), "workpanel_close", map[string]any{"url": "@workspace/docs/notes.pdf"}, execCtx)
-	if err != nil || result.Error != "workpanel_item_not_found" || len(invoker.requests) != 1 {
-		t.Fatalf("basename fallback: %#v %v %#v", result, err, invoker.requests)
-	}
-
-	// A file name shared by several previews cannot identify one item.
-	workspace = webControlWorkspace(webControlFileItem("item-a", "notes.pdf", ""), webControlFileItem("item-b", "notes.pdf", ""))
-	executor, execCtx, invoker = webControlTestRuntime(t, respond)
-	result, err = executor.Invoke(context.Background(), "workpanel_close", map[string]any{"url": "@workspace/notes.pdf"}, execCtx)
-	if err != nil || result.Error != "workpanel_item_not_found" || len(invoker.requests) != 1 {
-		t.Fatalf("ambiguous item: %#v %v %#v", result, err, invoker.requests)
-	}
 }
 
 func TestWorkPanelCloseRequiresExactlyOneSelector(t *testing.T) {
@@ -510,6 +540,8 @@ func TestSurfaceToolsMapToOneRequestEach(t *testing.T) {
 		{tool: "surface_navigate", args: map[string]any{"surfaceId": "page:1", "action": "back"}, method: "Surface.goBack", surfaceID: "page:1"},
 		{tool: "surface_activate", args: map[string]any{"surfaceId": "page:1"}, method: "Page.bringToFront", surfaceID: "page:1"},
 		{tool: "surface_close", args: map[string]any{"surfaceId": "page:1"}, method: "Surface.close", surfaceID: "page:1"},
+		{tool: "surface_viewport", args: map[string]any{"surfaceId": "page:1", "width": 390.0, "height": 844.0, "deviceScaleFactor": 3.0, "mobile": true}, method: "Surface.setViewport", surfaceID: "page:1", params: map[string]any{"width": 390.0, "height": 844.0, "deviceScaleFactor": 3.0, "mobile": true}},
+		{tool: "surface_viewport", args: map[string]any{"surfaceId": "page:1", "reset": true}, method: "Surface.setViewport", surfaceID: "page:1", params: map[string]any{"reset": true}},
 		{tool: "surface_evaluate", args: map[string]any{"surfaceId": "page:1", "expression": "document.title"}, method: "Runtime.evaluate", surfaceID: "page:1", params: map[string]any{"expression": "document.title", "returnByValue": true, "awaitPromise": true}},
 		{tool: "surface_evaluate", args: map[string]any{"surfaceId": "page:1", "expression": "1", "awaitPromise": false}, method: "Runtime.evaluate", surfaceID: "page:1", params: map[string]any{"expression": "1", "returnByValue": true, "awaitPromise": false}},
 		{tool: "surface_cdp", args: map[string]any{"surfaceId": "page:1", "method": "DOM.querySelector", "params": map[string]any{"nodeId": 1.0, "selector": "#a"}}, method: "DOM.querySelector", surfaceID: "page:1", params: map[string]any{"nodeId": 1.0, "selector": "#a"}},
@@ -573,6 +605,12 @@ func TestSurfaceToolsRejectInvalidInputBeforeSending(t *testing.T) {
 		{"surface_activate", map[string]any{}},
 		{"surface_close", map[string]any{"surfaceId": "  "}},
 		{"surface_close", map[string]any{"surfaceId": "page:1", "url": "https://example.com/"}},
+		{"surface_viewport", map[string]any{"surfaceId": "page:1"}},
+		{"surface_viewport", map[string]any{"surfaceId": "page:1", "width": 390.5, "height": 844.0}},
+		{"surface_viewport", map[string]any{"surfaceId": "page:1", "width": "390", "height": 844.0}},
+		{"surface_viewport", map[string]any{"surfaceId": "page:1", "reset": false}},
+		{"surface_viewport", map[string]any{"surfaceId": "page:1", "reset": true, "width": 390.0}},
+		{"surface_viewport", map[string]any{"surfaceId": "page:1", "width": 390.0, "height": 844.0, "mobile": "true"}},
 		{"surface_screenshot", map[string]any{"surfaceId": "page:1", "format": "jpeg"}},
 		{"surface_evaluate", map[string]any{"surfaceId": "page:1"}},
 		{"surface_evaluate", map[string]any{"surfaceId": "page:1", "expression": "1", "expressionFile": "a.js"}},
@@ -729,7 +767,7 @@ func TestAwcpToolsReportValidationInTheirOwnFieldNames(t *testing.T) {
 func TestWebControlToolSetMatchesConnectorRegistry(t *testing.T) {
 	executor, execCtx, _ := webControlTestRuntime(t, nil)
 	tools := (connector.Package{Manifest: connector.Manifest{ID: connector.WebControlConnectorID, Type: "native"}}).NativeTools()
-	if len(tools) != 16 {
+	if len(tools) != 17 {
 		t.Fatalf("web-control tools: %v", tools)
 	}
 	defs, err := LoadEmbeddedToolDefinitions()
@@ -857,7 +895,7 @@ func TestWorkPanelChatFileNeedsNoProjectWorkspace(t *testing.T) {
 		t.Fatalf("chat file state: %#v %v", state, err)
 	}
 
-	closed, err := executor.Invoke(context.Background(), "workpanel_close", map[string]any{"url": url}, execCtx)
+	closed, err := executor.Invoke(context.Background(), "surface_close", map[string]any{"surfaceId": "workpanel-item:item-1"}, execCtx)
 	if err != nil || closed.ExitCode != 0 {
 		t.Fatalf("close chat file: %#v %v", closed, err)
 	}
@@ -882,11 +920,11 @@ func TestWorkPanelChatFileNeedsNoProjectWorkspace(t *testing.T) {
 			t.Fatalf("native preview state: %s", projected.Output)
 		}
 	}
-	if id, _ := findWebControlPanelItem(native["items"].([]any), webControlTarget{root: webControlChatRoot, relativePath: "image.png"}); id != "item-image" {
-		t.Fatalf("native image item = %q", id)
+	if item := findWebControlPanelFileItem(native["items"].([]any), webControlTarget{root: webControlChatRoot, relativePath: "image.png"}); item == nil || item["itemId"] != "item-image" {
+		t.Fatalf("native image item = %#v", item)
 	}
-	if id, _ := findWebControlPanelItem(native["items"].([]any), webControlTarget{root: webControlWorkspaceRoot, relativePath: "image.png"}); id != "" {
-		t.Fatalf("workspace path matched a chat item: %q", id)
+	if item := findWebControlPanelFileItem(native["items"].([]any), webControlTarget{root: webControlWorkspaceRoot, relativePath: "image.png"}); item != nil {
+		t.Fatalf("workspace path matched a chat item: %#v", item)
 	}
 
 	// The same relative path under the project root is a different file.

@@ -1,12 +1,12 @@
 # Surface tools
 
-Each surface tool acts on one live webpage and takes top-level arguments. Unknown fields are rejected. Use native JSON types: booleans and numbers are never strings.
+Each surface tool acts on one WorkPanel tab or live page and takes top-level arguments. Unknown fields are rejected. Use native JSON types: booleans and numbers are never strings.
 
-`surfaceId` is the exact webpage identity returned by `workpanel_open` or `surface_list`. A url is not a page identity. It is required everywhere except `surface_state`.
+`surfaceId` is the exact identity returned by `workpanel_open`, `workpanel_state` or `surface_list`. A url is not a page identity. It is required everywhere except `surface_state`. A tool outside the tab's `capabilities` fails with `capability_denied`: a tab that is not a live page only accepts `surface_activate` and `surface_close`, and an HTML file preview rejects navigation, network CDP methods, AWCP and `surface_login`.
 
 ## Discovering pages
 
-- `surface_list`: `{}`. Lists the live webpages this Run is authorized to control, including background pages. Each entry has surfaceId, title, URL and page state.
+- `surface_list`: `{}`. Lists the live pages this Run is authorized to control, including background pages and HTML file previews. Each entry has surfaceId, title, URL, page state and `capabilities`.
 - `surface_state`: `{surfaceId?}`. Reads the state of one webpage. Omit surfaceId only to read the current page of the application this Run belongs to; an ordinary Chat may have no current page.
 
 ## Navigation and visibility
@@ -16,8 +16,12 @@ Each surface tool acts on one live webpage and takes top-level arguments. Unknow
   - action `"reload"` reloads the page; `ignoreCache: true` bypasses the cache and is valid only here.
   - action `"back"` goes back in the page history.
   - Example: `{"surfaceId": "page:returned-id", "action": "reload", "ignoreCache": true}`.
-- `surface_activate`: `{surfaceId}`. Brings the page to the foreground so the user can see it. Not needed before reading or operating a page.
-- `surface_close`: `{surfaceId}`. Closes the page; its surfaceId becomes invalid. Do not also call `workpanel_close` for the same page.
+- `surface_activate`: `{surfaceId}`. Brings the tab or page to the foreground so the user can see it. Not needed before reading or operating a page.
+- `surface_close`: `{surfaceId}`. Closes the tab or page; its surfaceId becomes invalid.
+- `surface_viewport`: `{surfaceId, width, height, deviceScaleFactor?, mobile?}` or `{surfaceId, reset: true}`. Emulates a device viewport on a live page, for example to check a mobile layout; the page keeps its surfaceId.
+  - `width` and `height` are integers from 120 to 8192 CSS pixels. `deviceScaleFactor` is a number from 0.5 to 4, default 1. `mobile` is a boolean, default false.
+  - `reset: true` restores the panel size and takes no other field. Reset when the check ends.
+  - Example: `{"surfaceId": "page:returned-id", "width": 390, "height": 844, "deviceScaleFactor": 3, "mobile": true}`.
 
 ## Reading
 

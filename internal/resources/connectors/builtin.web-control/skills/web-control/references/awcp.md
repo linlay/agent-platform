@@ -1,6 +1,6 @@
 # AWCP v1 Manual And Invocation
 
-AWCP is a versioned business interface that any authorized HTTP(S) webpage may publish, including ordinary Chat WorkPanel pages. Desktop authorizes the calling Run and the exact webpage before probing the page. Select one authorized webpage by its `surfaceId` and keep it for the directory, section and invocation calls. An ordinary Chat must select a webpage it owns. A Website or WebApp Copilot uses its application grant. File previews and other Chats are outside this capability. Do not inspect or call `globalThis.awcp` through `surface_evaluate`, and do not cache a page contract across Runs.
+AWCP is a versioned business interface that any authorized HTTP(S) webpage may publish, including ordinary Chat WorkPanel pages. Desktop authorizes the calling Run and the exact webpage before probing the page. Select one authorized webpage by its `surfaceId` and keep it for the directory, section and invocation calls. An ordinary Chat must select a webpage it owns. A Website or WebApp Copilot uses its application grant. File previews (they report `capability_denied`) and other Chats are outside this capability. Do not inspect or call `globalThis.awcp` through `surface_evaluate`, and do not cache a page contract across Runs.
 
 ## Read The Directory
 

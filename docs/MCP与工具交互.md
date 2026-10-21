@@ -102,11 +102,25 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 | --- | --- |
 | `workpanel_state` | `desktop.workpanel.getState` |
 | `workpanel_open`（`http(s)://`） | `desktop.workpanel.openWeb`；`reload: true` 时随后发送 `desktop.workpanel.refreshWeb` |
-| `workpanel_open`（`@workspace/`、`@chat/`） | `desktop.workpanel.openLocalFile`，参数 `{root, path, title?, artifactId?}`：`root` 为 `workspace` 或 `chat`，`path` 是相对该根的路径；`artifactId` 仅在该 Chat 文件是已发布产物时由 Platform 从 manifest 取同路径的最新一项填入，Desktop 以它作为产物身份，编辑保存按该身份校验，不得自行构造。`@chat/` 只校验位于当前 Chat 目录内且为普通文件，不要求存在项目 Workspace；Desktop 对 HTML 与图片使用原生隔离预览，其他类型以 WebClient 资源预览页打开，`workpanel_state` / `workpanel_close` 对两类 Tab 都按 `@chat/<相对路径>` 识别。`@runtime/` 不再接受 |
-| `workpanel_close`（文件 `url`） | 先 `desktop.workpanel.getState` 严格匹配已记录的 Workspace 路径，再 `desktop.workpanel.closeTab`；网页使用 `surface_close` |
-| `workpanel_close`（`all: true`） | `desktop.workpanel.closeWorkpanel` |
+| `workpanel_open`（`@workspace/`、`@chat/`） | `desktop.workpanel.openLocalFile`，参数 `{root, path, title?, artifactId?}`：`root` 为 `workspace` 或 `chat`，`path` 是相对该根的路径；`artifactId` 仅在该 Chat 文件是已发布产物时由 Platform 从 manifest 取同路径的最新一项填入，Desktop 以它作为产物身份，编辑保存按该身份校验，不得自行构造。`@chat/` 只校验位于当前 Chat 目录内且为普通文件，不要求存在项目 Workspace；Desktop 对 HTML 与图片使用原生隔离预览，其他类型以 WebClient 资源预览页打开，`workpanel_state` 对两类 Tab 都按 `@chat/<相对路径>` 记录 url。结果带回该 Tab 的 `surfaceId` 与 `capabilities`；HTML 预览的页面 surface 尚未注册时，Platform 最多 8 秒内重读 `getState` 等待。`@runtime/` 不再接受 |
+| `workpanel_close`（`all: true`） | `desktop.workpanel.closeWorkpanel`；不再接受文件 `url`，单个 Tab 用 `surface_close` |
+| `surface_activate` / `surface_close`（`workpanel-item:` 前缀的 surfaceId） | `desktop.workpanel.activateTab` / `desktop.workpanel.closeTab`，`tabId` 取前缀后的条目 ID；其他 surface 工具对该类 surfaceId 在发送前返回 `capability_denied` |
 
-条目 ID 只在 Platform 内部使用，工具结果中的工作区被投影为 `{kind,url,title,active,...}` 条目列表。`desktop.workpanel.openTab`（通用描述符）和 `desktop.workpanel.activateTab` 没有对应的模型工具。
+条目 ID 只以 surfaceId 的形式出现，工具结果中的工作区被投影为 `{kind,url,title,active,surfaceId,capabilities,...}` 条目列表。`desktop.workpanel.openTab`（通用描述符）没有对应的模型工具。
+
+### Tab surfaceId 与能力
+
+WorkPanel 的每个 Tab 都有一个 surfaceId，Desktop 在 `getState`、`openLocalFile`、`openWeb` 结果的条目上标注 `surfaceId` 与 `capabilities`：
+
+| Tab | surfaceId | capabilities |
+| --- | --- | --- |
+| 网页 | CDP 页面 surfaceId | activate、close、state、navigate、reload、screenshot、script、input、cdp、awcp、login、viewport |
+| HTML 文件预览（`@workspace/` 本地预览与 `@chat/` 原生预览） | CDP 页面 surfaceId | activate、close、state、reload、screenshot、script、input、cdp、viewport |
+| 其他 Tab（PDF、图片、Markdown 等预览，Desktop 与 WebClient 页面） | `workpanel-item:<条目 ID>` | activate、close |
+
+不可关闭的 Tab 不列 close。能力清单只是说明，强制由 Desktop Main 执行：HTML 预览只有在 guest 的 session 属于该 Chat 的 HTML 预览句柄时才被视为可控页面（`workPanelContainerContent`），其他本地 URL 仍不可控；网关对 HTML 预览拒绝 `Page.navigate`、`Surface.open`、`Surface.goBack`、`Network.*`，AWCP 返回 `capability_denied`，`surface_login` 因非 HTTPS 来源被拒。`workpanel-item:` surfaceId 不在 CDP 注册表中，Platform 只把 activate/close 路由到条目动作，平台自身页面因此不能被脚本、点击或截图。
+
+`surface_viewport` 映射为 Desktop 宿主命令 `Surface.setViewport`，参数 `{width,height,deviceScaleFactor?,mobile?}` 或 `{reset:true}`，由 `webContents.enableDeviceEmulation` / `disableDeviceEmulation` 实现，不占用调试会话，网页与 HTML 预览均可用。
 
 客户端侧各动作的精确参数如下：
 
@@ -332,6 +346,7 @@ i18n:
 | file_read / file_edit | addLineNumbers / replaceAll |
 | file_grep / regex | caseInsensitive、lineNumbers、multiline / caseInsensitive |
 | workpanel_open / workpanel_close | reload / all |
+| surface_viewport | mobile、reset |
 | surface_navigate / surface_screenshot / surface_evaluate | ignoreCache / fullPage / awaitPromise |
 | ask_user_question | questions[].allowFreeText、questions[].options[].recommended |
 | chat_query / chat_manage | 各 action 声明的 archived、pinned |

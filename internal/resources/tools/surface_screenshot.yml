@@ -4,7 +4,7 @@ i18n:
     label: "Capture Page"
   zh-CN:
     label: "网页截图"
-description: "Capture a webpage image. Slow; only for visual questions, never to verify actions. Read the web-control skill before use."
+description: "Capture a page image. Slow; only for visual questions, never to verify actions. Read the web-control skill before use."
 clientVisible: true
 readOnly: true
 inputSchema:
@@ -12,7 +12,7 @@ inputSchema:
   properties:
     surfaceId:
       type: string
-      description: "Required. Webpage identity."
+      description: "Required. Page surfaceId."
     fullPage:
       type: boolean
       description: "Capture the whole page."
