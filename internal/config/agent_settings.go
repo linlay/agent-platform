@@ -309,6 +309,7 @@ func validateAIToolValues(values map[string]any) error {
 		"vision-recognize": {"model-key", "timeout", "max-images", "max-image-bytes", "output-format", "system-prompt"},
 		"web-fetch":        {"model-key", "timeout", "fetch-timeout", "max-url-length", "max-response-bytes", "max-markdown-chars", "max-output-tokens", "system-prompt"},
 		"image-generate":   {"model-key", "timeout", "size", "response-format", "output-mime-type", "max-prompt-chars", "max-images", "max-image-bytes", "persist-artifact"},
+		"speech-generate":  {"model-key", "timeout", "voice", "voices", "format", "sample-rate", "max-text-chars", "max-audio-bytes"},
 	}
 	for section, fields := range schemas {
 		raw, exists := values[section]
@@ -347,13 +348,23 @@ func validateAIToolValues(values map[string]any) error {
 				}
 				for key, value := range p {
 					switch key {
-					case "timeout", "fetch-timeout", "max-images", "max-image-bytes", "max-url-length", "max-response-bytes", "max-markdown-chars", "max-output-tokens", "max-prompt-chars":
+					case "timeout", "fetch-timeout", "max-images", "max-image-bytes", "max-url-length", "max-response-bytes", "max-markdown-chars", "max-output-tokens", "max-prompt-chars", "sample-rate", "max-text-chars", "max-audio-bytes":
 						if _, ok := value.(int64); !ok {
 							return fmt.Errorf("%s.%s must be an integer", path, key)
 						}
 					case "persist-artifact":
 						if _, ok := value.(bool); !ok {
 							return fmt.Errorf("%s.%s must be boolean", path, key)
+						}
+					case "voices":
+						items, ok := value.([]any)
+						if !ok {
+							return fmt.Errorf("%s.%s must be a list of strings", path, key)
+						}
+						for _, item := range items {
+							if _, ok := item.(string); !ok {
+								return fmt.Errorf("%s.%s must be a list of strings", path, key)
+							}
 						}
 					default:
 						if _, err := configText(p, key, path); err != nil {

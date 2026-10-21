@@ -920,3 +920,58 @@ func TestStepWriterRestoresCallForResultWithoutSnapshot(t *testing.T) {
 		t.Fatalf("result outside a committed turn must not gain a call: %s", data)
 	}
 }
+
+func TestStepWriterRotatesMsgIDForTurnAfterTailSteer(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	defer store.Close()
+	const chatID = "chat-tail-steer-msgid"
+	const runID = "run-tail-steer-msgid"
+	if _, _, err := store.EnsureChat(chatID, "agent", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := ensureRunStartedForTest(store, chatID, runID, testEpochMillis(20)); err != nil {
+		t.Fatalf("start run: %v", err)
+	}
+	writer := NewStepWriter(store, chatID, runID, "REACT")
+
+	// A text-only turn ends, a steer arrives, and the run continues with a
+	// tool-call turn. No tool.result separates the two model turns.
+	writer.OnEvent(stream.NewEvent("llm.request", map[string]any{"runId": runID, "chatId": chatID}).Data())
+	writer.OnEvent(stream.NewEvent("content.snapshot", map[string]any{"contentId": "c1", "text": "page loaded"}).Data())
+	writer.CommitModelTurn("", 1)
+	writer.OnEvent(stream.NewEvent("request.steer", map[string]any{"chatId": chatID, "runId": runID, "steerId": "steer-1", "role": "user", "message": "add it to the cart"}).Data())
+	writer.OnEvent(stream.NewEvent("llm.request", map[string]any{"runId": runID, "chatId": chatID}).Data())
+	writer.OnEvent(stream.NewEvent("content.snapshot", map[string]any{"contentId": "c2", "text": "on it"}).Data())
+	writer.OnEvent(stream.NewEvent("tool.snapshot", map[string]any{"toolId": "call-1", "toolName": "datetime", "arguments": "{}"}).Data())
+	writer.CommitModelTurn("", 2)
+	writer.OnEvent(stream.NewEvent("tool.result", map[string]any{"toolId": "call-1", "toolName": "datetime", "result": "ok"}).Data())
+	writer.Flush()
+	if err := writer.Err(); err != nil {
+		t.Fatalf("writer error: %v", err)
+	}
+
+	messages, err := store.LoadRawMessages(chatID, DefaultHistoryRunWindow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgIDs := map[string]string{}
+	var roles []string
+	for _, message := range messages {
+		role := stringValue(message["role"])
+		roles = append(roles, role)
+		if role == "assistant" {
+			if text := stringValue(message["content"]); text != "" {
+				msgIDs[text] = stringValue(message["_msgId"])
+			}
+		}
+	}
+	if got := strings.Join(roles, ","); got != "assistant,user,assistant,assistant,tool" {
+		t.Fatalf("unexpected history order %s: %s", got, mustJSONMarshalForTest(t, messages))
+	}
+	if msgIDs["page loaded"] == "" || msgIDs["page loaded"] == msgIDs["on it"] {
+		t.Fatalf("model turns around the steer must not share _msgId: %#v", msgIDs)
+	}
+}

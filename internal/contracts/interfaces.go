@@ -472,17 +472,32 @@ type RunAccessRoots struct {
 	ReadonlyRoots []string
 }
 
+// ReadFileSnapshot is the read-before-write proof for one file version.
+// Ranges lists the 1-based inclusive lines delivered to the model for SHA256;
+// pages of the same version accumulate, a new version replaces them.
 type ReadFileSnapshot struct {
 	ModifiedUnixMs int64
 	SizeBytes      int64
 	SHA256         string
-	Offset         int64
-	Limit          int64
+	TotalLines     int
+	Ranges         []LineRange
+	LastRead       ReadWindow
 	ReadAtUnixMs   int64
 	Source         string
-	LineNumbered   bool
-	Partial        bool
-	Truncated      bool
+}
+
+// LineRange is a 1-based inclusive line interval.
+type LineRange struct {
+	Start int
+	End   int
+}
+
+// ReadWindow is the request shape of the latest file_read, used only to
+// answer an identical repeated read with the unchanged marker.
+type ReadWindow struct {
+	Offset       int64
+	Limit        int64
+	LineNumbered bool
 }
 
 const (
@@ -639,10 +654,20 @@ type ModelUsage struct {
 	ReasoningTokens  int
 	CacheHitTokens   int
 	CacheMissTokens  int
+	// Characters is the provider-billed character count of models priced per
+	// character, such as speech synthesis.
+	Characters        int
+	UpstreamRequestID string
 }
 
 func (u ModelUsage) HasTokens() bool {
 	return u.PromptTokens > 0 || u.CompletionTokens > 0 || u.TotalTokens > 0 || u.CacheHitTokens > 0 || u.CacheMissTokens > 0
+}
+
+// HasBillableUsage reports whether the provider reported tokens or billed
+// characters.
+func (u ModelUsage) HasBillableUsage() bool {
+	return u.HasTokens() || u.Characters > 0
 }
 
 type SubmitInfo struct {

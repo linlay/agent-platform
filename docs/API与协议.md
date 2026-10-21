@@ -648,7 +648,7 @@ PROXY/CHANNEL/ACP CODER 的 query 不接受用户 `params.cwd`（出现即返回
 
 #### 工具内模型调用用量
 
-工具内部调用模型（目前为 `image_generate`、`vision_recognize`）且上游返回 usage 时，平台在该工具的 `tool.result` 之后发出一个 `usage.snapshot`：`usage.current` 为这次工具调用的用量，额外带 `source:"tool"`、`toolId`、`toolName`、`operation`（`image.generation` / `image.edit` / `image.inpainting` / `vision.recognize`），`modelKey` 为工具实际使用的模型，`estimatedCost` 按该模型价格计算，不带 `reasoningEffort` 与 `llmChatCompletionCount`；`usage.run`、`usage.chat` 已包含这次用量。`contextWindow` 与 `model` 仍描述 Agent 主模型，客户端无需区分来源即可按原逻辑显示。TEAM 成员快照带 `taskId`，`toolId` 使用成员命名空间。
+工具内部调用模型（目前为 `image_generate`、`vision_recognize`、`speech_generate`）且上游返回 usage 或计费字符数时，平台在该工具的 `tool.result` 之后发出一个 `usage.snapshot`：`usage.current` 为这次工具调用的用量，额外带 `source:"tool"`、`toolId`、`toolName`、`operation`（`image.generation` / `image.edit` / `image.inpainting` / `vision.recognize` / `speech.generation`），按字符计费的调用另带 `characters`（token 字段为 0），有上游请求 ID 时带 `upstreamRequestId`，`modelKey` 为工具实际使用的模型，`estimatedCost` 按该模型价格计算，不带 `reasoningEffort` 与 `llmChatCompletionCount`；`usage.run`、`usage.chat` 已包含这次用量。`contextWindow` 与 `model` 仍描述 Agent 主模型，客户端无需区分来源即可按原逻辑显示。TEAM 成员快照带 `taskId`，`toolId` 使用成员命名空间。
 
 Chat JSONL 步骤行用可选数组 `toolUsage` 保存这些调用（字段同上，不含 `source`），与该步骤主模型的 `usage` 分开；回放把它们计入 Run/Chat 的 token 与费用，但不计入模型调用次数、计时、上下文窗口或步骤 `modelKey`。旧记录没有该字段时按 0 处理。
 
@@ -656,13 +656,13 @@ Chat JSONL 步骤行用可选数组 `toolUsage` 保存这些调用（字段同�
 
 `GET /api/model-options` 返回聊天输入区运行时可选项。前端按当前 agent `mode` 自行决定是否展示该控件：
 
-- `models`: 当前 model registry 中可展示的聊天模型。Native 选项仅返回 `key/name/icon/provider` 与非空的 `serviceTiers`，不返回 `modelId/protocol/isReasoner/isVision/contextWindow/timeout` 或模型级 `reasoningEfforts`。ACP 透传模型保留原有字段与 bridge 声明的能力信息，包括显式 boolean `isReasoner/isVision`、模型级 `reasoningEfforts/serviceTiers`；内部发现与 Query 校验不受 Native 响应精简影响。`icon` 是可选的模型图标标识；ACP 透传模型仅在上游 `/api/models` 返回该字段时携带。普通模型要求 `type: chat`、provider 存在且 `apiKey` 非空；`protocol: ACP_PASSTHROUGH` 的 ACP 透传模型不要求 provider。`type: embedding`、`type: image-generation` 与 `type: vl` 均不会出现在聊天模型选项中。
+- `models`: 当前 model registry 中可展示的聊天模型。Native 选项仅返回 `key/name/icon/provider` 与非空的 `serviceTiers`，不返回 `modelId/protocol/isReasoner/isVision/contextWindow/timeout` 或模型级 `reasoningEfforts`。ACP 透传模型保留原有字段与 bridge 声明的能力信息，包括显式 boolean `isReasoner/isVision`、模型级 `reasoningEfforts/serviceTiers`；内部发现与 Query 校验不受 Native 响应精简影响。`icon` 是可选的模型图标标识；ACP 透传模型仅在上游 `/api/models` 返回该字段时携带。普通模型要求 `type: chat`、provider 存在且 `apiKey` 非空；`protocol: ACP_PASSTHROUGH` 的 ACP 透传模型不要求 provider。`type: embedding`、`type: image`、`type: vl` 与 `type: tts` 均不会出现在聊天模型选项中。
 - `reasoningEfforts`: 保留 `{key,label}` 对象数组，支持中文等显示标签。native model options 固定为 `NONE`、`LOW`、`MEDIUM`、`HIGH`、`XHIGH`、`MAX`，其中 `NONE` 表示关闭思考深度；ACP CODER 仍按 bridge 的模型发现结果生成
 - `serviceTiers`: 可选服务等级（ACP 按 bridge 能力解析，包含恢复标准等级的 STANDARD 选项）
 
 该接口仅表达可选能力，不返回 `defaultModelKey/defaultReasoningEffort/defaultServiceTier`。当前选择由 `/api/agent` 顶层 `modelKey/reasoningEffort/serviceTier` 提供，刷新选项不改变 Agent 的选择；无可配置服务等级时省略 serviceTiers。
 
-`GET /api/admin/agents/editor-options` 的 `models` 仅返回 `type: chat` 的模型（未声明 `type` 时按 `chat` 兼容），供 Agent 创建与编辑选择；`embedding`、`image-generation`、`vl` 不进入选项，支持看图的 `chat` 模型仍保留。该接口无需类型过滤参数。reasoner model 同样返回 `reasoningEfforts: [LOW, MEDIUM, HIGH, XHIGH, MAX]`。这里及聊天、usage、回放中记录的均为用户选择的逻辑档位；provider 实际映射值不会作为额外字段回显。
+`GET /api/admin/agents/editor-options` 的 `models` 仅返回 `type: chat` 的模型（未声明 `type` 时按 `chat` 兼容），供 Agent 创建与编辑选择；`embedding`、`image`、`vl`、`tts` 不进入选项，支持看图的 `chat` 模型仍保留。该接口无需类型过滤参数。reasoner model 同样返回 `reasoningEfforts: [LOW, MEDIUM, HIGH, XHIGH, MAX]`。这里及聊天、usage、回放中记录的均为用户选择的逻辑档位；provider 实际映射值不会作为额外字段回显。
 
 Agent 编辑选项与 ACP 模型选项中的 `contextWindow` 是 API 响应字段名；model registry YAML 中对应配置字段为 `maxInputTokens`。Native 聊天模型选项不返回该字段；用量显示读取 usage 数据。
 

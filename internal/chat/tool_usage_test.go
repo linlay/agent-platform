@@ -128,6 +128,67 @@ func TestLoadChatReplaysToolUsageIntoTotals(t *testing.T) {
 	}
 }
 
+func TestCharacterBilledToolUsagePersistsAndReplaysCost(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-speech", "agent", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := appendQueryLineForTest(store, "chat-speech", QueryLine{
+		ChatID: "chat-speech", RunID: "run-speech", UpdatedAt: testEpochMillis(1000),
+		Query: map[string]any{"chatId": "chat-speech", "message": "read it"}, Type: "query",
+	}); err != nil {
+		t.Fatalf("append query line: %v", err)
+	}
+	writer := NewStepWriter(store, "chat-speech", "run-speech", "react")
+	onEventForTest(writer, stream.EventData{
+		Type: "content.snapshot", Timestamp: testEpochMillis(1001),
+		Payload: map[string]any{"contentId": "content-1", "text": "here"},
+	})
+	onEventForTest(writer, stream.EventData{
+		Type: "usage.snapshot", Timestamp: testEpochMillis(1002),
+		Payload: map[string]any{"usage": map[string]any{"current": map[string]any{
+			"modelKey": "chat-model", "promptTokens": 100, "completionTokens": 20, "totalTokens": 120, "llmChatCompletionCount": 1,
+		}}},
+	})
+	onEventForTest(writer, stream.EventData{
+		Type: "usage.snapshot", Timestamp: testEpochMillis(1003),
+		Payload: map[string]any{"usage": map[string]any{"current": map[string]any{
+			"source": "tool", "toolId": "tool_1", "toolName": "speech_generate", "operation": "speech.generation",
+			"modelKey": "speech-model", "promptTokens": 0, "completionTokens": 0, "totalTokens": 0, "characters": 2000,
+			"estimatedCost": map[string]any{"currency": "CNY", "total": 0.7},
+		}}},
+	})
+	onEventForTest(writer, stream.EventData{Type: "run.complete", Timestamp: testEpochMillis(1004)})
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-speech"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	var entry map[string]any
+	for _, line := range lines {
+		if toolUsage, _ := line["toolUsage"].([]any); len(toolUsage) == 1 {
+			entry, _ = toolUsage[0].(map[string]any)
+		}
+	}
+	if entry == nil || toIntValue(entry["characters"]) != 2000 || entry["operation"] != "speech.generation" {
+		t.Fatalf("character tool usage not persisted: %#v", lines)
+	}
+	if err := completeRunForTest(store, RunCompletion{ChatID: "chat-speech", RunID: "run-speech", UpdatedAtMillis: testEpochMillis(1005)}); err != nil {
+		t.Fatalf("complete run: %v", err)
+	}
+	detail, err := store.LoadChat("chat-speech")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	usage := detail.ReplayUsage.LastRun
+	if usage.TotalTokens != 120 || usage.EstimatedCostCurrency != "CNY" || !approxEqual(usage.EstimatedCostTotal, 0.7) {
+		t.Fatalf("replay must add character cost without tokens, got %#v", usage)
+	}
+}
+
 func approxEqual(a, b float64) bool {
 	diff := a - b
 	return diff < 1e-9 && diff > -1e-9

@@ -57,6 +57,7 @@ func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat
 		filtered = append(filtered, def)
 	}
 	configureImageGenerateProfileSchema(filtered, cfg.ImageGenerate)
+	configureSpeechGenerateProfileSchema(filtered, cfg.SpeechGenerate)
 	return &RuntimeToolExecutor{
 		cfg:             cfg,
 		sandbox:         sandbox,
@@ -95,11 +96,60 @@ func configureImageGenerateProfileSchema(definitions []api.ToolDetailResponse, c
 		} else {
 			delete(profile, "enum")
 		}
-		description := "Optional. Configured image-generation profile. Omit it to use the configured default profile"
+		description := "Optional. Configured image profile. Omit it to use the configured default profile"
 		if defaultProfile := strings.TrimSpace(cfg.DefaultProfile); defaultProfile != "" {
 			description += " (" + defaultProfile + ")"
 		}
 		profile["description"] = description + "."
+		return
+	}
+}
+
+// configureSpeechGenerateProfileSchema publishes the configured profiles and
+// their voices so the model picks a real voice ID instead of inventing one.
+func configureSpeechGenerateProfileSchema(definitions []api.ToolDetailResponse, cfg config.SpeechGenerateConfig) {
+	profileNames := make([]string, 0, len(cfg.Profiles))
+	for name := range cfg.Profiles {
+		profileNames = append(profileNames, name)
+	}
+	sort.Strings(profileNames)
+	for index := range definitions {
+		if definitions[index].Name != "speech_generate" {
+			continue
+		}
+		properties := AnyMapNode(definitions[index].Parameters["properties"])
+		if profile := AnyMapNode(properties["profile"]); len(profile) > 0 {
+			if len(profileNames) > 0 {
+				enum := make([]any, len(profileNames))
+				for i, name := range profileNames {
+					enum[i] = name
+				}
+				profile["enum"] = enum
+			} else {
+				delete(profile, "enum")
+			}
+			description := "Optional. Configured speech profile. Omit it to use the configured default profile"
+			if cfg.DefaultProfile != "" {
+				description += " (" + cfg.DefaultProfile + ")"
+			}
+			profile["description"] = description + "."
+		}
+		if voice := AnyMapNode(properties["voice"]); len(voice) > 0 {
+			lines := make([]string, 0, len(profileNames))
+			for _, name := range profileNames {
+				item := cfg.Profiles[name]
+				line := name + ": default " + item.Voice
+				if len(item.Voices) > 0 {
+					line += "; allowed " + strings.Join(item.Voices, ", ")
+				}
+				lines = append(lines, line)
+			}
+			description := "Optional. Provider voice ID, overriding the profile default. Voice IDs are specific to the model provider; use only an ID the user gave or one listed here."
+			if len(lines) > 0 {
+				description += " Profiles: " + strings.Join(lines, " | ") + "."
+			}
+			voice["description"] = description
+		}
 		return
 	}
 }
@@ -237,6 +287,8 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 		return t.invokeVisionRecognize(ctx, args, execCtx)
 	case "image_generate":
 		return t.invokeImageGenerate(ctx, args, execCtx)
+	case "speech_generate":
+		return t.invokeSpeechGenerate(ctx, args, execCtx)
 	case "web_fetch", "WebFetch":
 		return t.invokeWebFetch(ctx, args, execCtx)
 	case "bash":
@@ -274,7 +326,7 @@ func runtimeToolUsesCompactModelOutput(toolName string) bool {
 	case "bash", "bash_sandbox",
 		"desktop_shell", "desktop_settings", "desktop_site", "desktop_webapp", "desktop_service", "desktop_market", "desktop_kanban",
 		"file_read", "file_write", "file_edit", "file_glob", "file_grep",
-		"image_generate", "vision_recognize", "web_fetch",
+		"image_generate", "speech_generate", "vision_recognize", "web_fetch",
 		"regex":
 		return true
 	default:

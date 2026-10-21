@@ -482,7 +482,7 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 	if _, exists := values["speech"]; exists {
 		return fmt.Errorf("%s: speech is not implemented", path)
 	}
-	if _, err := configMap(values, path, "access-policy", "bash", "sandbox-bash", "file-tools", "run-env", "mcp", "platform-control", "vision-recognize", "web-fetch", "image-generate"); err != nil {
+	if _, err := configMap(values, path, "access-policy", "bash", "sandbox-bash", "file-tools", "run-env", "mcp", "platform-control", "vision-recognize", "web-fetch", "image-generate", "speech-generate"); err != nil {
 		return err
 	}
 	if err := c.applyAIToolsValues(values); err != nil {
@@ -943,7 +943,39 @@ func (c *Config) applyAIToolsValues(values map[string]any) error {
 			return err
 		}
 	}
+	if speechGenerate, ok := values["speech-generate"].(map[string]any); ok && len(speechGenerate) > 0 {
+		c.applySpeechGenerateValues(speechGenerate)
+	}
 	return nil
+}
+
+func (c *Config) applySpeechGenerateValues(values map[string]any) {
+	c.SpeechGenerate.Enabled = boolValue(anyValue(values["enabled"], c.SpeechGenerate.Enabled), c.SpeechGenerate.Enabled)
+	c.SpeechGenerate.DefaultProfile = stringValue(anyValue(values["default-profile"], c.SpeechGenerate.DefaultProfile), c.SpeechGenerate.DefaultProfile)
+	profiles, _ := values["profiles"].(map[string]any)
+	if len(profiles) == 0 {
+		return
+	}
+	parsed := make(map[string]SpeechGenerateProfileConfig, len(profiles))
+	for key, raw := range profiles {
+		profileKey := strings.TrimSpace(key)
+		if profileKey == "" {
+			continue
+		}
+		profile := c.SpeechGenerate.Profiles[profileKey]
+		if profileValues, _ := raw.(map[string]any); len(profileValues) > 0 {
+			profile.ModelKey = stringValue(anyValue(profileValues["model-key"], profile.ModelKey), profile.ModelKey)
+			profile.Timeout = intValue(anyValue(profileValues["timeout"], profile.Timeout), profile.Timeout)
+			profile.Voice = stringValue(anyValue(profileValues["voice"], profile.Voice), profile.Voice)
+			profile.Voices = csvOrList(anyValue(profileValues["voices"], profile.Voices), profile.Voices)
+			profile.Format = stringValue(anyValue(profileValues["format"], profile.Format), profile.Format)
+			profile.SampleRate = intValue(anyValue(profileValues["sample-rate"], profile.SampleRate), profile.SampleRate)
+			profile.MaxTextChars = intValue(anyValue(profileValues["max-text-chars"], profile.MaxTextChars), profile.MaxTextChars)
+			profile.MaxAudioBytes = intValue(anyValue(profileValues["max-audio-bytes"], profile.MaxAudioBytes), profile.MaxAudioBytes)
+		}
+		parsed[profileKey] = profile
+	}
+	c.SpeechGenerate.Profiles = parsed
 }
 
 func parseVisionRecognizeProfileConfig(raw any, fallback VisionRecognizeProfileConfig) VisionRecognizeProfileConfig {

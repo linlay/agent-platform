@@ -281,12 +281,20 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		}
 		modelType, ok := models.NormalizeModelType(contracts.FirstNonEmptyString(root["type"]))
 		if !ok {
-			addError("invalid_type", "model type must be chat, embedding, reranker, image-generation, or vl")
+			addError("invalid_type", models.InvalidModelTypeMessage(contracts.FirstNonEmptyString(root["type"])))
 			modelType = models.ModelTypeChat
 		}
 		protocol := strings.TrimSpace(contracts.FirstNonEmptyString(root["protocol"]))
 		if models.IsACPPassthroughProtocol(protocol) && modelType != models.ModelTypeChat {
 			addError("invalid_protocol", "ACP_PASSTHROUGH is only supported for type: chat")
+		}
+		if ok {
+			if err := models.ValidateModelTypeProtocol(modelType, protocol); err != nil {
+				addError("invalid_protocol", err.Error())
+			}
+		}
+		if err := models.ValidateModelPricing(models.ParseModelPricing(root["pricing"]), modelType); err != nil {
+			addError("invalid_pricing", err.Error())
 		}
 		if _, exists := root["reasoningEffortMapping"]; exists {
 			if _, err := models.ParseReasoningEffortMapping(root["reasoningEffortMapping"], modelType, protocol); err != nil {
@@ -322,7 +330,7 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 			if contracts.AnyIntNode(embedding["dimension"]) <= 0 {
 				addError("missing_embedding_dimension", "embedding.dimension must be greater than 0")
 			}
-		case models.ModelTypeImageGeneration:
+		case models.ModelTypeImage:
 			image := contracts.AnyMapNode(root["image"])
 			if _, exists := image["endpointPath"]; exists {
 				addError("legacy_image_endpoint", "image.endpointPath is no longer supported; configure image.generation.endpointPath")

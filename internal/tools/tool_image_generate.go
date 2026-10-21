@@ -58,10 +58,10 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 	if err != nil {
 		return modelToolError("image_generate_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
 	}
-	if !models.IsImageGenerationModel(modelInfo) {
-		return modelToolError("image_generate_model_not_image_generation", "configured model is not type: image-generation", map[string]any{"modelKey": modelInfo.Key, "type": modelInfo.Type}), nil
+	if !models.IsImageModel(modelInfo) {
+		return modelToolError("image_generate_model_type_invalid", "configured model is not type: image", map[string]any{"modelKey": modelInfo.Key, "type": modelInfo.Type}), nil
 	}
-	model, provider, err := t.models.GetImageGeneration(profile.ModelKey)
+	model, provider, err := t.models.GetImage(profile.ModelKey)
 	if err != nil {
 		return modelToolError("image_generate_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
 	}
@@ -371,9 +371,28 @@ func normalizeGeneratedImageMime(value string) string {
 }
 
 func persistGeneratedImageArtifact(chatsRoot string, execCtx *ExecutionContext, data []byte, imageMime string, index int) (map[string]any, error) {
+	return persistGeneratedChatArtifact(chatsRoot, execCtx, data, generatedChatArtifact{
+		Prefix: "image_generate",
+		Ext:    generatedImageExtension(imageMime),
+		Kind:   "image",
+		Noun:   "generated images",
+		Index:  index,
+	})
+}
+
+// generatedChatArtifact names a tool-generated file saved in the current Chat.
+type generatedChatArtifact struct {
+	Prefix string
+	Ext    string
+	Kind   string
+	Noun   string
+	Index  int
+}
+
+func persistGeneratedChatArtifact(chatsRoot string, execCtx *ExecutionContext, data []byte, spec generatedChatArtifact) (map[string]any, error) {
 	chatID, runID := imageGenerateChatRun(execCtx)
 	if strings.TrimSpace(chatsRoot) == "" || strings.TrimSpace(chatID) == "" {
-		return nil, fmt.Errorf("chat context is required to persist generated images")
+		return nil, fmt.Errorf("chat context is required to persist %s", spec.Noun)
 	}
 	if strings.TrimSpace(runID) == "" {
 		runID = "manual"
@@ -386,12 +405,11 @@ func persistGeneratedImageArtifact(chatsRoot string, execCtx *ExecutionContext, 
 	if err := os.MkdirAll(chatDir, 0o755); err != nil {
 		return nil, err
 	}
-	ext := generatedImageExtension(imageMime)
 	timestamp := time.Now().UnixMilli()
 	var name string
 	var targetPath string
 	for collision := 0; ; collision++ {
-		name = fmt.Sprintf("image_generate_%s_%d_%d%s", runID, timestamp+int64(collision), index, ext)
+		name = fmt.Sprintf("%s_%s_%d_%d%s", spec.Prefix, runID, timestamp+int64(collision), spec.Index, spec.Ext)
 		targetPath = filepath.Join(chatDir, name)
 		file, openErr := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if errors.Is(openErr, os.ErrExist) {
@@ -412,7 +430,7 @@ func persistGeneratedImageArtifact(chatsRoot string, execCtx *ExecutionContext, 
 	}
 	relativePath, err := filepath.Rel(chatDir, targetPath)
 	if err != nil || isPathOutsideBase(relativePath) {
-		return nil, fmt.Errorf("generated image escaped chat directory")
+		return nil, fmt.Errorf("%s escaped chat directory", spec.Noun)
 	}
 	relativePath = filepath.ToSlash(relativePath)
 	resourceURL, err := chat.BuildChatAliasRef(relativePath)
@@ -420,12 +438,12 @@ func persistGeneratedImageArtifact(chatsRoot string, execCtx *ExecutionContext, 
 		return nil, err
 	}
 	return map[string]any{
-		"artifactId":   fmt.Sprintf("image_generate_%d_%d", timestamp, index),
+		"artifactId":   fmt.Sprintf("%s_%d_%d", spec.Prefix, timestamp, spec.Index),
 		"name":         filepath.Base(targetPath),
 		"path":         targetPath,
 		"relativePath": relativePath,
 		"url":          resourceURL,
-		"type":         "image",
+		"type":         spec.Kind,
 	}, nil
 }
 

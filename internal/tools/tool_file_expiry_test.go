@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,7 +61,7 @@ func TestFileMutationExpiryAndRealReread(t *testing.T) {
 				snap.ReadAtUnixMs = time.Now().Add(-61 * time.Minute).UnixMilli()
 				ctx.ReadFileState[canonical] = snap
 				if scope == "chat" {
-					executor.recordChatFileVersion(ctx, canonical, snap, "read", false)
+					expireChatFileVersion(t, executor, ctx, canonical, snap.ReadAtUnixMs)
 					ctx = fileToolExecutionContext(root)
 					ctx.Session.ChatID = "chat-expiry"
 					ctx.Session.RunID = "edit"
@@ -94,7 +95,7 @@ func TestFileMutationExpiryAndRealReread(t *testing.T) {
 					t.Fatalf("expected actual content: %#v", read.Structured)
 				}
 				at := ctx.ReadFileState[canonical].ReadAtUnixMs
-				if _, rejected := executor.validateReadBeforeFileMutation(canonical, ctx, operation); rejected {
+				if _, _, _, rejected := executor.readProofForMutation(canonical, ctx, operation); rejected {
 					t.Fatal("fresh snapshot rejected")
 				}
 				if ctx.ReadFileState[canonical].ReadAtUnixMs != at {
@@ -138,7 +139,7 @@ func TestReadAndEditDetectSameStatChangedSHA(t *testing.T) {
 					t.Fatalf("read: %#v %v", result, err)
 				}
 			} else {
-				result, rejected := executor.validateReadBeforeFileMutation(canonical, ctx, "file_edit")
+				_, _, result, rejected := executor.readProofForMutation(canonical, ctx, "file_edit")
 				if !rejected || result.Structured["error"] != "file_edit_modified_since_read" {
 					t.Fatalf("edit: %#v", result)
 				}
@@ -170,7 +171,7 @@ func TestRestoredChatSnapshotExpiresWithoutRenewal(t *testing.T) {
 	observed := first.ReadFileState[path].ReadAtUnixMs
 	second := fileToolExecutionContext(root)
 	second.Session.ChatID = first.Session.ChatID
-	if result, rejected := executor.validateReadBeforeFileMutation(path, second, "file_edit"); rejected {
+	if _, _, result, rejected := executor.readProofForMutation(path, second, "file_edit"); rejected {
 		t.Fatalf("restore: %#v", result)
 	}
 	result, err := executor.invokeRead(args, second)
@@ -183,7 +184,31 @@ func TestRestoredChatSnapshotExpiresWithoutRenewal(t *testing.T) {
 	snap := second.ReadFileState[path]
 	snap.ReadAtUnixMs = time.Now().Add(-61 * time.Minute).UnixMilli()
 	second.ReadFileState[path] = snap
-	if result, rejected := executor.validateReadBeforeFileMutation(path, second, "file_edit"); !rejected || result.Structured["error"] != "file_edit_cache_expired" {
+	if _, _, result, rejected := executor.readProofForMutation(path, second, "file_edit"); !rejected || result.Structured["error"] != "file_edit_cache_expired" {
 		t.Fatalf("restored expiry: %#v", result)
+	}
+}
+
+// expireChatFileVersion ages the persisted proof directly; recording an older
+// observation through the executor would merge into the fresher ledger entry.
+func expireChatFileVersion(t *testing.T, executor *RuntimeToolExecutor, ctx *ExecutionContext, path string, observedAt int64) {
+	t.Helper()
+	ledgerPath, ok := executor.chatFileVersionsPath(ctx)
+	if !ok {
+		t.Fatal("chat file versions path unavailable")
+	}
+	ledger := loadFileVersionLedger(ledgerPath)
+	entry, ok := ledger.Files[path]
+	if !ok {
+		t.Fatalf("ledger has no entry for %s", path)
+	}
+	entry.ObservedAtUnixMs = observedAt
+	ledger.Files[path] = entry
+	data, err := json.MarshalIndent(ledger, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ledgerPath, data, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

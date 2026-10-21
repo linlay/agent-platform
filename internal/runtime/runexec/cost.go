@@ -68,7 +68,7 @@ func (d UsageCostDecorator) EstimateForModel(usage chat.UsageData) chat.UsageDat
 		return usage
 	}
 	modelKey := strings.TrimSpace(usage.ModelKey)
-	if modelKey == "" || !UsageHasBillableTokens(usage) {
+	if modelKey == "" || !UsageHasBillableUsage(usage) {
 		return usage
 	}
 	model, err := d.Models.GetModel(modelKey)
@@ -95,9 +95,10 @@ func UsageModelKeyFromDebugData(inner map[string]any, usage map[string]any) stri
 	return strings.TrimSpace(contracts.FirstNonEmptyString(usage["modelKey"], modelNode["key"]))
 }
 
-func UsageHasBillableTokens(usage chat.UsageData) bool {
+func UsageHasBillableUsage(usage chat.UsageData) bool {
 	return usage.PromptTokens > 0 || usage.CompletionTokens > 0 || usage.TotalTokens > 0 ||
-		usage.CachedTokens > 0 || usage.PromptCacheHitTokens > 0 || usage.PromptCacheMissTokens > 0
+		usage.CachedTokens > 0 || usage.PromptCacheHitTokens > 0 || usage.PromptCacheMissTokens > 0 ||
+		usage.Characters > 0
 }
 
 func EstimateUsageCost(usage chat.UsageData, pricing models.ModelPricing, billing config.BillingConfig) chat.UsageData {
@@ -111,6 +112,15 @@ func EstimateUsageCost(usage chat.UsageData, pricing models.ModelPricing, billin
 	if currency == "" {
 		currency = "CNY"
 	}
+	usage.EstimatedCostCurrency = currency
+	if pricing.Unit == models.PricingUnitPer10KCharacters {
+		// Character pricing has no input/output split; only the total is set.
+		usage.EstimatedCostInputHit = 0
+		usage.EstimatedCostInputMiss = 0
+		usage.EstimatedCostOutput = 0
+		usage.EstimatedCostTotal = float64(usage.Characters) * pricing.Characters / 10_000
+		return usage
+	}
 	cacheHitTokens := usage.PromptCacheHitTokens
 	if cacheHitTokens <= 0 {
 		cacheHitTokens = usage.CachedTokens
@@ -121,7 +131,6 @@ func EstimateUsageCost(usage chat.UsageData, pricing models.ModelPricing, billin
 	} else if cacheMissTokens <= 0 && usage.PromptTokens > cacheHitTokens {
 		cacheMissTokens = usage.PromptTokens - cacheHitTokens
 	}
-	usage.EstimatedCostCurrency = currency
 	usage.EstimatedCostInputHit = float64(cacheHitTokens) * pricing.InputCacheHit / 1_000_000
 	usage.EstimatedCostInputMiss = float64(cacheMissTokens) * pricing.InputCacheMiss / 1_000_000
 	usage.EstimatedCostOutput = float64(usage.CompletionTokens) * pricing.Output / 1_000_000
@@ -130,5 +139,8 @@ func EstimateUsageCost(usage chat.UsageData, pricing models.ModelPricing, billin
 }
 
 func ModelPricingEnabled(pricing models.ModelPricing) bool {
+	if pricing.Unit == models.PricingUnitPer10KCharacters {
+		return pricing.Characters > 0
+	}
 	return pricing.InputCacheHit > 0 || pricing.InputCacheMiss > 0 || pricing.Output > 0
 }

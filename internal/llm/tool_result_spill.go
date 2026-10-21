@@ -3,7 +3,6 @@ package llm
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -33,7 +32,7 @@ func (s *llmRunStream) maybeSpillToolResult(invocation *preparedToolInvocation, 
 	}
 
 	fullPayload := fullToolResultPayload(invocation.toolName, result)
-	fullJSON, err := json.Marshal(fullPayload)
+	fullJSON, err := MarshalModelJSON(fullPayload)
 	if err != nil || len(fullJSON) <= toolResultSpillThresholdBytes {
 		return result
 	}
@@ -53,7 +52,7 @@ func (s *llmRunStream) maybeSpillToolResult(invocation *preparedToolInvocation, 
 		"sha256":    sha,
 	}
 	previewPayload := previewToolResultPayload(invocation.toolName, result, fullPayload, ref)
-	previewJSON, err := json.Marshal(previewPayload)
+	previewJSON, err := MarshalModelJSON(previewPayload)
 	if err != nil {
 		return result
 	}

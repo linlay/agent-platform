@@ -275,7 +275,7 @@ func TestLoadModelRegistryParsesTypedModels(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(modelsDir, "image.yml"), []byte(strings.Join([]string{
 		"key: image-model",
 		"provider: mock",
-		"type: image-generation",
+		"type: image",
 		"modelId: gpt-image-1",
 		"image:",
 		"  timeout: 120",
@@ -326,11 +326,11 @@ func TestLoadModelRegistryParsesTypedModels(t *testing.T) {
 		embedding.Embedding.EndpointPath != "/v1/embeddings" {
 		t.Fatalf("unexpected embedding model: %#v", embedding)
 	}
-	image, _, err := registry.GetImageGeneration("image-model")
+	image, _, err := registry.GetImage("image-model")
 	if err != nil {
 		t.Fatalf("GetImageGeneration returned error: %v", err)
 	}
-	if image.Type != ModelTypeImageGeneration ||
+	if image.Type != ModelTypeImage ||
 		image.Image.Generation.EndpointPath != "/v1/images/generations" ||
 		image.Image.Generation.RequestFormat != ImageGenerationRequestFormatOpenAIImagesJSON ||
 		image.Image.Timeout != 120 ||
@@ -380,7 +380,7 @@ func TestLoadModelRegistryRejectsInvalidImageEditConfig(t *testing.T) {
 	content := strings.Join([]string{
 		"key: bad-image",
 		"provider: mock",
-		"type: image-generation",
+		"type: image",
 		"modelId: bad-image",
 		"image:",
 		"  generation:",
@@ -457,7 +457,7 @@ func TestLoadModelRegistryRejectsLegacyImageEndpointAndMissingGeneration(t *test
 			content := strings.Join(append([]string{
 				"key: invalid-image",
 				"provider: mock",
-				"type: image-generation",
+				"type: image",
 				"modelId: invalid-image",
 				"image:",
 			}, test.imageLines...), "\n")
@@ -762,7 +762,7 @@ func TestModelImageOmitResponseFormatDefaultsAndOperationScope(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			writeTestProviderAndModel(t, root, "apiKey: plain-text", strings.Join([]string{
-				"type: image-generation", "image:",
+				"type: image", "image:",
 				"  generation:", "    endpointPath: /generate", "    requestFormat: openai-images-json", tc.generation,
 				"  edit:", "    endpointPath: /edit", "    requestFormat: openai-images-multipart", tc.edit,
 			}, "\n"))
@@ -770,7 +770,7 @@ func TestModelImageOmitResponseFormatDefaultsAndOperationScope(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			model, _, err := registry.GetImageGeneration("mock-model")
+			model, _, err := registry.GetImage("mock-model")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -799,6 +799,79 @@ func TestLoadModelL1ProtectionOverride(t *testing.T) {
 			model, _, err := registry.Get("mock-model")
 			if err != nil || model.L1KeepRecentRounds != value {
 				t.Fatalf("override %d: %v", value, err)
+			}
+		})
+	}
+}
+
+func TestLoadModelRegistryLoadsTTSModels(t *testing.T) {
+	root := writeRegistryFiles(t, testProvider, strings.Join([]string{
+		"key: speech", "provider: mock", "type: tts", "protocol: minimax_tts", "modelId: speech-2.8-hd",
+		"pricing:", "  currency: CNY", "  unit: per_10k_characters", "  characters: 3.5",
+	}, "\n"))
+	registry, err := LoadModelRegistry(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, provider, err := registry.GetTTS("speech")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model.Protocol != ProtocolMiniMaxTTS || model.Pricing.Characters != 3.5 || model.Pricing.Unit != PricingUnitPer10KCharacters {
+		t.Fatalf("unexpected model %#v", model)
+	}
+	if got := provider.ResolvedEndpointPath(model.Protocol); got != "/v1/t2a_v2" {
+		t.Fatalf("default MiniMax endpoint = %q", got)
+	}
+	if _, _, err := registry.Get("speech"); err == nil {
+		t.Fatal("tts model must not resolve as chat")
+	}
+}
+
+func TestTTSEndpointDefaultsAndOverrides(t *testing.T) {
+	for _, tc := range []struct {
+		baseURL, protocol, override, want string
+	}{
+		{"https://dashscope.aliyuncs.com", ProtocolDashScopeTTS, "", "/api/v1/services/aigc/multimodal-generation/generation"},
+		{"https://dashscope.aliyuncs.com/api/v1", ProtocolDashScopeTTS, "", "/services/aigc/multimodal-generation/generation"},
+		{"https://api.minimaxi.com/v1", ProtocolMiniMaxTTS, "", "/t2a_v2"},
+		{"https://relay.test", ProtocolMiniMaxTTS, "/custom/t2a", "/custom/t2a"},
+	} {
+		provider := "key: mock\nbaseUrl: " + tc.baseURL + "\napiKey: k\n"
+		if tc.override != "" {
+			provider += "protocols:\n  " + tc.protocol + ":\n    endpointPath: " + tc.override + "\n"
+		}
+		root := writeRegistryFiles(t, provider, "key: s\nprovider: mock\ntype: tts\nprotocol: "+tc.protocol+"\nmodelId: m\n")
+		registry, err := LoadModelRegistry(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		model, resolved, err := registry.GetTTS("s")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := resolved.ResolvedEndpointPath(model.Protocol); got != tc.want {
+			t.Errorf("%s %s: endpoint %q, want %q", tc.baseURL, tc.protocol, got, tc.want)
+		}
+	}
+}
+
+func TestLoadModelRegistryRejectsInvalidTTSAndPricing(t *testing.T) {
+	for _, tc := range []struct {
+		name, model, want string
+	}{
+		{"renamed image type", "key: m\nprovider: mock\ntype: image-generation\nmodelId: m\n", "renamed to image"},
+		{"tts without speech protocol", "key: m\nprovider: mock\ntype: tts\nprotocol: OPENAI\nmodelId: m\n", "type: tts requires protocol"},
+		{"speech protocol on chat", "key: m\nprovider: mock\nprotocol: DASHSCOPE_TTS\nmodelId: m\n", "only supported for type: tts"},
+		{"tts priced per token", "key: m\nprovider: mock\ntype: tts\nprotocol: MINIMAX_TTS\nmodelId: m\npricing:\n  output: 1\n", "must use unit per_10k_characters"},
+		{"characters without unit", "key: m\nprovider: mock\nmodelId: m\npricing:\n  characters: 1\n", "requires unit per_10k_characters"},
+		{"character unit without price", "key: m\nprovider: mock\ntype: tts\nprotocol: MINIMAX_TTS\nmodelId: m\npricing:\n  unit: per_10k_characters\n", "must be greater than 0"},
+		{"character unit with token prices", "key: m\nprovider: mock\ntype: tts\nprotocol: MINIMAX_TTS\nmodelId: m\npricing:\n  unit: per_10k_characters\n  characters: 1\n  output: 1\n", "does not accept"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := LoadModelRegistry(writeRegistryFiles(t, testProvider, tc.model))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
 			}
 		})
 	}

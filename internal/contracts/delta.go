@@ -405,6 +405,8 @@ type UsageSnapshotTool struct {
 	ToolName  string
 	ModelKey  string
 	Operation string
+	// Characters is set for models billed per character.
+	Characters int
 }
 
 func (DeltaUsageSnapshot) agentDeltaTag() {}

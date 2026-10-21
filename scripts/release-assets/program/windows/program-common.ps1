@@ -26,6 +26,8 @@ $Script:DeployAIVisionGeneralModelKey = ''
 $Script:DeployAIVisionOCRModelKey = ''
 $Script:DeployAIWebFetchModelKey = ''
 $Script:DeployAIImageGenerateModelKey = ''
+$Script:DeployAISpeechGenerateModelKey = ''
+$Script:DeployGeneralModelKey = ''
 $Script:DeployCoderModelKey = ''
 $Script:DeployCoderReasoningEffort = ''
 $Script:DeployKBaseModelKey = ''
@@ -123,6 +125,8 @@ function Set-ProgramDeployOption([string]$Name, [string]$Value) {
     '--ai-vision-ocr-model-key' { $Script:DeployAIVisionOCRModelKey = $Value }
     '--ai-web-fetch-model-key' { $Script:DeployAIWebFetchModelKey = $Value }
     '--ai-image-generate-model-key' { $Script:DeployAIImageGenerateModelKey = $Value }
+    '--general-model-key' { $Script:DeployGeneralModelKey = $Value }
+    '--ai-speech-generate-model-key' { $Script:DeployAISpeechGenerateModelKey = $Value }
     '--coder-model-key' { $Script:DeployCoderModelKey = $Value }
     '--coder-reasoning-effort' {
       if (@('NONE', 'LOW', 'MEDIUM', 'HIGH', 'XHIGH', 'MAX') -notcontains $Value) {
@@ -174,6 +178,8 @@ function Set-ProgramDeployArgs([string[]]$Arguments) {
       '--ai-vision-ocr-model-key',
       '--ai-web-fetch-model-key',
       '--ai-image-generate-model-key',
+      '--ai-speech-generate-model-key',
+      '--general-model-key',
       '--coder-model-key',
       '--coder-reasoning-effort',
       '--kbase-model-key',
@@ -416,6 +422,23 @@ function Set-ProgramAIToolsModelKey([string]$Path, [string]$Section, [string]$Pr
 
 function New-ProgramDeployAIToolsFile([string]$Source, [string]$Target) {
   Copy-Item -LiteralPath $Source -Destination $Target
+  if (-not [string]::IsNullOrWhiteSpace($Script:DeployAISpeechGenerateModelKey)) {
+    $inSection = $false
+    $inProfiles = $false
+    $found = $false
+    foreach ($line in [System.IO.File]::ReadAllLines($Target)) {
+      if ($line -match '^[^\s#][^:]*:') {
+        $inSection = $line -eq 'speech-generate:'
+        $inProfiles = $false
+      }
+      if ($inSection -and $line -match '^  profiles:') { $inProfiles = $true }
+      if ($inSection -and $inProfiles -and $line -match '^    ([A-Za-z0-9_-]+):') {
+        if ($Matches[1] -ceq $Script:DeployAISpeechGenerateModelKey) { $found = $true }
+      }
+    }
+    if (-not $found) { Fail-Program "unknown speech-generate profile: $Script:DeployAISpeechGenerateModelKey" }
+    Set-ProgramYamlSectionValue $Target 'speech-generate' 'default-profile' $Script:DeployAISpeechGenerateModelKey
+  }
   if (-not [string]::IsNullOrWhiteSpace($Script:DeployAIVisionGeneralModelKey)) {
     Set-ProgramAIToolsModelKey $Target 'vision-recognize' 'general' $Script:DeployAIVisionGeneralModelKey
   }
@@ -468,6 +491,7 @@ function Set-ProgramYamlNestedValue([string]$Path, [string]$Section, [string]$Ch
 }
 function New-ProgramDeployAgentSettingsFile([string]$Source, [string]$Target) {
   Copy-Item -LiteralPath $Source -Destination $Target
+  if ($Script:DeployGeneralModelKey) { Set-ProgramYamlNestedValue $Target 'general' 'default-agent' 'modelKey' $Script:DeployGeneralModelKey }
   if ($Script:DeployCoderModelKey) { Set-ProgramYamlNestedValue $Target 'coder' 'default-agent' 'modelKey' $Script:DeployCoderModelKey }
   if ($Script:DeployCoderReasoningEffort) { Set-ProgramYamlNestedValue $Target 'coder' 'default-agent' 'reasoningEffort' $Script:DeployCoderReasoningEffort }
   if ($Script:DeployKBaseModelKey) { Set-ProgramYamlNestedValue $Target 'kbase' 'default-agent' 'modelKey' $Script:DeployKBaseModelKey }

@@ -43,7 +43,7 @@ configured_file="$configured_output/configs/tools.yml"
 image_generate_block="$(
   awk '
     /^image-generate:$/ { in_section = 1 }
-    in_section && /^speech:$/ { exit }
+    in_section && /^speech-generate:$/ { exit }
     in_section { print }
   ' "$configured_file"
 )"
@@ -64,6 +64,22 @@ image_generate_block="$(
   exit 1
 }
 
+speech_output="$tmp_dir/speech"
+run_deploy "$speech_output" --ai-speech-generate-model-key qwen-flash
+sed 's/^  default-profile: qwen-flash$/  default-profile:/' "$speech_output/configs/tools.yml" >"$tmp_dir/speech-normalized.yml"
+cmp "$REPO_ROOT/configs/tools.example.yml" "$tmp_dir/speech-normalized.yml"
+awk '/^speech-generate:$/ { in_section = 1 } in_section && /^  enabled: true$/ { found = 1 } END { exit !found }' "$speech_output/configs/tools.yml"
+if run_deploy "$tmp_dir/speech-invalid" --ai-speech-generate-model-key missing-profile >"$tmp_dir/speech-invalid.log" 2>&1; then
+  echo "[program-deploy-test] unknown speech profile unexpectedly succeeded" >&2
+  exit 1
+fi
+grep -Fq 'unknown speech-generate profile: missing-profile' "$tmp_dir/speech-invalid.log"
+if run_deploy "$tmp_dir/speech-missing-value" --ai-speech-generate-model-key >"$tmp_dir/speech-missing-value.log" 2>&1; then
+  echo "[program-deploy-test] missing speech profile unexpectedly succeeded" >&2
+  exit 1
+fi
+grep -Fq 'missing value for --ai-speech-generate-model-key' "$tmp_dir/speech-missing-value.log"
+
 default_output="$tmp_dir/default"
 run_deploy "$default_output"
 cmp "$REPO_ROOT/configs/tools.example.yml" "$default_output/configs/tools.yml"
@@ -71,7 +87,7 @@ cmp "$REPO_ROOT/configs/tools.example.yml" "$default_output/configs/tools.yml"
 existing_output="$tmp_dir/existing"
 mkdir -p "$existing_output/configs"
 printf 'custom-tools-config\n' >"$existing_output/configs/tools.yml"
-run_deploy "$existing_output" --ai-image-generate-model-key ignored-model-key
+run_deploy "$existing_output" --ai-image-generate-model-key ignored-model-key --ai-speech-generate-model-key ignored-profile
 [[ "$(cat "$existing_output/configs/tools.yml")" == "custom-tools-config" ]] || {
   echo "[program-deploy-test] existing tools.yml was overwritten" >&2
   exit 1
@@ -255,7 +271,8 @@ grep -Fq 'public-base-url: "https://new-public.test"' "$preview_file"
 echo '[program-deploy-test] preview initialization and reset passed'
 
 mode_output="$tmp_dir/mode-settings"
-run_deploy "$mode_output" --document-preview-api-base-url http://hub:8090 --document-preview-public-base-url https://docs.example.test --coder-model-key coder-fixture --coder-reasoning-effort HIGH --kbase-model-key answer-fixture --kbase-reasoning-effort MEDIUM --kbase-embedding-model-key embedding-fixture
+run_deploy "$mode_output" --document-preview-api-base-url http://hub:8090 --document-preview-public-base-url https://docs.example.test --general-model-key general-fixture --coder-model-key coder-fixture --coder-reasoning-effort HIGH --kbase-model-key answer-fixture --kbase-reasoning-effort MEDIUM --kbase-embedding-model-key embedding-fixture
+grep -Fq '    modelKey: general-fixture' "$mode_output/configs/agent-settings.yml"
 grep -Fq '    modelKey: coder-fixture' "$mode_output/configs/agent-settings.yml"
 grep -Fq '    modelKey: answer-fixture' "$mode_output/configs/agent-settings.yml"
 grep -Fq '    model-key: embedding-fixture' "$mode_output/configs/runtime.yml"

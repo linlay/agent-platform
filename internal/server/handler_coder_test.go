@@ -112,7 +112,7 @@ func TestCoderModelOptionsHTTP(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "image-model.yml"), []byte(strings.Join([]string{
 				"key: image-model",
 				"provider: mock",
-				"type: image-generation",
+				"type: image",
 				"modelId: gpt-image-1",
 				"image:",
 				"  generation:",
@@ -168,7 +168,7 @@ func TestCoderModelOptionsHTTP(t *testing.T) {
 
 func TestFetchACPCoderModelOptionsFiltersNonChatModels(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"code":0,"data":{"models":[{"key":"chat-model","type":"chat"},{"key":"legacy-chat-model"},{"key":"embedding-model","type":"embedding"},{"key":"image-model","type":"image-generation"},{"key":"vl-model","type":"vl"},{"key":"unknown-model","type":"audio"}]}}`))
+		_, _ = w.Write([]byte(`{"code":0,"data":{"models":[{"key":"chat-model","type":"chat"},{"key":"legacy-chat-model"},{"key":"embedding-model","type":"embedding"},{"key":"image-model","type":"image"},{"key":"vl-model","type":"vl"},{"key":"unknown-model","type":"audio"}]}}`))
 	}))
 	defer upstream.Close()
 

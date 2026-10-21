@@ -420,7 +420,7 @@ func TestRegistryImageSchemaUsesActualModelLoader(t *testing.T) {
 	validImage := strings.Join([]string{
 		"key: image-model",
 		"provider: mock",
-		"type: image-generation",
+		"type: image",
 		"modelId: image-model",
 		"image:",
 		"  generation:",
@@ -443,7 +443,7 @@ func TestRegistryImageSchemaUsesActualModelLoader(t *testing.T) {
 	base["env/registries/models/image.yml"] = strings.Join([]string{
 		"key: image-model",
 		"provider: mock",
-		"type: image-generation",
+		"type: image",
 		"modelId: image-model",
 		"image:",
 		"  endpointPath: /v1/images/generations",
