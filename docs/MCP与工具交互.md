@@ -313,6 +313,8 @@ Platform 对 WebApp 指定路径字段复用当前 Session 的 `@chat` 与 `@wor
 
 ## 工具展示多语言
 
+MCP 工具的 `toolName` 保留 Agent 实例隔离后的唯一路由名。`tool.start`、`tool.snapshot` 和 `tool.result` 返回非空 `toolLabel`：优先使用有效 MCP 工具定义的标签（远端 `title`、`annotations.title`，或连接器配置的 `label` 覆盖），缺省或空白时使用原始 MCP 工具名，例如 `list_tables`。默认标签在生成哈希路由名之前冻结，不影响模型调用名或远端 `tools/call` 的名称；新事件保存该标签用于回放，旧事件不迁移。
+
 工具 YAML 不再接受顶层 `label`，显示名称仅在 `i18n` 中声明。工具 YAML 支持可选顶层 `i18n`，语言复用 Platform 的 `en` / `zh-CN` 及其归一化规则。每个语言对象只接受字符串 `label`、`description`；空白字段按缺省处理，不支持的语言、重复归一化语言或非法字段在加载时拒绝。
 
 ```yaml

@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"encoding/json"
 	"testing"
 
 	"agent-platform/internal/api"
@@ -35,6 +36,48 @@ type stubToolLookup map[string]api.ToolDetailResponse
 func (s stubToolLookup) Tool(name string) (api.ToolDetailResponse, bool) {
 	tool, ok := s[name]
 	return tool, ok
+}
+
+func TestMCPToolLabelSurvivesEventLifecycle(t *testing.T) {
+	const name = "mcp_a514db115d430976_list_tables"
+	for _, label := range []string{"list_tables", "列出可访问的表"} {
+		t.Run(label, func(t *testing.T) {
+			mapper := NewDeltaMapper("run", "chat", contracts.Budget{}, stubToolLookup{
+				name: {Name: name, Label: label, Meta: map[string]any{"sourceType": "mcp", "mcpToolName": "list_tables"}},
+			}, nil)
+			dispatcher := stream.NewDispatcher(stream.StreamRequest{RunID: "run", ChatID: "chat"})
+			seen := map[string]bool{}
+			for _, delta := range []contracts.AgentDelta{
+				contracts.DeltaToolCall{Index: 0, ID: "call", Name: name, ArgsDelta: "{}"},
+				contracts.DeltaToolEnd{ToolIDs: []string{"call"}},
+				contracts.DeltaToolResult{ToolID: "call", ToolName: name},
+			} {
+				for _, input := range mapper.Map(delta) {
+					for _, event := range dispatcher.Dispatch(input) {
+						if event.Type != "tool.start" && event.Type != "tool.snapshot" && event.Type != "tool.result" {
+							continue
+						}
+						// Exercise the same JSON encoding used for persistence and transport.
+						data, err := json.Marshal(stream.EventData{Seq: event.Seq, Type: event.Type, Timestamp: event.Timestamp, Payload: event.Payload})
+						if err != nil {
+							t.Fatal(err)
+						}
+						var payload map[string]any
+						if err := json.Unmarshal(data, &payload); err != nil {
+							t.Fatal(err)
+						}
+						if payload["toolName"] != name || payload["toolLabel"] != label || payload["toolId"] != "call" {
+							t.Fatalf("%s: %s", event.Type, data)
+						}
+						seen[event.Type] = true
+					}
+				}
+			}
+			if len(seen) != 3 {
+				t.Fatalf("missing lifecycle events: %v", seen)
+			}
+		})
+	}
 }
 
 func TestDeltaMapper_QuestionAwaitAskEmitsAfterToolEnd(t *testing.T) {

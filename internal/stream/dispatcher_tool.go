@@ -103,9 +103,9 @@ func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent
 	}
 	if len(input.Target) > 0 {
 		payload["target"] = clonePayload(input.Target)
-		if label := strings.TrimSpace(input.ToolLabel); label != "" {
-			payload["toolLabel"] = label
-		}
+	}
+	if label := strings.TrimSpace(input.ToolLabel); label != "" {
+		payload["toolLabel"] = label
 	}
 	if isBashToolResult(input.ToolName) {
 		if input.ExitCode != 0 {
