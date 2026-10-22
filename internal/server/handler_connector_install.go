@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/adminsource"
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/mcp"
@@ -203,6 +204,10 @@ func (s *Server) writeConnectorError(w http.ResponseWriter, err error) {
 		return
 	}
 	switch {
+	case errors.Is(err, catalog.ErrPresetConnectorReadOnly):
+		status, code = http.StatusConflict, "preset_connector_readonly"
+	case errors.Is(err, adminsource.ErrConnectorDetach):
+		status, code = http.StatusConflict, "connector_detach_conflict"
 	case errors.Is(err, connector.ErrArchiveIdentityMismatch):
 		status, code = http.StatusConflict, "connector_identity_mismatch"
 	case errors.Is(err, connectorauth.ErrOAuthClientSetupRequired):

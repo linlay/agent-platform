@@ -9,6 +9,9 @@ Review.mount(u=>{
  u.title(t('删除','Delete ')+(types[f.resourceType]||t('资源','resource')));
  u.target(f.resourceKey);
  u.field(t('删除范围','Scope'),f.resourceType==='knowledge_library'?t('库配置和索引；保留来源目录','Library definition and index; source directories are retained'):(f.path||t('完整定义及目录','Complete definition and directory')),{critical:true});
+ if(f.resourceType==='connector'&&Array.isArray(f.detachedAgentKeys)&&f.detachedAgentKeys.length){
+  u.field(t('自动移除挂载','Remove mounts'),t(f.detachedAgentKeys.length+' 个智能体',f.detachedAgentKeys.length+' Agents'),{critical:true});
+ }
  if(f.resourceType==='knowledge_library')Review.librarySources(u,f.sourcePermissions);
 
 });

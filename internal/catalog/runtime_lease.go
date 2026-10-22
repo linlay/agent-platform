@@ -59,6 +59,19 @@ type runtimeVersionCheck struct {
 }
 
 func (r *FileRegistry) retainForVerificationLocked(defs []AgentDefinition) (func(), []runtimeVersionCheck) {
+	for _, def := range defs {
+		for _, id := range def.Connectors {
+			if r.deletingConnectors[id] {
+				return nil, nil
+			}
+		}
+		for _, mount := range def.ConnectorMounts {
+			if r.deletingConnectors[mount.ID] {
+				return nil, nil
+			}
+		}
+	}
+
 	var checks []runtimeVersionCheck
 	for _, def := range defs {
 		if r.assembler != nil && def.RuntimeRevision != "" {
@@ -69,6 +82,9 @@ func (r *FileRegistry) retainForVerificationLocked(defs []AgentDefinition) (func
 }
 
 func (r *FileRegistry) verifyRuntimeChecks(checks []runtimeVersionCheck, release func()) bool {
+	if release == nil {
+		return false
+	}
 	for _, check := range checks {
 		var err error
 		if check.expected == "" {

@@ -172,6 +172,9 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		if plan.Change.IsProject {
 			form["isProject"] = true
 		}
+		if plan.DetachedAgentKeys != nil {
+			form["detachedAgentKeys"] = plan.DetachedAgentKeys
+		}
 		if plan.KnowledgeBinding != nil {
 			form["knowledgeBinding"] = plan.KnowledgeBinding
 		}

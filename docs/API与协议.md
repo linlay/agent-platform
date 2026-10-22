@@ -138,7 +138,7 @@ Agent 创建的请求级 `isProject:true` 要求 `definition.runtimeConfig.works
 | GET/PUT | `/api/admin/agents/connectors` | GET: query `agentKey`；PUT: `{agentKey,connectorId,enabled}` | 完整配置、预置、声明和已生效挂载状态；预置切换返回 403 |
 | GET | `/api/connectors/icon` | query: `id`；可选缓存标识 `v` | 显式配置或默认规则选中的 SVG/PNG 图片；沿用服务鉴权，支持 ETag/304，缺失返回 404 |
 | GET/PUT | `/api/admin/connectors/detail` | GET: `id/file`；PUT: `id/file/content/baseSha256` | 读取或原子保存连接器定义，旧 MCP Registry 管理接口已移除 |
-| DELETE | `/api/admin/connectors/detail?id=<id>` | 外部连接器 id | 删除未被 Agent 引用的安装包，返回 `{id,deleted:true}`；内置包 403、仍被引用 409（`data.error.agentKeys`）、不存在 404；保留授权与 CLI 状态，重载失败回滚 |
+| DELETE | `/api/admin/connectors/detail?id=<id>` | 外部连接器 id | 无活动运行占用时自动移除 Agent 源码挂载并删除包、授权与 CLI 状态，返回 `{id,deleted:true}`；内置包 403、运行占用 409 `connector_in_use`（`data.error.agentKeys`）、预置引用 409 `preset_connector_readonly`、挂载修改冲突 409 `connector_detach_conflict`、不存在 404；重载失败回滚，提交后清理失败可重试 |
 | POST | `/api/admin/connectors/import` | multipart `file` ZIP、可选 `overwrite` | 原子安装或覆盖外部连接器 |
 | POST | `/api/admin/connectors/import-mcp` | JSON `mcpUrl`、可选 `authMode`（mcp/none，缺省 mcp） | 按主机名创建 HTTP MCP 连接器，重名不覆盖；见[安装与授权](连接器安装与授权.md#mcp-地址导入) |
 | GET/POST/DELETE | `/api/admin/connectors/auth?id=<id>` | 连接器 id | 查询状态、发起登录、退出登录 |

@@ -125,20 +125,31 @@ func (s *Server) handleAdminConnectors(w http.ResponseWriter, _ *http.Request) {
 	}
 	type entry struct {
 		connector.Summary
-		Tools       []api.ToolSummary `json:"tools"`
-		MCP         []mcpStatus       `json:"mcp,omitempty"`
-		IconURL     string            `json:"iconUrl,omitempty"`
-		Preparation any               `json:"preparation,omitempty"`
+		Tools             []api.ToolSummary `json:"tools"`
+		MCP               []mcpStatus       `json:"mcp,omitempty"`
+		IconURL           string            `json:"iconUrl,omitempty"`
+		Preparation       any               `json:"preparation,omitempty"`
+		MountedAgentCount *int              `json:"mountedAgentCount,omitempty"`
 	}
 	var mounts []connector.AgentRuntime
 	if provider, ok := s.deps.Registry.(mcp.AgentConnectorSource); ok {
 		mounts = provider.ConnectorRuntimes()
 	}
 	allTools := s.toolSummaries(true)
+	var mountCounts map[string]int
+	if reader, ok := s.deps.Registry.(interface {
+		ConfiguredConnectorMountCounts() (map[string]int, error)
+	}); ok {
+		mountCounts, _ = reader.ConfiguredConnectorMountCounts()
+	}
 	result := make([]entry, 0, len(items))
 	for _, item := range items {
 		value := entry{Summary: item, Tools: []api.ToolSummary{}}
 		value.Manifest = item.Manifest.Localized(responseLocale(w))
+		if mountCounts != nil && !item.Builtin {
+			count := mountCounts[item.ID]
+			value.MountedAgentCount = &count
+		}
 		if item.Status == "invalid" {
 			result = append(result, value)
 			continue
@@ -250,7 +261,12 @@ func (s *Server) handleConnectorDefinition(w http.ResponseWriter, r *http.Reques
 		// Do not cancel a login for a package that cannot be deleted. The
 		// authoritative reference check runs again inside the Agent mutation.
 		if connector.ValidID(id) && !connector.IsBuiltin(id) && reader != nil {
-			keys, err := reader.ConnectorUsers(id)
+			editor, ok := reader.(adminsource.ConnectorDeletionEditor)
+			if !ok {
+				s.writeConnectorError(w, errors.New("connector deletion editor is not configured"))
+				return
+			}
+			keys, err := editor.ActiveConnectorUsers(id)
 			if err != nil {
 				s.writeConnectorError(w, err)
 				return
