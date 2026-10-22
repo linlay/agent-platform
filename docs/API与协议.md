@@ -299,13 +299,13 @@ Chat 列表摘要、`/api/agents?includeChats` 中的摘要和 `/api/chat` 详�
 
 普通 Agent 或 Team 协调器的活动原生根 Run 同时支持 L1/L2，请求投递给 REACT 循环并阻塞等待最终结果。已启动模型或工具批次自然结束后，在下一次模型调用、HITL 等待或 Run 终态边界执行；未完成交互与当前指令受保护。压缩前先关闭已完成输出块，持久化原始消息，再原子提交原行标记及可选 L2 摘要。持久化失败返回 `compact_persist_failed` 并终止继续调用；私有校验消息不进入公共 SSE/WS。
 
-手动 L2 的模型失败、空摘要和输入过大分别返回 `summary_model_failed`、`summary_empty`、`summary_input_too_large`，保持逻辑上下文不变且不创建 checkpoint；新压缩不再生成 deterministic fallback，已有旧 checkpoint 仍兼容回放。压缩不消耗 Agent `maxSteps`、工具轮次或普通 LLM 调用计数，L2 用量单独记录为 `compactionUsage`。自动压缩达到完整请求 90% 后执行 L1、重新估算，仍达到模型窗口 90% 才执行一次 L2；自动 L2 失败时不继续下一次模型调用：摘要模型请求失败或返回空内容时 `run.error` 为 `context_compact_failed`（retryable 跟随原因），message 带原始错误，`diagnostics` 含 compactId/level/detail、模型与窗口、摘要预算及 `cause`（原始结构化错误）；摘要输入超预算、无可压缩历史或压缩后仍超窗口才是 `context_window_uncompactable`，同样附带原因和估算。Provider 在未提交 Turn 返回标准 context-length 错误时自动压缩并只重试一次；再次溢出，或 system、工具 Schema、当前用户输入与不可拆分待处理组本身超窗口时，以 `context_window_uncompactable` 终止。
+手动 L2 的模型失败、空摘要和输入过大分别返回 `summary_model_failed`、`summary_empty`、`summary_input_too_large`，保持逻辑上下文不变且不创建 checkpoint；新压缩不再生成 deterministic fallback，已有旧 checkpoint 仍兼容回放。压缩不消耗 Agent `maxSteps`、工具轮次或普通 LLM 调用计数，L2 用量单独记录为 `compactionUsage`。自动压缩达到完整请求 90% 后执行 L1、重新估算，仍高于模型窗口 60% 时同一周期立即执行一次 L2；自动 L2 失败时不继续下一次模型调用：摘要模型请求失败或返回空内容时 `run.error` 为 `context_compact_failed`（retryable 跟随原因），message 带原始错误，`diagnostics` 含 compactId/level/detail、模型与窗口、摘要预算及 `cause`（原始结构化错误）；摘要输入超预算、无可压缩历史或压缩后仍超窗口才是 `context_window_uncompactable`，同样附带原因和估算。Provider 在未提交 Turn 返回标准 context-length 错误时自动压缩并只重试一次；再次溢出，或 system、工具 Schema、当前用户输入与不可拆分待处理组本身超窗口时，以 `context_window_uncompactable` 终止。
 
 #### Compact 自动周期可选字段
 
-公共完成响应与 `context.compact.start/complete/failed` 增加可选 `cycleId`、`cycleComplete`。自动 L1→L2 的两层使用不同 compactId、同一 cycleId；L1 后仍需 L2 时 cycleComplete 为 false，最终完成/失败为 true。旧事件无这些字段时按单次操作解释。skipped 不发布完成事件。
+公共完成响应与 `context.compact.start/complete/failed` 增加可选 `cycleId`、`cycleComplete`。自动 L1→L2 的两层使用不同 compactId、同一 cycleId；L1 后仍高于 60% 需 L2 时 cycleComplete 为 false，最终完成/失败为 true。旧事件无这些字段时按单次操作解释。skipped 不发布完成事件。
 
-L1 不使用 60% 停止目标，统一保护最近 N 轮完整模型调用。N 默认按窗口 ≤200k、200k～1M、≥1M 分别为 5、7、10，可用模型 YAML `l1KeepRecentRounds: 5..10` 覆盖；未完成轮额外保护。无候选返回 no_compactable_tools。直接手动 L2 只执行一次摘要；请求禁用工具和重试，长度截断与异常结束的摘要不提交。L2 的 60% 仅为选材目标，不是成功硬门槛。
+L1 不以 60% 停止清理，统一保护最近 N 轮完整模型调用；60% 只决定自动 L1 后是否升级 L2。N 默认按窗口 ≤200k、200k～1M、≥1M 分别为 5、7、10，可用模型 YAML `l1KeepRecentRounds: 5..10` 覆盖；未完成轮额外保护。无候选返回 no_compactable_tools。直接手动 L2 只执行一次摘要；请求禁用工具、思考和重试，篇幅目标 `summaryTargetTokens`（`min(4096, 窗口/10)`）写入提示词，不作为平台输出上限，协议必需的上限按窗口剩余量收紧；长度截断与异常结束的摘要不提交。L2 的 60% 是选材目标，不是成功硬门槛。
 
 新 L1 不写独立记录，原行 `_compact` 不存正文副本。新 L2 使用独立摘要，不包含保留尾部的消息副本；摘要插入和覆盖标记原子提交。旧 version:2 逻辑快照和字符串 `_compact` 继续兼容读取。
 

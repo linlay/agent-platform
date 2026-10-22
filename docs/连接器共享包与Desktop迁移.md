@@ -39,19 +39,20 @@ MCP 绑定按挂载来源区分校验：当前 Agent 和活动运行的挂载包
 
 模型只面对两种标识：
 
-- **url**：用于 `workpanel_open`；只有文件预览使用它调用 `workpanel_close`，单个网页通过 `surfaceId` 关闭。网页以 `http://` 或 `https://` 开头；文件预览以 `@workspace/` 或 `@chat/` 开头并且必须位于当前 Workspace 内。其他写法（裸相对路径、无协议的主机名、绝对路径、`file://`）一律在发送前拒绝并给出改写提示，不做猜测。
-- **surfaceId**：一个正在运行的网页。每个网页就是一个独立 surface，导航和刷新不改变它。
+- **url**：只用于 `workpanel_open`，不作为 Tab 身份。网页以 `http://` 或 `https://` 开头；文件预览以 `@workspace/` 或 `@chat/` 开头并且必须位于所指根内。其他写法（裸相对路径、无协议的主机名、绝对路径、`file://`）一律在发送前拒绝并给出改写提示，不做猜测。
+- **surfaceId**：WorkPanel 中的一个 Tab，附带 `capabilities`。网页与 HTML 文件预览是可控页面，导航和刷新不改变 surfaceId；其他 Tab 的 surfaceId 以 `workpanel-item:` 开头，只能激活或关闭。能力分级见 [MCP 与工具交互](MCP与工具交互.md#tab-surfaceid-与能力)。
 
-WorkPanel 条目 ID 和页面容器 ID 只在 Platform 内部使用，不出现在工具参数和结果中。
+页面容器 ID 只在 Platform 内部使用；条目 ID 只以 `workpanel-item:` surfaceId 的形式出现。
 
 | 分类 | 工具 | 说明 |
 | --- | --- | --- |
-| WorkPanel | `workpanel_state` | 当前 Chat 面板中打开的条目 |
-| WorkPanel | `workpanel_open` | 打开网页或预览文件，是打开新页面的唯一入口；网页返回 `surfaceId`；`reload` 在打开后刷新 |
-| WorkPanel | `workpanel_close` | 按文件 `url` 严格匹配已记录的 Workspace 路径关闭预览，或 `all: true` 关闭整个面板；不接受网页 URL |
+| WorkPanel | `workpanel_state` | 当前 Chat 面板中打开的 Tab，每项带 `surfaceId` 与 `capabilities` |
+| WorkPanel | `workpanel_open` | 打开网页或预览文件，是打开新页面的唯一入口；返回该 Tab 的 `surfaceId` 与 `capabilities`；`reload` 在打开后刷新 |
+| WorkPanel | `workpanel_close` | 只接受 `all: true`，关闭整个面板；单个 Tab 用 `surface_close` |
 | Surface | `surface_list` / `surface_state` | 发现已授权网页、读取单页状态；`surface_state` 省略 `surfaceId` 读取所属应用的当前页 |
 | Surface | `surface_navigate` | `goto` / `reload` / `back`，页面内导航 |
-| Surface | `surface_activate` / `surface_close` | 显示、关闭一个网页 |
+| Surface | `surface_activate` / `surface_close` | 显示、关闭一个 Tab 或页面 |
+| Surface | `surface_viewport` | 模拟设备视口（宽高、像素比、移动端）或 `reset` 恢复，用于检查移动端布局 |
 | Surface | `surface_screenshot` | PNG 截图，保存到当前 Chat 并返回引用名 |
 | Surface | `surface_evaluate` | 执行脚本并返回值；大脚本用 `expressionFile` |
 | Surface | `surface_click` / `surface_element` | 真实点击；按选择器填写、选择、聚焦、滚动 |
@@ -63,10 +64,11 @@ CDP 不单独成类：它是通道，每个方法都作用在某个 surface 上�
 
 实现要点：
 
-- 每个工具在 `internal/tools/tool_web_control.go` 映射到既有的反向请求（WorkPanel 动作、`desktop.cdp.call`、`desktop.awcp.manual` / `desktop.awcp.invoke`），Desktop 协议与动作注册表没有变化。
-- `workpanel_close` 关闭文件时由 Platform 读取面板状态，只接受唯一且完整匹配的已记录 Workspace 路径；不按文件名兜底，缺少路径或多项匹配返回 `workpanel_item_not_found`。单个网页先通过 `surface_list` 获取身份，再调用 `surface_close`，不通过 URL 推断关闭目标。
+- 每个工具在 `internal/tools/tool_web_control.go` 映射到既有的反向请求（WorkPanel 动作、`desktop.cdp.call`、`desktop.awcp.manual` / `desktop.awcp.invoke`）；`surface_viewport` 使用 Desktop 新增的 `Surface.setViewport`，WorkPanel 条目结果新增 `surfaceId` 与 `capabilities`，Platform 与 Desktop 需同批发布。
+- 单个 Tab 通过 `workpanel_state`、`workpanel_open` 或 `surface_list` 取得 surfaceId 后用 `surface_close` 关闭，不通过 URL 或文件名推断关闭目标；`workpanel_close` 只关闭整个面板。
 - 文件预览沿用 Desktop 的规则：文件必须位于 Workspace 内。`@chat/` 只有在 Chat 目录位于 Workspace 内时可用；Chat 目录在 Workspace 之外的预览尚未实现，需要 Desktop 接受 Chat 目录作为可信根。
-- `workpanel_state` 返回条目的种类、打开地址、标题和激活状态，不返回对应的 `surfaceId`；网页的 `surfaceId` 通过 `workpanel_open` 结果或 `surface_list` 取得。
+- `workpanel_state` 返回条目的种类、打开地址、标题、激活状态、`surfaceId` 与 `capabilities`；页面尚在注册时 `surfaceId` 为 `null`，重读即可。
+- 验证 Agent 生成的 HTML 时用 `workpanel_open` 打开文件，再用 surface 工具读取、操作和 `surface_viewport` 改变视口，不另启外部浏览器；没有 Desktop WorkPanel 时如需外部浏览器，profile 必须放在 Chat 目录之外的临时目录并在结束时清理。
 - `surface_cdp.paramsFile` 与 `surface_evaluate.expressionFile` 走标准文件读取 AccessPolicy 与审批。
 - 5 个只读工具（`workpanel_state`、`surface_list`、`surface_state`、`surface_screenshot`、`awcp_manual`）在 planning/只读阶段可用。
 - Standalone 运行模式下会话只暴露 `workpanel_*`，且不支持文件预览；`surface_*` 与 `awcp_*` 需要 Desktop 运行模式。

@@ -65,7 +65,7 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 	if err != nil {
 		return modelToolError("image_generate_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
 	}
-	if strings.TrimSpace(provider.BaseURL) == "" || strings.TrimSpace(provider.APIKey) == "" {
+	if strings.TrimSpace(provider.BaseURL) == "" || !provider.HasCredential() {
 		return modelToolError("image_generate_provider_config_invalid", "provider baseUrl and apiKey are required", map[string]any{"provider": provider.Key}), nil
 	}
 	inputImages, inputMask, inputResult, handled := t.loadImageGenerateInputs(args, execCtx, profile, model)

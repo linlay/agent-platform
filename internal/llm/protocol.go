@@ -57,7 +57,7 @@ func resolveProviderEndpoint(params protocolStreamParams) (string, error) {
 	if params.provider.BaseURL == "" {
 		return "", fmt.Errorf("provider %s has empty baseUrl", params.provider.Key)
 	}
-	if params.provider.APIKey == "" {
+	if !params.provider.HasCredential() {
 		return "", fmt.Errorf("provider %s has empty apiKey", params.provider.Key)
 	}
 	return strings.TrimRight(params.provider.BaseURL, "/") + params.protocolConfig.EndpointPath, nil

@@ -156,10 +156,14 @@ func (p *openAIProtocol) PrepareRequest(params protocolStreamParams) (preparedPr
 	if err != nil {
 		return preparedProviderRequest{}, err
 	}
+	authHeader, authValue, err := params.provider.AuthHeader("")
+	if err != nil {
+		return preparedProviderRequest{}, err
+	}
 	headers := map[string]string{
-		"Content-Type":  "application/json",
-		"Accept":        "text/event-stream",
-		"Authorization": "Bearer " + params.provider.APIKey,
+		"Content-Type": "application/json",
+		"Accept":       "text/event-stream",
+		authHeader:     authValue,
 	}
 	for key, value := range params.protocolConfig.Headers {
 		headers[key] = value

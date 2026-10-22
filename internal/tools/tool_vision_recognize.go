@@ -57,7 +57,7 @@ func (t *RuntimeToolExecutor) invokeVisionRecognize(ctx context.Context, args ma
 	if err != nil {
 		return modelToolError("vision_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
 	}
-	if strings.TrimSpace(provider.BaseURL) == "" || strings.TrimSpace(provider.APIKey) == "" {
+	if strings.TrimSpace(provider.BaseURL) == "" || !provider.HasCredential() {
 		return modelToolError("vision_provider_config_invalid", "provider baseUrl and apiKey are required", map[string]any{"provider": provider.Key}), nil
 	}
 	images, result, handled := t.loadVisionImages(args, execCtx, profile)

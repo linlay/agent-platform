@@ -20,7 +20,7 @@ var nativeConnectorTools = map[string][]string{
 	WebControlConnectorID: {
 		"workpanel_state", "workpanel_open", "workpanel_close",
 		"surface_list", "surface_state", "surface_navigate", "surface_activate", "surface_close",
-		"surface_screenshot", "surface_evaluate", "surface_click", "surface_element", "surface_login", "surface_cdp",
+		"surface_screenshot", "surface_evaluate", "surface_click", "surface_element", "surface_login", "surface_cdp", "surface_viewport",
 		"awcp_manual", "awcp_invoke",
 	},
 }

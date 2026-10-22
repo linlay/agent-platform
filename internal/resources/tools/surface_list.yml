@@ -4,7 +4,7 @@ i18n:
     label: "List Pages"
   zh-CN:
     label: "网页列表"
-description: "List the live webpages this Run may control. Read the web-control skill before use."
+description: "List the live pages this Run may control. Read the web-control skill before use."
 clientVisible: true
 readOnly: true
 inputSchema:

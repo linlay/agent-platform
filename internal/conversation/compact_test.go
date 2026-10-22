@@ -60,7 +60,7 @@ func TestCompactHistoryRecordsSummaryFailureCause(t *testing.T) {
 		record.ModelKey != "m1" || record.PreCompactEstimatedTokens != 5000 || !record.Retryable {
 		t.Fatalf("record = %#v", record)
 	}
-	for _, key := range []string{"overheadTokens", "candidateMessages", "retainedMessages", "summaryMaxInputTokens", "summaryMaxOutputTokens", "summaryPromptChars", "summaryDurationMs"} {
+	for _, key := range []string{"overheadTokens", "candidateMessages", "retainedMessages", "summaryMaxInputTokens", "summaryTargetTokens", "summaryPromptChars", "summaryDurationMs"} {
 		if _, ok := record.Diagnostics[key]; !ok {
 			t.Fatalf("diagnostics missing %s: %#v", key, record.Diagnostics)
 		}

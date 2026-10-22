@@ -214,8 +214,8 @@ speech-generate:
   # timeout 可省略或设为 0，沿用有效 budget.tool.timeout；显式正数只缩短语音调用时限。
   # max-text-chars 默认 3000，max-audio-bytes 默认 52428800。
   profiles:
-    minimax-hd:
-      model-key: minimax-speech-2_8-hd
+    th-minimax-speech-2_8-hd:
+      model-key: th-minimax-speech-2_8-hd
       voice: male-qn-qingse
       format: mp3
       sample-rate: 32000

@@ -86,8 +86,16 @@ func connectionSnapshot(m models.ModelDefinition, p models.ProviderDefinition, t
 			endpoint = "/v1" + path
 		}
 	}
-	if m.ModelID == "" || p.APIKey == "" || base == "" {
+	if m.ModelID == "" || !p.HasCredential() || base == "" {
 		return nil, fmt.Errorf("memory model connection incomplete")
+	}
+	// Sync runs before each job; a renewed access token changes the snapshot hash.
+	apiKey, err := p.Credential()
+	if err != nil {
+		return nil, err
+	}
+	if p.UseAccessToken {
+		auth = "bearer"
 	}
 	if m.Timeout > 0 && m.Timeout < timeout {
 		timeout = m.Timeout
@@ -107,17 +115,17 @@ func connectionSnapshot(m models.ModelDefinition, p models.ProviderDefinition, t
 				return nil, fmt.Errorf("unsupported memory model authorization")
 			}
 			auth = "bearer"
-			p.APIKey = strings.TrimPrefix(v, "Bearer ")
+			apiKey = strings.TrimPrefix(v, "Bearer ")
 			delete(headers, k)
 		case "x-api-key":
 			auth = "api_key"
-			p.APIKey = v
+			apiKey = v
 			delete(headers, k)
 		}
 	}
 	role := map[string]any{
 		"protocol": wire, "url": base + "/" + strings.TrimLeft(endpoint, "/"), "model": m.ModelID,
-		"auth": map[string]any{"type": auth, "apiKey": p.APIKey}, "timeoutSeconds": timeout,
+		"auth": map[string]any{"type": auth, "apiKey": apiKey}, "timeoutSeconds": timeout,
 		"headers": headers, "parameters": map[string]any{"maxOutputTokens": 4096},
 	}
 	extras := mergeMemoryRequestExtras(memoryRequestAlways(def.Compat), memoryRequestAlways(m.Compat))

@@ -18,7 +18,8 @@ func TestAutomaticCompactThresholdAndPostL1Decision(t *testing.T) {
 	}{
 		{"below80", 7999, 7000, false, false}, {"at80", 8000, 7000, false, false},
 		{"below90", 8999, 7500, false, false}, {"at90", 9000, 4500, true, false},
-		{"92to45", 9200, 4500, true, false}, {"92to91", 9200, 9100, true, true},
+		{"92to45", 9200, 4500, true, false}, {"92to60", 9200, 6000, true, false},
+		{"92to61", 9200, 6100, true, true}, {"92to91", 9200, 9100, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &llmRunStream{session: contracts.QuerySession{ChatID: "c", RunID: "r"}, model: models.ModelDefinition{ContextWindow: 10000}, pinnedMessageStart: 0, pinnedMessageEnd: 1, messages: []openAIMessage{{Role: "user", Content: "root"}}}

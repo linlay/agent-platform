@@ -122,7 +122,11 @@ func (t *RuntimeToolExecutor) postSpeechRequest(ctx context.Context, provider mo
 		return 0, nil, "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+provider.APIKey)
+	authHeader, authValue, err := provider.AuthHeader("")
+	if err != nil {
+		return 0, nil, "", err
+	}
+	req.Header.Set(authHeader, authValue)
 	for key, value := range provider.Protocol(model.Protocol).Headers {
 		req.Header.Set(key, value)
 	}

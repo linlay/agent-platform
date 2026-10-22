@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"agent-platform/internal/accesspolicy"
@@ -23,9 +24,10 @@ import (
 
 // builtin.web-control exposes typed, page-oriented tools. Each tool maps to an
 // existing reverse request (a WorkPanel/webpage action, a CDP method or an AWCP
-// call); the Desktop protocol itself is unchanged. The model only sees two
-// identities: the url an item was opened with and a webpage's surfaceId.
-// WorkPanel item identifiers and containers stay internal to Platform.
+// call). The model sees the url an item was opened with and one surfaceId per
+// WorkPanel tab, with the capabilities Desktop reports for it. Webpages and
+// HTML file previews are live page surfaces; every other tab has an item
+// surfaceId that can only be activated or closed. Containers stay internal.
 
 const (
 	webControlWorkspaceAlias = "@workspace/"
@@ -33,6 +35,15 @@ const (
 
 	webControlWorkspaceRoot = "workspace"
 	webControlChatRoot      = "chat"
+
+	// Desktop prefixes the surfaceId of a tab that is not a live page.
+	webControlItemSurfacePrefix = "workpanel-item:"
+)
+
+// An HTML preview registers its page shortly after the tab opens.
+var (
+	webControlSurfaceWait = 8 * time.Second
+	webControlSurfacePoll = 250 * time.Millisecond
 )
 
 // CDP methods without a dedicated tool. Methods that have one (navigation,
@@ -63,6 +74,13 @@ func (t *RuntimeToolExecutor) invokeWebControl(ctx context.Context, toolName str
 	if args == nil {
 		args = map[string]any{}
 	}
+	if id, _ := args["surfaceId"].(string); strings.HasPrefix(strings.TrimSpace(id), webControlItemSurfacePrefix) &&
+		toolName != "surface_activate" && toolName != "surface_close" {
+		return desktopActionErrorResult("capability_denied", "this WorkPanel tab is not a live page; it can only be activated or closed", map[string]any{
+			"category": "validation", "stage": "arguments", "executionState": "not_started", "field": "surfaceId",
+			"capabilities": []string{"activate", "close"},
+		}), nil
+	}
 	switch toolName {
 	case "workpanel_state":
 		return t.webControlPanelState(ctx, args, execCtx)
@@ -83,6 +101,8 @@ func (t *RuntimeToolExecutor) invokeWebControl(ctx context.Context, toolName str
 		return t.webControlSurfaceSimple(ctx, "Page.bringToFront", args, execCtx)
 	case "surface_close":
 		return t.webControlSurfaceSimple(ctx, "Surface.close", args, execCtx)
+	case "surface_viewport":
+		return t.webControlSurfaceViewport(ctx, args, execCtx)
 	case "surface_screenshot":
 		return t.webControlSurfaceScreenshot(ctx, args, execCtx)
 	case "surface_evaluate":
@@ -312,7 +332,10 @@ func (t *RuntimeToolExecutor) webControlPanelOpen(ctx context.Context, args map[
 			fileArgs["title"] = title
 		}
 		result, err := t.webControlAction(ctx, "desktop.workpanel.openLocalFile", fileArgs, execCtx)
-		return projectWebControlPanelResult(result), err
+		if err != nil || result.ExitCode != 0 {
+			return projectWebControlPanelResult(result), err
+		}
+		return t.webControlOpenedFile(ctx, result, target, execCtx), nil
 	}
 	if title != "" {
 		return webControlInvalidArgs("title applies to file previews only; a webpage shows its own title", "title"), nil
@@ -328,49 +351,20 @@ func (t *RuntimeToolExecutor) webControlPanelOpen(ctx context.Context, args map[
 	return projectWebControlPanelResult(opened), nil
 }
 
+// webControlPanelClose closes the whole WorkPanel. One tab, page or not, is
+// closed with surface_close and its surfaceId.
 func (t *RuntimeToolExecutor) webControlPanelClose(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
-	if failure, failed := webControlFields(args, "url", "all"); failed {
+	if failure, failed := webControlFields(args, "all"); failed {
 		return failure, nil
 	}
 	all, _, failure, failed := webControlBool(args, "all")
 	if failed {
 		return failure, nil
 	}
-	_, hasURL := args["url"]
-	if all == hasURL {
-		return webControlInvalidArgs("provide exactly one of url (close one item) or all: true (close the whole WorkPanel)", ""), nil
+	if !all {
+		return webControlInvalidArgs("workpanel_close requires all: true; close one tab with surface_close and its surfaceId", "all"), nil
 	}
-	if all {
-		result, err := t.webControlAction(ctx, "desktop.workpanel.closeWorkpanel", nil, execCtx)
-		return projectWebControlPanelResult(result), err
-	}
-	raw, failure, failed := webControlString(args, "url", true)
-	if failed {
-		return failure, nil
-	}
-	if execCtx == nil {
-		return desktopActionErrorResult("invalid_execution_context", "run execution context is required", nil), nil
-	}
-	target, failure, failed := resolveWebControlTarget(execCtx.Session, raw)
-	if failed {
-		return failure, nil
-	}
-	if target.web {
-		return webControlInvalidArgs("close webpages with surface_close using a surfaceId from surface_list or workpanel_open; url is only for file previews", "url"), nil
-	}
-	state, err := t.webControlAction(ctx, "desktop.workpanel.getState", nil, execCtx)
-	if err != nil || state.ExitCode != 0 {
-		return projectWebControlPanelResult(state), err
-	}
-	itemID, problem := findWebControlPanelItem(webControlPanelItems(state.Structured), target)
-	if itemID == "" {
-		view := projectWebControlPanelResult(state)
-		return desktopActionErrorResult("workpanel_item_not_found", problem, map[string]any{
-			"category": "validation", "stage": "arguments", "executionState": "not_started", "field": "url",
-			"workpanel": view.Structured,
-		}), nil
-	}
-	result, err := t.webControlAction(ctx, "desktop.workpanel.closeTab", map[string]any{"tabId": itemID}, execCtx)
+	result, err := t.webControlAction(ctx, "desktop.workpanel.closeWorkpanel", nil, execCtx)
 	return projectWebControlPanelResult(result), err
 }
 
@@ -405,34 +399,80 @@ func (t *RuntimeToolExecutor) webControlPublishedArtifactID(chatID string, targe
 	return artifactID
 }
 
-// webControlPanelItems reads the raw items from a getState result.
+// webControlPanelItems reads the raw items of the workspace in a WorkPanel
+// result: getState and Workspace files report it as state, Chat files as
+// workspace.
 func webControlPanelItems(structured map[string]any) []any {
 	response, _ := structured["response"].(map[string]any)
 	result, _ := response["result"].(map[string]any)
-	state, _ := result["state"].(map[string]any)
-	items, _ := state["items"].([]any)
-	return items
+	for _, key := range []string{"state", "workspace"} {
+		if workspace, ok := result[key].(map[string]any); ok {
+			items, _ := workspace["items"].([]any)
+			return items
+		}
+	}
+	return nil
 }
 
-func findWebControlPanelItem(items []any, target webControlTarget) (string, string) {
-	var matched string
+// findWebControlPanelFileItem returns the one open preview recorded for the file.
+func findWebControlPanelFileItem(items []any, target webControlTarget) map[string]any {
+	var matched map[string]any
 	for _, raw := range items {
 		item, _ := raw.(map[string]any)
 		descriptor, _ := item["descriptor"].(map[string]any)
-		itemID, _ := item["itemId"].(string)
 		root, relative := webControlPanelFile(descriptor)
-		if itemID == "" || target.web || root == "" || relative == "" || root != target.root || relative != target.relativePath {
+		if target.web || root == "" || relative == "" || root != target.root || relative != target.relativePath {
 			continue
 		}
-		if matched != "" {
-			return "", "several open file previews match this path; no item was closed"
+		if matched != nil {
+			return nil
 		}
-		matched = itemID
+		matched = item
 	}
-	if matched != "" {
-		return matched, ""
+	return matched
+}
+
+// webControlOpenedFile reports the surfaceId and capabilities of the file tab
+// just opened. An HTML preview registers its page after the tab appears, so a
+// missing page surfaceId is read again until the preview is ready.
+func (t *RuntimeToolExecutor) webControlOpenedFile(ctx context.Context, opened ToolExecutionResult, target webControlTarget, execCtx *ExecutionContext) ToolExecutionResult {
+	item := findWebControlPanelFileItem(webControlPanelItems(opened.Structured), target)
+	deadline := time.Now().Add(webControlSurfaceWait)
+wait:
+	for item != nil && item["surfaceId"] == nil && webControlCapabilitiesInclude(item["capabilities"], "script") && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			break wait
+		case <-time.After(webControlSurfacePoll):
+		}
+		state, err := t.webControlAction(ctx, "desktop.workpanel.getState", nil, execCtx)
+		if err != nil || state.ExitCode != 0 {
+			break
+		}
+		item = findWebControlPanelFileItem(webControlPanelItems(state.Structured), target)
 	}
-	return "", "no file preview has a recorded path matching url; call workpanel_state; file names alone cannot identify a preview"
+	projected := projectWebControlPanelResult(opened)
+	response, _ := projected.Structured["response"].(map[string]any)
+	result, _ := response["result"].(map[string]any)
+	if item == nil || result == nil {
+		return projected
+	}
+	for _, key := range []string{"surfaceId", "capabilities"} {
+		if value, ok := item[key]; ok {
+			result[key] = value
+		}
+	}
+	return webControlRestructured(projected, projected.Structured)
+}
+
+func webControlCapabilitiesInclude(value any, capability string) bool {
+	list, _ := value.([]any)
+	for _, entry := range list {
+		if entry == capability {
+			return true
+		}
+	}
+	return false
 }
 
 // webControlPanelFile reads the root and root-relative path a WorkPanel item
@@ -623,7 +663,8 @@ func projectWebControlPanelItem(item map[string]any, activeItemID string) map[st
 			out["fileName"] = path.Base(relative)
 		}
 	}
-	for _, key := range []string{"title", "closable", "pinned"} {
+	// surfaceId is null while a page is still registering; read the state again.
+	for _, key := range []string{"title", "closable", "pinned", "surfaceId", "capabilities"} {
 		if value, ok := item[key]; ok {
 			out[key] = value
 		}
@@ -701,7 +742,64 @@ func (t *RuntimeToolExecutor) webControlSurfaceSimple(ctx context.Context, metho
 	if failed {
 		return failure, nil
 	}
+	if itemID, ok := strings.CutPrefix(surfaceID, webControlItemSurfacePrefix); ok {
+		// A tab without a live page is activated or closed as a WorkPanel item;
+		// Desktop checks that it belongs to this Chat and may be closed.
+		if itemID == "" {
+			return webControlInvalidArgs("surfaceId is not a WorkPanel tab identity; call workpanel_state", "surfaceId"), nil
+		}
+		action := "desktop.workpanel.activateTab"
+		if method == "Surface.close" {
+			action = "desktop.workpanel.closeTab"
+		}
+		result, err := t.webControlAction(ctx, action, map[string]any{"tabId": itemID}, execCtx)
+		return projectWebControlPanelResult(result), err
+	}
 	return t.webControlSurfaceCall(ctx, method, surfaceID, nil, execCtx)
+}
+
+// webControlSurfaceViewport emulates a device viewport on one live page, or
+// restores the panel size with reset. The page keeps its surfaceId.
+func (t *RuntimeToolExecutor) webControlSurfaceViewport(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	if failure, failed := webControlFields(args, "surfaceId", "width", "height", "deviceScaleFactor", "mobile", "reset"); failed {
+		return failure, nil
+	}
+	surfaceID, failure, failed := webControlSurfaceID(args, true)
+	if failed {
+		return failure, nil
+	}
+	reset, hasReset, failure, failed := webControlBool(args, "reset")
+	if failed {
+		return failure, nil
+	}
+	if hasReset {
+		if !reset || len(args) != 2 {
+			return webControlInvalidArgs("reset must be true and cannot be combined with width, height, deviceScaleFactor or mobile", "reset"), nil
+		}
+		return t.webControlSurfaceCall(ctx, "Surface.setViewport", surfaceID, map[string]any{"reset": true}, execCtx)
+	}
+	params := map[string]any{}
+	for _, field := range []string{"width", "height"} {
+		value, ok := args[field].(float64)
+		if !ok || value != math.Trunc(value) {
+			return webControlInvalidArgs(field+" is required and must be an integer number of CSS pixels", field), nil
+		}
+		params[field] = value
+	}
+	if value, present := args["deviceScaleFactor"]; present {
+		if _, ok := value.(float64); !ok {
+			return webControlInvalidArgs("deviceScaleFactor must be a number", "deviceScaleFactor"), nil
+		}
+		params["deviceScaleFactor"] = value
+	}
+	mobile, hasMobile, failure, failed := webControlBool(args, "mobile")
+	if failed {
+		return failure, nil
+	}
+	if hasMobile {
+		params["mobile"] = mobile
+	}
+	return t.webControlSurfaceCall(ctx, "Surface.setViewport", surfaceID, params, execCtx)
 }
 
 func (t *RuntimeToolExecutor) webControlSurfaceNavigate(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {

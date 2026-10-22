@@ -586,6 +586,12 @@ func copyDerivedChatDir(sourceDir string, targetDir string) error {
 		if err != nil {
 			return err
 		}
+		// Tools can leave sockets, FIFOs or symlinks (for example a browser
+		// profile) in the Chat directory. Only regular files are Chat content;
+		// following a symlink could copy data from outside the source Chat.
+		if !info.Mode().IsRegular() {
+			return nil
+		}
 		return copyDerivedFile(path, targetPath, info.Mode().Perm())
 	})
 }

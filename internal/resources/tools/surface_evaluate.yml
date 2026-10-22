@@ -4,14 +4,14 @@ i18n:
     label: "Run Page Script"
   zh-CN:
     label: "网页执行脚本"
-description: "Evaluate JavaScript in a webpage. Read the web-control skill before use."
+description: "Evaluate JavaScript in a page. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object
   properties:
     surfaceId:
       type: string
-      description: "Required. Webpage identity."
+      description: "Required. Page surfaceId."
     expression:
       type: string
       description: "JavaScript expression."

@@ -38,10 +38,14 @@ func (p *anthropicProtocol) PrepareRequest(params protocolStreamParams) (prepare
 	if err != nil {
 		return preparedProviderRequest{}, err
 	}
+	authHeader, authValue, err := params.provider.AuthHeader("X-Api-Key")
+	if err != nil {
+		return preparedProviderRequest{}, err
+	}
 	headers := map[string]string{
 		"Content-Type": "application/json",
 		"Accept":       "text/event-stream",
-		"X-Api-Key":    params.provider.APIKey,
+		authHeader:     authValue,
 	}
 	for key, value := range params.protocolConfig.Headers {
 		headers[key] = value

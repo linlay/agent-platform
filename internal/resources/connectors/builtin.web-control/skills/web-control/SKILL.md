@@ -1,6 +1,6 @@
 ---
 name: web-control
-description: "Open webpages and file previews in the current Chat's WorkPanel and inspect or operate authorized webpages: navigation, website AWCP actions, scripts, input, CDP and screenshots."
+description: "Open webpages and file previews in the current Chat's WorkPanel and inspect or operate authorized pages, including HTML file previews: navigation, website AWCP actions, scripts, input, CDP, viewport emulation and screenshots."
 version: 1.0.0
 ---
 
@@ -11,20 +11,28 @@ The tools are grouped by what they act on:
 | Group | Tools | Acts on | Reference |
 | --- | --- | --- | --- |
 | WorkPanel | `workpanel_state`, `workpanel_open`, `workpanel_close` | The current Chat's panel and what is open in it | [WorkPanel](references/workpanel.md) |
-| Surface | `surface_list`, `surface_state`, `surface_navigate`, `surface_activate`, `surface_close`, `surface_screenshot`, `surface_evaluate`, `surface_click`, `surface_element`, `surface_login`, `surface_cdp` | One live webpage | [Surface tools](references/surface.md) |
+| Surface | `surface_list`, `surface_state`, `surface_navigate`, `surface_activate`, `surface_close`, `surface_screenshot`, `surface_evaluate`, `surface_click`, `surface_element`, `surface_login`, `surface_cdp`, `surface_viewport` | One WorkPanel tab or live page | [Surface tools](references/surface.md) |
 | AWCP | `awcp_manual`, `awcp_invoke` | The business interface a website publishes | [AWCP](references/awcp.md) |
 
 Tool definitions only name a capability. Read the reference for a tool before calling it; arguments, types, constraints and examples live there, not in the tool schema. This file covers how the tools fit together.
 
 ## Two identities
 
-- **url** is what you pass to `workpanel_open`. Only file previews use it with `workpanel_close`; webpages are closed by surfaceId.
+- **url** is what you pass to `workpanel_open`; it is never a tab identity.
   - A webpage starts with `http://` or `https://`.
   - A file preview starts with `@workspace/` (bound project) or `@chat/` (current Chat, including a published artifact url) and must be inside the root it names.
   - Nothing else is accepted: no bare paths, no host names without a scheme, no absolute paths, no `file://`.
-- **surfaceId** identifies one live webpage. `workpanel_open` returns it for a webpage; `surface_list` rediscovers it. Every webpage is one independent surface. A url is not a page identity: the page keeps its surfaceId while it navigates.
+- **surfaceId** identifies one WorkPanel tab. `workpanel_open` returns it with the tab's `capabilities`; `workpanel_state` reports it for every tab and `surface_list` for every live page. A page keeps its surfaceId while it navigates or reloads; it becomes invalid when the tab closes.
 
-A file preview has no surfaceId. It cannot be scripted, clicked or read through AWCP; reopen it with `workpanel_open` to activate and reload it.
+`capabilities` says what a tab accepts, and Desktop enforces it:
+
+| Tab | Capabilities |
+| --- | --- |
+| Webpage | everything: state, navigate, reload, screenshot, script, input, cdp, awcp, login, viewport |
+| HTML file preview | state, reload, screenshot, script, input, cdp, viewport. No navigation, network methods, AWCP or saved logins |
+| Any other tab (PDF, image, Markdown and other previews, Desktop and WebClient pages) | activate and close only |
+
+`activate` and `close` are listed only where the tab allows them. A tool outside a tab's capabilities fails with `capability_denied` and does not run.
 
 ## Choosing a file preview
 
@@ -37,8 +45,12 @@ Read [WorkPanel](references/workpanel.md) for file metadata, access and recovery
 - `workpanel_open` is the only way to open a new page. An item that is already open is activated, not duplicated. Opening does not prove the page finished loading.
 - Open only addresses supplied by the user, returned by a trusted tool, already present in this conversation, or served by a host-visible service started for this task. A service that only listens inside a container is not host-visible unless its port is exposed. Do not invent public, LAN, tracking, authentication or side-effecting addresses.
 - Preview files with `@workspace/...` or `@chat/...`. Do not start a temporary HTTP server to preview a file.
-- List webpages with `surface_list`, select the intended surfaceId, and close it with `surface_close`. A surfaceId already returned by `workpanel_open` may be reused while that page is still live. Never identify a page to close by URL alone. Close file previews with `workpanel_close` using their recorded Workspace path; file previews have no surfaceId.
+- Close one tab, page or not, with `surface_close` and its surfaceId from `workpanel_open`, `workpanel_state` or `surface_list`. Never identify a tab to close by URL or file name.
 - `workpanel_close` with `all: true` closes the whole panel; use it only when the user asked for that.
+
+## Checking an HTML file you produced
+
+To verify interaction or layout of an HTML file in the Chat or the project, open it with `workpanel_open` (`@chat/...` or `@workspace/...`) and use the returned surfaceId: read it with `surface_evaluate`, operate it with `surface_click` and `surface_element`, and check another screen size with `surface_viewport`, then `reset` it. A `null` surfaceId means the preview is still registering; read `workpanel_state` again. Do not launch a separate browser for a file the WorkPanel can show. Without a Desktop WorkPanel, a separate browser must use a temporary profile outside the Chat directory and be closed, and its profile deleted, when the check ends.
 
 Read [WorkPanel](references/workpanel.md) for file preview limits and WorkPanel failure codes.
 
@@ -51,7 +63,7 @@ Read [WorkPanel](references/workpanel.md) for file preview limits and WorkPanel 
 
 ## Page content: manual first
 
-Any authorized HTTP(S) webpage may publish an AWCP manual. Before reading page content, inspecting the DOM or interacting with the page:
+Any authorized HTTP(S) webpage may publish an AWCP manual. A tab without the `awcp` capability, such as an HTML file preview, has none: use the surface tools directly. Before reading page content, inspecting the DOM or interacting with a webpage:
 
 1. `awcp_manual` with only `surfaceId` reads the site description and the section directory.
 2. If a section matches the task, `awcp_manual` with `section` and `revision` reads its description, inputSchema and examples. Read only the sections you need.

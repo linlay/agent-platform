@@ -164,11 +164,11 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 	if agentOK {
 		modelKey = agentDef.ModelKey
 	}
-	return conversation.CompactHistory(store, baseResp, modelKey, window, overhead, compactID, func(prompt string, output int) (string, map[string]any, error) {
+	return conversation.CompactHistory(store, baseResp, modelKey, window, overhead, compactID, func(prompt string, targetTokens int) (string, map[string]any, error) {
 		if !agentOK || s.deps.Agent == nil {
 			return "", nil, fmt.Errorf("summary agent unavailable")
 		}
-		return s.generateCompactSummary(ctx, resolvedReq, resolvedSummary, agentDef, compactID, prompt, output)
+		return s.generateCompactSummary(ctx, resolvedReq, resolvedSummary, agentDef, compactID, prompt, targetTokens)
 	}, l1Options)
 }
 
@@ -277,7 +277,7 @@ func normalizeCompactLevel(level string) (string, error) {
 	}
 }
 
-func (s *Server) generateCompactSummary(ctx context.Context, req api.CompactRequest, chatSummary chat.Summary, agentDef catalog.AgentDefinition, compactID string, prompt string, maxOutputTokens int) (string, map[string]any, error) {
+func (s *Server) generateCompactSummary(ctx context.Context, req api.CompactRequest, chatSummary chat.Summary, agentDef catalog.AgentDefinition, compactID string, prompt string, targetTokens int) (string, map[string]any, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -313,7 +313,7 @@ func (s *Server) generateCompactSummary(ctx context.Context, req api.CompactRequ
 	session.ResolvedBudget = contracts.NormalizeBudget(contracts.Budget{MaxSteps: 1})
 	var agentStream contracts.AgentStream
 	if engine, ok := s.deps.Agent.(contracts.SummaryAgentEngine); ok {
-		agentStream, err = engine.StreamSummary(ctx, summaryReq, session, prompt, maxOutputTokens)
+		agentStream, err = engine.StreamSummary(ctx, summaryReq, session, prompt, targetTokens)
 	} else {
 		return "", nil, fmt.Errorf("dedicated summary engine unavailable")
 	}

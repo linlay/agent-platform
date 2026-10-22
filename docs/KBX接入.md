@@ -59,7 +59,7 @@ Agent 侧没有刷新工具或接口：Agent 可用 `kbase_status` 和显式 lib
 
 维护规则只接受与 KBX globset 可证明等价的形式：明确相对路径、`dir/**`、`**/*.ext`、`docs/**/*.ext`；`docs/*.md`、`a?b.md` 等明确拒绝。chunk 按平台默认 → 库级 → collection 逐字段合并，unit 仅为 chars，strategy 为 window/regex/structural；默认值统一由 `knowledge.DefaultChunkConfig()` 提供 chars/window/3600/540，显式 overlapChars: 0 保留。有效切块或 textEncoding 变化后全量 update 重新抽取、发布分块；不再使用 token 默认值映射。
 
-`library.yml → models.embedding` 可以选择共享 registry 的 embedding 模型和 prompt；省略时继承 `runtime.yml → kbx.embedding`，Agent 不覆盖。每次调用在 StateDir 的库专属目录生成 0600 私有配置快照，携带有效模型、chunking、text_encoding，以 --config 显式传入，子进程结束后删除。CLI 用 argv 调用，输出有界，不继承用户 KBX 配置。模型键、endpoint/modelId/dimension/prompt 进入向量指纹；密钥、超时、batchSize 下次调用生效而不重建。
+`library.yml → models.embedding` 可以选择共享 registry 的 embedding 模型和 prompt；省略时继承 `runtime.yml → kbx.embedding`，Agent 不覆盖。启动只校验默认模型与 prompt 配置，不读取 Desktop 登录 token，也不发布含凭据的配置；未登录不阻止 Platform 启动。需要模型的 KBX 调用在执行前读取当前凭据，缺失时仅该调用失败，登录、续期与退出无需重启 Platform；向量指纹不读取凭据，登录状态变化不会被当作向量合同变化而触发重建。每次调用在 StateDir 的库专属目录生成 0600 私有配置快照，携带有效模型、chunking、text_encoding，以 --config 显式传入，子进程结束后删除。CLI 用 argv 调用，输出有界，不继承用户 KBX 配置。模型键、endpoint/modelId/dimension/prompt 进入向量指纹；密钥、超时、batchSize 下次调用生效而不重建。
 
 向量合同变化执行全库 embed --force（无 -c），不重新扫描来源、不改变已发布 chunk。普通内容维护完成全部 collection 的 update 后执行全库 embed，Platform 合同变化或 KBX 报不兼容则使用 force；SESSION_LIMIT 后续跑不重复 force。向量变化/失败期间全文可读，query 使用全文，严格 vsearch 拒绝旧合同；成功后自动恢复。query expansion 与 reranker 仅注入检索调用；graph extraction 仍未接入。配置继承、PUT 重置规则见 [知识库](知识库.md#库级配置与模型)。
 

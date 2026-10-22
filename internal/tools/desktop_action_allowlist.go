@@ -103,6 +103,7 @@ var webControlActionNames = [...]string{
 	"desktop.workpanel.openWeb",
 	"desktop.workpanel.openLocalFile",
 	"desktop.workpanel.refreshWeb",
+	"desktop.workpanel.activateTab",
 	"desktop.workpanel.closeTab",
 	"desktop.workpanel.closeWorkpanel",
 	"desktop.web.interactElement",

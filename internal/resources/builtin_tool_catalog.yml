@@ -59,6 +59,7 @@ visibleBuiltinTools:
   - surface_navigate
   - surface_screenshot
   - surface_state
+  - surface_viewport
   - workpanel_close
   - workpanel_open
   - workpanel_state

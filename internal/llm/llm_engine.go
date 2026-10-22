@@ -37,7 +37,7 @@ type LLMAgentEngine struct {
 
 type runStreamOptions struct {
 	EstimateOnly                 bool
-	SummaryOutputTokens          int
+	SummaryTargetTokens          int
 	ExecCtx                      *ExecutionContext
 	Messages                     []openAIMessage
 	ToolNames                    []string
@@ -98,8 +98,10 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	}
 	protocolConfig := resolveProtocolRuntimeConfig(provider, model)
 	stageSettings := stageSettingsForSession(session, options.Stage)
-	if options.SummaryOutputTokens > 0 {
-		stageSettings.MaxOutputTokens = options.SummaryOutputTokens
+	if options.SummaryTargetTokens > 0 {
+		// The summary length is a prompt instruction; provider output stays open
+		// so reasoning or a slightly long summary is never cut off mid-answer.
+		stageSettings.MaxOutputTokens = 0
 		stageSettings.ReasoningEnabled = false
 	}
 	budgetStage := budgetStageForName(session, options.Stage)
@@ -255,7 +257,8 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		IncludeAfterCallHints:   true,
 	}
 	stream := &llmRunStream{
-		summaryCall:            options.SummaryOutputTokens > 0,
+		summaryCall:            options.SummaryTargetTokens > 0,
+		summaryTargetTokens:    options.SummaryTargetTokens,
 		engine:                 e,
 		protocol:               resolveProtocol(e, model),
 		ctx:                    ctx,
@@ -313,7 +316,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	if options.EstimateOnly {
 		return stream, nil
 	}
-	if stream.runControl != nil && !options.DisableRunControl && options.SummaryOutputTokens == 0 && strings.TrimSpace(session.SubTaskID) == "" {
+	if stream.runControl != nil && !options.DisableRunControl && options.SummaryTargetTokens == 0 && strings.TrimSpace(session.SubTaskID) == "" {
 		stream.runControl.SetSteerPreparer(e.steerPreparer(session, model.IsVision))
 	}
 	if err := stream.prepareNextTurn(); err != nil {
