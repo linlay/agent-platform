@@ -206,6 +206,7 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 				msg["_modelKey"] = line["modelKey"]
 				delete(msg, "view")
 				delete(msg, "viewError")
+				delete(msg, "views")
 				// Flatten content parts to plain text for LLM context
 				if role == "user" || role == "assistant" {
 					if parts, ok := m["content"].([]any); ok {
@@ -371,6 +372,7 @@ func normalizedStepMessages(line map[string]any, runID string) []map[string]any 
 		msg["_modelKey"] = line["modelKey"]
 		delete(msg, "view")
 		delete(msg, "viewError")
+		delete(msg, "views")
 		msg["runId"] = runID
 		role, _ := msg["role"].(string)
 		if role == "user" || role == "assistant" || role == "tool" {

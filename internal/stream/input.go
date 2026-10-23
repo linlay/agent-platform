@@ -1,6 +1,8 @@
 package stream
 
 import (
+	"encoding/json"
+
 	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/modelcontent"
 	"agent-platform/internal/view"
@@ -27,7 +29,15 @@ type ContentDelta struct {
 
 	AgentKey     string
 	Presentation string
+	// BindView freezes Markdown view blocks with the producing actor's mounts.
+	// Without it, view blocks stay plain text for clients.
+	BindView ContentViewBinder
 }
+
+// ContentViewBinder resolves one Markdown view block and validates its body.
+// A returned Reference with a non-nil error is the resolved template whose
+// data failed validation.
+type ContentViewBinder func(ref view.Reference, data json.RawMessage) (view.Reference, error)
 
 func (ContentDelta) streamInputTag() {}
 

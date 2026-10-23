@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agent-platform/internal/catalog"
@@ -22,7 +23,7 @@ func TestViewHTTPMountedScopeAndSnapshotAfterUnmount(t *testing.T) {
 		dir := filepath.Join(cfg.Paths.EffectiveConnectorsCenterDir(), "forms")
 		for name, content := range map[string]string{
 			"connector.json":   `{"id":"forms","name":"Forms","version":"1.0.0","type":"view","authMode":"self"}`,
-			"view.json":        `{"views":{"edit":{"renderer":"html","entry":"views/index.html","usage":["form","display"]}}}`,
+			"view.json":        `{"views":{"edit":{"description":"Edit a form.","renderer":"html","entry":"views/index.html","usage":["form","display"]}}}`,
 			"views/index.html": "<p>original</p>",
 		} {
 			p := filepath.Join(dir, name)
@@ -56,8 +57,24 @@ func TestViewHTTPMountedScopeAndSnapshotAfterUnmount(t *testing.T) {
 		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
 		return rec
 	}
+	// A Run freezes the template with its own mounts before publishing a hash.
+	session := contracts.QuerySession{ChatID: chatID}
+	def, ok := fixture.server.deps.Registry.AgentDefinition("mock-agent")
+	if !ok {
+		t.Fatal("agent missing")
+	}
+	if err := fixture.server.configureSessionViews(&session, def); err != nil {
+		t.Fatal(err)
+	}
+	frozen, err := session.ResolveView(context.Background(), view.Reference{ConnectorID: "forms", Key: "edit"}, "display")
+	if err != nil {
+		t.Fatal(err)
+	}
 	path := "/api/view?source=connector&chatId=" + chatID + "&connectorId=forms&key=edit"
-	rec := get(path)
+	if rec := get(path); rec.Code != 400 || !strings.Contains(rec.Body.String(), "view_snapshot_required") {
+		t.Fatalf("live resolution must be rejected: %d %s", rec.Code, rec.Body.String())
+	}
+	rec := get(path + "&hash=" + frozen.Hash)
 	if rec.Code != 200 {
 		t.Fatalf("view API: %d %s", rec.Code, rec.Body.String())
 	}
@@ -67,11 +84,11 @@ func TestViewHTTPMountedScopeAndSnapshotAfterUnmount(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Data.HTML != "<p>original</p>" || response.Data.View.Hash == "" {
+	if response.Data.HTML != "<p>original</p>" || response.Data.View.Hash != frozen.Hash {
 		t.Fatalf("document: %#v", response.Data)
 	}
-	if rec := get("/api/view?source=connector&chatId=" + chatID + "&connectorId=other&key=edit"); rec.Code != 404 {
-		t.Fatalf("unmounted status %d", rec.Code)
+	if rec := get("/api/view?source=connector&chatId=" + chatID + "&connectorId=other&key=edit&hash=" + frozen.Hash); rec.Code != 400 {
+		t.Fatalf("snapshot identity mismatch status %d", rec.Code)
 	}
 	if rec := get("/api/view?source=connector&chatId=" + chatID + "&connectorId=forms&key=../private"); rec.Code != 400 {
 		t.Fatalf("path status %d", rec.Code)

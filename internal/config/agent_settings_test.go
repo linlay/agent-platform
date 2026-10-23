@@ -327,3 +327,34 @@ func TestShippedExamplesDeclarePlanningModeDefaults(t *testing.T) {
 		t.Fatalf("expected shared and CODER planning prompts in the example")
 	}
 }
+
+func TestViewPromptsLoadAndRequireBothKeys(t *testing.T) {
+	var c Config
+	body := "shared:\n  view:\n    instructions-prompt: |\n      view rules\n    catalog-header: Views:\n"
+	if err := c.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", body)); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(c.Prompts.View.InstructionsPrompt) != "view rules" || c.Prompts.View.CatalogHeader != "Views:" {
+		t.Fatalf("view prompts: %#v", c.Prompts.View)
+	}
+	for _, body := range []string{
+		"shared:\n  view:\n    catalog-header: Views:\n",
+		"shared:\n  view:\n    instructions-prompt: rules\n",
+		"shared:\n  view:\n    instructions-prompt: rules\n    catalog-header: Views:\n    label: x\n",
+	} {
+		var cfg Config
+		if err := cfg.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", body)); err == nil {
+			t.Fatalf("accepted %q", body)
+		}
+	}
+}
+
+func TestShippedAgentPromptExampleConfiguresViewRules(t *testing.T) {
+	var c Config
+	if err := c.applyAgentPromptFile(ProjectFile("configs/agent-prompt.example.yml")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(c.Prompts.View.InstructionsPrompt, "```view key=<key>") || !strings.Contains(c.Prompts.View.InstructionsPrompt, "256 KiB") || strings.TrimSpace(c.Prompts.View.CatalogHeader) == "" {
+		t.Fatalf("example view prompts: %#v", c.Prompts.View)
+	}
+}

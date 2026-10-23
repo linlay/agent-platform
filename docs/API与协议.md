@@ -737,14 +737,14 @@ Memory 已替换为纯 Markdown 文件管理，只提供 HTTP `/api/memory/file`
 | GET | `/api/project/tree` | query: `agentKey`、`path`、`limit`、`cursor` | CODER/KBASE Workspace 单层目录树，目录优先稳定排序 |
 | GET | `/api/project/changes` | query: `agentKey`、`chatId`、可选 `runId/limit/cursor` | 当前 Chat 的 Run 文件历史列表 |
 | GET | `/api/project/diff` | query: `agentKey`、`chatId`、`runId`、`path`、可选 `encoding` | 单个 Run 快照的原始/当前文本 |
-| GET | `/api/view` | query: `source,key`；connector 另需 `chatId,connectorId`，可选 `usage,hash` | 统一返回 `{view,html?,qlc?,entry?,assets?}`；未知内置 key 或 native 文档返回 404 |
+| GET | `/api/view` | query: `source,key`；connector 另需 `chatId,connectorId,hash`，可选 `usage` | 统一返回 `{view,html?,qlc?,entry?,assets?}`；connector 缺 hash 返回 400 `view_snapshot_required`；未知内置 key 或 native 文档返回 404 |
 | GET | `/api/resource` | query: `file`、`chatId`、`t`、`download` | ChatScope 或普通 Agent Workspace/冻结临时根资源字节；绝对路径必须传 `chatId` |
 | GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tools/results/<toolId>.json` 完整工具结果；`t` 为可选 resource ticket |
 | POST | `/api/upload` | multipart: `requestId`、`chatId`、`name`、`file` | upload ticket；文件保存为 `<chatId>/<name>` |
 | POST | `/api/document/commit` | body: 来源判别联合、`mode`、`expectedRevision`、MIME 与文本/二进制 payload | 覆盖原文档或生成新 Artifact 的身份、类型与 revision |
 | POST | `/api/resource/image/commit` | body: `operation=resource.image.commit`、`profile`、`agentKey`、`chatId`、`resourceId`、`relativePath`、`mode`、`expectedRevision`、`mimeType`、`dataBase64` | 覆盖原 Artifact 或生成新 Artifact 的身份与 revision |
 
-`/api/view` 统一 builtin 与 connector 来源。前者只读取内嵌 HTML，后者沿用 Chat 鉴权与 VIEW 快照；source 必填。旧 `/api/viewport` 已删除。
+`/api/view` 统一 builtin 与 connector 来源。前者只读取内嵌 HTML，后者沿用 Chat 鉴权，只读取事件已发布 hash 的 Chat 快照，不按当前挂载现场解析；source 必填。旧 `/api/viewport` 已删除。
 
 `/api/upload` 的 `chatId` 与 `name` 均可省略。无 `chatId` 时平台会先分配会话；同时无 `name` 时，该会话以 `<default>` 标记为尚未正式命名。仅完成上传、尚未接受首条正式 query 的占位会话仍可通过 `chatId` 继续使用，但不进入 `/api/chats` 历史列表。上传文件保持既有契约，落入 `<chatId>/<name>`，公开 `url` 为不带 `chatId` 的 `<name>`。首条正式 query 在会话尚无历史 run 时会用 message 生成 `chatName`，并广播 `chat.renamed`；已命名或已有历史的会话不会被覆盖。
 
@@ -1011,7 +1011,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/interrupt` | `InterruptRequest` | `response` |
 | `/api/compact` | `requestId`、`chatId`、`trigger`、`level` | `response`；活动 native root Run 时等待最终 completed/failed/skipped |
 | `/api/file` | `agentKey`、`path`、可选 `encoding`、可选 `response=json` | `response`；data 为 agent workspace 文件 metadata，文本文件包含 `content` |
-| `/api/view` | `source,key`；connector 另带 `chatId,connectorId,usage,hash` | `response`；来源与错误语义同 HTTP |
+| `/api/view` | `source,key`；connector 另带 `chatId,connectorId,hash`，可选 `usage` | `response`；来源与错误语义同 HTTP |
 | `/api/resource` | `file`、`pushURL` | `response` |
 | `/api/upload` | gateway upload metadata | `response` |
 
@@ -1153,7 +1153,9 @@ open 成功后先返回 `terminal.opened`，再返回可选 replay output，之�
 
 ## VIEW 连接器 API
 
-HTTP GET 和 WS `/api/view` 接受 `chatId/connectorId/key/hash?/usage?`，返回带快照引用的 HTML/QLC 文档和声明资源。工具结果与表单事件新增 `view/viewError`，业务结果与提交协议不变。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。
+HTTP GET 和 WS `/api/view` 对 connector 接受 `chatId/connectorId/key/hash/usage?`，hash 必填，返回 Chat 快照中的 HTML/QLC 文档和声明资源。工具结果与表单事件携带 `view/viewError`，业务结果与提交协议不变。
+
+助手正文中的 Markdown VIEW 块由 Run 在块闭合时绑定：`content.view` 携带 `{contentId,runId,taskId?,index,view?,viewError?}`，`index` 为该 content 内已闭合 VIEW 块的序号；`content.snapshot` 以 `views:[{index,view?,viewError?}]` 汇总并持久化到 assistant message，冷回放的 `content.snapshot` 原样返回。原文不改写，绑定不进入模型上下文。`viewError` 取 `invalid_view`、`view_not_found`、`view_unavailable` 或 `view_data_invalid`。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。
 
 技能候选的 `icon` 使用 `/api/skills/icon?id=...`，读取技能中心图标，不因 Agent 改变。缺图省略 `icon`；HTTP/WS 共享字段，图片校验与 ETag 缓存保留。旧带 `agentKey` 的图标请求仍按 Agent 运行副本解析，不影响新全局目录。
 

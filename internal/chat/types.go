@@ -367,8 +367,11 @@ type SubmitLine struct {
 type StoredMessage struct {
 	View      map[string]any `json:"view,omitempty"`
 	ViewError string         `json:"viewError,omitempty"`
-	Role      string         `json:"role"`
-	Content   []ContentPart  `json:"content,omitempty"`
+	// Views binds Markdown view blocks of assistant content to frozen
+	// snapshots: [{index, view?, viewError?}]. Never part of model input.
+	Views   []map[string]any `json:"views,omitempty"`
+	Role    string           `json:"role"`
+	Content []ContentPart    `json:"content,omitempty"`
 	// ModelOutput keeps the tool text actually returned to the model when it
 	// differs from Content, which stores the event's business result.
 	ModelOutput      *string          `json:"_modelOutput,omitempty"`

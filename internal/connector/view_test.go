@@ -15,7 +15,7 @@ func TestViewPackageValidationSummaryAndDefinitionSave(t *testing.T) {
 	}
 	files := map[string]string{
 		"connector.json":   `{"id":"forms","name":"Forms","version":"1.0.0","type":"view","authMode":"self"}`,
-		"view.json":        `{"views":{"edit":{"renderer":"html","entry":"views/index.html","usage":["form","display"]}}}`,
+		"view.json":        `{"views":{"edit":{"description":"Edit a form.","renderer":"html","entry":"views/index.html","usage":["form","display"]}}}`,
 		"views/index.html": "<form>example</form>",
 	}
 	for name, data := range files {

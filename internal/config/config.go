@@ -193,6 +193,7 @@ type QueryConfig struct {
 type PromptsConfig struct {
 	Runtime      RuntimePromptConfig
 	Skill        PromptSkillConfig
+	View         PromptViewConfig
 	Reference    PromptReferenceConfig
 	ToolAppendix ToolAppendixPromptsConfig
 	PlanExecute  PlanExecutePromptsConfig
@@ -212,6 +213,13 @@ type PromptSkillConfig struct {
 	CatalogHeader      string
 	DisclosureHeader   string
 	InstructionsLabel  string
+}
+
+// PromptViewConfig holds the Markdown VIEW rules and catalog header. Both are
+// required together; empty instructions omit the VIEW section.
+type PromptViewConfig struct {
+	InstructionsPrompt string
+	CatalogHeader      string
 }
 
 type PromptReferenceConfig struct {

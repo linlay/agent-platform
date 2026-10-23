@@ -51,6 +51,8 @@ func (d *StreamEventDispatcher) discardModelTurn(input ModelTurnDiscard, taskID 
 	for _, id := range contentIDs {
 		delete(d.state.contentBuffer, id)
 		delete(d.state.contentGuards, id)
+		delete(d.state.contentBinders, id)
+		delete(d.state.contentViews, id)
 	}
 	for _, id := range toolIDs {
 		delete(d.state.toolArgsBuffer, id)

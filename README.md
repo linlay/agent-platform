@@ -39,7 +39,7 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 - `POST /api/submit`
 - `POST /api/steer`
 - `POST /api/interrupt`
-- `GET /api/view?chatId=...&connectorId=...&key=...[&hash=...]`（[VIEW 连接器](docs/VIEW连接器.md)）
+- `GET /api/view?source=connector&chatId=...&connectorId=...&key=...&hash=...`（[VIEW 连接器](docs/VIEW连接器.md)）
 - `GET /api/viewport?viewportKey=...`（旧协议兼容）
 - `GET /api/resource?file=...`
 - `POST /api/upload`
@@ -70,7 +70,7 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 
 - `code = 0` 表示成功，失败时 `code` 使用 HTTP 状态码数值。
 - `GET /api/chat` 默认返回 `events`，`includeRawMessages=true` 时追加 `rawMessages`。
-- `GET /api/viewport` 仅提供平台内置审批模板；外部自定义模板使用 [VIEW 连接器](docs/VIEW连接器.md) 与 `/api/view`，不再读取旧本地目录或远端 viewport registry。
+- 旧 `GET /api/viewport` 已删除；内置与连接器模板统一使用 [VIEW 连接器](docs/VIEW连接器.md) 与 `/api/view`，不再读取旧本地目录或远端 viewport registry。
 - `GET /api/attach` 与 `POST /api/submit` / `steer` / `interrupt` 统一按根 Run 的 `agentKey` 校验，TEAM 也使用同一契约。
 - `POST /api/submit` 使用 awaiting 协议：请求体必须包含 `runId`、`awaitingId`，并按 run 类型携带 根 `agentKey`。
 - Chat 默认按更新时间倒序展示，排序偏好由 Platform 保存；支持跨普通、CODER/KBASE 等 mode 的统一置顶，独立保存到 `chat-pinned.json`；未置顶列表在截断前排除置顶项，展示排序不修改内容时间。协议与存储见 [API与协议](./docs/API与协议.md) 和 [会话存储与回放](./docs/会话存储与回放.md)。

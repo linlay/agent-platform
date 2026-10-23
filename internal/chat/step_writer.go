@@ -191,6 +191,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			Role:      "assistant",
 			Content:   textContent(event.String("text")),
 			ContentID: event.String("contentId"),
+			Views:     contentViewBindings(event.Value("views")),
 			MsgID:     w.currentMsgID,
 			Ts:        &ts,
 			ActorType: actorType,

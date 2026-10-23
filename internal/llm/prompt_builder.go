@@ -86,6 +86,7 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 	appendSection("stage-instructions", "Stage Instructions Prompt", "stage.instructions", stageInstructionsPrompt)
 	appendSection("stage-system", "Stage System Prompt", "stage.system", stageSystemPrompt)
 	appendSection("skill-catalog", "Skill Catalog Prompt", "skills.catalog", strings.TrimSpace(session.SkillCatalogPrompt))
+	appendSection("view-catalog", "View Catalog Prompt", "views.catalog", strings.TrimSpace(session.ViewCatalogPrompt))
 	appendSection("tool-appendix", "Tool Appendix", "tools.appendix", buildToolAppendix(options.ToolDefinitions, appendConfig, options.IncludeAfterCallHints))
 
 	return sections

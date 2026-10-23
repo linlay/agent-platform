@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -72,6 +73,35 @@ type OrchestratableAgentStream interface {
 type StreamDeltaMapper interface {
 	Map(delta AgentDelta) []stream.StreamInput
 	CloneIsolated(runID string, chatID string) StreamDeltaMapper
+}
+
+// ContentViewBindingMapper is implemented by mappers that attach the producing
+// session's Markdown view binder to content deltas.
+type ContentViewBindingMapper interface {
+	SetContentViewBinder(stream.ContentViewBinder)
+}
+
+// BindContentViews attaches the session's binder when both sides support it.
+func BindContentViews(ctx context.Context, mapper StreamDeltaMapper, session *QuerySession) {
+	target, ok := mapper.(ContentViewBindingMapper)
+	if binder := ContentViewBinderFor(ctx, session); ok && binder != nil {
+		target.SetContentViewBinder(binder)
+	}
+}
+
+// ContentViewBinderFor adapts the session's Markdown view binder to content
+// deltas. It returns nil for sessions without connector views.
+func ContentViewBinderFor(ctx context.Context, session *QuerySession) stream.ContentViewBinder {
+	if session == nil || session.BindMarkdownView == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	bind := session.BindMarkdownView
+	return func(ref view.Reference, data json.RawMessage) (view.Reference, error) {
+		return bind(ctx, ref, data)
+	}
 }
 
 type StreamDeltaMapperFactory interface {
@@ -301,9 +331,12 @@ type QuerySession struct {
 	InteractionConfig *interaction.Config
 	// ResolveView freezes a mounted presentation in this Chat before publication.
 	// It is installed by the session producer, never supplied by query clients.
-	ResolveView          func(context.Context, view.Reference, string) (view.Reference, error) `json:"-"`
-	SharedConnectorsRoot string                                                                `json:"-"`
-	NativeConnectorTools map[string]string                                                     `json:"-"` // Trusted platform capability bindings, never model input.
+	ResolveView func(context.Context, view.Reference, string) (view.Reference, error) `json:"-"`
+	// BindMarkdownView freezes a display view written in assistant Markdown and
+	// validates its body against the view's dataSchema.
+	BindMarkdownView     func(context.Context, view.Reference, json.RawMessage) (view.Reference, error) `json:"-"`
+	SharedConnectorsRoot string                                                                         `json:"-"`
+	NativeConnectorTools map[string]string                                                              `json:"-"` // Trusted platform capability bindings, never model input.
 	SharedSkillsRoot     string
 	SkillDirs            map[string]string
 	ConnectorDirs        map[string]string `json:"-"` // Frozen mounted connector runtime paths.
@@ -397,6 +430,7 @@ type QuerySession struct {
 	OwnerPrompt                 string
 	OwnerPromptLoaded           bool
 	SkillCatalogPrompt          string
+	ViewCatalogPrompt           string
 	SystemInitCache             map[string]SystemInitSnapshot
 	PendingSystemInitKeys       map[string]bool
 

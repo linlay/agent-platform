@@ -1100,3 +1100,21 @@ func TestSystemEnvironmentShowsRuntimeRelativeLocalPaths(t *testing.T) {
 		t.Fatalf("expected absolute paths without a runtime root, got:\n%s", got)
 	}
 }
+
+func TestBuildSystemPromptPlacesViewCatalogAfterSkills(t *testing.T) {
+	sections := buildSystemPromptSections(QuerySession{
+		AgentKey:           "demo",
+		Mode:               "GENERAL",
+		SkillCatalogPrompt: "SKILLS",
+		ViewCatalogPrompt:  "VIEWS",
+	}, api.QueryRequest{}, PromptBuildOptions{})
+	order := map[string]int{}
+	for index, section := range sections {
+		order[section.ID] = index
+	}
+	skills, hasSkills := order["skill-catalog"]
+	views, hasViews := order["view-catalog"]
+	if !hasSkills || !hasViews || skills+1 != views || sections[views].Content != "VIEWS" {
+		t.Fatalf("section order: %#v", order)
+	}
+}

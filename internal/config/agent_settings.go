@@ -256,12 +256,13 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	if err := validatePromptTemplates(v, path); err != nil {
 		return err
 	}
-	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "reference", "tool-appendix", "plan-execute", "automation", "btw", "planning-mode")
+	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "view", "reference", "tool-appendix", "plan-execute", "automation", "btw", "planning-mode")
 	if err != nil {
 		return err
 	}
 	schemas := map[string][]string{
 		"skill":         {"instructions-prompt", "catalog-header", "disclosure-header", "instructions-label"},
+		"view":          {"instructions-prompt", "catalog-header"},
 		"reference":     {"protocol-prompt", "advanced-protocol-prompt"},
 		"tool-appendix": {"tool-description-title", "after-call-hint-title"},
 		"plan-execute":  {"task-execution-prompt-template", "plan-user-prompt-template", "summary-system-prompt", "summary-user-prompt-template"},
@@ -279,6 +280,9 @@ func (c *Config) applyAgentPromptFile(path string) error {
 				return err
 			}
 		}
+	}
+	if err := validateViewPrompts(shared, path+".shared.view"); err != nil {
+		return err
 	}
 	coder, err := optionalConfigMap(v, "coder", path, "system-prompt", "planning-prompt")
 	if err != nil {
@@ -301,6 +305,18 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	c.applyPromptsValues(shared)
 	c.applyCoderPromptsValues(coder)
 	c.applyKBasePromptsValues(kbase)
+	return nil
+}
+
+// validateViewPrompts requires the VIEW rules and catalog header together: the
+// header alone would list views without telling the model how to write them.
+func validateViewPrompts(shared map[string]any, path string) error {
+	values, _ := shared["view"].(map[string]any)
+	instructions, _ := values["instructions-prompt"].(string)
+	header, _ := values["catalog-header"].(string)
+	if (strings.TrimSpace(instructions) == "") != (strings.TrimSpace(header) == "") {
+		return fmt.Errorf("%s: instructions-prompt and catalog-header must be configured together", path)
+	}
 	return nil
 }
 

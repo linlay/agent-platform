@@ -6,6 +6,14 @@ type PromptAppendConfig struct {
 	Skill     SkillAppendConfig
 	Tool      ToolAppendConfig
 	Reference ReferenceAppendConfig
+	View      ViewAppendConfig
+}
+
+// ViewAppendConfig has no source defaults: the VIEW catalog section is
+// appended only when agent-prompt.yml configures both fields.
+type ViewAppendConfig struct {
+	InstructionsPrompt string
+	CatalogHeader      string
 }
 
 // ReferenceAppendConfig has no source defaults: an empty prompt omits its

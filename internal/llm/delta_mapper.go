@@ -35,6 +35,13 @@ type DeltaMapper struct {
 	attemptToolIDs       map[string]bool
 	toolRegistry         ToolDefinitionLookup
 	interactions         *toolinteraction.Registry
+	// viewBinder belongs to the session this mapper streams; isolated clones
+	// for child tasks receive their own session's binder.
+	viewBinder stream.ContentViewBinder
+}
+
+func (m *DeltaMapper) SetContentViewBinder(binder stream.ContentViewBinder) {
+	m.viewBinder = binder
 }
 
 func NewDeltaMapper(runID string, chatID string, budget Budget, toolRegistry ToolDefinitionLookup, interactions *toolinteraction.Registry) *DeltaMapper {
@@ -95,6 +102,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		return []stream.StreamInput{stream.ContentDelta{
 			ContentID: contentID,
 			Delta:     value.Text,
+			BindView:  m.viewBinder,
 		}}
 	case DeltaReasoning:
 		reasoningID := value.ReasoningID

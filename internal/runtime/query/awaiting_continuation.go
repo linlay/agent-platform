@@ -341,6 +341,7 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	runCtx, control := registered.RunCtx, registered.Control
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
+	contracts.BindContentViews(runCtx, mapper, &session)
 	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID, agentDef.Mode)
 	stepWriter.SetRunLocale(session.Locale)
 	transferredRuntime = true

@@ -12,6 +12,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 var (
@@ -22,7 +23,11 @@ var (
 	hashPattern    = regexp.MustCompile(`^[a-f0-9]{64}$`)
 )
 
-const MaxDocumentBytes = 8 << 20
+const (
+	MaxDocumentBytes    = 8 << 20
+	MaxDescriptionRunes = 1024
+	MaxDataSchemaBytes  = 4 << 10
+)
 
 // Reference is a configured identity plus server-resolved snapshot metadata.
 // Configuration accepts only connectorId and key; clients must not select paths.
@@ -123,12 +128,16 @@ type Config struct {
 }
 
 type Definition struct {
-	Title    string   `json:"title,omitempty"`
-	Renderer string   `json:"renderer"`
-	Usage    []string `json:"usage"`
-	Entry    string   `json:"entry,omitempty"`
-	Assets   []string `json:"assets,omitempty"`
-	Remote   *Remote  `json:"remote,omitempty"`
+	Title string `json:"title,omitempty"`
+	// Description and DataSchema are the model-facing contract of a display
+	// view; they are listed in the prompt catalog, never sent to the frame.
+	Description string          `json:"description,omitempty"`
+	DataSchema  json.RawMessage `json:"dataSchema,omitempty"`
+	Renderer    string          `json:"renderer"`
+	Usage       []string        `json:"usage"`
+	Entry       string          `json:"entry,omitempty"`
+	Assets      []string        `json:"assets,omitempty"`
+	Remote      *Remote         `json:"remote,omitempty"`
 }
 
 // Remote fetches only a template by key; no conversation/tool/form data is sent.
@@ -167,6 +176,9 @@ func ValidateDefinitions(root string, definitions map[string]Definition) error {
 			}
 			seen[usage] = true
 		}
+		if err := validateModelContract(key, d); err != nil {
+			return err
+		}
 		if d.Remote != nil {
 			if d.Entry != "" || len(d.Assets) != 0 {
 				return fmt.Errorf("%w: local and remote sources cannot be mixed", ErrInvalid)
@@ -201,6 +213,26 @@ func ValidateDefinitions(root string, definitions map[string]Definition) error {
 				}
 			}
 		}
+	}
+	return nil
+}
+
+func validateModelContract(key string, d Definition) error {
+	description := strings.TrimSpace(d.Description)
+	if d.Supports("display") && description == "" {
+		return fmt.Errorf("%w: description is required for display view %s", ErrInvalid, key)
+	}
+	if utf8.RuneCountInString(description) > MaxDescriptionRunes {
+		return fmt.Errorf("%w: description for %s exceeds %d characters", ErrInvalid, key, MaxDescriptionRunes)
+	}
+	if len(d.DataSchema) == 0 {
+		return nil
+	}
+	if !d.Supports("display") {
+		return fmt.Errorf("%w: dataSchema for %s requires display usage", ErrInvalid, key)
+	}
+	if _, err := compileDataSchema(d.DataSchema); err != nil {
+		return fmt.Errorf("%w: dataSchema for %s: %v", ErrInvalid, key, err)
 	}
 	return nil
 }

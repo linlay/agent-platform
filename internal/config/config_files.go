@@ -738,6 +738,10 @@ func (c *Config) applyPromptsValues(values map[string]any) {
 		c.Prompts.Skill.DisclosureHeader = stringValue(anyValue(skill["disclosure-header"], c.Prompts.Skill.DisclosureHeader), c.Prompts.Skill.DisclosureHeader)
 		c.Prompts.Skill.InstructionsLabel = stringValue(anyValue(skill["instructions-label"], c.Prompts.Skill.InstructionsLabel), c.Prompts.Skill.InstructionsLabel)
 	}
+	if viewPrompts, _ := values["view"].(map[string]any); len(viewPrompts) > 0 {
+		c.Prompts.View.InstructionsPrompt = stringValue(anyValue(viewPrompts["instructions-prompt"], c.Prompts.View.InstructionsPrompt), c.Prompts.View.InstructionsPrompt)
+		c.Prompts.View.CatalogHeader = stringValue(anyValue(viewPrompts["catalog-header"], c.Prompts.View.CatalogHeader), c.Prompts.View.CatalogHeader)
+	}
 	reference, _ := values["reference"].(map[string]any)
 	if len(reference) > 0 {
 		c.Prompts.Reference.ProtocolPrompt = stringValue(anyValue(reference["protocol-prompt"], c.Prompts.Reference.ProtocolPrompt), c.Prompts.Reference.ProtocolPrompt)

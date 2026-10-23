@@ -458,8 +458,10 @@ func eventPayloadKeyOrder(eventType string) []string {
 		return []string{"contentId", "delta"}
 	case "content.end":
 		return []string{"contentId"}
+	case "content.view":
+		return []string{"contentId", "runId", "taskId", "index", "view", "viewError"}
 	case "content.snapshot":
-		return []string{"contentId", "runId", "text", "taskId"}
+		return []string{"contentId", "runId", "text", "taskId", "views"}
 	case "tool.start":
 		return []string{"toolId", "runId", "taskId", "toolName", "toolLabel", "toolDescription"}
 	case "tool.args":
