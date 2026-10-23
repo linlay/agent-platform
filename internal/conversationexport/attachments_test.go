@@ -116,3 +116,14 @@ func TestBuildSnapshotAttachmentsSkipsNonCanonicalPaths(t *testing.T) {
 		})
 	}
 }
+
+func TestSnapshotAttachmentsDeduplicateCanonicalOmissions(t *testing.T) {
+	items := []chat.ArtifactManifestItem{
+		manifestAttachment("run", "a.svg", "image/svg+xml", "artifacts/run/a%2Esvg", 1, strings.Repeat("a", 64)),
+		manifestAttachment("run", "a.svg", "image/svg+xml", "artifacts/run/a%2esvg", 1, strings.Repeat("a", 64)),
+	}
+	files, omitted := BuildSnapshotAttachments(attachmentTestChatID, items)
+	if len(files) != 0 || len(omitted) != 1 || omitted[0].ID != snapshotResourceID("artifacts/run/a.svg") {
+		t.Fatalf("files=%+v omitted=%+v", files, omitted)
+	}
+}

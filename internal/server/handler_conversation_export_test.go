@@ -85,7 +85,7 @@ func TestHandleChatExportSnapshotReturnsJSONDocument(t *testing.T) {
 	}
 }
 
-func TestHandleChatExportMapsManifestWithoutHashingNonHTMLArtifact(t *testing.T) {
+func TestHandleChatExportMapsManifestWithoutReadingArtifactFile(t *testing.T) {
 	fixture := newTestFixture(t)
 	const chatID = "chat-snapshot-manifest"
 	seedCompletedConversationExport(t, fixture, chatID)
@@ -98,14 +98,6 @@ func TestHandleChatExportMapsManifestWithoutHashingNonHTMLArtifact(t *testing.T)
 		"mimeType": "application/pdf", "sizeBytes": 123,
 		"sha256": strings.Repeat("a", 64), "url": "artifacts/run-1/report.pdf",
 	}}); err != nil {
-		t.Fatal(err)
-	}
-
-	filename := filepath.Join(fixture.chats.ChatDir(chatID), "artifacts", "run-1", "report.pdf")
-	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filename, []byte(strings.Repeat("x", 123)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

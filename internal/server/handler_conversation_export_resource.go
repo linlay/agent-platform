@@ -1,12 +1,11 @@
 package server
 
 import (
-	"context"
-	"mime"
 	"net/http"
 	"strings"
 
 	"agent-platform/internal/chat"
+	"agent-platform/internal/chatresource"
 	"agent-platform/internal/config"
 	"agent-platform/internal/conversationexport"
 )
@@ -29,7 +28,7 @@ func (s *Server) handleChatExportResource(w http.ResponseWriter, r *http.Request
 	if !decodeBoundedRequest(w, r, &req) {
 		return
 	}
-	ref, err := conversationexport.NormalizeSnapshotSourceRef(req.SourceRef)
+	ref, err := chatresource.NormalizeSourceRef(req.SourceRef)
 	if !chat.ValidChatID(req.ChatID) || err != nil || ref != req.SourceRef {
 		writeRequestError(w, &requestError{Code: "invalid", Status: http.StatusBadRequest})
 		return
@@ -43,7 +42,7 @@ func (s *Server) handleChatExportResource(w http.ResponseWriter, r *http.Request
 		writeRequestError(w, &requestError{Code: "not_found", Status: http.StatusNotFound})
 		return
 	}
-	file, item, err := conversationexport.OpenSnapshotResource(r.Context(), s.deps.Chats, req.ChatID, ref)
+	file, item, err := s.chatResources.OpenExportResource(r.Context(), req.ChatID, ref)
 	if err != nil {
 		reason := conversationexport.SnapshotResourceReason(err)
 		status := http.StatusInternalServerError
@@ -62,16 +61,7 @@ func (s *Server) handleChatExportResource(w http.ResponseWriter, r *http.Request
 		writeRequestError(w, &requestError{Code: reason, Status: status})
 		return
 	}
-	defer file.Close()
-	stop := context.AfterFunc(r.Context(), func() { file.Close() })
-	defer stop()
-	info, err := file.Stat()
-	if err != nil {
-		writeRequestError(w, &requestError{Code: "read_failed", Status: 500})
-		return
+	if err := serveChatResource(w, r, file, item.Name, item.MIMEType); err != nil {
+		writeRequestError(w, &requestError{Code: "read_failed", Status: http.StatusInternalServerError})
 	}
-	w.Header().Set("Content-Type", item.MIMEType)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": item.Name}))
-	http.ServeContent(w, r, item.Name, info.ModTime(), file)
 }

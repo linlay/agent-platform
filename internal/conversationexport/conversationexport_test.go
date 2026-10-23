@@ -13,7 +13,7 @@ import (
 )
 
 func buildSnapshotForTest(summary *chat.Summary, events []stream.EventData, capturedAt int64) (SnapshotV1, error) {
-	document, err := BuildSnapshotDocument(summary, events, nil, capturedAt, "zh-CN", nil)
+	document, err := snapshotDocument(summary, events, nil, capturedAt, "zh-CN", nil)
 	return document.Snapshot, err
 }
 
@@ -46,7 +46,7 @@ func TestSnapshotAssistantUsesRootRunIdentityAndFallsBackOnlyWhenMissing(t *test
 			return nil
 		}
 	}
-	document, err := BuildSnapshotDocument(&chat.Summary{ChatName: "Export", AgentKey: "fallback", CreatedAt: testEpoch}, events, nil, testEpoch+100, "zh-CN", resolve)
+	document, err := snapshotDocument(&chat.Summary{ChatName: "Export", AgentKey: "fallback", CreatedAt: testEpoch}, events, nil, testEpoch+100, "zh-CN", resolve)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,8 +125,8 @@ func TestBuildSnapshotMapsTerminalOutcomes(t *testing.T) {
 	}
 }
 
-func TestBuildSnapshotDocumentReturnsCanonicalSafeJSON(t *testing.T) {
-	document, err := BuildSnapshotDocument(
+func TestSnapshotDocumentReturnsCanonicalSafeJSON(t *testing.T) {
+	document, err := snapshotDocument(
 		&chat.Summary{ChatName: "</script>&x\u2028\u2029x", CreatedAt: testEpoch},
 		[]stream.EventData{
 			{Type: "request.query", Timestamp: testEpoch + 1, Payload: map[string]any{"message": "<question>", "runId": "run-1"}},

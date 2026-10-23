@@ -26,7 +26,7 @@ func TestSnapshotV1PreservesTimelineAndDeclaredAttachments(t *testing.T) {
 		ID: "0123456789abcdef01234567", Name: "报告.html", MIMEType: "text/html",
 		Size: 12, SHA256: "abcdef", SourceRef: "artifacts/run-1/%E6%8A%A5%E5%91%8A.html",
 	}}
-	document, err := BuildSnapshotDocument(&chat.Summary{ChatID: "chat-1", ChatName: "Report", CreatedAt: base}, events, attachments, base+456001, "zh-CN", nil)
+	document, err := snapshotDocument(&chat.Summary{ChatID: "chat-1", ChatName: "Report", CreatedAt: base}, events, attachments, base+456001, "zh-CN", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestSnapshotV1UsesDeclaredAttachmentsWithoutEventFallback(t *testing.T) {
 		ID: "0123456789abcdef01234567", Name: "report.pdf", MIMEType: "application/pdf",
 		Size: 12, SHA256: "abcdef", SourceRef: "artifacts/run-1/report.pdf",
 	}}
-	document, err := BuildSnapshotDocument(&chat.Summary{ChatID: "chat-1", CreatedAt: base}, events, attachments, base+4, "zh-CN", nil)
+	document, err := snapshotDocument(&chat.Summary{ChatID: "chat-1", CreatedAt: base}, events, attachments, base+4, "zh-CN", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestSnapshotV1IncludesResultWithoutToolStart(t *testing.T) {
 		{Type: "tool.result", Timestamp: base + 2, Payload: map[string]any{"runId": "run-1", "toolId": "tool-1", "toolName": "bash", "result": map[string]any{"ok": true}}},
 		{Type: "run.complete", Timestamp: base + 3, Payload: map[string]any{"runId": "run-1"}},
 	}
-	document, err := BuildSnapshotDocument(&chat.Summary{ChatID: "chat-1", CreatedAt: base}, events, nil, base+4, "zh-CN", nil)
+	document, err := snapshotDocument(&chat.Summary{ChatID: "chat-1", CreatedAt: base}, events, nil, base+4, "zh-CN", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

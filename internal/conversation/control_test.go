@@ -4,6 +4,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/conversationexport"
 	"agent-platform/internal/operationstate"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -96,6 +97,7 @@ func TestControlExportPreservesEmptyMarkdownAndUsesConfiguredQuota(t *testing.T)
 		want         error
 	}{
 		{"empty markdown", "markdown", false, 1024, nil},
+		{"empty markdown tiny quota", "markdown", false, 1, nil},
 		{"empty snapshot", "snapshot", false, 1024, conversationexport.ErrNoRootTurn},
 		{"markdown quota", "markdown", true, 1024, conversationexport.ErrTooLarge},
 		{"snapshot quota", "snapshot", true, 1024, conversationexport.ErrTooLarge},
@@ -107,7 +109,7 @@ func TestControlExportPreservesEmptyMarkdownAndUsesConfiguredQuota(t *testing.T)
 			if tc.withRun {
 				controlAppendRun(t, store, "target", "run-1", strings.Repeat("x", 1024))
 			}
-			result, err := s.ControlManage(caller, "export", map[string]any{"chatId": "target", "format": tc.format}, "")
+			result, err := s.ControlManage(context.Background(), caller, "export", map[string]any{"chatId": "target", "format": tc.format}, "")
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("export err=%v want=%v", err, tc.want)
 			}
@@ -125,11 +127,11 @@ func TestControlExportReceiptsAndDeleteRevision(t *testing.T) {
 	s, store, c := controlChatFixture(t)
 	controlAppendRun(t, store, "target", "run-1", "answer")
 	args := map[string]any{"chatId": "target", "format": "snapshot"}
-	first, e := s.ControlManage(c, "export", args, "")
+	first, e := s.ControlManage(context.Background(), c, "export", args, "")
 	if e != nil {
 		t.Fatal(e)
 	}
-	second, e := s.ControlManage(c, "export", args, "")
+	second, e := s.ControlManage(context.Background(), c, "export", args, "")
 	if e != nil || first["url"] != second["url"] {
 		t.Fatalf("receipt %v %v", second, e)
 	}
@@ -137,7 +139,7 @@ func TestControlExportReceiptsAndDeleteRevision(t *testing.T) {
 	if e != nil || !json.Valid(b) || !strings.Contains(string(b), "private-reasoning") {
 		t.Fatalf("export %s %v", b, e)
 	}
-	if _, e = s.ControlManage(c, "export", map[string]any{"chatId": "target", "format": "markdown"}, ""); e == nil {
+	if _, e = s.ControlManage(context.Background(), c, "export", map[string]any{"chatId": "target", "format": "markdown"}, ""); e == nil {
 		t.Fatal("changed arguments reused receipt")
 	}
 	rev, e := s.ControlDeleteRevision(c, "target", false)
@@ -145,11 +147,11 @@ func TestControlExportReceiptsAndDeleteRevision(t *testing.T) {
 		t.Fatal(e)
 	}
 	controlAppendRun(t, store, "target", "run-2", "later")
-	if _, e = s.ControlManage(c, "delete", map[string]any{"chatId": "target"}, rev); e == nil {
+	if _, e = s.ControlManage(context.Background(), c, "delete", map[string]any{"chatId": "target"}, rev); e == nil {
 		t.Fatal("stale approval deleted history")
 	}
 	for _, action := range []string{"archive", "fork", "delete"} {
-		if _, e = s.ControlManage(c, action, map[string]any{"chatId": "current", "sourceChatId": "current"}, rev); e == nil {
+		if _, e = s.ControlManage(context.Background(), c, action, map[string]any{"chatId": "current", "sourceChatId": "current"}, rev); e == nil {
 			t.Fatalf("active caller %s accepted", action)
 		}
 	}
@@ -216,7 +218,7 @@ func TestControlForkRejectsUnprovenExistingTarget(t *testing.T) {
 	if _, _, err := store.EnsureChatWithSourceAndMode(stem, "agent", "unrelated", "query:user", "GENERAL"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ControlManage(c, "fork", map[string]any{"sourceChatId": "target"}, ""); err == nil || !strings.Contains(err.Error(), "idempotency_conflict") {
+	if _, err := s.ControlManage(context.Background(), c, "fork", map[string]any{"sourceChatId": "target"}, ""); err == nil || !strings.Contains(err.Error(), "idempotency_conflict") {
 		t.Fatalf("adopted unrelated fork: %v", err)
 	}
 }
@@ -275,5 +277,42 @@ func TestControlCursorHidesScannedIdentitiesAndRejectsTampering(t *testing.T) {
 	c.Subject = "other"
 	if _, err := controlPage(args, c); err == nil {
 		t.Fatal("cursor crossed owner boundary")
+	}
+}
+
+func TestControlExportRejectsUnreadableManifest(t *testing.T) {
+	service, store, caller := controlChatFixture(t)
+	controlAppendRun(t, store, "target", "run-1", "answer")
+	filename := filepath.Join(store.ChatDir("target"), chat.ToolRootDirName, chat.ArtifactManifestFileName)
+	if err := os.MkdirAll(filepath.Dir(filename), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filename, []byte("{broken"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	service.ExportMaxBytes = 0 // main reports manifest failures before missing quota configuration.
+	if _, err := service.ControlManage(context.Background(), caller, "export", map[string]any{"chatId": "target", "format": "snapshot"}, ""); err == nil || !strings.Contains(err.Error(), "decode artifact manifest") {
+		t.Fatal("tool export silently ignored the manifest failure")
+	}
+}
+
+func TestControlExportCancellationDoesNotCommit(t *testing.T) {
+	service, store, caller := controlChatFixture(t)
+	controlAppendRun(t, store, "target", "run-1", "answer")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := service.ControlManage(ctx, caller, "export", map[string]any{"chatId": "target", "format": "snapshot"}, ""); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	outputs, err := filepath.Glob(filepath.Join(store.ChatDir("current"), "control-*"))
+	if err != nil || len(outputs) != 0 {
+		t.Fatalf("cancelled export left files: %v %v", outputs, err)
+	}
+	done := make(chan struct{})
+	go func() { unlock := service.LockMutation(); unlock(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("cancelled export held the mutation lock")
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/chat"
+	"agent-platform/internal/chatresource"
 	"agent-platform/internal/config"
 )
 
@@ -38,7 +39,7 @@ func TestChatExportResourceAuthorityAndFailureReasons(t *testing.T) {
 	if err := store.AppendArtifactManifest(id, "run", testEpochMillis, []map[string]any{{"type": "file", "artifactId": "report", "url": "artifacts/run/report.txt", "name": "report.txt", "mimeType": "text/plain", "sizeBytes": 7, "sha256": hex.EncodeToString(hash[:])}}); err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{deps: Dependencies{Chats: store}}
+	s := &Server{deps: Dependencies{Chats: store}, chatResources: chatresource.NewService(store)}
 	s.deps.Config.RuntimeMode = config.RuntimeModeDesktop
 	app := &Principal{Subject: "desktop", Claims: map[string]any{"scope": "app", "deviceId": "device"}}
 	request := func(body string, p *Principal) *httptest.ResponseRecorder {

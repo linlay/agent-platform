@@ -18,7 +18,7 @@ func TestExportPreservesSteerInstructionsAndSource(t *testing.T) {
 		{Type: "content.snapshot", Timestamp: testEpoch + 3, Payload: map[string]any{"runId": "run", "text": "result"}},
 		{Type: "run.complete", Timestamp: testEpoch + 4, Payload: map[string]any{"runId": "run"}},
 	}
-	doc, err := BuildSnapshotDocument(&chat.Summary{ChatID: "chat", CreatedAt: testEpoch}, events, nil, testEpoch+5, "zh-CN", nil)
+	doc, err := snapshotDocument(&chat.Summary{ChatID: "chat", CreatedAt: testEpoch}, events, nil, testEpoch+5, "zh-CN", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

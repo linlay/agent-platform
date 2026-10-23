@@ -59,6 +59,7 @@ const (
 // SnapshotV1 contains only the facts needed to reconstruct a frozen timeline.
 // It deliberately excludes live tool output and arbitrary protocol payloads.
 type SnapshotV1 struct {
+	chatID           string
 	Version          int                 `json:"version"`
 	Title            string              `json:"title"`
 	Locale           string              `json:"locale"`
@@ -259,9 +260,9 @@ func toolResultFailed(value any) bool {
 	return false
 }
 
-// forExport retains resource-bearing queries and human steers only for snapshot
-// exports; Markdown and conversation reads keep their existing projection.
-func projectSnapshot(summary *chat.Summary, events []stream.EventData, attachments []AttachmentV1, capturedAt int64, locale string, resolveAssistant ResolveAssistant, forExport bool) (SnapshotV1, error) {
+// BuildSnapshot is a pure event projection. forExport retains resource-bearing
+// queries and human steers; Markdown and conversation reads keep main visibility.
+func BuildSnapshot(summary *chat.Summary, events []stream.EventData, capturedAt int64, locale string, resolveAssistant ResolveAssistant, forExport bool) (SnapshotV1, error) {
 	if summary == nil {
 		return SnapshotV1{}, ErrInvalidTimeline
 	}
@@ -286,7 +287,7 @@ func projectSnapshot(summary *chat.Summary, events []stream.EventData, attachmen
 	} else {
 		locale = i18n.LocaleZhCN
 	}
-	snapshot := SnapshotV1{Version: SnapshotVersion, Title: title, Locale: locale, CreatedAt: summary.CreatedAt, CapturedAt: capturedAt, Turns: []TurnV1{}, Attachments: append([]AttachmentV1{}, attachments...)}
+	snapshot := SnapshotV1{chatID: summary.ChatID, Version: SnapshotVersion, Title: title, Locale: locale, CreatedAt: summary.CreatedAt, CapturedAt: capturedAt, Turns: []TurnV1{}, Attachments: []AttachmentV1{}}
 	turnByRun := map[string]int{}
 	toolPosition := map[string]struct{ turn, node int }{}
 	toolByID := map[string]struct{ turn, node int }{}
@@ -560,24 +561,6 @@ func projectSnapshot(summary *chat.Summary, events []stream.EventData, attachmen
 		return SnapshotV1{}, ErrNoRootTurn
 	}
 	return snapshot, nil
-}
-
-// BuildSnapshotDocument is the pure projection used by Markdown/control reads.
-// Only the actual snapshot export entry enriches file metadata before encoding.
-func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, attachments []AttachmentV1, capturedAt int64, locale string, resolveAssistant ResolveAssistant) (SnapshotDocument, error) {
-	snapshot, err := projectSnapshot(summary, events, attachments, capturedAt, locale, resolveAssistant, false)
-	if err != nil {
-		return SnapshotDocument{}, err
-	}
-	return encodeSnapshot(snapshot)
-}
-
-func encodeSnapshot(snapshot SnapshotV1) (SnapshotDocument, error) {
-	encoded, err := json.Marshal(snapshot)
-	if err != nil {
-		return SnapshotDocument{}, err
-	}
-	return SnapshotDocument{Snapshot: snapshot, JSON: encoded}, nil
 }
 
 // requestQueryVisible reports conversation input. Automation input is not part
