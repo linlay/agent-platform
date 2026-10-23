@@ -1,7 +1,6 @@
 package chatresource
 
 import (
-	"agent-platform/internal/chat"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,19 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"agent-platform/internal/chat"
 )
 
 func TestArtifactsRequireChatResolveAmbiguityAndVerifyContent(t *testing.T) {
-	store, err := chat.NewFileStoreAtStartup(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	for _, id := range []string{"chat-a", "chat-b"} {
-		if _, _, err = store.EnsureChat(id, "agent", "hello"); err != nil {
-			t.Fatal(err)
-		}
-	}
+	store := artifactStore(t, "chat-a", "chat-b")
+	var err error
 	data := []byte("published")
 	hash := sha256.Sum256(data)
 	relative := "artifacts/run-a/result.txt"
@@ -69,16 +62,8 @@ func TestArtifactsRequireChatResolveAmbiguityAndVerifyContent(t *testing.T) {
 }
 
 func TestOpenArtifactByRefUsesPublishedManifestAndLatestEntry(t *testing.T) {
-	store, err := chat.NewFileStoreAtStartup(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	for _, chatID := range []string{"chat-ref-a", "chat-ref-b"} {
-		if _, _, err = store.EnsureChat(chatID, "agent", "hello"); err != nil {
-			t.Fatal(err)
-		}
-	}
+	store := artifactStore(t, "chat-ref-a", "chat-ref-b")
+	var err error
 	const sourceRef = "artifacts/run-1/report.pdf"
 	path := filepath.Join(store.ChatDir("chat-ref-a"), filepath.FromSlash(sourceRef))
 	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -117,7 +102,7 @@ func TestOpenArtifactByRefUsesPublishedManifestAndLatestEntry(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		var reader chat.Store = store
 		if duringResolve {
-			reader = &cancelArtifactResolveStore{Store: store, cancel: cancel}
+			reader = &cancelArtifactResolveStore{FileStore: store, cancel: cancel}
 		} else {
 			cancel()
 		}
@@ -146,18 +131,12 @@ func TestOpenArtifactByRefUsesPublishedManifestAndLatestEntry(t *testing.T) {
 }
 
 type cancelArtifactResolveStore struct {
-	chat.Store
+	*chat.FileStore
 	cancel context.CancelFunc
 }
 
-func (s *cancelArtifactResolveStore) PublishedArtifacts(chatID string) ([]chat.ArtifactManifestItem, error) {
-	return s.Store.(interface {
-		PublishedArtifacts(string) ([]chat.ArtifactManifestItem, error)
-	}).PublishedArtifacts(chatID)
-}
-
 func (s *cancelArtifactResolveStore) ResolveResource(key string) (string, error) {
-	path, err := s.Store.ResolveResource(key)
+	path, err := s.FileStore.ResolveResource(key)
 	s.cancel()
 	return path, err
 }
@@ -165,14 +144,8 @@ func (s *cancelArtifactResolveStore) ResolveResource(key string) (string, error)
 // An @chat/ reference is a literal path, so "?" and "#" in a file name are
 // part of the name rather than URL syntax.
 func TestOpenArtifactByRefAcceptsLiteralChatAlias(t *testing.T) {
-	store, err := chat.NewFileStoreAtStartup(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	if _, _, err = store.EnsureChat("chat-alias", "agent", "hello"); err != nil {
-		t.Fatal(err)
-	}
+	store := artifactStore(t, "chat-alias")
+	var err error
 	const sourceRef = "@chat/artifacts/run-1/夏日 #1?.txt"
 	path := filepath.Join(store.ChatDir("chat-alias"), "artifacts", "run-1", "夏日 #1?.txt")
 	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -204,14 +177,7 @@ func TestOpenArtifactByRefAcceptsLiteralChatAlias(t *testing.T) {
 }
 
 func TestOpenArtifactByRefRejectsNonCanonicalReferences(t *testing.T) {
-	store, err := chat.NewFileStoreAtStartup(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	if _, _, err = store.EnsureChat("chat-ref-invalid", "agent", "hello"); err != nil {
-		t.Fatal(err)
-	}
+	store := artifactStore(t, "chat-ref-invalid")
 	service := NewService(store)
 	for _, sourceRef := range []string{
 		"/artifacts/run-1/report.pdf",
@@ -231,4 +197,51 @@ func TestOpenArtifactByRefRejectsNonCanonicalReferences(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExportResourceReadsRejectUnsafeAndUnsupportedFiles(t *testing.T) {
+	store := artifactStore(t, "media")
+	root := store.ChatDir("media")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "fake.png"), []byte("ordinary text"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.svg")
+	if err := os.WriteFile(outside, []byte("<svg></svg>"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "escape.svg")); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ ref, reason string }{
+		{"fake.png", "unsupported"}, {"escape.svg", "forbidden"}, {"missing.png", "not_found"}, {".tools/secret.png", "invalid"}, {".btw/secret.png", "invalid"},
+		{"../other/a.png", "invalid"}, {"%252e%252e/a.png", "invalid"}, {"a%2Fb.png", "invalid"}, {"C:/Windows/a.png", "invalid"}, {`C:\Windows\a.png`, "invalid"}, {"https://example.test/a.png", "invalid"}, {"/tmp/a.png", "invalid"},
+	} {
+		t.Run(tc.ref, func(t *testing.T) {
+			f, _, err := NewService(store).Export("media").Open(context.Background(), tc.ref)
+			if f != nil {
+				f.Close()
+			}
+			if err == nil || FailureReason(err) != tc.reason {
+				t.Fatalf("reason=%s err=%v", FailureReason(err), err)
+			}
+		})
+	}
+}
+
+func artifactStore(t *testing.T, ids ...string) *chat.FileStore {
+	t.Helper()
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	for _, id := range ids {
+		if _, _, err := store.EnsureChat(id, "agent", "hello"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return store
 }

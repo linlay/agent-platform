@@ -1,6 +1,7 @@
 package conversationexport
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,36 +20,26 @@ import (
 
 func TestSnapshotExportDiscoversOnlyVisibleCurrentChatMedia(t *testing.T) {
 	const id = "share-resources"
-	store := resourceStore(t, id)
-	write := func(ref string, body []byte) {
-		t.Helper()
-		filename := filepath.Join(store.ChatDir(id), filepath.FromSlash(ref))
-		if err := os.MkdirAll(filepath.Dir(filename), 0700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filename, body, 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
 	image := []byte(`<svg xmlns="http://www.w3.org/2000/svg"></svg>`)
-	write("图.svg", image)
-	write("holiday photo.svg", image)
-	write("artifacts/run/photo.svg", image)
-	write("unreferenced.svg", image)
-	write("input-only.svg", image)
-	htmlBody := []byte(`<img src="@chat/图.svg"><img src="photo.svg"><img srcset="@chat/图.svg 1x, @chat/missing.png 2x"><video poster="@chat/图.svg" src="https://example.invalid/video.mp4"></video><script src="@chat/local.js"></script><style>p{background:url(@chat/css.png)}</style>`)
-	write("artifacts/run/page.html", htmlBody)
+	htmlBody := []byte(strings.Repeat(" ", 4096) + `<img src="@chat/图.svg"><img src="photo.svg"><img srcset="@chat/图.svg 1x, @chat/missing.png 2x"><video poster="@chat/图.svg" src="https://example.invalid/video.mp4"></video><script src="@chat/local.js"></script><style>p{background:url(@chat/css.png)}</style>`)
+	store := resourceStore(t, id, map[string][]byte{
+		"图.svg": image, "holiday photo.svg": image, "artifacts/run/photo.svg": image,
+		"unreferenced.svg": image, "input-only.svg": image, "artifacts/run/page.html": htmlBody,
+	})
 	hash := sha256.Sum256(htmlBody)
 	if err := store.AppendArtifactManifest(id, "run", testEpoch, []map[string]any{{"artifactId": "page", "type": "file", "name": "page.html", "mimeType": "text/html", "url": "artifacts/run/page.html", "sizeBytes": len(htmlBody), "sha256": hex.EncodeToString(hash[:])}}); err != nil {
 		t.Fatal(err)
 	}
 	events := []stream.EventData{
 		{Type: "request.query", Timestamp: testEpoch + 1, Payload: map[string]any{"runId": "run", "references": []map[string]any{{"type": "file", "url": "@chat/图.svg", "meta": map[string]any{"token": "private"}}}}},
+		{Type: "artifact.publish", Timestamp: testEpoch + 1, Payload: map[string]any{"runId": "run", "artifacts": []map[string]any{{"name": "legacy.html", "url": "artifacts/run/legacy.html"}}}},
 		{Type: "request.steer", Timestamp: testEpoch + 2, Payload: map[string]any{"runId": "run", "message": "adjust", "references": []map[string]any{{"type": "file", "url": "missing.png"}}}},
 		{Type: "tool.result", Timestamp: testEpoch + 3, Payload: map[string]any{"runId": "run", "toolId": "image", "toolName": "image_generate", "arguments": `{"images":["input-only.svg"]}`, "result": map[string]any{"images": []map[string]any{{"url": "%E5%9B%BE.svg", "path": "/private/source"}}}}},
 		{Type: "content.snapshot", Timestamp: testEpoch + 4, Payload: map[string]any{"runId": "run", "text": "![same](@chat/图.svg) ![space](@chat/holiday photo.svg) `![hidden](unreferenced.svg)`"}},
 	}
-	doc, err := resourceDocument(context.Background(), &chat.Summary{ChatID: id, CreatedAt: testEpoch}, events, store, testEpoch+5, "zh-CN", nil)
+	counted := &manifestReadCounter{FileStore: store}
+	summary := &chat.Summary{ChatID: id, CreatedAt: testEpoch}
+	doc, err := BuildDocument(context.Background(), summary, events, testEpoch+5, "zh-CN", nil, chatresource.NewService(counted).Export(id))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,47 +64,21 @@ func TestSnapshotExportDiscoversOnlyVisibleCurrentChatMedia(t *testing.T) {
 			t.Fatalf("node %d refs=%v", i, nodes[i].AttachmentIDs)
 		}
 	}
-	if strings.Contains(string(doc.JSON), `"meta"`) {
-		t.Fatal("query metadata leaked")
+	if bytes.Contains(doc.JSON, []byte(`"meta"`)) || bytes.Contains(doc.JSON, []byte(strings.Repeat(" ", 1024))) {
+		t.Fatal("query metadata or HTML body leaked into JSON")
 	}
-}
-
-func TestSnapshotResourceReadsRejectUnsafeAndUnsupportedFiles(t *testing.T) {
-	store := resourceStore(t, "media")
-	root := store.ChatDir("media")
-	if err := os.MkdirAll(root, 0700); err != nil {
+	second, err := BuildDocument(context.Background(), summary, events, testEpoch+5, "zh-CN", nil, chatresource.NewService(counted).Export(id))
+	if err != nil || !bytes.Equal(doc.JSON, second.JSON) || counted.reads != 2 {
+		t.Fatalf("repeated exports differ or reread manifests: reads=%d err=%v", counted.reads, err)
+	}
+	// A same-size HTML edit must fail integrity before discovering dependencies.
+	htmlBody[len(htmlBody)-1] = '!'
+	if err := os.WriteFile(filepath.Join(store.ChatDir(id), "artifacts/run/page.html"), htmlBody, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "fake.png"), []byte("ordinary text"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	outside := filepath.Join(t.TempDir(), "outside.svg")
-	if err := os.WriteFile(outside, []byte("<svg></svg>"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(outside, filepath.Join(root, "escape.svg")); err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range []struct{ ref, reason string }{
-		{"fake.png", "unsupported"}, {"escape.svg", "forbidden"}, {"missing.png", "not_found"}, {".tools/secret.png", "invalid"}, {".btw/secret.png", "invalid"},
-		{"../other/a.png", "invalid"}, {"%252e%252e/a.png", "invalid"}, {"a%2Fb.png", "invalid"}, {"C:/Windows/a.png", "invalid"}, {`C:\Windows\a.png`, "invalid"}, {"https://example.test/a.png", "invalid"}, {"/tmp/a.png", "invalid"},
-	} {
-		t.Run(tc.ref, func(t *testing.T) {
-			f, _, err := chatresource.NewService(store).OpenExportResource(context.Background(), "media", tc.ref)
-			if f != nil {
-				f.Close()
-			}
-			if err == nil || SnapshotResourceReason(err) != tc.reason {
-				t.Fatalf("reason=%s err=%v", SnapshotResourceReason(err), err)
-			}
-		})
-	}
-}
-
-func TestMarkdownMediaReferencesRespectSyntax(t *testing.T) {
-	input := "![a](image.png)\n![b][pic]\n\n[pic]: <@chat/图.svg>\n`![hidden](secret.png)`\n```html\n<img src=\"hidden.png\">\n```\n[video](clip.mp4)\nplain secret.png\n<img src=\"poster.png\">"
-	if got, want := markdownMediaRefs(input), []string{"image.png", "@chat/图.svg", "clip.mp4"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("got=%v want=%v", got, want)
+	changed, err := BuildDocument(context.Background(), summary, events, testEpoch+5, "zh-CN", nil, chatresource.NewService(store).Export(id))
+	if err != nil || len(changed.Snapshot.Attachments) != 3 || len(changed.Snapshot.Attachments[0].MediaRefs) != 0 || len(changed.Snapshot.OmittedResources) != 1 {
+		t.Fatalf("changed HTML: %+v err=%v", changed.Snapshot, err)
 	}
 }
 
@@ -122,6 +87,13 @@ func TestMarkdownMediaReferencesUseParsedNodes(t *testing.T) {
 		name, source string
 		want         []string
 	}{
+		{name: "mixed syntax", source: "![a](image.png)\n![b][pic]\n\n[pic]: <@chat/图.svg>\n`![hidden](secret.png)`\n```html\n<img src=\"hidden.png\">\n```\n[video](clip.mp4)\nplain secret.png\n<img src=\"poster.png\">", want: []string{"image.png", "@chat/图.svg", "clip.mp4"}},
+		{name: "unclosed code fence", source: "```md\n![hidden](private.png)"},
+		{name: "tilde code fence", source: "~~~\n![hidden](private.png)\n~~~~"},
+		{name: "indented code", source: "    ![hidden](private.png)"},
+		{name: "tab code", source: "\t![hidden](private.png)"},
+		{name: "code span with backtick", source: "`` ` ![hidden](private.png) ``"},
+		{name: "raw html", source: "<img src=\"private.png\">"},
 		{name: "space in local path", source: "![visible](@chat/holiday photo.svg)", want: []string{"@chat/holiday photo.svg"}},
 		{name: "local space inside code", source: "`![hidden](@chat/holiday photo.svg)`"},
 		{name: "space inside image alt", source: "![outer ![hidden](@chat/private photo.svg)](visible.svg)", want: []string{"visible.svg"}},
@@ -144,16 +116,11 @@ func TestMarkdownMediaReferencesUseParsedNodes(t *testing.T) {
 }
 
 func TestSnapshotExportScansOnlyRenderedMarkdown(t *testing.T) {
-	store := resourceStore(t, "markdown-scope")
-	root := store.ChatDir("markdown-scope")
-	if err := os.MkdirAll(root, 0700); err != nil {
-		t.Fatal(err)
-	}
+	files := map[string][]byte{}
 	for _, name := range []string{"query.svg", "steer.svg", "thinking.svg", "content.svg", "planning.svg", "tool.svg", "failed.svg", "code.svg"} {
-		if err := os.WriteFile(filepath.Join(root, name), []byte("<svg></svg>"), 0600); err != nil {
-			t.Fatal(err)
-		}
+		files[name] = []byte("<svg></svg>")
 	}
+	store := resourceStore(t, "markdown-scope", files)
 	events := []stream.EventData{
 		{Type: "request.query", Timestamp: testEpoch, Payload: map[string]any{"runId": "run", "message": "![example](query.svg)"}},
 		{Type: "request.steer", Timestamp: testEpoch + 1, Payload: map[string]any{"runId": "run", "message": "![example](steer.svg)"}},
@@ -164,7 +131,7 @@ func TestSnapshotExportScansOnlyRenderedMarkdown(t *testing.T) {
 		{Type: "tool.result", Timestamp: testEpoch + 6, Payload: map[string]any{"runId": "run", "toolId": "failed", "error": "failed", "result": "![example](failed.svg)"}},
 		{Type: "tool.result", Timestamp: testEpoch + 7, Payload: map[string]any{"runId": "run", "toolId": "code", "result": map[string]any{"text": "![example](code.svg)"}}},
 	}
-	doc, err := resourceDocument(context.Background(), &chat.Summary{ChatID: "markdown-scope", CreatedAt: testEpoch}, events, store, testEpoch+8, "zh-CN", nil)
+	doc, err := BuildDocument(context.Background(), &chat.Summary{ChatID: "markdown-scope", CreatedAt: testEpoch}, events, testEpoch+8, "zh-CN", nil, chatresource.NewService(store).Export("markdown-scope"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,78 +144,18 @@ func TestSnapshotExportScansOnlyRenderedMarkdown(t *testing.T) {
 	}
 }
 
-func TestSnapshotHTMLDiscoveryDoesNotApplySnapshotByteLimit(t *testing.T) {
-	store := resourceStore(t, "html-budget")
-	root := store.ChatDir("html-budget")
-	if err := os.MkdirAll(filepath.Join(root, "artifacts/run"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	body := []byte("<!doctype html><html><body>" + strings.Repeat(" ", 4096) + `<img src="@chat/image.svg"></body></html>`)
-	if err := os.WriteFile(filepath.Join(root, "artifacts/run/page.html"), body, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "image.svg"), []byte("<svg></svg>"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	hash := sha256.Sum256(body)
-	if err := store.AppendArtifactManifest("html-budget", "run", testEpoch, []map[string]any{{"type": "file", "artifactId": "page", "name": "page.html", "mimeType": "text/html", "url": "artifacts/run/page.html", "sizeBytes": len(body), "sha256": hex.EncodeToString(hash[:])}}); err != nil {
-		t.Fatal(err)
-	}
-	events := []stream.EventData{{Type: "request.query", Timestamp: testEpoch + 1, Payload: map[string]any{"runId": "run", "message": "HTML"}}}
-	doc, err := resourceDocument(context.Background(), &chat.Summary{ChatID: "html-budget", CreatedAt: testEpoch}, events, store, testEpoch+2, "zh-CN", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(doc.JSON) >= 1024 || len(doc.Snapshot.Attachments) != 2 || len(doc.Snapshot.OmittedResources) != 0 {
-		t.Fatalf("JSON bytes=%d attachments=%+v omitted=%+v", len(doc.JSON), doc.Snapshot.Attachments, doc.Snapshot.OmittedResources)
-	}
-	if doc.Snapshot.Attachments[0].MediaRefs["@chat/image.svg"] != doc.Snapshot.Attachments[1].ID {
-		t.Fatalf("media mappings=%v", doc.Snapshot.Attachments[0].MediaRefs)
-	}
-	// A same-size edit must still fail integrity before discovering dependencies.
-	body[len(body)-1] = '!'
-	if err := os.WriteFile(filepath.Join(root, "artifacts/run/page.html"), body, 0600); err != nil {
-		t.Fatal(err)
-	}
-	doc, err = resourceDocument(context.Background(), &chat.Summary{ChatID: "html-budget", CreatedAt: testEpoch}, events, store, testEpoch+2, "zh-CN", nil)
-	if err != nil || len(doc.Snapshot.Attachments) != 1 || len(doc.Snapshot.Attachments[0].MediaRefs) != 0 || len(doc.Snapshot.OmittedResources) != 0 {
-		t.Fatalf("changed HTML: attachments=%+v omitted=%+v err=%v", doc.Snapshot.Attachments, doc.Snapshot.OmittedResources, err)
-	}
-	if f, _, err := chatresource.NewService(store).OpenExportResource(context.Background(), "html-budget", "artifacts/run/page.html"); !errors.Is(err, chatresource.ErrArtifactChanged) {
-		if f != nil {
-			f.Close()
-		}
-		t.Fatalf("changed published HTML bypassed integrity: %v", err)
-	}
-}
-
 func TestSnapshotExportStopsOnCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	doc, err := resourceDocument(ctx, &chat.Summary{ChatID: "cancelled", CreatedAt: testEpoch}, []stream.EventData{{Type: "request.query", Timestamp: testEpoch, Payload: map[string]any{"runId": "run", "message": "cancel"}}}, nil, testEpoch+1, "zh-CN", nil)
+	doc, err := BuildDocument(ctx, &chat.Summary{ChatID: "cancelled", CreatedAt: testEpoch}, nil, testEpoch+1, "zh-CN", nil, nil)
 	if !errors.Is(err, context.Canceled) || doc.JSON != nil {
 		t.Fatalf("document=%+v err=%v", doc, err)
 	}
 }
 
-func TestMarkdownMediaSkipsCodeExamples(t *testing.T) {
-	for _, source := range []string{
-		"```md\n![hidden](private.png)",
-		"~~~\n![hidden](private.png)\n~~~~",
-		"    ![hidden](private.png)",
-		"\t![hidden](private.png)",
-		"`` ` ![hidden](private.png) ``",
-		"<img src=\"private.png\">",
-	} {
-		if got := markdownMediaRefs(source); len(got) != 0 {
-			t.Errorf("%q: %v", source, got)
-		}
-	}
-}
-
 func TestSnapshotExportDoesNotChangeOrdinaryProjection(t *testing.T) {
 	const id = "projection-boundary"
-	store := resourceStore(t, id)
+	store := resourceStore(t, id, nil)
 	events := []stream.EventData{
 		{Type: "request.query", Timestamp: testEpoch + 1, Payload: map[string]any{"runId": "text", "message": "original"}},
 		{Type: "request.steer", Timestamp: testEpoch + 2, Payload: map[string]any{"runId": "text", "message": "human correction"}},
@@ -258,18 +165,18 @@ func TestSnapshotExportDoesNotChangeOrdinaryProjection(t *testing.T) {
 	}
 	events = append(events, stream.EventData{Type: "run.complete", Timestamp: testEpoch + 6, Payload: map[string]any{"runId": "text"}}, stream.EventData{Type: "run.complete", Timestamp: testEpoch + 7, Payload: map[string]any{"runId": "file"}})
 	summary := &chat.Summary{ChatID: id, CreatedAt: testEpoch}
-	ordinary, err := snapshotDocument(summary, events, nil, testEpoch+8, "zh-CN", nil)
+	ordinary, err := BuildSnapshot(summary, events, testEpoch+8, "zh-CN", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ordinary.Snapshot.Turns) != 1 || len(ordinary.Snapshot.Turns[0].Nodes) != 2 {
-		t.Fatalf("ordinary projection changed: %s", ordinary.JSON)
+	if len(ordinary.Turns) != 1 || len(ordinary.Turns[0].Nodes) != 2 {
+		t.Fatalf("ordinary projection changed: %+v", ordinary)
 	}
-	markdown, err := RenderMarkdown(ordinary.Snapshot)
+	markdown, err := RenderMarkdown(ordinary)
 	if err != nil || strings.Contains(string(markdown), "human correction") || strings.Contains(string(markdown), "file answer") {
 		t.Fatalf("ordinary Markdown changed: %s; %v", markdown, err)
 	}
-	shared, err := resourceDocument(context.Background(), summary, events, store, testEpoch+8, "zh-CN", nil)
+	shared, err := BuildDocument(context.Background(), summary, events, testEpoch+8, "zh-CN", nil, chatresource.NewService(store).Export(id))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +188,7 @@ func TestSnapshotExportDoesNotChangeOrdinaryProjection(t *testing.T) {
 	}
 }
 
-func resourceStore(t *testing.T, id string) *chat.FileStore {
+func resourceStore(t *testing.T, id string, files map[string][]byte) *chat.FileStore {
 	t.Helper()
 	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
@@ -291,5 +198,25 @@ func resourceStore(t *testing.T, id string) *chat.FileStore {
 	if _, _, err := store.EnsureChat(id, "agent", "media"); err != nil {
 		t.Fatal(err)
 	}
+	for ref, body := range files {
+		filename := filepath.Join(store.ChatDir(id), filepath.FromSlash(ref))
+		if err := os.MkdirAll(filepath.Dir(filename), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filename, body, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return store
+}
+
+// Counts actual store reads, including HTML and unregistered sibling lookups.
+type manifestReadCounter struct {
+	*chat.FileStore
+	reads int
+}
+
+func (s *manifestReadCounter) PublishedArtifacts(id string) ([]chat.ArtifactManifestItem, error) {
+	s.reads++
+	return s.FileStore.PublishedArtifacts(id)
 }

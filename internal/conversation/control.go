@@ -220,7 +220,7 @@ func (s *Service) controlMessages(c ControlCaller, id string, archived bool, ref
 			return nil, nil, e
 		}
 	}
-	snapshot, e := conversationexport.BuildSnapshot(summary, detail.Events, time.Now().UnixMilli(), "zh-CN", nil, false)
+	snapshot, e := conversationexport.BuildSnapshot(summary, detail.Events, time.Now().UnixMilli(), "zh-CN", nil)
 	if errors.Is(e, conversationexport.ErrNoRootTurn) {
 		return summary, []ControlMessage{}, nil
 	}
@@ -730,31 +730,19 @@ func (s *Service) ControlManage(ctx context.Context, c ControlCaller, action str
 			if e = ctx.Err(); e != nil {
 				return nil, e
 			}
-			includeResources := format == "snapshot" && !archived
-			var resources *chatresource.Service
-			var items []chat.ArtifactManifestItem
-			if includeResources {
-				resources = chatresource.NewService(s.Chats)
-				items, e = resources.PublishedArtifacts(id)
-				if e != nil && !errors.Is(e, chatresource.ErrNotConfigured) {
-					return nil, e
+			var files *chatresource.Export
+			if format == "snapshot" && !archived {
+				files = chatresource.NewService(s.Chats).Export(id)
+				if files.Err != nil && !errors.Is(files.Err, chatresource.ErrNotConfigured) {
+					return nil, files.Err
 				}
 			}
 			if s.ExportMaxBytes <= 0 {
 				return nil, ErrNotConfigured
 			}
-			snapshot, e := conversationexport.BuildSnapshot(sum, detail.Events, time.Now().UnixMilli(), "zh-CN", nil, includeResources)
-			emptyMarkdown := format == "markdown" && errors.Is(e, conversationexport.ErrNoRootTurn)
-			if emptyMarkdown {
-				e = nil
-			}
-			if e != nil {
-				return nil, e
-			}
-
-			var doc conversationexport.SnapshotDocument
-			if !emptyMarkdown {
-				doc, e = conversationexport.BuildExportDocument(ctx, snapshot, resources, items)
+			doc, e := conversationexport.BuildDocument(ctx, sum, detail.Events, time.Now().UnixMilli(), "zh-CN", nil, files)
+			if format == "markdown" && errors.Is(e, conversationexport.ErrNoRootTurn) {
+				e = nil // Preserve empty Markdown exports.
 			}
 			if e != nil {
 				return nil, e

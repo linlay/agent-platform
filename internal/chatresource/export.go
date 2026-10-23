@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"unicode/utf8"
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/documentmeta"
@@ -20,6 +19,26 @@ var ErrUnsupportedResource = errors.New("unsupported export resource")
 type Resource struct {
 	Name, MIMEType, SHA256 string
 	SizeBytes              int64
+}
+
+// Export binds one manifest read to one Chat. It is never shared across requests.
+type Export struct {
+	service   *Service
+	chatID    string
+	Items     []chat.ArtifactManifestItem
+	Err       error
+	published map[string]chat.ArtifactManifestItem
+}
+
+func (s *Service) Export(chatID string) *Export {
+	items, err := s.PublishedArtifacts(chatID)
+	export := &Export{service: s, chatID: chatID, Items: items, Err: err, published: map[string]chat.ArtifactManifestItem{}}
+	for _, item := range items {
+		if ref, err := NormalizeSourceRef(item.URL); err == nil {
+			export.published[ref] = item
+		}
+	}
+	return export
 }
 
 func IsMedia(mime string) bool {
@@ -44,35 +63,46 @@ func NormalizeSourceRef(raw string) (string, error) {
 	return ref, nil
 }
 
-// OpenExportResource keeps published-file integrity checks and permits unregistered
-// current-Chat media, including HTML siblings below artifacts/.
-func (s *Service) OpenExportResource(ctx context.Context, chatID, sourceRef string) (*os.File, Resource, error) {
+func (e *Export) Open(ctx context.Context, sourceRef string) (*os.File, Resource, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, Resource{}, err
 	}
 	ref, err := NormalizeSourceRef(sourceRef)
-	if !chat.ValidChatID(chatID) || err != nil || ref != sourceRef {
+	if !chat.ValidChatID(e.chatID) || err != nil || ref != sourceRef {
 		return nil, Resource{}, ErrInvalidResource
 	}
-	if strings.HasPrefix(ref, "artifacts/") {
-		entries, err := s.PublishedArtifacts(chatID)
-		if err != nil {
-			return nil, Resource{}, err
-		}
-		for i := len(entries) - 1; i >= 0; i-- {
-			entry := entries[i]
-			candidate, err := NormalizeSourceRef(entry.URL)
-			if err != nil || candidate != ref {
-				continue
-			}
-			if _, _, err := CanonicalArtifactRef(chatID, entry.URL); err != nil {
-				return nil, Resource{}, ErrInvalidResource
-			}
-			f, item, err := s.openArtifact(ctx, chatID, entry)
-			return f, Resource{item.Name, documentmeta.NormalizeMIME(item.MIMEType), item.SHA256, item.SizeBytes}, err
-		}
+	if strings.HasPrefix(ref, "artifacts/") && e.Err != nil {
+		return nil, Resource{}, e.Err
 	}
-	return s.openResource(ctx, chatID+"/"+ref, nil)
+	var published *chat.ArtifactManifestItem
+	if item, ok := e.published[ref]; ok {
+		if _, _, err := CanonicalArtifactRef(e.chatID, item.URL); err != nil {
+			return nil, Resource{}, ErrInvalidResource
+		}
+		published = &item
+	}
+	f, item, err := e.service.openResource(ctx, e.chatID+"/"+ref, published)
+	item.MIMEType = documentmeta.NormalizeMIME(item.MIMEType)
+	return f, item, err
+}
+
+func FailureReason(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, ErrInvalidResource):
+		return "invalid"
+	case errors.Is(err, ErrUnsupportedResource):
+		return "unsupported"
+	case errors.Is(err, os.ErrPermission):
+		return "forbidden"
+	case errors.Is(err, os.ErrNotExist), errors.Is(err, chat.ErrChatNotFound), errors.Is(err, ErrArtifactNotFound):
+		return "not_found"
+	case errors.Is(err, ErrArtifactChanged):
+		return "changed"
+	default:
+		return "read_failed"
+	}
 }
 
 // openResource owns the file lifetime until validation succeeds. Published
@@ -127,14 +157,11 @@ func (s *Service) openResource(ctx context.Context, key string, published *chat.
 	if !info.Mode().IsRegular() {
 		return nil, meta, ErrUnsupportedResource
 	}
-	sample := make([]byte, 512+utf8.UTFMax-1)
-	n, err := f.ReadAt(sample, 0)
-	if err != nil && err != io.EOF {
+	metadata, err := documentmeta.ResolveReader(info.Name(), f)
+	if err != nil {
 		return nil, meta, err
 	}
-	end := min(n, 512)
-	detected := documentmeta.DetectMIME(info.Name(), sample[:end], sample[end:n], n <= 512)
-	mime := documentmeta.NormalizeMIME(documentmeta.Resolve(info.Name(), detected, sample[:end], sample[end:n], n <= 512).MIMEType)
+	mime := documentmeta.NormalizeMIME(metadata.MIMEType)
 	if !IsMedia(mime) {
 		return nil, meta, ErrUnsupportedResource
 	}

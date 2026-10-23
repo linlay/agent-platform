@@ -84,21 +84,14 @@ func (s *Server) loadConversationSnapshot(ctx context.Context, chatID string, in
 	for index := range detail.Events {
 		detail.Events[index] = localizeStreamEventData(locale, detail.Events[index])
 	}
-	snapshot, err := conversationexport.BuildSnapshot(summary, detail.Events, capturedAt, locale, s.resolveExportAssistant, includeResources)
-	if err != nil {
-		return conversationexport.SnapshotDocument{}, err
-	}
-	var items []chat.ArtifactManifestItem
-	var resources *chatresource.Service
+	var files *chatresource.Export
 	if includeResources {
-		resources = s.chatResources
-		items, err = resources.PublishedArtifacts(chatID)
-		if err != nil && !errors.Is(err, chatresource.ErrNotConfigured) {
-			log.Printf("[chat] snapshot artifact manifest unavailable chatId=%s: %v", chatID, err)
-			snapshot.OmittedResources = []conversationexport.OmittedResourceV1{{Name: "published attachments", Reason: "read_failed"}}
+		files = s.chatResources.Export(chatID)
+		if files.Err != nil && !errors.Is(files.Err, chatresource.ErrNotConfigured) {
+			log.Printf("[chat] snapshot artifact manifest unavailable chatId=%s: %v", chatID, files.Err)
 		}
 	}
-	return conversationexport.BuildExportDocument(ctx, snapshot, resources, items)
+	return conversationexport.BuildDocument(ctx, summary, detail.Events, capturedAt, locale, s.resolveExportAssistant, files)
 }
 
 func parseConversationExportFormat(r *http.Request) (string, error) {

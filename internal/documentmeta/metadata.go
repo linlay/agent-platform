@@ -124,21 +124,19 @@ func ResolveFile(path string, semanticName string) (Metadata, error) {
 		return Metadata{}, err
 	}
 	defer file.Close()
-	const sampleBytes = 512
-	buffer := make([]byte, sampleBytes+utf8.UTFMax-1)
-	n, err := io.ReadFull(file, buffer)
-	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-		return Metadata{}, err
+	return ResolveReader(semanticName, file)
+}
+
+// ResolveReader samples the same descriptor used for delivery without moving it.
+func ResolveReader(name string, reader io.ReaderAt) (Metadata, error) {
+	buffer := make([]byte, 512+utf8.UTFMax-1)
+	n, err := reader.ReadAt(buffer, 0)
+	if err == io.EOF {
+		err = nil
 	}
-	complete := n <= sampleBytes
-	sampleEnd := min(n, sampleBytes)
-	sample := buffer[:sampleEnd]
-	var lookahead []byte
-	if n > sampleEnd {
-		lookahead = buffer[sampleEnd:n]
-	}
-	detectedMIME := DetectMIME(semanticName, sample, lookahead, complete)
-	return Resolve(semanticName, detectedMIME, sample, lookahead, complete), nil
+	end := min(n, 512)
+	sample, lookahead, complete := buffer[:end], buffer[end:n], n <= 512
+	return Resolve(name, DetectMIME(name, sample, lookahead, complete), sample, lookahead, complete), err
 }
 
 func DetectMIME(name string, sample []byte, lookahead []byte, complete bool) string {

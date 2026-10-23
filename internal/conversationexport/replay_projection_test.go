@@ -2,6 +2,7 @@ package conversationexport
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"testing"
@@ -23,7 +24,7 @@ func TestHistoricalDetailExportProjection(t *testing.T) {
 			if err := json.Unmarshal(raw, &detail); err != nil {
 				t.Fatal(err)
 			}
-			document, err := snapshotDocument(&chat.Summary{ChatID: detail.ChatID, ChatName: detail.ChatName, CreatedAt: testEpoch}, detail.Events, nil, testEpoch+1000, "zh-CN", nil)
+			document, err := BuildDocument(context.Background(), &chat.Summary{ChatID: detail.ChatID, ChatName: detail.ChatName, CreatedAt: testEpoch}, detail.Events, testEpoch+1000, "zh-CN", nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

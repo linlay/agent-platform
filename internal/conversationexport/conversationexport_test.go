@@ -2,19 +2,20 @@ package conversationexport
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
 	"agent-platform/internal/chat"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
 )
 
 func buildSnapshotForTest(summary *chat.Summary, events []stream.EventData, capturedAt int64) (SnapshotV1, error) {
-	document, err := snapshotDocument(summary, events, nil, capturedAt, "zh-CN", nil)
-	return document.Snapshot, err
+	return BuildSnapshot(summary, events, capturedAt, "zh-CN", nil)
 }
 
 const testEpoch = int64(1_700_000_000_000)
@@ -46,7 +47,7 @@ func TestSnapshotAssistantUsesRootRunIdentityAndFallsBackOnlyWhenMissing(t *test
 			return nil
 		}
 	}
-	document, err := snapshotDocument(&chat.Summary{ChatName: "Export", AgentKey: "fallback", CreatedAt: testEpoch}, events, nil, testEpoch+100, "zh-CN", resolve)
+	document, err := BuildDocument(context.Background(), &chat.Summary{ChatName: "Export", AgentKey: "fallback", CreatedAt: testEpoch}, events, testEpoch+100, "zh-CN", resolve, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,15 +127,16 @@ func TestBuildSnapshotMapsTerminalOutcomes(t *testing.T) {
 }
 
 func TestSnapshotDocumentReturnsCanonicalSafeJSON(t *testing.T) {
-	document, err := snapshotDocument(
+	document, err := BuildDocument(
+		context.Background(),
 		&chat.Summary{ChatName: "</script>&x\u2028\u2029x", CreatedAt: testEpoch},
 		[]stream.EventData{
 			{Type: "request.query", Timestamp: testEpoch + 1, Payload: map[string]any{"message": "<question>", "runId": "run-1"}},
 			{Type: "run.complete", Timestamp: testEpoch + 2, Payload: map[string]any{"runId": "run-1"}},
 		},
-		nil,
 		testEpoch+3,
 		"zh-CN",
+		nil,
 		nil,
 	)
 	if err != nil {
@@ -268,5 +270,73 @@ func TestRenderMarkdownPreservesUnicodeAndCRLF(t *testing.T) {
 	}}})
 	if err != nil || !strings.Contains(string(markdown), "中文 **问题**\r\n第二行") || !strings.Contains(string(markdown), "答案 ✅\r\n完成") {
 		t.Fatalf("markdown=%q err=%v", markdown, err)
+	}
+}
+
+func TestSnapshotV1PreservesToolTimeline(t *testing.T) {
+	const base int64 = 1_790_000_000_000
+	events := []stream.EventData{
+		{Type: "request.query", Timestamp: base + 1, Payload: map[string]any{"runId": "run-1", "message": "Report"}},
+		{Type: "run.start", Timestamp: base + 10, Payload: map[string]any{"runId": "run-1"}},
+		{Type: "reasoning.snapshot", Timestamp: base + 20, Payload: map[string]any{"runId": "run-1", "reasoningId": "reason-1", "text": "Thinking", "reasoningLabel": "analysis"}},
+		{Type: "tool.start", Timestamp: base + 25, Payload: map[string]any{"runId": "run-1", "toolId": "tool-1", "toolName": "bash"}},
+		{Type: "tool.args", Timestamp: base + 26, Payload: map[string]any{"runId": "run-1", "toolId": "tool-1", "delta": `{"command":"date"}`}},
+		{Type: "tool.snapshot", Timestamp: base + 30, Payload: map[string]any{"runId": "run-1", "toolId": "tool-1", "toolName": "bash", "arguments": `{"command":"date"}`}},
+		{Type: "tool.result", Timestamp: base + 40, Payload: map[string]any{"toolId": "tool-1", "result": "done"}},
+		{Type: "content.snapshot", Timestamp: base + 60, Payload: map[string]any{"runId": "run-1", "contentId": "final", "text": "[报告](artifacts/run-1/%E6%8A%A5%E5%91%8A.html)"}},
+		{Type: "run.complete", Timestamp: base + 456000, Payload: map[string]any{"runId": "run-1"}},
+	}
+	snapshot, err := buildSnapshotForTest(&chat.Summary{ChatID: "chat-1", ChatName: "Report", CreatedAt: base}, events, base+456001)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Version != SnapshotVersion || len(snapshot.Turns) != 1 {
+		t.Fatalf("snapshot is incomplete: %+v", snapshot)
+	}
+	turn := snapshot.Turns[0]
+	if turn.QueryAt != base+1 || *turn.EndedAt != base+456000 || len(turn.Nodes) != 4 ||
+		turn.Nodes[2].ResultText != "done" || turn.Nodes[2].ArgsText != `{"command":"date"}` || turn.Nodes[2].DurationMs != 15 {
+		t.Fatalf("run facts are incorrect: %+v", turn)
+	}
+}
+
+func TestSnapshotV1IncludesResultWithoutToolStart(t *testing.T) {
+	const base int64 = 1_790_000_000_000
+	events := []stream.EventData{
+		{Type: "request.query", Timestamp: base + 1, Payload: map[string]any{"runId": "run-1", "message": "Run"}},
+		{Type: "tool.result", Timestamp: base + 2, Payload: map[string]any{"runId": "run-1", "toolId": "tool-1", "toolName": "bash", "result": map[string]any{"ok": true}}},
+		{Type: "run.complete", Timestamp: base + 3, Payload: map[string]any{"runId": "run-1"}},
+	}
+	snapshot, err := buildSnapshotForTest(&chat.Summary{ChatID: "chat-1", CreatedAt: base}, events, base+4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes := snapshot.Turns[0].Nodes
+	if len(nodes) != 2 || nodes[1].Kind != "tool" || !nodes[1].ResultIsCode || nodes[1].Status != "success" {
+		t.Fatalf("result-only tool lost: %+v", nodes)
+	}
+}
+
+func TestExportPreservesSteerInstructionsAndSource(t *testing.T) {
+	source := (&queryinput.Origin{Type: "agent", AgentKey: "caller", ChatID: "parent-chat", RunID: "parent-run", ToolID: "call"}).Payload()
+	events := []stream.EventData{
+		{Type: "request.query", Timestamp: testEpoch + 1, Payload: map[string]any{"runId": "run", "role": "user", "message": "original"}},
+		{Type: "request.steer", Timestamp: testEpoch + 2, Payload: map[string]any{"runId": "run", "role": "user", "steerId": "steer-id", "message": "revised goal", "origin": source}},
+		{Type: "content.snapshot", Timestamp: testEpoch + 3, Payload: map[string]any{"runId": "run", "text": "result"}},
+		{Type: "run.complete", Timestamp: testEpoch + 4, Payload: map[string]any{"runId": "run"}},
+	}
+	doc, err := BuildDocument(context.Background(), &chat.Summary{ChatID: "chat", CreatedAt: testEpoch}, events, testEpoch+5, "zh-CN", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(doc.JSON, []byte(`"origin":`)) || !bytes.Contains(doc.JSON, []byte(`"steerId":"steer-id"`)) {
+		t.Fatal(string(doc.JSON))
+	}
+	if n := doc.Snapshot.Turns[0].Nodes[1]; n.Origin == nil || n.Origin.RunID != "parent-run" || n.Text != "revised goal" || n.Role != "user" {
+		t.Fatal(n)
+	}
+	md, err := RenderMarkdown(doc.Snapshot)
+	if err != nil || !strings.Contains(string(md), "revised goal") || !strings.Contains(string(md), "parent-run") {
+		t.Fatalf("%s %v", md, err)
 	}
 }

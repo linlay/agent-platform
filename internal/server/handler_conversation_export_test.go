@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"mime"
 	"net/http"
@@ -15,6 +17,8 @@ import (
 
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/chatresource"
+	"agent-platform/internal/config"
 	"agent-platform/internal/conversationexport"
 	"agent-platform/internal/stream"
 )
@@ -291,5 +295,84 @@ func TestHandleChatExportDoesNotFallBackToArchive(t *testing.T) {
 		if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `"msg":"chat not found"`) {
 			t.Fatalf("%s: status=%d body=%s", format, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+func TestChatExportResourceAuthorityAndFailureReasons(t *testing.T) {
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	const id = "export-media"
+	if _, _, err := store.EnsureChat(id, "agent", "media"); err != nil {
+		t.Fatal(err)
+	}
+	root := store.ChatDir(id)
+	if err := os.MkdirAll(filepath.Join(root, "artifacts/run"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	image := []byte(`<svg xmlns="http://www.w3.org/2000/svg"></svg>`)
+	for name, body := range map[string][]byte{"image.svg": image, "notes.txt": []byte("text"), "artifacts/run/report.txt": []byte("changed")} {
+		if err := os.WriteFile(filepath.Join(root, name), body, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hash := sha256.Sum256([]byte("initial"))
+	if err := store.AppendArtifactManifest(id, "run", testEpochMillis, []map[string]any{{"type": "file", "artifactId": "report", "url": "artifacts/run/report.txt", "name": "report.txt", "mimeType": "text/plain", "sizeBytes": 7, "sha256": hex.EncodeToString(hash[:])}}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{deps: Dependencies{Chats: store}, chatResources: chatresource.NewService(store)}
+	s.deps.Config.RuntimeMode = config.RuntimeModeDesktop
+	privateKey, publicKeyFile := writeTestJWTKeyPair(t, t.TempDir())
+	s.deps.Config.Auth.LocalPublicKeyFile = publicKeyFile
+	s.authVerifier = NewJWTVerifier(s.deps.Config.Auth)
+	s.router = http.NewServeMux()
+	s.routes()
+	app := mustSignRS256JWT(t, privateKey, map[string]any{"sub": "desktop", "scope": "app", "deviceId": "device"})
+	user := mustSignRS256JWT(t, privateKey, map[string]any{"sub": "user", "scope": "user", "deviceId": "device"})
+	noDevice := mustSignRS256JWT(t, privateKey, map[string]any{"sub": "desktop", "scope": "app"})
+	request := func(body, token string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, "/api/chat/export/resources/read", strings.NewReader(body))
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		return w
+	}
+	// This route must authenticate even when global authentication is disabled.
+	for _, authEnabled := range []bool{false, true} {
+		s.deps.Config.Auth.Enabled = authEnabled
+		for _, tc := range []struct {
+			ref, token, reason string
+			status             int
+		}{
+			{"image.svg", app, "", 200},
+			{"notes.txt", app, "unsupported", 415},
+			{"missing.png", app, "not_found", 404},
+			{"artifacts/run/report.txt", app, "changed", 409},
+			{"../other/image.svg", app, "invalid", 400},
+			{".tools/secret", app, "invalid", 400},
+			{"image.svg", "", "", 401},
+			{"image.svg", "invalid", "", 401},
+			{"image.svg", user, "", 403},
+			{"image.svg", noDevice, "", 403},
+		} {
+			w := request(`{"chatId":"`+id+`","sourceRef":"`+tc.ref+`"}`, tc.token)
+			if w.Code != tc.status || tc.reason != "" && !strings.Contains(w.Body.String(), tc.reason) {
+				t.Fatalf("authEnabled=%v ref=%s: status=%d want=%d body=%s", authEnabled, tc.ref, w.Code, tc.status, w.Body.String())
+			}
+			if tc.status == 200 && (w.Header().Get("Content-Type") != "image/svg+xml" || w.Body.String() != string(image)) {
+				t.Fatalf("media response %v %s", w.Header(), w.Body.String())
+			}
+		}
+	}
+	if w := request(`{"chatId":"`+id+`","sourceRef":"image.svg","deviceId":"forged"}`, app); w.Code != 400 {
+		t.Fatalf("unknown request identity accepted: %d", w.Code)
+	}
+	s.deps.Config.RuntimeMode = config.RuntimeModeStandalone
+	if w := request(`{"chatId":"`+id+`","sourceRef":"image.svg"}`, app); w.Code != 403 {
+		t.Fatalf("standalone accepted: %d", w.Code)
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/chatresource"
 	"agent-platform/internal/config"
-	"agent-platform/internal/conversationexport"
 )
 
 func (s *Server) handleChatExportResource(w http.ResponseWriter, r *http.Request) {
@@ -42,21 +41,12 @@ func (s *Server) handleChatExportResource(w http.ResponseWriter, r *http.Request
 		writeRequestError(w, &requestError{Code: "not_found", Status: http.StatusNotFound})
 		return
 	}
-	file, item, err := s.chatResources.OpenExportResource(r.Context(), req.ChatID, ref)
+	file, item, err := s.chatResources.Export(req.ChatID).Open(r.Context(), ref)
 	if err != nil {
-		reason := conversationexport.SnapshotResourceReason(err)
-		status := http.StatusInternalServerError
-		switch reason {
-		case "invalid":
-			status = 400
-		case "forbidden":
-			status = 403
-		case "not_found":
-			status = 404
-		case "changed":
-			status = 409
-		case "unsupported":
-			status = 415
+		reason := chatresource.FailureReason(err)
+		status := map[string]int{"invalid": 400, "forbidden": 403, "not_found": 404, "changed": 409, "unsupported": 415}[reason]
+		if status == 0 {
+			status = http.StatusInternalServerError
 		}
 		writeRequestError(w, &requestError{Code: reason, Status: status})
 		return
