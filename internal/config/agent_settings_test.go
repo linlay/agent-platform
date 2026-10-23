@@ -358,3 +358,38 @@ func TestShippedAgentPromptExampleConfiguresViewRules(t *testing.T) {
 		t.Fatalf("example view prompts: %#v", c.Prompts.View)
 	}
 }
+
+func TestExecutorSettingsAndPresetConnectorsOfEveryMode(t *testing.T) {
+	path := configFixture(t, "agent-settings.yml", `preset-tools:
+  - datetime
+general:
+  preset-tools:
+    - ask_user_question
+  preset-connectors:
+    - builtin.task-control
+team:
+  preset-connectors:
+    - builtin.web-control
+executor:
+  preset-tools:
+    - result_submit
+  default-agent:
+    modelKey: exec-model
+  workspace-agents:
+    file: RULES.md
+`)
+	var cfg Config
+	if err := cfg.applyAgentSettingsFile(path); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.PresetsForMode("EXECUTOR"); !reflect.DeepEqual(got.Tools, []string{"datetime", "result_submit"}) || len(got.Connectors) != 0 {
+		t.Fatalf("executor presets took other modes' entries: %#v", got)
+	}
+	if cfg.ExecutorSettings.DefaultAgent.ModelKey != "exec-model" || cfg.WorkspaceAgentsForMode("EXECUTOR").File != "RULES.md" {
+		t.Fatalf("executor settings: %#v", cfg.ExecutorSettings)
+	}
+	// Mode-level connectors count as preset references for every mode, TEAM included.
+	if got := cfg.AllPresetConnectors(); !reflect.DeepEqual(got, []string{"builtin.task-control", "builtin.web-control"}) {
+		t.Fatalf("preset connectors = %v", got)
+	}
+}

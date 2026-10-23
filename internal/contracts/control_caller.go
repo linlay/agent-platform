@@ -10,7 +10,7 @@ func OrdinaryNativeRoot(s QuerySession) bool {
 		return false
 	}
 	switch strings.ToUpper(s.Mode) {
-	case "GENERAL", "CODER", "KBASE", "TEAM":
+	case "GENERAL", "CODER", "KBASE", "TEAM", "EXECUTOR":
 		return true
 	}
 	return false

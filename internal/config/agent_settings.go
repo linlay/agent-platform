@@ -8,6 +8,10 @@ import (
 	"agent-platform/internal/connector"
 )
 
+// presetModeSections are the agent-settings sections of the native modes that
+// receive mode-level presets and creation defaults.
+var presetModeSections = []string{"general", "coder", "kbase", "team", "executor"}
+
 var retiredAgentFiles = []string{"general-settings.yml", "coder-settings.yml", "kbase-settings.yml", "prompts.yml", "coder-prompts.yml", "kbase-prompts.yml", "ai-tools.yml"}
 
 func configMap(raw any, path string, keys ...string) (map[string]any, error) {
@@ -163,7 +167,7 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 	if err != nil {
 		return err
 	}
-	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "general", "coder", "kbase", "team", "acp-bridges")
+	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "general", "coder", "kbase", "team", "executor", "acp-bridges")
 	if err != nil {
 		return err
 	}
@@ -181,7 +185,7 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 	if err != nil {
 		return err
 	}
-	for _, mode := range []string{"general", "coder", "kbase", "team"} {
+	for _, mode := range presetModeSections {
 		v, err := optionalConfigMap(values, mode, path, "preset-tools", "preset-connectors", "default-agent", "workspace-agents")
 		if err != nil {
 			return err
@@ -202,6 +206,8 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 		switch mode {
 		case "team":
 			c.TeamSettings = GeneralSettingsConfig{DefaultAgent: d, WorkspaceAgents: w}
+		case "executor":
+			c.ExecutorSettings = GeneralSettingsConfig{DefaultAgent: d, WorkspaceAgents: w}
 		case "general":
 			c.GeneralSettings = GeneralSettingsConfig{DefaultAgent: d, WorkspaceAgents: w}
 		case "coder":

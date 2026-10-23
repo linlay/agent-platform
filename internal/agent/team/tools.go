@@ -53,9 +53,11 @@ func BuildToolDefinition(base api.ToolDetailResponse, members []MemberSpec) (api
 		Label:         base.Label,
 		Description:   base.Description,
 		AfterCallHint: base.AfterCallHint,
-		Parameters:    contracts.CloneMap(base.Parameters),
-		OutputSchema:  contracts.CloneMap(base.OutputSchema),
-		Meta:          contracts.CloneMap(base.Meta),
+		// The embedded schema is shared by every Run; the roster edits below
+		// must change a deep copy only.
+		Parameters:   cloneSchema(base.Parameters),
+		OutputSchema: contracts.CloneMap(base.OutputSchema),
+		Meta:         contracts.CloneMap(base.Meta),
 	}
 	if definition.Meta == nil {
 		definition.Meta = map[string]any{}
@@ -200,4 +202,19 @@ func canonicalMemberKey(members []MemberSpec, candidate string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func cloneSchema(schema map[string]any) map[string]any {
+	if schema == nil {
+		return nil
+	}
+	data, err := json.Marshal(schema)
+	if err != nil {
+		return contracts.CloneMap(schema)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		return contracts.CloneMap(schema)
+	}
+	return out
 }

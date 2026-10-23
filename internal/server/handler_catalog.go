@@ -19,6 +19,7 @@ import (
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/knowledge"
@@ -351,12 +352,17 @@ func (s *Server) applyGeneralDefaultAgentConfig(definition map[string]any) map[s
 	if definition == nil {
 		return nil
 	}
-	if !agentbuiltin.IsGeneralMode(catalog.DefinitionRuntimeMode(definition)) && catalog.DefinitionRuntimeMode(definition) != "TEAM" {
-		return definition
-	}
-	defaults := s.deps.Config.GeneralSettings.DefaultAgent
-	if catalog.DefinitionRuntimeMode(definition) == "TEAM" {
+	mode := catalog.DefinitionRuntimeMode(definition)
+	var defaults config.CoderDefaultAgentConfig
+	switch {
+	case agentbuiltin.IsGeneralMode(mode):
+		defaults = s.deps.Config.GeneralSettings.DefaultAgent
+	case mode == "TEAM":
 		defaults = s.deps.Config.TeamSettings.DefaultAgent
+	case agentbuiltin.IsExecutorMode(mode):
+		defaults = s.deps.Config.ExecutorSettings.DefaultAgent
+	default:
+		return definition
 	}
 	return agentbuiltin.ApplyGeneralCreateDefaults(definition, agentbuiltin.GeneralCreateDefaults{
 		ModelKey: defaults.ModelKey, ReasoningEffort: defaults.ReasoningEffort, Budget: defaults.Budget,
@@ -400,10 +406,15 @@ func (s *Server) normalizeGeneratedModeCreation(key string, definition map[strin
 	prefix := ""
 	if descriptor, ok := agentbuiltin.Lookup(mode); ok {
 		prefix = strings.TrimSpace(descriptor.CreatePrefix)
-	} else if agentbuiltin.IsGeneralMode(mode) && key == "" && strings.TrimSpace(stringValue(definition["key"])) == "" {
-		// A general agent keeps a caller-chosen key; one is generated only
-		// when the caller did not choose.
-		prefix = agentbuiltin.GeneralCreatePrefix
+	} else if key == "" && strings.TrimSpace(stringValue(definition["key"])) == "" {
+		// General and executor agents keep a caller-chosen key; one is
+		// generated only when the caller did not choose.
+		switch {
+		case agentbuiltin.IsGeneralMode(mode):
+			prefix = agentbuiltin.GeneralCreatePrefix
+		case agentbuiltin.IsExecutorMode(mode):
+			prefix = agentbuiltin.ExecutorCreatePrefix
+		}
 	}
 	if prefix == "" {
 		return key, definition

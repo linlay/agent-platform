@@ -141,6 +141,9 @@ func hitlApprovalRequest(invocation *preparedToolInvocation, result hitl.Interce
 }
 
 func (s *llmRunStream) emitApprovalRequestDeltas(request approvalRequest) error {
+	if s.failUnattendedApproval(request.invocation) {
+		return nil
+	}
 	invocation := request.invocation
 	invocation.shownApproval = &request
 	s.approvalAsked++

@@ -2,7 +2,9 @@
 
 # Native Agent presets; not written to agent.yml. Restart after changes.
 # Effective presets = global + mode, deduplicated in first-seen order.
-# A mode-level [] adds nothing; it does not clear global presets.
+# A mode-level [] adds nothing; it does not clear global presets, so the global
+# lists hold only what every native Agent needs, unattended EXECUTOR included.
+# Tools that wait for a person or serve the conversation UI belong to the modes.
 # Omit or set [] to disable.
 preset-tools:
   - datetime
@@ -20,16 +22,12 @@ preset-tools:
   - plan_add_tasks
   - plan_update_task
   - plan_get_tasks
-  - ask_user_question
-  - artifact_publish
 
-# Platform preset connectors for native GENERAL/CODER/KBASE Agents.
+# Platform preset connectors for every native Agent.
 # Full packages (tools + skills) are mounted; not written to agent.yml.
 # Omit or set [] to disable. Restart after changes. Platform management stays explicit.
-# Task Control provides Chat and Automation tools to ordinary native root Runs.
-preset-connectors:
-  - builtin.web-control
-  - builtin.task-control
+# Web Control and Task Control (Chat and Automation tools) are listed per mode.
+preset-connectors: []
 
 # planningMode tool exclusions for native GENERAL / CODER / KBASE Agents. Both lists remove tools from
 # the Agent's effective tools; neither can add a tool the Agent does not have.
@@ -58,14 +56,19 @@ planning-mode:
     - catalog_manage
     - run_env
     - ask_user_form
+    - result_submit
   # Unavailable to the Run started from a confirmed plan.
   execute-exclude-tools:
     - ask_user_question
     - ask_user_form
 
 general:
-  preset-tools: []
-  preset-connectors: []
+  preset-tools:
+    - ask_user_question
+    - artifact_publish
+  preset-connectors:
+    - builtin.web-control
+    - builtin.task-control
   default-agent:
     # Optional default modelKey for new GENERAL agents; leave empty to require explicit configuration.
     modelKey:
@@ -78,7 +81,11 @@ general:
 coder:
   preset-tools:
     - regex
-  preset-connectors: []
+    - ask_user_question
+    - artifact_publish
+  preset-connectors:
+    - builtin.web-control
+    - builtin.task-control
   default-agent:
     # Optional default modelKey for new CODER agents; leave empty to require explicit configuration.
     modelKey:
@@ -98,10 +105,14 @@ coder:
 
 kbase:
   # workspace-agents is accepted here and under general/team with the same meaning.
-  preset-tools: []
+  preset-tools:
+    - ask_user_question
+    - artifact_publish
   # kbase_search/files/read/status belong to builtin.kbase-control.
   preset-connectors:
     - builtin.kbase-control
+    - builtin.web-control
+    - builtin.task-control
   default-agent:
     # Optional default modelKey for new KBASE agents; leave empty to require explicit configuration.
     modelKey:
@@ -120,6 +131,28 @@ acp-bridges:
 
 # TEAM uses ordinary Agent capabilities plus run-scoped member delegation.
 team:
-  preset-tools: []
-  preset-connectors: []
+  preset-tools:
+    - ask_user_question
+    - artifact_publish
+  preset-connectors:
+    - builtin.web-control
+    - builtin.task-control
   default-agent: {}
+
+# EXECUTOR is called through /api/execute: it gets task data and the caller's
+# output format, and ends its Run with result_submit. It waits for nobody, so
+# it has no question or display tools and no platform connectors by default.
+# Workspace editing defaults to off; agent.yml can turn it on.
+executor:
+  preset-tools:
+    - result_submit
+  preset-connectors: []
+  default-agent:
+    # Optional default modelKey for new EXECUTOR agents; leave empty to require explicit configuration.
+    modelKey:
+    # Optional default reasoning effort for new EXECUTOR agents; leave empty to require explicit configuration.
+    reasoningEffort:
+    # Optional default budget written when creating a new EXECUTOR agent without an explicit budget.
+    # budget:
+    #   timeout: 600
+    #   maxSteps: 100

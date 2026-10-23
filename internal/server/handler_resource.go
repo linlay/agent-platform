@@ -392,26 +392,18 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if created {
 		s.broadcast("chat.created", chatCreatedPayload(chatID, summary.ChatName, agentKey, summary.CreatedAt, summary.Source))
 	}
-	file, header, err := pickUploadFile(r.MultipartForm)
+	header, err := pickUploadFileHeader(r.MultipartForm)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
-	defer file.Close()
-
-	targetName := safeFilename(header.Filename)
-	uploadID, err := s.allocateUploadID(chatID, targetName)
+	stored, err := s.storeUploadedPart(chatID, header)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
+	targetName, uploadID, targetPath, sum, size := stored.Name, stored.ID, stored.Path, stored.SHA256, stored.Size
 	referenceRelativePath := targetName
-	targetPath := filepath.Join(s.deps.Chats.ChatDir(chatID), targetName)
-	sum, size, err := saveUploadedFile(targetPath, file)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
 
 	resourceURL, err := chat.BuildChatAliasRef(referenceRelativePath)
 	if err != nil {
@@ -459,17 +451,56 @@ func (s *Server) agentUsesContainerHubForKey(agentKey string) bool {
 }
 
 func pickUploadFile(form *multipart.Form) (multipart.File, *multipart.FileHeader, error) {
+	header, err := pickUploadFileHeader(form)
+	if err != nil {
+		return nil, nil, err
+	}
+	file, err := header.Open()
+	return file, header, err
+}
+
+func pickUploadFileHeader(form *multipart.Form) (*multipart.FileHeader, error) {
 	if form == nil || len(form.File) == 0 {
-		return nil, nil, errors.New("file is required")
+		return nil, errors.New("file is required")
 	}
 	for _, headers := range form.File {
 		if len(headers) == 0 {
 			continue
 		}
-		file, err := headers[0].Open()
-		return file, headers[0], err
+		return headers[0], nil
 	}
-	return nil, nil, errors.New("file is required")
+	return nil, errors.New("file is required")
+}
+
+// uploadedPart is one multipart file stored in a Chat directory.
+type uploadedPart struct {
+	ID     string
+	Name   string
+	Path   string
+	SHA256 string
+	Size   int64
+}
+
+// storeUploadedPart saves one multipart file into the Chat directory the way
+// /api/upload does: under its base name, recorded in the upload manifest. The
+// Chat must already exist.
+func (s *Server) storeUploadedPart(chatID string, header *multipart.FileHeader) (uploadedPart, error) {
+	file, err := header.Open()
+	if err != nil {
+		return uploadedPart{}, err
+	}
+	defer file.Close()
+	name := safeFilename(header.Filename)
+	uploadID, err := s.allocateUploadID(chatID, name)
+	if err != nil {
+		return uploadedPart{}, err
+	}
+	target := filepath.Join(s.deps.Chats.ChatDir(chatID), name)
+	sum, size, err := saveUploadedFile(target, file)
+	if err != nil {
+		return uploadedPart{}, err
+	}
+	return uploadedPart{ID: uploadID, Name: name, Path: target, SHA256: sum, Size: size}, nil
 }
 
 func saveUploadedFile(path string, src multipart.File) (string, int64, error) {

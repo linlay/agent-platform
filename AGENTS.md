@@ -4,7 +4,7 @@
 
 本仓库是 Agent Platform 的 Go 运行时，提供 HTTP/SSE 与 WebSocket 接口、目录驱动的 Agent/Team/Skill/Connector、工具执行、会话持久化、Markdown Memory 和 KBASE 检索。
 
-普通内置类型为 GENERAL、CODER、KBASE、TEAM；`engine` 缺省 native，显式 acp 使用外部 bridge，不由 acpBridgeId 推断。TEAM 是带成员委派能力的公开 Agent。历史 REACT 只兼容读取，新配置与 API 输入使用 GENERAL。
+普通内置类型为 GENERAL、CODER、KBASE、TEAM、EXECUTOR；`engine` 缺省 native，显式 acp 使用外部 bridge，不由 acpBridgeId 推断。TEAM 是带成员委派能力的公开 Agent。历史 REACT 只兼容读取，新配置与 API 输入使用 GENERAL。
 
 设计约束：GENERAL/CODER/KBASE/TEAM 的 mode 写在 agent.yml 中，只在加载时提供默认值，不提供运行时功能、目录授权、必填校验或专属逻辑。mode 不要求 Workspace 或知识库绑定；项目规则文件、expectedBranch、文件变更 hook、子 Agent 调用、阶段与预算键对四种 mode 一致。editingMode 只是 Run 的编辑状态，不影响 stage、system-init cache key、fingerprint 或 system prompt；规划才是独立的运行形态。尚存的 mode 分支（ACP 内部落为 CODER、TEAM 编排）见 docs/mode-capability-audit.html，不能因已有实现而扩展。
 
@@ -40,7 +40,7 @@ cmd/agent-platform/main.go
 
 核心模块边界（详细调用规则见 [Runtime 模块边界](docs/Runtime模块边界.md)）：
 
-- `internal/agent` 保存中立 mode 契约；`builtin` 静态分派 CODER/KBASE/TEAM。GENERAL 没有固定工具集、prompt 或 stage；CODER、KBASE、TEAM 的特有规则分别归各自子包。TEAM 使用普通 AgentDefinition 与 agentKey，成员配置归 Agent、编排状态归 Run。
+- `internal/agent` 保存中立 mode 契约；`builtin` 静态分派 CODER/KBASE/TEAM。EXECUTOR 只有模板默认值（`internal/agent/executor`），不注册 descriptor，LLM 沿用 GENERAL 路径。GENERAL 没有固定工具集、prompt 或 stage；CODER、KBASE、TEAM 的特有规则分别归各自子包。TEAM 使用普通 AgentDefinition 与 agentKey，成员配置归 Agent、编排状态归 Run。
 - `internal/catalog` 装载目录定义并冻结 Team 成员、协调器与 prompt 快照。参见 [智能体配置](docs/智能体配置说明.md) 和 [运行时组装](docs/Agent运行时组装.md)。
 - `internal/runtime` 负责 Query 准入、Session、Run 状态、执行、恢复和子任务编排，不得依赖 Server。App 直接组装各组件；`adapter` 只转换旧执行器/catalog DTO。受管根 Proxy 驱动归 `proxy.Driver`，公共收尾与 recorder/usage 归 `runexec`；Server 经 ProxyPort 保留路由、响应、channel 与控制适配，不能宣称 ProxyPort 已移除。
 - `internal/server` 只做 HTTP/WS 解码、鉴权、响应映射、SSE flush 和薄适配，不得直接依赖 llm、tools 或具体 Agent mode。
@@ -130,6 +130,7 @@ KBX 索引固定使用 `ru-kbases/<libraryId>/index.sqlite` 及配套存储；Ag
 - 脚本入口策略对所有 Agent 相同，bootstrap 没有特权。`scriptstate` 自写证明只在当前 Chat 目录内取消执行审批；可信技能入口仍按 `skillsexec` 核验。命令语义统一由 `internal/shellanalysis` 描述（选项、操作数角色、递归、删除、远端修改、Git 子命令与配置依赖），`bash -c`/`env -S` 递归分析；破坏性操作、Git 可执行配置写入与远端修改分别由 `approvals.destructive/executable-config/remote-mutation` 决定。批准绑定精确调用、canonical cwd、环境、access level 和内容 SHA-256；普通路径规则不扩到父目录。复杂 Shell 与远端 mutation 仅单次批准。Host 启动前重新核对，Container 使用实际 guest 摘要；不隔离任意代码内部访问。
 - Catalog 按资源根保留独立 watcher（重叠根合并），事件统一分类排队并串行 reload。技能/连接器 ZIP 在发布保护区外解压校验，区内重新检查当前状态；快照和普通保存不暂停监听，目录 mutation 只暂停对应根。API 与 watcher 通过加载前后一致的内容指纹去重，恢复监听只做对应类别差异检查，不无条件全量 reload；失败及加载期间变化不确认新状态。现有 skills→agents/ru-agents 组装和活动租约保护保留。管理入口保护不覆盖 Bash/外部编辑器直接写盘，详见 [Agent运行时组装](docs/Agent运行时组装.md#技能包事务与目录监听)。
 - 普通 Native Agent 工具只来自全局/mode preset、Agent 显式声明与连接器自身工具；Skills、运行环境、Memory、KBASE capability 和 CODER 阶段不得隐式补工具或恢复被排除工具。专用 memory_read/memory_search/memory_write/memory_update 已下线；Agent 通过 memx 获取记忆、file_write/file_edit 修改 Markdown，仍受现有工具和路径权限约束，不自动授予工具；四个知识检索工具归 `builtin.kbase-control`，分发示例经 kbase.preset-connectors 挂载，GENERAL/CODER 显式挂载；单独声明工具名硬失败，`toolConfig.excludeTools` 对原生连接器工具同样生效。内部 planning、TEAM 和 PLAN-EXECUTE 协议工具保留，参见 [智能体配置](docs/智能体配置说明.md)。
+- `POST /api/execute` 在新 Chat 中执行一次 Run，等待 `result_submit`（`status` success+output / failure+reason）并返回；准入只看有效工具是否含 `result_submit`，不判断 mode。`outputSchema` 由调用方按次给出，交卷校验、按 Run 生成工具定义归 `internal/resultsubmit`；打回 3 次 `output_invalid`，未交卷提醒一次后 `output_missing`，需要审批直接 `approval_required`，提问/表单照常等待，调用方断开即中断。输入文件按上传规则存入 Chat；`output` 是任意结构，只按 `outputSchema` 校验，不解释其中的 `@chat/` 路径。JSONL 格式不变。全局 preset 只放所有 Native Agent 都需要的能力，`ask_user_question`、`artifact_publish` 与 web/task-control 列在各 mode 段，executor 段预置 `result_submit`。见 [智能体执行接口](docs/智能体执行接口.md)。
 - 新增能力优先放进对应 `internal/*` 模块，不在 server 层堆业务逻辑。
 - Native `ANTHROPIC` 的显式思考配置使用 `thinking.type: adaptive`、`thinking.display: summarized` 与 `output_config.effort`，由有效 stage 的 reasoning 设置控制，不按模型名分支；请求构造在合并 compat 后统一设置，累计 token 用量由协议适配映射到现有 usage 事件；模型级 `maxOutputTokens` 作为 Anthropic 默认请求预算与输出能力上限，不按模型名推断，见 [Anthropic 自适应思考](docs/配置化说明.md#anthropic-自适应思考)。
 - 会话亲和键由 `internal/modelrequest.AffinityKey` 从 chatId（无 Chat 时 runId）派生，无开关：Responses 固定发送 `prompt_cache_key`，Anthropic 固定发送 `metadata.user_id`，辅助工具调用沿用调用方 Chat；两字段归平台所有，compat 中出现即加载失败。provider `requestIdHeader` 声明中转请求 ID 头（BabelArk 必配 `X-Babelark-Request-Id`），成功调用写入 usage `upstreamRequestId` 并持久化，失败进入错误诊断，见 [会话亲和与上游请求 ID](docs/配置化说明.md#会话亲和与上游请求-id)。
@@ -220,7 +221,7 @@ Desktop 原生连接器不属于外部 builtin 构建缓存，不要求 `sync-lo
 
 完整分类见 [文档索引](docs/README.md)，统一维护当前规范、未完成能力、验证记录和历史归档的入口。
 
-开发常用：[Runtime 模块边界](docs/Runtime模块边界.md)、[智能体配置](docs/智能体配置说明.md)、[工具目录权限](docs/工具目录权限.md)、[API 与协议](docs/API与协议.md)、[版本化打包](docs/版本化打包方案.md)。
+开发常用：[智能体执行接口](docs/智能体执行接口.md)、[Runtime 模块边界](docs/Runtime模块边界.md)、[智能体配置](docs/智能体配置说明.md)、[工具目录权限](docs/工具目录权限.md)、[API 与协议](docs/API与协议.md)、[版本化打包](docs/版本化打包方案.md)。
 
 待实施设计：[云端部署与持续任务架构设计](docs/云端部署与持续任务架构设计.md)，覆盖完整 Linux 镜像、用户实例、身份与 HTTPS、云端 Job 和 Desktop 离线续跑；不改变当前重启取消 Run 等事实与约束。
 

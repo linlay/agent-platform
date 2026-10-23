@@ -1656,6 +1656,7 @@ func (s *llmRunStream) appendToolResultMessageOrdered(invocation *preparedToolIn
 		Name:       invocation.toolName,
 		Content:    content,
 	})
+	s.observeResultSubmit(invocation, result)
 	if s.lastTrace != nil {
 		s.lastTrace.appendToolResult(invocation, content, result)
 	}

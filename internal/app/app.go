@@ -42,6 +42,7 @@ import (
 	"agent-platform/internal/platformcontrol"
 	projectpkg "agent-platform/internal/project"
 	"agent-platform/internal/reload"
+	"agent-platform/internal/resultsubmit"
 	"agent-platform/internal/runenvops"
 	"agent-platform/internal/runops"
 	agentruntime "agent-platform/internal/runtime"
@@ -401,6 +402,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	conversationService.ControlReceipts = &operationstate.Receipts[conversation.ControlReceipt]{}
 	if err := toolExecutor.RegisterHandler(runenvops.NewToolHandler(cfg.RunEnv)); err != nil {
 		return nil, fmt.Errorf("register run_env tool: %w", err)
+	}
+	if err := toolExecutor.RegisterHandler(resultsubmit.NewToolHandler()); err != nil {
+		return nil, fmt.Errorf("register result_submit tool: %w", err)
 	}
 	automationService := &automation.Service{Registry: automationRegistry, Orchestrator: automationOrchestrator, History: automationExecutionHistory, DefaultZoneID: cfg.Automation.DefaultZoneID}
 	controlHandler := platformcontrol.NewToolHandler(cfg, registry, conversationService).ConfigureControl(&adminsource.ControlService{Mutations: adminSourceService, Config: cfg, Registry: registry, Models: modelRegistry, Reload: reloader.Reload, Coordinate: reloader.WithCatalogDirectoryMutation, ValidateLibrary: kbasesService.ValidateBinding, LibraryDefinition: kbasesService.BindingDefinition}, conversationService, modelRegistry).ConfigureAutomation(automationService).ConfigureLibraries(kbasesService)

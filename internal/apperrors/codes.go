@@ -141,14 +141,21 @@ const (
 	CodeToolCallsNotAllowed             Code = "tool_calls_not_allowed"
 	CodeBTWToolLimitReached             Code = "btw_tool_limit_reached"
 	CodeTeamMemberFailed                Code = "team_member_failed"
+	// A Run started through /api/execute ended without an accepted
+	// result_submit, or used up its rejected submissions.
+	CodeOutputMissing Code = "output_missing"
+	CodeOutputInvalid Code = "output_invalid"
 
-	CodeBudgetExceeded                      Code = "budget_exceeded"
-	CodeModelCallsExceeded                  Code = "model_calls_exceeded"
-	CodePolicyDenied                        Code = "policy_denied"
-	CodeHitlRejected                        Code = "hitl_rejected"
-	CodeHitlRejectedWithFeedback            Code = "hitl_rejected_with_feedback"
-	CodeHitlTimeout                         Code = "hitl_timeout"
-	CodeApprovalTimeout                     Code = "approval_timeout"
+	CodeBudgetExceeded           Code = "budget_exceeded"
+	CodeModelCallsExceeded       Code = "model_calls_exceeded"
+	CodePolicyDenied             Code = "policy_denied"
+	CodeHitlRejected             Code = "hitl_rejected"
+	CodeHitlRejectedWithFeedback Code = "hitl_rejected_with_feedback"
+	CodeHitlTimeout              Code = "hitl_timeout"
+	CodeApprovalTimeout          Code = "approval_timeout"
+	// A Run started through /api/execute reached an operation that needs
+	// approval; nobody is there to give it, so the Run fails.
+	CodeApprovalRequired                    Code = "approval_required"
 	CodeUserDismissed                       Code = "user_dismissed"
 	CodeAwaitingExpired                     Code = "awaiting_expired"
 	CodeAwaitingInterrupted                 Code = "awaiting_interrupted"

@@ -113,6 +113,10 @@ func (s *llmRunStream) fillNextPendingSource() error {
 		return s.invokeQueuedToolCallsAndPostHook()
 	}
 	if s.stopAfterToolBatch {
+		if payload := s.resultSubmitExhaustedError(); payload != nil {
+			s.enqueueTerminalRunError(payload)
+			return nil
+		}
 		if s.scheduleContextCompact(true) {
 			return nil
 		}
@@ -594,6 +598,17 @@ func (s *llmRunStream) finishCurrentTurn() error {
 			if strings.TrimSpace(content) == "" {
 				s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, ResponseID: turn.responseID, EncryptedReasoning: turn.encryptedReasoning})
 			}
+			return nil
+		}
+		if remind, failure := s.resultSubmitMissing(); remind || failure != nil {
+			if strings.TrimSpace(content) == "" {
+				s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, ResponseID: turn.responseID, EncryptedReasoning: turn.encryptedReasoning})
+			}
+			if remind {
+				s.messages = append(s.messages, openAIMessage{Role: "user", Content: resultSubmitReminder})
+				return nil
+			}
+			s.enqueueTerminalRunError(failure)
 			return nil
 		}
 

@@ -442,7 +442,8 @@ func (s *Builder) BuildCurrentMessages(req runtimetypes.QueryCommand, session co
 		AutomationID:                 querymessages.AutomationIDFromChatSource(req.ChatSource),
 		AutomationUserPromptTemplate: s.deps.Config.Prompts.Automation.UserPromptTemplate,
 
-		Scene: req.Scene,
+		Scene:     req.Scene,
+		TaskInput: session.ResultContract.TaskInput(),
 	})
 }
 

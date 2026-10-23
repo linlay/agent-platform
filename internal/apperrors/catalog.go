@@ -108,6 +108,8 @@ var definitions = []Definition{
 	def(CodeToolCallsNotAllowed, CategorySystem, ScopeRun, http.StatusInternalServerError, false),
 	def(CodeBTWToolLimitReached, CategoryTool, ScopeTool, http.StatusInternalServerError, false),
 	def(CodeTeamMemberFailed, CategorySystem, ScopeTask, http.StatusInternalServerError, false),
+	def(CodeOutputMissing, CategoryModel, ScopeRun, http.StatusUnprocessableEntity, false),
+	def(CodeOutputInvalid, CategoryModel, ScopeRun, http.StatusUnprocessableEntity, false),
 
 	def(CodeBudgetExceeded, CategoryPolicy, ScopeRun, http.StatusBadRequest, false),
 	def(CodeModelCallsExceeded, CategoryPolicy, ScopeModel, http.StatusBadRequest, false),
@@ -116,6 +118,7 @@ var definitions = []Definition{
 	def(CodeHitlRejectedWithFeedback, CategoryPolicy, ScopeTool, http.StatusForbidden, false),
 	def(CodeHitlTimeout, CategoryPolicy, ScopeTool, http.StatusGatewayTimeout, true),
 	def(CodeApprovalTimeout, CategoryPolicy, ScopeTool, http.StatusGatewayTimeout, true),
+	def(CodeApprovalRequired, CategoryPolicy, ScopeTool, http.StatusForbidden, false),
 	def(CodeUserDismissed, CategoryPolicy, ScopeInteractionSubmit, http.StatusConflict, false),
 	def(CodeAwaitingExpired, CategoryPolicy, ScopeInteractionSubmit, http.StatusConflict, false),
 	def(CodeAwaitingInterrupted, CategoryPolicy, ScopeInteractionSubmit, http.StatusConflict, false),

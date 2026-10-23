@@ -11,7 +11,7 @@
 
 ## Agent 设置
 
-agent-settings 顶层 preset-tools/preset-connectors 与 general/coder/kbase 各自的同名数组相加，按名称去重并保留首次出现顺序。mode 省略或 [] 仅表示无增量，不清除全局项。预置仍只作用于 native GENERAL/CODER/KBASE，不写入 Agent YAML。创建、编辑、展示、装配和连接器删除保护使用相同有效预置；已有显式声明不被删除。
+agent-settings 顶层 preset-tools/preset-connectors 与 general/coder/kbase/team/executor 各自的同名数组相加，按名称去重并保留首次出现顺序。mode 省略或 [] 仅表示无增量，不清除全局项，因此全局列表只放所有 Native Agent（含无人值守的 EXECUTOR）都需要的能力；需要人回应或服务对话界面的 `ask_user_question`、`artifact_publish` 以及 `builtin.web-control`、`builtin.task-control` 在分发示例中列在 general/coder/kbase/team 各段，四种 mode 的有效预置与调整前相同，executor 段默认只有 `result_submit`。预置只作用于 native GENERAL/CODER/KBASE/TEAM/EXECUTOR，不写入 Agent YAML。创建、编辑、展示、装配和连接器删除保护使用相同有效预置（删除保护统计所有 mode 段的连接器）；已有显式声明不被删除。
 
 分发示例通过 `coder.preset-tools` 为普通 CODER 提供 `regex`，CODER mode profile 的缺省工具列表不再内置该工具。
 
@@ -21,6 +21,8 @@ agent-settings 顶层 `planning-mode` 对原生 GENERAL、CODER、KBASE 统一�
 
 - `exclude-tools`：规划 Run 不可用的工具。规划 Run 的工具 = Agent 有效工具 − 该列表，再由 Platform 追加 `finalize_planning`。
 - `execute-exclude-tools`：由已确认计划启动的执行 Run 不可用的工具，缺省为 `ask_user_question`、`ask_user_form`。执行 Run 的工具 = Agent 有效工具 − 该列表，`finalize_planning` 由 Platform 去掉。
+
+`planning-mode.exclude-tools` 默认还排除 `result_submit`，规划 Run 不能交卷。
 
 独立表单工具 `ask_user_form` 默认不在 preset-tools，需 Agent 显式声明；`planning-mode.exclude-tools` 默认也排除它，规划交互使用已挂载的 `ask_user_question`。两个列表显式配置时按既有覆盖规则生效，升级部署应同步检查实际配置。
 

@@ -65,6 +65,7 @@ var requiredBuiltinToolNames = []string{
 	"mcp_search",
 	"mcp_call",
 	"finalize_planning",
+	"result_submit",
 	"regex",
 	"vision_recognize",
 	"image_generate",

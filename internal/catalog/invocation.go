@@ -17,7 +17,7 @@ func ResolvedModeCapabilities(def AgentDefinition) agentcontract.ModeCapabilitie
 		return capabilities
 	}
 	switch strings.ToUpper(strings.TrimSpace(def.Mode)) {
-	case AgentModeGeneral, "REACT", "ONESHOT", AgentModeProxy:
+	case AgentModeGeneral, "REACT", "ONESHOT", AgentModeExecutor, AgentModeProxy:
 		return agentcontract.ModeCapabilities{InvokeChildren: true, RunAsChild: true}
 	default:
 		return agentcontract.ModeCapabilities{}

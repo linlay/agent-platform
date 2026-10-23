@@ -376,9 +376,13 @@ type QuerySession struct {
 	RunOwner RunOwner
 	// TeamRuntime is populated only for an orchestrated Team-owned run.
 	TeamRuntime *TeamRuntimeContext
-	// ModeToolDefinitions are session-local tools owned by a built-in mode.
-	// They are included in model/system-init schemas but never enter catalog.
-	ModeToolDefinitions       []api.ToolDetailResponse
+	// ModeToolDefinitions are session-local tool definitions owned by a
+	// built-in mode or by the Run (result_submit with the caller's output
+	// format). They are included in model/system-init schemas but never enter
+	// catalog.
+	ModeToolDefinitions []api.ToolDetailResponse
+	// ResultContract is set only for a Run started through /api/execute.
+	ResultContract            *ResultContract `json:"-"`
 	AgentName                 string
 	AgentRole                 string
 	AgentDescription          string

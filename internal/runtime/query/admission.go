@@ -681,6 +681,11 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 			return preparedQuery{}, err
 		}
 	}
+	if req.ResultContract != nil {
+		if err := s.configureResultContractSession(&session, req.ResultContract); err != nil {
+			return preparedQuery{}, err
+		}
+	}
 	req.References = session.RuntimeContext.References
 	if !sessionbuild.IsProxyAgentMode(agentDef.Mode) {
 		ApplyQueryModelOptionsToSession(req.Model, &session)

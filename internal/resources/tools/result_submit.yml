@@ -1,0 +1,25 @@
+name: result_submit
+i18n:
+  en:
+    label: "Submit Result"
+  zh-CN:
+    label: "提交结果"
+description: Submit the final result of the current task and end the Run. Call it exactly once, on its own, when the task is done (status success with output) or cannot be done (status failure with reason). If the result includes files, write them under @chat and give their @chat/... paths in output. If the submission is rejected, fix what the error names and submit again.
+inputSchema:
+  type: object
+  properties:
+    status:
+      type: string
+      enum:
+        - success
+        - failure
+      description: Required. success when the task is complete; failure when it cannot be completed.
+    output:
+      type: object
+      description: Required when status is success and must then follow the task's output format; omit it when status is failure.
+    reason:
+      type: string
+      description: Required when status is failure; explain why the task cannot be completed. Omit it when status is success.
+  required:
+    - status
+  additionalProperties: false

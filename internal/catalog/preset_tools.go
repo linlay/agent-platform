@@ -34,7 +34,7 @@ func validatePresetTools(names []string, definitions []api.ToolDetailResponse) e
 }
 
 func (d *AgentDefinition) applyPresetTools(presets []string) {
-	if d.Engine == AgentEngineACP || (d.Mode != AgentModeGeneral && d.Mode != AgentModeCoder && d.Mode != AgentModeKBase && d.Mode != "TEAM") {
+	if d.Engine == AgentEngineACP || !presetMode(d.Mode) {
 		return
 	}
 	if d.DeclaredTools == nil {
@@ -135,4 +135,14 @@ func stripPresetToolDeclarations(definition map[string]any, presets, existing []
 		config["tools"] = result
 		definition["toolConfig"] = config
 	}
+}
+
+// presetMode reports whether an Agent mode receives the agent-settings presets:
+// the ordinary native modes, never pipeline or remote execution modes.
+func presetMode(mode string) bool {
+	switch mode {
+	case AgentModeGeneral, AgentModeCoder, AgentModeKBase, AgentModeExecutor, "TEAM":
+		return true
+	}
+	return false
 }

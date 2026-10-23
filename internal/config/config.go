@@ -36,6 +36,7 @@ type Config struct {
 	CoderSettings    CoderSettingsConfig
 	GeneralSettings  GeneralSettingsConfig
 	TeamSettings     GeneralSettingsConfig
+	ExecutorSettings GeneralSettingsConfig
 	KBase            KBaseConfig
 	VisionRecognize  VisionRecognizeConfig
 	WebFetch         WebFetchConfig
@@ -865,7 +866,7 @@ func DefaultPlanningModeConfig() PlanningModeConfig {
 			"bash", "bash_sandbox", "file_write", "file_edit", "artifact_publish", "image_generate", "speech_generate",
 			"plan_add_tasks", "plan_update_task",
 			"agent_invoke", "chat_start", "chat_interrupt", "chat_steer", "chat_manage",
-			"automation_manage", "catalog_manage", "run_env", "ask_user_form",
+			"automation_manage", "catalog_manage", "run_env", "ask_user_form", "result_submit",
 		},
 		ExecuteExcludeTools: []string{"ask_user_question", "ask_user_form"},
 	}
@@ -899,6 +900,8 @@ func (c Config) WorkspaceAgentsForMode(mode string) CoderWorkspaceAgentsConfig {
 		return c.KBase.WorkspaceAgents
 	case "TEAM":
 		return c.TeamSettings.WorkspaceAgents
+	case "EXECUTOR":
+		return c.ExecutorSettings.WorkspaceAgents
 	default:
 		return CoderWorkspaceAgentsConfig{}
 	}
@@ -927,7 +930,7 @@ func mergePresetNames(groups ...[]string) []string {
 }
 func (c Config) AllPresetConnectors() []string {
 	out := c.PresetConnectors
-	for _, mode := range []string{"general", "coder", "kbase"} {
+	for _, mode := range presetModeSections {
 		out = mergePresetNames(out, c.ModePresets[mode].Connectors)
 	}
 	return out
