@@ -97,6 +97,7 @@ type ToolResult struct {
 	ToolLabel       string
 	ToolDescription string
 	Result          any
+	ToolI18n        map[string]any
 	// ModelOutput is set only when the text returned to the model differs from
 	// Result, so persisted history can replay what the model actually saw.
 	ModelOutput  *string
@@ -105,8 +106,8 @@ type ToolResult struct {
 	ExitCode     int
 	FileChange   map[string]any
 	InternalOnly bool
-	// Target identifies the tool a gateway call reached; with it, ToolLabel is
-	// published so clients show the target instead of the gateway.
+	// Target identifies the tool a gateway call reached. Its ToolLabel describes
+	// the target instead of the gateway and must not use gateway translations.
 	Target map[string]any
 }
 

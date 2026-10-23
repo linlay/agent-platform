@@ -210,8 +210,11 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	case DeltaToolResult:
 		m.lastKind = ""
 		toolLabel, toolDescription := m.resolveToolMetadata(value.ToolName)
+		translations := m.resolveToolTranslations(value.ToolName)
 		if len(value.Target) > 0 {
 			toolLabel = value.TargetLabel
+			// Gateway labels describe the target, not the gateway tool.
+			translations = nil
 		}
 		sseResult := sseResultValue(value.Result)
 		resultError := value.Result.Error
@@ -224,6 +227,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ToolLabel:       toolLabel,
 			ToolDescription: toolDescription,
 			Result:          sseResult,
+			ToolI18n:        translations,
 			ModelOutput:     toolResultModelOutput(value.Result, sseResult),
 			Hitl:            CloneMap(value.Result.HITL),
 			Error:           resultError,

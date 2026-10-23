@@ -331,9 +331,11 @@ i18n:
 
 展示名称仅使用当前语言的 i18n.label，缺失时回退到工具 name，不能回退到上一次显示的其他语言名称。界面描述优先使用当前语言的 i18n.description，缺失时回退原始英文 description。API 的 label/toolLabel 是解析结果，不是源码中的重复配置。模型协议只从原始定义构造 name、description、parameters/input_schema 等协议字段，不发送 label、翻译表或界面翻译后的 description。工具名称、action、参数、权限与执行逻辑不受界面语言影响。
 
-工具元数据内部使用 `meta.toolI18n` 携带翻译。Native 调用在 tool.start / tool.snapshot 保存冻结的 `toolI18n` 展示快照，以支持多个客户端和历史读取；它不进入模型上下文。HTTP/WS 目录响应、SSE/WS 工具事件、Chat/Archive 回放和会话导出在输出边界按查看者语言解析，并移除内部翻译表，不修改共享定义或原始事件。英文请求同样进行工具展示解析。
+工具元数据内部使用 `meta.toolI18n` 携带翻译。Native 调用在 tool.start / tool.snapshot / tool.result 保存冻结的 `toolI18n` 展示快照，以支持多个客户端和历史读取；它不进入模型上下文。HTTP/WS 目录响应、SSE/WS 工具事件、Chat/Archive 回放和会话导出在输出边界按查看者语言解析，并移除内部翻译表，不修改共享定义或原始事件。英文请求同样进行工具展示解析。
 
-旧 JSONL 不迁移。旧工具事件可从当前 Platform 内置定义补齐展示翻译；已有冻结快照优先，不用全局目录猜测旧 Agent-local/MCP 工具的同名定义，无法解析时保留原始显示名。Desktop 在连接握手时设置当前全局语言，语言切换后通过 `/api/locale` 更新已连接通道；普通 WS 响应与后续流事件统一按连接语言解析。业务 payload 不携带 locale，展示语言不按请求或 Run 冻结，也不因语言变化重建观察订阅。Native 模型提示词的语言在 Run 开始时冻结，与工具展示语言独立；详见 [Agent 配置合并](Agent配置合并.md#runtime-context-语言与模板)。Bash 的动态参数 description 是原始调用内容，不自动翻译。
+普通工具的结果优先沿用本次调用开始时冻结的展示信息；没有开始快照时使用结果自带的翻译。MCP gateway 的结果保留 target 工具标签，不套用 gateway 翻译。结果事件仅解析外层展示字段，result 正文保持原样。
+
+旧 JSONL 不迁移。历史结果缺少翻译且标签为空或等于工具名时，读取出口从同一调用的 start/snapshot 补齐翻译；不覆盖显式展示标签或 MCP target，同名调用无法唯一匹配时不猜测。旧工具事件可从当前 Platform 内置定义补齐展示翻译；已有冻结快照优先，不用全局目录猜测旧 Agent-local/MCP 工具的同名定义，无法解析时保留原始显示名。Desktop 在连接握手时设置当前全局语言，语言切换后通过 `/api/locale` 更新已连接通道；普通 WS 响应与后续流事件统一按连接语言解析。业务 payload 不携带 locale，展示语言不按请求或 Run 冻结，也不因语言变化重建观察订阅。Native 模型提示词的语言在 Run 开始时冻结，与工具展示语言独立；详见 [Agent 配置合并](Agent配置合并.md#runtime-context-语言与模板)。Bash 的动态参数 description 是原始调用内容，不自动翻译。
 
 ## 内置工具布尔参数兼容
 

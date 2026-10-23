@@ -6,6 +6,7 @@ import (
 
 	"agent-platform/internal/api"
 	contracts "agent-platform/internal/contracts"
+	"agent-platform/internal/i18n"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/toolinteraction"
 )
@@ -36,6 +37,41 @@ type stubToolLookup map[string]api.ToolDetailResponse
 func (s stubToolLookup) Tool(name string) (api.ToolDetailResponse, bool) {
 	tool, ok := s[name]
 	return tool, ok
+}
+
+func TestNativeToolLabelSurvivesResultAndViewerLocale(t *testing.T) {
+	for _, resultOnly := range []bool{false, true} {
+		translations := map[string]any{"en": map[string]any{"label": "Read File"}, "zh-CN": map[string]any{"label": "读取文件"}}
+		mapper := NewDeltaMapper("run", "chat", contracts.Budget{}, stubToolLookup{
+			"file_read": {Name: "file_read", Label: "file_read", Meta: map[string]any{"toolI18n": translations}},
+		}, nil)
+		dispatcher := stream.NewDispatcher(stream.StreamRequest{RunID: "run", ChatID: "chat"})
+		deltas := []contracts.AgentDelta{}
+		if !resultOnly {
+			deltas = append(deltas, contracts.DeltaToolCall{Index: 0, ID: "call", Name: "file_read", ArgsDelta: "{}"}, contracts.DeltaToolEnd{ToolIDs: []string{"call"}})
+		}
+		deltas = append(deltas, contracts.DeltaToolResult{ToolID: "call", ToolName: "file_read"})
+		seenResult := false
+		for _, delta := range deltas {
+			for _, input := range mapper.Map(delta) {
+				for _, event := range dispatcher.Dispatch(input) {
+					if event.Type != "tool.start" && event.Type != "tool.snapshot" && event.Type != "tool.result" {
+						continue
+					}
+					seenResult = seenResult || event.Type == "tool.result"
+					for locale, label := range map[string]string{"en": "Read File", "zh-CN": "读取文件"} {
+						payload := i18n.LocalizeEventPayload(locale, event.Type, event.Payload)
+						if payload["toolLabel"] != label || payload["toolName"] != "file_read" || payload["toolI18n"] != nil {
+							t.Fatalf("resultOnly=%v %s %s: %#v", resultOnly, event.Type, locale, payload)
+						}
+					}
+				}
+			}
+		}
+		if !seenResult {
+			t.Fatal("missing result event")
+		}
+	}
 }
 
 func TestMCPToolLabelSurvivesEventLifecycle(t *testing.T) {
