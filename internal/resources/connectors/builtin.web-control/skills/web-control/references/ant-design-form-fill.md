@@ -1,5 +1,7 @@
 # Ant Design 表单填写
 
+This script-based reference applies only to WorkPanel pages that support `surface_evaluate`, after the skill's AWCP checks. It does not apply to Chrome: use `surface_observe` and reference actions there, and open custom dropdowns before observing and clicking an option. Do not use evaluate or raw CDP to recover missing Chrome option data.
+
 一句话：Ant Design/React 表单不要只写 `el.value = text`，优先用原生 value setter 后派发冒泡的 `input` 和 `change` 事件，让 React 表单状态同步。
 
 ## When To Use

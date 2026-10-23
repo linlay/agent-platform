@@ -100,14 +100,14 @@ func webFetchModelPreview(payload map[string]any, maxMarkdownBytes int, ref map[
 		encoded, _ := json.Marshal(preview)
 		return string(encoded)
 	}
-	limit := min(len(content), maxInt(maxMarkdownBytes, 100000), ToolModelOutputMaxChars)
-	if output := build(limit); len(output) <= ToolModelOutputMaxChars {
+	limit := min(len(content), maxInt(maxMarkdownBytes, 100000), ToolModelOutputMaxBytes)
+	if output := build(limit); len(output) <= ToolModelOutputMaxBytes {
 		return preview, output
 	}
 	low, high, best := 0, limit, 0
 	for low <= high {
 		mid := low + (high-low)/2
-		if len(build(mid)) <= ToolModelOutputMaxChars {
+		if len(build(mid)) <= ToolModelOutputMaxBytes {
 			best = mid
 			low = mid + 1
 		} else {

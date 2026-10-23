@@ -4,7 +4,7 @@ i18n:
     label: "Interact with Page Element"
   zh-CN:
     label: "网页元素操作"
-description: "Fill, select, focus or scroll one webpage element. Read the web-control skill before use."
+description: "Interact with a webpage element by observation reference or verified selector. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object
@@ -14,7 +14,13 @@ inputSchema:
       description: "Required. Webpage identity."
     selector:
       type: string
-      description: "Required. CSS selector."
+      description: "CSS selector; mutually exclusive with ref."
+    ref:
+      type: string
+      description: "Element reference from surface_observe. Requires observationId; mutually exclusive with selector."
+    observationId:
+      type: string
+      description: "Observation that issued ref. Required with ref."
     action:
       type: string
       enum:
@@ -22,12 +28,43 @@ inputSchema:
         - select
         - focus
         - scroll
+        - hover
+        - type
+        - press
+        - check
+        - uncheck
       description: "Required. Element action."
     value:
       type: string
       description: "Value for the action."
+    values:
+      type: array
+      maxItems: 100
+      items:
+        type: string
+        maxLength: 4096
+      description: "Chrome select values; mutually exclusive with value."
+    key:
+      type: string
+      enum:
+        - Enter
+        - Escape
+        - Tab
+        - Shift+Tab
+        - ArrowUp
+        - ArrowDown
+        - ArrowLeft
+        - ArrowRight
+        - Home
+        - End
+        - PageUp
+        - PageDown
+        - Backspace
+        - Delete
+        - Space
+        - ControlOrMeta+A
+      description: "Required for the Chrome press action."
   required:
     - surfaceId
-    - selector
     - action
   additionalProperties: false

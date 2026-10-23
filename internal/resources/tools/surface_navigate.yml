@@ -24,7 +24,7 @@ inputSchema:
       description: "Destination address."
     ignoreCache:
       type: boolean
-      description: "Bypass the cache."
+      description: "WorkPanel only. Bypass the cache when reloading."
   required:
     - surfaceId
     - action

@@ -2,18 +2,18 @@
   "id": "builtin.web-control",
   "name": "Web Control",
   "icon": "assets/icon.svg",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "type": "native",
   "authMode": "none",
-  "description": "Open webpages and files in the WorkPanel and control authorized webpages with AWCP and CDP",
+  "description": "Open webpages in the WorkPanel or connected Chrome, preview files, and operate authorized pages with semantic observations and page tools",
   "i18n": {
     "en": {
       "name": "Web Control",
-      "description": "Open webpages and files in the WorkPanel and control authorized webpages with AWCP and CDP"
+      "description": "Open webpages in the WorkPanel or connected Chrome, preview files, and operate authorized pages with semantic observations and page tools"
     },
     "zh-CN": {
       "name": "网页控制",
-      "description": "在工作面板打开网页和文件，并通过 AWCP 和 CDP 控制已授权网页"
+      "description": "在工作面板或已连接的 Chrome 打开网页、预览文件，并通过语义观察和页面工具操作已授权网页"
     }
   }
 }

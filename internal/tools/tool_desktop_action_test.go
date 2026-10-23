@@ -1612,8 +1612,8 @@ func TestWebControlToolSchemasAreStaticClosedObjects(t *testing.T) {
 			}
 		}
 	}
-	if found != 16 {
-		t.Fatalf("web-control tool definitions = %d, want 16", found)
+	if found != 22 {
+		t.Fatalf("web-control tool definitions = %d, want 22", found)
 	}
 }
 

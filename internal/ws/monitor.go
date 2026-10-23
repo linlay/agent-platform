@@ -563,6 +563,15 @@ func (c *Conn) recordInboundMessage(raw []byte, req RequestFrame, errorText stri
 }
 
 func monitorInboundPayloadPreview(raw []byte, req RequestFrame) (string, bool) {
+	if req.Frame == FrameResponse || req.Frame == FrameStream || req.Frame == FrameError {
+		// Truncating base64 would still leak file bytes. Omit binary fields while
+		// retaining ordinary API results and error diagnostics for the monitor.
+		var decoded any
+		if json.Unmarshal(raw, &decoded) == nil && monitorOmitBinaryData(decoded, false) {
+			data, _ := json.Marshal(decoded)
+			return monitorPayloadPreview(data)
+		}
+	}
 	if req.Frame == FrameRequest && req.Type == "/api/terminal/input" {
 		var payload struct {
 			TerminalID string `json:"terminalId"`
@@ -585,6 +594,33 @@ func monitorInboundPayloadPreview(raw []byte, req RequestFrame) (string, bool) {
 		return monitorPayloadPreview(data)
 	}
 	return monitorPayloadPreview(raw)
+}
+
+func monitorOmitBinaryData(raw any, fileTransfer bool) bool {
+	changed := false
+	switch node := raw.(type) {
+	case map[string]any:
+		method, _ := node["method"].(string)
+		fileTransfer = fileTransfer || method == "Surface.uploadFiles" || method == "Surface.readDownload"
+		_, hasMime := node["mimeType"]
+		_, hasDigest := node["sha256"]
+		for field, value := range node {
+			_, text := value.(string)
+			if text && (field == "chunk" || field == "data" && (fileTransfer || hasMime || hasDigest)) {
+				node[field] = observability.HiddenToken
+				changed = true
+			} else if monitorOmitBinaryData(value, fileTransfer) {
+				changed = true
+			}
+		}
+	case []any:
+		for _, value := range node {
+			if monitorOmitBinaryData(value, fileTransfer) {
+				changed = true
+			}
+		}
+	}
+	return changed
 }
 
 func (c *Conn) recordOutboundMessage(frame any) {
@@ -631,6 +667,23 @@ func monitorMessageFromOutboundFrame(sessionID string, source string, deviceID s
 
 func monitorOutboundPreviewBytes(frame any) ([]byte, error) {
 	switch value := frame.(type) {
+	case RequestFrame:
+		if value.Type == "desktop.cdp.call" {
+			var payload struct {
+				Method string `json:"method"`
+			}
+			_ = json.Unmarshal(value.Payload, &payload)
+			if payload.Method == "Surface.uploadFiles" {
+				return json.Marshal(struct {
+					Frame       string `json:"frame"`
+					Type        string `json:"type"`
+					ID          string `json:"id"`
+					Method      string `json:"method"`
+					DataOmitted bool   `json:"dataOmitted"`
+				}{value.Frame, value.Type, value.ID, payload.Method, true})
+			}
+		}
+		return json.Marshal(value)
 	case ResponseFrame:
 		return json.Marshal(struct {
 			Frame string `json:"frame"`

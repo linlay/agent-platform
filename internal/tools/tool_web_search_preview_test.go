@@ -40,7 +40,7 @@ func invokeDeepSeekSearchPreview(t *testing.T, sources []any) contracts.ToolExec
 
 func decodeDeepSeekSearchPreview(t *testing.T, result contracts.ToolExecutionResult) map[string]any {
 	t.Helper()
-	if result.Error != "" || len(result.Output) > contracts.ToolModelOutputMaxChars || !utf8.ValidString(result.Output) || strings.ContainsRune(result.Output, utf8.RuneError) {
+	if result.Error != "" || len(result.Output) > contracts.ToolModelOutputMaxBytes || !utf8.ValidString(result.Output) || strings.ContainsRune(result.Output, utf8.RuneError) {
 		t.Fatalf("expected a successful bounded UTF-8 preview: error=%q, outputBytes=%d", result.Error, len(result.Output))
 	}
 	var preview map[string]any
@@ -57,7 +57,7 @@ func TestDeepSeekWebSearchPreviewSkipsOversizedMetadataAndSources(t *testing.T) 
 		t.Run(name, func(t *testing.T) {
 			first := deepSeekSearchPreviewSource(t, firstURL)
 			second := deepSeekSearchPreviewSource(t, secondURL)
-			longText := strings.Repeat("x", contracts.ToolModelOutputMaxChars+1)
+			longText := strings.Repeat("x", contracts.ToolModelOutputMaxBytes+1)
 			wantSources := 2
 			switch name {
 			case "site icon":
@@ -70,7 +70,7 @@ func TestDeepSeekWebSearchPreviewSkipsOversizedMetadataAndSources(t *testing.T) 
 			case "invalid date":
 				first["date"] = longText
 			case "oversized fractional timestamp":
-				first["date"] = "2026-10-20T00:00:00." + strings.Repeat("0", contracts.ToolModelOutputMaxChars+1) + "Z"
+				first["date"] = "2026-10-20T00:00:00." + strings.Repeat("0", contracts.ToolModelOutputMaxBytes+1) + "Z"
 			}
 			sources := []any{first, second}
 			result := invokeDeepSeekSearchPreview(t, sources)
@@ -130,7 +130,7 @@ func TestDeepSeekWebSearchPreviewSharesUnicodeTextBudget(t *testing.T) {
 }
 
 func TestDeepSeekWebSearchPreviewDistinguishesOmittedSourcesFromNoMatches(t *testing.T) {
-	longURL := "https://example.com/?" + strings.Repeat("a", contracts.ToolModelOutputMaxChars+1)
+	longURL := "https://example.com/?" + strings.Repeat("a", contracts.ToolModelOutputMaxBytes+1)
 	source := deepSeekSearchPreviewSource(t, longURL)
 	result := invokeDeepSeekSearchPreview(t, []any{source})
 	preview := decodeDeepSeekSearchPreview(t, result)

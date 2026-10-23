@@ -39,7 +39,7 @@ MCP 绑定按挂载来源区分校验：当前 Agent 和活动运行的挂载包
 
 模型只面对两种标识：
 
-- **url**：用于 `workpanel_open`；只有文件预览使用它调用 `workpanel_close`，单个网页通过 `surfaceId` 关闭。网页以 `http://` 或 `https://` 开头；文件预览以 `@workspace/` 或 `@chat/` 开头并且必须位于当前 Workspace 内。其他写法（裸相对路径、无协议的主机名、绝对路径、`file://`）一律在发送前拒绝并给出改写提示，不做猜测。
+- **url**：用于 `workpanel_open` 或仅接受 HTTP(S) 的 `surface_open`；只有文件预览使用它调用 `workpanel_close`，单个网页通过 `surfaceId` 关闭。网页以 `http://` 或 `https://` 开头；文件预览以 `@workspace/` 或 `@chat/` 开头并且必须位于当前 Workspace 内。其他写法（裸相对路径、无协议的主机名、绝对路径、`file://`）一律在发送前拒绝并给出改写提示，不做猜测。
 - **surfaceId**：一个正在运行的网页。每个网页就是一个独立 surface，导航和刷新不改变它。
 
 WorkPanel 条目 ID 和页面容器 ID 只在 Platform 内部使用，不出现在工具参数和结果中。
@@ -47,30 +47,36 @@ WorkPanel 条目 ID 和页面容器 ID 只在 Platform 内部使用，不出现�
 | 分类 | 工具 | 说明 |
 | --- | --- | --- |
 | WorkPanel | `workpanel_state` | 当前 Chat 面板中打开的条目 |
-| WorkPanel | `workpanel_open` | 打开网页或预览文件，是打开新页面的唯一入口；网页返回 `surfaceId`；`reload` 在打开后刷新 |
+| WorkPanel | `workpanel_open` | 在当前 Chat 的右侧工作面板打开网页或预览文件；网页返回 `surfaceId`；`reload` 在打开后刷新 |
 | WorkPanel | `workpanel_close` | 按文件 `url` 严格匹配已记录的 Workspace 路径关闭预览，或 `all: true` 关闭整个面板；不接受网页 URL |
 | Surface | `surface_list` / `surface_state` | 发现已授权网页、读取单页状态；`surface_state` 省略 `surfaceId` 读取所属应用的当前页 |
+| Surface | `surface_open` | 在当前 Run 获授权的 Chrome 工作区打开 HTTP(S) 网页；Desktop 复用 live 工作区，或按用户记住的授权懒连接；返回 `surfaceId` |
+| Surface | `surface_observe` | 读取语义快照及 `observationId` / 元素 `ref`，只读 |
 | Surface | `surface_navigate` | `goto` / `reload` / `back`，页面内导航 |
 | Surface | `surface_activate` / `surface_close` | 显示、关闭一个网页 |
 | Surface | `surface_screenshot` | PNG 截图，保存到当前 Chat 并返回引用名 |
 | Surface | `surface_evaluate` | 执行脚本并返回值；大脚本用 `expressionFile` |
-| Surface | `surface_click` / `surface_element` | 真实点击；按选择器填写、选择、聚焦、滚动 |
+| Surface | `surface_click` / `surface_element` | 按快照引用操作元素；Chrome 增加 hover/type/press/check/uncheck 和多选；保留有页面证据的选择器和坐标兼容模式 |
+| Surface | `surface_scroll` / `surface_dialog` | Chrome 受控滚动和原生网页弹窗，保留动作结果与跟随观察 |
+| Surface | `surface_upload` / `surface_downloads` | Chrome 与当前 Chat 文件之间的受限传递，不暴露字节或任意本机路径 |
 | Surface | `surface_login` | 列出当前网页所属网站的已保存账号（脱敏），或让 Desktop 把账号密码填入登录表单；密码不进入工具结果 |
 | Surface | `surface_cdp` | 没有专用工具的 CDP 方法（DOM、底层输入、Network） |
 | AWCP | `awcp_manual` / `awcp_invoke` | 读取网站手册目录与章节、调用网站声明的业务动作 |
 
-CDP 不单独成类：它是通道，每个方法都作用在某个 surface 上。有明确用途的方法是参数固定的 surface 工具；`surface_cdp` 只保留没有专用工具的方法，方法名保持 CDP 原名，同一操作只有一个入口。读取或修改页面内容时先用 `awcp_manual`，页面没有手册或没有匹配章节才使用 surface 内容工具，该规则只写在技能中。
+CDP 不单独成类：它是通道，每个方法都作用在某个 surface 上。有明确用途的方法是参数固定的 surface 工具；`surface_cdp` 只保留 WorkPanel 没有专用工具的方法，方法名保持 CDP 原名，同一操作只有一个入口。Chrome 与 WorkPanel 的 AWCP 和标准控制并存，业务优先读取手册并使用匹配章节；仅协议缺失、有效手册没有匹配动作或用户任务明确允许标准界面操作时，使用对应 provider 的标准工具。未知 AWCP 写入结果不能转成点击重放。Chrome 使用固定 AWCP 工具、语义快照及引用操作，仍不提供模型脚本执行或 raw CDP；现有应用 scope 保留原路径，普通 Chat 在 canonical Run 门禁后按冻结 backend 路由，不因 Chrome 失败借用 WorkPanel 或前台页面。
 
 实现要点：
 
-- 每个工具在 `internal/tools/tool_web_control.go` 映射到既有的反向请求（WorkPanel 动作、`desktop.cdp.call`、`desktop.awcp.manual` / `desktop.awcp.invoke`），Desktop 协议与动作注册表没有变化。
+- 每个工具在 `internal/tools/tool_web_control.go` 映射到既有的反向请求（WorkPanel 动作、`desktop.cdp.call`、`desktop.awcp.manual` / `desktop.awcp.invoke`）。Chrome 新建及语义工具在 CDP 反向信封内使用 `Surface.openChrome` / `Surface.observe` / `Surface.click` / `Surface.interact`；Desktop 决定当前 Chat/Run 可访问的 provider、页面和引用，不新增 Query 字段或通用连接器执行参数。
+- 普通 Chat 的 Surface 结果标明 `provider: workpanel | chrome`。Chrome 工作区由 Desktop 管理；用户开启记住授权时，新 Chrome Chat 可以延续已获授权的 live 工作区与页面，未连接时仍按记住授权懒连接或由用户在宿主恢复。工作区可连续，每个 Run 的 canonical Chat、根 owner、backend 与控制租约仍独立校验并冻结；模型不能从旧 Chat 历史或 URL 推断授权。同一工作区只有一个 Run 实际控制，交接先取消并排空旧请求，忙碌等待或由用户接管，不回退另一连接或 WorkPanel。Platform 保留 `browser_connection_required` 恢复码且不管理连接；网页加载错误不构成重新授权或重连的理由。所有新 Run 都重新发现页面、读取观察与 AWCP 手册；真实重连不复活旧 Surface，旧 refs/manual binding 不继承。Chrome 标准动作默认返回新观察供下一步直接使用，观察失败不改变原动作 outcome；未知业务写入和取消后的不确定结果先回读而不重放。共享浏览器工作区不改变 WorkPanel 的 Chat 归属、项目 Workspace、Chat 文件或凭据权限。
 - `workpanel_close` 关闭文件时由 Platform 读取面板状态，只接受唯一且完整匹配的已记录 Workspace 路径；不按文件名兜底，缺少路径或多项匹配返回 `workpanel_item_not_found`。单个网页先通过 `surface_list` 获取身份，再调用 `surface_close`，不通过 URL 推断关闭目标。
 - 文件预览沿用 Desktop 的规则：文件必须位于 Workspace 内。`@chat/` 只有在 Chat 目录位于 Workspace 内时可用；Chat 目录在 Workspace 之外的预览尚未实现，需要 Desktop 接受 Chat 目录作为可信根。
 - `workpanel_state` 返回条目的种类、打开地址、标题和激活状态，不返回对应的 `surfaceId`；网页的 `surfaceId` 通过 `workpanel_open` 结果或 `surface_list` 取得。
 - `surface_cdp.paramsFile` 与 `surface_evaluate.expressionFile` 走标准文件读取 AccessPolicy 与审批。
-- 5 个只读工具（`workpanel_state`、`surface_list`、`surface_state`、`surface_screenshot`、`awcp_manual`）在 planning/只读阶段可用。
+- 只读工具（`workpanel_state`、`surface_list`、`surface_state`、`surface_observe`、`surface_screenshot`、`awcp_manual`）可通过只读执行策略，planning 仍受既有工具排除配置约束；`surface_open` 和引用 mutation 不获得只读豁免。
 - Standalone 运行模式下会话只暴露 `workpanel_*`，且不支持文件预览；`surface_*` 与 `awcp_*` 需要 Desktop 运行模式。
 - 传输层错误码沿用既有的 `desktop_action_*` / `desktop_cdp_*` 前缀。
+- Platform 的工具定义、native 注册表和技能资源随二进制发布；新增 Surface 方法要求 Desktop 与 Platform 配套升级、重启并使用新 Run，不手改部署中的 `ru-connectors` 或 Agent 配置。
 
 ## 显式离线迁移
 

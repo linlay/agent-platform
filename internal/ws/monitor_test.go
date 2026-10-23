@@ -165,6 +165,29 @@ func TestMonitorRedactsTerminalInputPreview(t *testing.T) {
 	}
 }
 
+func TestMonitorOmitsBrowserFileUploadAndDownloadBytes(t *testing.T) {
+	private := "private-file-base64-and-local-path"
+	upload := RequestFrame{Frame: FrameRequest, Type: "desktop.cdp.call", ID: "file-upload", Payload: MarshalPayload(map[string]any{
+		"method": "Surface.uploadFiles", "params": map[string]any{"files": []any{map[string]any{"name": "selected.txt", "data": private, "path": "/private/selected.txt"}}},
+	})}
+	encoded, err := monitorOutboundPreviewBytes(upload)
+	if err != nil || strings.Contains(string(encoded), private) || strings.Contains(string(encoded), "/private/") || !strings.Contains(string(encoded), "dataOmitted") {
+		t.Fatalf("upload leaked into monitor: %s %v", encoded, err)
+	}
+	for _, frame := range []string{FrameResponse, FrameStream, FrameError} {
+		raw, _ := json.Marshal(map[string]any{"frame": frame, "type": "desktop.cdp.call", "id": "file-download", "data": map[string]any{"method": "Surface.readDownload", "result": map[string]any{"mimeType": "text/plain", "data": private}}, "event": map[string]any{"chunk": private}})
+		preview, _ := monitorInboundPayloadPreview(raw, RequestFrame{Frame: frame, Type: "desktop.cdp.call", ID: "file-download"})
+		if strings.Contains(preview, private) || !strings.Contains(preview, "HIDDEN_TOKEN") || !strings.Contains(preview, "file-download") {
+			t.Fatalf("download frame leaked into monitor: %s", preview)
+		}
+	}
+	ordinary := []byte(`{"frame":"response","type":"/api/test","id":"ordinary","data":{"result":{"message":"ordinary diagnostic","data":"plain text"}}}`)
+	preview, _ := monitorInboundPayloadPreview(ordinary, RequestFrame{Frame: FrameResponse, Type: "/api/test", ID: "ordinary"})
+	if !strings.Contains(preview, "ordinary diagnostic") || !strings.Contains(preview, "plain text") {
+		t.Fatalf("ordinary response diagnostics were removed: %s", preview)
+	}
+}
+
 func TestWSClientMetadataFromRequestNormalizesAndFallsBackToAuthDeviceID(t *testing.T) {
 	req := httptest.NewRequest("GET", "/ws?source=WebClient&device_id=device-query", nil)
 	source, deviceID := wsClientMetadataFromRequest(req, AuthSession{DeviceID: "device-claim"})

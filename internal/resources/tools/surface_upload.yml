@@ -1,0 +1,35 @@
+name: surface_upload
+i18n:
+  en:
+    label: "Upload Chat Files to Chrome"
+  zh-CN:
+    label: "向 Chrome 网页上传会话文件"
+description: "Upload existing files from the current Chat to an observed Chrome file input or chooser. Read the web-control skill before use."
+clientVisible: true
+inputSchema:
+  type: object
+  properties:
+    surfaceId:
+      type: string
+      description: "Required. Webpage identity."
+    observationId:
+      type: string
+      description: "Required. Observation containing the file input or chooser."
+    ref:
+      type: string
+      description: "Observed file input reference; mutually exclusive with chooserId."
+    chooserId:
+      type: string
+      description: "Observed file chooser identity; mutually exclusive with ref."
+    referenceNames:
+      type: array
+      minItems: 1
+      maxItems: 8
+      items:
+        type: string
+      description: "Required. Existing file references within the current Chat."
+  required:
+    - surfaceId
+    - observationId
+    - referenceNames
+  additionalProperties: false

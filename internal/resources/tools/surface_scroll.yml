@@ -1,0 +1,28 @@
+name: surface_scroll
+i18n:
+  en:
+    label: "Scroll Chrome Page"
+  zh-CN:
+    label: "滚动 Chrome 网页"
+description: "Scroll a connected Chrome webpage by a bounded amount. Read the web-control skill before use."
+clientVisible: true
+inputSchema:
+  type: object
+  properties:
+    surfaceId:
+      type: string
+      description: "Required. Webpage identity."
+    deltaY:
+      type: number
+      minimum: -2000
+      maximum: 2000
+      description: "Required. Vertical scroll delta in CSS pixels."
+    deltaX:
+      type: number
+      minimum: -2000
+      maximum: 2000
+      description: "Optional horizontal scroll delta in CSS pixels."
+  required:
+    - surfaceId
+    - deltaY
+  additionalProperties: false

@@ -130,7 +130,7 @@ func validDeepSeekSearchResult(value any) bool {
 // actual tool message. Share the text budget among sources so a single long page
 // cannot hide every other source. URLs are never truncated into invalid links.
 func webSearchModelOutput(result ToolExecutionResult) string {
-	if len(result.Output) <= ToolModelOutputMaxChars {
+	if len(result.Output) <= ToolModelOutputMaxBytes {
 		return result.Output
 	}
 	full := result.Structured["results"].([]any)
@@ -174,7 +174,7 @@ func webSearchModelOutput(result ToolExecutionResult) string {
 	sources := make([]any, 0, len(full))
 	for _, source := range full {
 		candidate := append(sources, source)
-		if len(build(candidate, 0)) <= ToolModelOutputMaxChars {
+		if len(build(candidate, 0)) <= ToolModelOutputMaxBytes {
 			sources = candidate
 		}
 	}
@@ -185,11 +185,11 @@ func webSearchModelOutput(result ToolExecutionResult) string {
 		return build(sources, 0)
 	}
 	best := build(sources, 0)
-	low, high := 0, ToolModelOutputMaxChars
+	low, high := 0, ToolModelOutputMaxBytes
 	for low <= high {
 		mid := low + (high-low)/2
 		candidate := build(sources, mid)
-		if len(candidate) <= ToolModelOutputMaxChars {
+		if len(candidate) <= ToolModelOutputMaxBytes {
 			best = candidate
 			low = mid + 1
 		} else {

@@ -45,7 +45,7 @@ func deepSeekFetchOutputInvoke(t *testing.T, executor *RuntimeToolExecutor, args
 	if err != nil || result.Error != "" {
 		t.Fatalf("fetch failed: err=%v result=%#v", err, result)
 	}
-	if len(result.Output) > contracts.ToolModelOutputMaxChars || !utf8.ValidString(result.Output) || strings.ContainsRune(result.Output, utf8.RuneError) {
+	if len(result.Output) > contracts.ToolModelOutputMaxBytes || !utf8.ValidString(result.Output) || strings.ContainsRune(result.Output, utf8.RuneError) {
 		t.Fatalf("invalid or oversized model preview: %d bytes", len(result.Output))
 	}
 	var preview map[string]any

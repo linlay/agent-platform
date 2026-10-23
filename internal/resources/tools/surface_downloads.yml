@@ -1,0 +1,27 @@
+name: surface_downloads
+i18n:
+  en:
+    label: "Save Chrome Downloads"
+  zh-CN:
+    label: "保存 Chrome 下载文件"
+description: "List Chrome page downloads or persist a selected download to the current Chat. Read the web-control skill before use."
+clientVisible: true
+inputSchema:
+  type: object
+  properties:
+    surfaceId:
+      type: string
+      description: "Required. Webpage identity."
+    action:
+      type: string
+      enum:
+        - list
+        - save
+      description: "Required. Download operation."
+    downloadId:
+      type: string
+      description: "Required for save; download identity returned by list."
+  required:
+    - surfaceId
+    - action
+  additionalProperties: false

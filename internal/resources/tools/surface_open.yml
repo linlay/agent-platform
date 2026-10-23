@@ -1,0 +1,17 @@
+name: surface_open
+i18n:
+  en:
+    label: "Open Chrome Page"
+  zh-CN:
+    label: "打开 Chrome 网页"
+description: "Open a webpage in Chrome already connected to the current Chat. Read the web-control skill before use."
+clientVisible: true
+inputSchema:
+  type: object
+  properties:
+    url:
+      type: string
+      description: "Required. HTTP(S) address."
+  required:
+    - url
+  additionalProperties: false

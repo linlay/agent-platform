@@ -267,7 +267,7 @@ func TestDeepSeekWebSearchRequiredResponseFields(t *testing.T) {
 
 func TestDeepSeekWebSearchLargeContentHasBoundedModelOutput(t *testing.T) {
 	const source = "https://example.com/article"
-	content := strings.Repeat("正文🧑", contracts.ToolModelOutputMaxChars)
+	content := strings.Repeat("正文🧑", contracts.ToolModelOutputMaxBytes)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body := assertDeepSeekRequest(t, r, "/v1/tools/search")
 		if body["need_content"] != true {
@@ -279,7 +279,7 @@ func TestDeepSeekWebSearchLargeContentHasBoundedModelOutput(t *testing.T) {
 	}))
 	defer server.Close()
 	result := invokeDeepSeekWebTest(t, deepSeekWebTestExecutor(t, server), context.Background(), "web_search", map[string]any{"query": "query", "needContent": true})
-	if result.Error != "" || len(result.Output) > contracts.ToolModelOutputMaxChars || !utf8.ValidString(result.Output) || strings.ContainsRune(result.Output, utf8.RuneError) || !strings.Contains(result.Output, source) {
+	if result.Error != "" || len(result.Output) > contracts.ToolModelOutputMaxBytes || !utf8.ValidString(result.Output) || strings.ContainsRune(result.Output, utf8.RuneError) || !strings.Contains(result.Output, source) {
 		t.Fatalf("model output must be bounded with a valid source and UTF-8: error=%s, outputBytes=%d", result.Error, len(result.Output))
 	}
 	if !strings.Contains(strings.ToLower(result.Output), "truncat") {

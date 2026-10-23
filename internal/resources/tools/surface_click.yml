@@ -4,7 +4,7 @@ i18n:
     label: "Click Page"
   zh-CN:
     label: "网页点击"
-description: "Click in a webpage by selector or coordinates. Read the web-control skill before use."
+description: "Click a webpage element by observation reference, selector or coordinates. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object
@@ -15,6 +15,12 @@ inputSchema:
     selector:
       type: string
       description: "CSS selector."
+    ref:
+      type: string
+      description: "Element reference from surface_observe. Requires observationId; mutually exclusive with selector and coordinates."
+    observationId:
+      type: string
+      description: "Observation that issued ref. Required with ref."
     x:
       type: number
       description: "Horizontal position."
@@ -25,6 +31,11 @@ inputSchema:
       type: object
       description: "Condition to observe after the click."
       additionalProperties: true
+    timeoutMs:
+      type: integer
+      minimum: 100
+      maximum: 10000
+      description: "Optional deadline in milliseconds for an observation-reference click."
   required:
     - surfaceId
   additionalProperties: false

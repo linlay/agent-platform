@@ -1,0 +1,35 @@
+name: surface_dialog
+i18n:
+  en:
+    label: "Handle Chrome Dialog"
+  zh-CN:
+    label: "处理 Chrome 网页弹窗"
+description: "Accept or dismiss an observed native webpage dialog in Chrome. Read the web-control skill before use."
+clientVisible: true
+inputSchema:
+  type: object
+  properties:
+    surfaceId:
+      type: string
+      description: "Required. Webpage identity."
+    observationId:
+      type: string
+      description: "Required. Observation containing the dialog."
+    dialogId:
+      type: string
+      description: "Required. Native dialog identity from that observation."
+    action:
+      type: string
+      enum:
+        - accept
+        - dismiss
+      description: "Required. Dialog decision."
+    promptText:
+      type: string
+      description: "Optional answer when accepting a prompt dialog."
+  required:
+    - surfaceId
+    - observationId
+    - dialogId
+    - action
+  additionalProperties: false

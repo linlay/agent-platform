@@ -52,7 +52,17 @@ var webControlRawCDPMethods = map[string]bool{
 	"Network.disable":          true,
 }
 
-var webControlElementActions = map[string]bool{"fill": true, "select": true, "focus": true, "scroll": true}
+var webControlElementActions = map[string]bool{
+	"fill": true, "select": true, "focus": true, "scroll": true,
+	"hover": true, "type": true, "press": true, "check": true, "uncheck": true,
+}
+
+var webControlPressKeys = map[string]bool{
+	"Enter": true, "Escape": true, "Tab": true, "Shift+Tab": true,
+	"ArrowUp": true, "ArrowDown": true, "ArrowLeft": true, "ArrowRight": true,
+	"Home": true, "End": true, "PageUp": true, "PageDown": true,
+	"Backspace": true, "Delete": true, "Space": true, "ControlOrMeta+A": true,
+}
 
 func isWebControlTool(name string) bool {
 	id, ok := connector.NativeToolConnector(name)
@@ -60,6 +70,11 @@ func isWebControlTool(name string) bool {
 }
 
 func (t *RuntimeToolExecutor) invokeWebControl(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	result, err := t.invokeWebControlTool(ctx, toolName, args, execCtx)
+	return webControlBrowserConnectionResult(result), err
+}
+
+func (t *RuntimeToolExecutor) invokeWebControlTool(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	if args == nil {
 		args = map[string]any{}
 	}
@@ -77,6 +92,10 @@ func (t *RuntimeToolExecutor) invokeWebControl(ctx context.Context, toolName str
 		return t.webControlSurfaceCall(ctx, "Surface.list", "", nil, execCtx)
 	case "surface_state":
 		return t.webControlSurfaceState(ctx, args, execCtx)
+	case "surface_open":
+		return t.webControlSurfaceOpen(ctx, args, execCtx)
+	case "surface_observe":
+		return t.webControlSurfaceObserve(ctx, args, execCtx)
 	case "surface_navigate":
 		return t.webControlSurfaceNavigate(ctx, args, execCtx)
 	case "surface_activate":
@@ -91,6 +110,14 @@ func (t *RuntimeToolExecutor) invokeWebControl(ctx context.Context, toolName str
 		return t.webControlSurfaceClick(ctx, args, execCtx)
 	case "surface_element":
 		return t.webControlSurfaceElement(ctx, args, execCtx)
+	case "surface_scroll":
+		return t.webControlSurfaceScroll(ctx, args, execCtx)
+	case "surface_dialog":
+		return t.webControlSurfaceDialog(ctx, args, execCtx)
+	case "surface_upload":
+		return t.webControlSurfaceUpload(ctx, args, execCtx)
+	case "surface_downloads":
+		return t.webControlSurfaceDownloads(ctx, args, execCtx)
 	case "surface_login":
 		return t.webControlSurfaceLogin(ctx, args, execCtx)
 	case "surface_cdp":
@@ -647,6 +674,53 @@ func (t *RuntimeToolExecutor) webControlSurfaceCall(ctx context.Context, method 
 	return stripWebControlContainers(result), err
 }
 
+// Keep this actionable browser state distinct from a transport failure. The
+// Desktop host owns connection and Chat binding; Platform must not reconnect or
+// choose a different browser when a connection is missing.
+func webControlBrowserConnectionResult(result ToolExecutionResult) ToolExecutionResult {
+	if result.ExitCode == 0 || result.Structured == nil {
+		return result
+	}
+	details, _ := result.Structured["details"].(map[string]any)
+	response, _ := result.Structured["response"].(map[string]any)
+	hostError, _ := response["error"].(map[string]any)
+	if details["clientErrorType"] != "browser_connection_required" && hostError["code"] != "browser_connection_required" {
+		return result
+	}
+	structured := CloneMap(result.Structured)
+	errorNode := cloneDesktopMapValue(structured["error"])
+	if len(errorNode) == 0 {
+		errorNode = CloneMap(hostError)
+	}
+	if errorNode == nil {
+		errorNode = map[string]any{}
+	}
+	errorNode["code"] = "browser_connection_required"
+	structured["error"] = errorNode
+	result = webControlRestructured(result, structured)
+	result.Error = "browser_connection_required"
+	return result
+}
+
+func (t *RuntimeToolExecutor) webControlSurfaceOpen(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	if failure, failed := webControlFields(args, "url"); failed {
+		return failure, nil
+	}
+	rawURL, failure, failed := webControlString(args, "url", true)
+	if failed {
+		return failure, nil
+	}
+	target := strings.TrimSpace(rawURL)
+	parsed, err := url.Parse(target)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return webControlInvalidArgs("url must be an http:// or https:// address; use workpanel_open for file previews", "url"), nil
+	}
+	if parsed.User != nil {
+		return webControlInvalidArgs("url must not contain credentials", "url"), nil
+	}
+	return t.webControlSurfaceCall(ctx, "Surface.openChrome", "", map[string]any{"url": target}, execCtx)
+}
+
 // stripWebControlContainers hides container identity from Desktop-shaped
 // lifecycle results. It is not applied to page-owned data (script values,
 // DOM, AWCP results), whose keys belong to the website.
@@ -702,6 +776,106 @@ func (t *RuntimeToolExecutor) webControlSurfaceSimple(ctx context.Context, metho
 		return failure, nil
 	}
 	return t.webControlSurfaceCall(ctx, method, surfaceID, nil, execCtx)
+}
+
+func (t *RuntimeToolExecutor) webControlSurfaceObserve(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	if failure, failed := webControlFields(args, "surfaceId", "maxTextLength", "maxElements", "viewportOnly"); failed {
+		return failure, nil
+	}
+	surfaceID, failure, failed := webControlSurfaceID(args, true)
+	if failed {
+		return failure, nil
+	}
+	var params map[string]any
+	for _, limit := range []struct {
+		field string
+		max   int
+	}{{"maxTextLength", 30000}, {"maxElements", 500}} {
+		if raw, present := args[limit.field]; present {
+			number, valid := webControlNumber(raw)
+			if !valid || number < 1 || number > float64(limit.max) || math.Trunc(number) != number {
+				return webControlInvalidArgs(fmt.Sprintf("%s must be an integer in range 1–%d", limit.field, limit.max), limit.field), nil
+			}
+			if params == nil {
+				params = map[string]any{}
+			}
+			params[limit.field] = number
+		}
+	}
+	if viewportOnly, present, failure, failed := webControlBool(args, "viewportOnly"); failed {
+		return failure, nil
+	} else if present {
+		if params == nil {
+			params = map[string]any{}
+		}
+		params["viewportOnly"] = viewportOnly
+	}
+	return t.webControlSurfaceCall(ctx, "Surface.observe", surfaceID, params, execCtx)
+}
+
+func webControlNumber(raw any) (float64, bool) {
+	var number float64
+	switch value := raw.(type) {
+	case float64:
+		number = value
+	case int:
+		number = float64(value)
+	default:
+		return 0, false
+	}
+	return number, !math.IsNaN(number) && !math.IsInf(number, 0)
+}
+
+func (t *RuntimeToolExecutor) webControlSurfaceScroll(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	if failure, failed := webControlFields(args, "surfaceId", "deltaY", "deltaX"); failed {
+		return failure, nil
+	}
+	surfaceID, failure, failed := webControlSurfaceID(args, true)
+	if failed {
+		return failure, nil
+	}
+	params := map[string]any{}
+	for _, field := range []string{"deltaY", "deltaX"} {
+		raw, present := args[field]
+		if !present && field == "deltaX" {
+			continue
+		}
+		number, valid := webControlNumber(raw)
+		if !valid || number < -2000 || number > 2000 {
+			return webControlInvalidArgs(field+" must be a finite number in range -2000–2000", field), nil
+		}
+		params[field] = number
+	}
+	return t.webControlSurfaceCall(ctx, "Surface.scroll", surfaceID, params, execCtx)
+}
+
+func (t *RuntimeToolExecutor) webControlSurfaceDialog(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	if failure, failed := webControlFields(args, "surfaceId", "observationId", "dialogId", "action", "promptText"); failed {
+		return failure, nil
+	}
+	surfaceID, failure, failed := webControlSurfaceID(args, true)
+	if failed {
+		return failure, nil
+	}
+	params := map[string]any{}
+	for _, field := range []string{"observationId", "dialogId", "action"} {
+		value, failure, failed := webControlString(args, field, true)
+		if failed {
+			return failure, nil
+		}
+		params[field] = value
+	}
+	if params["action"] != "accept" && params["action"] != "dismiss" {
+		return webControlInvalidArgs("action must be accept or dismiss", "action"), nil
+	}
+	if raw, present := args["promptText"]; present {
+		value, valid := raw.(string)
+		if !valid || params["action"] != "accept" {
+			return webControlInvalidArgs("promptText must be a string and is only valid with action accept for a prompt dialog", "promptText"), nil
+		}
+		params["promptText"] = value
+	}
+	return t.webControlSurfaceCall(ctx, "Surface.handleDialog", surfaceID, params, execCtx)
 }
 
 func (t *RuntimeToolExecutor) webControlSurfaceNavigate(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -815,7 +989,7 @@ func (t *RuntimeToolExecutor) webControlSurfaceEvaluate(ctx context.Context, arg
 }
 
 func (t *RuntimeToolExecutor) webControlSurfaceClick(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
-	if failure, failed := webControlFields(args, "surfaceId", "selector", "x", "y", "waitFor"); failed {
+	if failure, failed := webControlFields(args, "surfaceId", "selector", "x", "y", "ref", "observationId", "waitFor", "timeoutMs"); failed {
 		return failure, nil
 	}
 	surfaceID, failure, failed := webControlSurfaceID(args, true)
@@ -825,11 +999,22 @@ func (t *RuntimeToolExecutor) webControlSurfaceClick(ctx context.Context, args m
 	_, hasSelector := args["selector"]
 	_, hasX := args["x"]
 	_, hasY := args["y"]
-	if hasSelector == (hasX || hasY) || hasX != hasY {
+	ref, observationID, hasRef, failure, failed := webControlObservationReference(args)
+	if failed {
+		return failure, nil
+	}
+	if hasRef && (hasSelector || hasX || hasY) {
+		return webControlInvalidArgs("ref and observationId cannot be combined with selector or coordinates", "ref"), nil
+	}
+	if !hasRef && (hasSelector == (hasX || hasY) || hasX != hasY) {
 		return webControlInvalidArgs("provide either selector or both x and y", ""), nil
 	}
 	params := map[string]any{}
-	if hasSelector {
+	method := "Input.click"
+	if hasRef {
+		method = "Surface.click"
+		params["ref"], params["observationId"] = ref, observationID
+	} else if hasSelector {
 		selector, failure, failed := webControlString(args, "selector", true)
 		if failed {
 			return failure, nil
@@ -845,18 +1030,69 @@ func (t *RuntimeToolExecutor) webControlSurfaceClick(ctx context.Context, args m
 		}
 		params["waitFor"] = waitFor
 	}
-	return t.invokeDesktopCDP(ctx, map[string]any{"method": "Input.click", "surfaceId": surfaceID, "params": params}, execCtx)
+	if timeout, present := args["timeoutMs"]; present {
+		if !hasRef {
+			return webControlInvalidArgs("timeoutMs is only valid with ref and observationId", "timeoutMs"), nil
+		}
+		var number float64
+		switch value := timeout.(type) {
+		case float64:
+			number = value
+		case int:
+			number = float64(value)
+		default:
+			return webControlInputError(toolinput.New("timeoutMs", "JSON integer in range 100–10000", timeout, true, "Provide an integer in the allowed range.")), nil
+		}
+		if math.IsNaN(number) || math.IsInf(number, 0) || number < 100 || number > 10000 || math.Trunc(number) != number {
+			return webControlInputError(toolinput.New("timeoutMs", "JSON integer in range 100–10000", timeout, true, "Provide an integer in the allowed range.")), nil
+		}
+		params["timeoutMs"] = number
+	}
+	return t.webControlSurfaceCall(ctx, method, surfaceID, params, execCtx)
+}
+
+// Element references are valid only in the observation that issued them. Both
+// fields are opaque host identifiers; neither is a selector or a browser tab ID.
+func webControlObservationReference(args map[string]any) (string, string, bool, ToolExecutionResult, bool) {
+	_, hasRef := args["ref"]
+	_, hasObservation := args["observationId"]
+	if hasRef != hasObservation {
+		missing := "observationId"
+		if !hasRef {
+			missing = "ref"
+		}
+		return "", "", false, webControlInvalidArgs("ref and observationId must be provided together", missing), true
+	}
+	if !hasRef {
+		return "", "", false, ToolExecutionResult{}, false
+	}
+	ref, failure, failed := webControlString(args, "ref", true)
+	if failed {
+		return "", "", false, failure, true
+	}
+	observationID, failure, failed := webControlString(args, "observationId", true)
+	if failed {
+		return "", "", false, failure, true
+	}
+	return ref, observationID, true, ToolExecutionResult{}, false
 }
 
 func (t *RuntimeToolExecutor) webControlSurfaceElement(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
-	if failure, failed := webControlFields(args, "surfaceId", "selector", "action", "value"); failed {
+	if failure, failed := webControlFields(args, "surfaceId", "selector", "ref", "observationId", "action", "value", "values", "key"); failed {
 		return failure, nil
 	}
 	surfaceID, failure, failed := webControlSurfaceID(args, true)
 	if failed {
 		return failure, nil
 	}
-	selector, failure, failed := webControlString(args, "selector", true)
+	ref, observationID, hasRef, failure, failed := webControlObservationReference(args)
+	if failed {
+		return failure, nil
+	}
+	if _, hasSelector := args["selector"]; hasRef && hasSelector {
+		return webControlInvalidArgs("ref and observationId cannot be combined with selector", "ref"), nil
+	}
+	selector, failure, failed := webControlString(args, "selector", !hasRef)
 	if failed {
 		return failure, nil
 	}
@@ -865,15 +1101,63 @@ func (t *RuntimeToolExecutor) webControlSurfaceElement(ctx context.Context, args
 		return failure, nil
 	}
 	if !webControlElementActions[action] {
-		return webControlInvalidArgs("action must be fill, select, focus or scroll; use surface_click to click", "action"), nil
+		return webControlInvalidArgs("action must be fill, select, focus, scroll, hover, type, press, check or uncheck; use surface_click to click", "action"), nil
 	}
-	actionArgs := map[string]any{"surfaceId": surfaceID, "selector": selector, "action": action}
+	actionArgs := map[string]any{"action": action}
+	if hasRef {
+		actionArgs["ref"], actionArgs["observationId"] = ref, observationID
+	} else {
+		actionArgs["surfaceId"], actionArgs["selector"] = surfaceID, selector
+	}
 	if raw, present := args["value"]; present {
 		value, ok := raw.(string)
 		if !ok {
 			return webControlInvalidArgs("value must be a string", "value"), nil
 		}
 		actionArgs["value"] = value
+	}
+	_, hasValues := args["values"]
+	if hasValues {
+		if _, hasValue := args["value"]; hasValue || action != "select" {
+			return webControlInvalidArgs("values is only valid for select and is mutually exclusive with value", "values"), nil
+		}
+		values, valid := webControlStringArray(args["values"], 100, 4096)
+		if !valid {
+			return webControlInvalidArgs("values must be an array of at most 100 strings, each at most 4096 characters", "values"), nil
+		}
+		actionArgs["values"] = values
+	}
+	if raw, present := args["key"]; present {
+		key, valid := raw.(string)
+		if !valid || action != "press" || !webControlPressKeys[key] {
+			return webControlInvalidArgs("key must be an allowed press key and is only valid with action press", "key"), nil
+		}
+		actionArgs["key"] = key
+	}
+	if action == "press" {
+		if _, present := actionArgs["key"]; !present {
+			return webControlInvalidArgs("key is required with action press", "key"), nil
+		}
+	}
+	if action == "type" {
+		if _, present := actionArgs["value"]; !present {
+			return webControlInvalidArgs("value is required with action type", "value"), nil
+		}
+	}
+	chromeAction := action == "hover" || action == "type" || action == "press" || action == "check" || action == "uncheck" || hasValues
+	if chromeAction && action != "type" && action != "select" {
+		if _, present := args["value"]; present {
+			return webControlInvalidArgs("value is only valid with fill, select or type", "value"), nil
+		}
+	}
+	if hasRef || chromeAction {
+		// Extended actions must reach Main's provider gate, never the legacy
+		// WorkPanel evaluation action. Main rejects them for WorkPanel pages.
+		delete(actionArgs, "surfaceId")
+		if !hasRef {
+			actionArgs["selector"] = selector
+		}
+		return t.webControlSurfaceCall(ctx, "Surface.interact", surfaceID, actionArgs, execCtx)
 	}
 	result, err := t.webControlAction(ctx, "desktop.web.interactElement", actionArgs, execCtx)
 	if err != nil || result.ExitCode != 0 {
@@ -902,6 +1186,34 @@ func (t *RuntimeToolExecutor) webControlSurfaceElement(ctx context.Context, args
 		result.Error = "surface_element_failed"
 	}
 	return result, nil
+}
+
+func webControlStringArray(raw any, maxItems, maxChars int) ([]string, bool) {
+	var values []string
+	switch typed := raw.(type) {
+	case []string:
+		values = typed
+	case []any:
+		values = make([]string, len(typed))
+		for index, item := range typed {
+			value, valid := item.(string)
+			if !valid {
+				return nil, false
+			}
+			values[index] = value
+		}
+	default:
+		return nil, false
+	}
+	if len(values) > maxItems {
+		return nil, false
+	}
+	for _, value := range values {
+		if utf8.RuneCountInString(value) > maxChars {
+			return nil, false
+		}
+	}
+	return values, true
 }
 
 // webControlSurfaceLogin asks Desktop to use a password the user saved for the

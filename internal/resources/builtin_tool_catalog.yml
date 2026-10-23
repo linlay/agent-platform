@@ -54,12 +54,18 @@ visibleBuiltinTools:
   - surface_click
   - surface_close
   - surface_element
+  - surface_dialog
+  - surface_downloads
   - surface_evaluate
   - surface_list
   - surface_login
   - surface_navigate
+  - surface_observe
+  - surface_open
   - surface_screenshot
+  - surface_scroll
   - surface_state
+  - surface_upload
   - workpanel_close
   - workpanel_open
   - workpanel_state
