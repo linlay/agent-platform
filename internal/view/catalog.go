@@ -47,10 +47,31 @@ func catalogEntry(connectorID, key string, d Definition) string {
 	}
 	lines = append(lines, "description: "+strings.Join(strings.Fields(d.Description), " "))
 	if len(d.DataSchema) > 0 {
-		var compact bytes.Buffer
-		if json.Compact(&compact, d.DataSchema) == nil {
-			lines = append(lines, "data: "+compact.String())
+		lines = append(lines, "data: "+compactJSON(d.DataSchema))
+	}
+	names := make([]string, 0, len(d.Queries))
+	for name := range d.Queries {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		q := d.Queries[name]
+		line := "query " + name + ":"
+		if description := strings.Join(strings.Fields(q.Description), " "); description != "" {
+			line += " " + description
 		}
+		if len(q.ParamsSchema) > 0 {
+			line += " params: " + compactJSON(q.ParamsSchema)
+		}
+		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func compactJSON(raw json.RawMessage) string {
+	var compact bytes.Buffer
+	if json.Compact(&compact, raw) != nil {
+		return ""
+	}
+	return compact.String()
 }

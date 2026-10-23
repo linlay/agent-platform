@@ -9,7 +9,7 @@ import (
 
 func TestDispatcherBindsMarkdownViewsOnCloseAndPersistsThemOnSnapshot(t *testing.T) {
 	var calls []string
-	binder := func(ref view.Reference, data json.RawMessage) (view.Reference, error) {
+	binder := func(ref view.Reference, _ string, data json.RawMessage) (view.Reference, error) {
 		calls = append(calls, ref.ConnectorID+"/"+ref.Key+" "+string(data))
 		if ref.Key == "missing" {
 			return view.Reference{}, view.ErrNotFound
@@ -42,7 +42,7 @@ func TestDispatcherBindsMarkdownViewsOnCloseAndPersistsThemOnSnapshot(t *testing
 
 func TestDispatcherReportsInvalidBlocksWithoutCallingBinder(t *testing.T) {
 	called := false
-	binder := func(ref view.Reference, data json.RawMessage) (view.Reference, error) {
+	binder := func(ref view.Reference, _ string, data json.RawMessage) (view.Reference, error) {
 		called = true
 		return ref, nil
 	}
@@ -71,7 +71,7 @@ func TestDispatcherLeavesViewBlocksUnboundWithoutBinder(t *testing.T) {
 }
 
 func TestDispatcherDiscardDropsContentViewBindings(t *testing.T) {
-	binder := func(ref view.Reference, data json.RawMessage) (view.Reference, error) { return ref, nil }
+	binder := func(ref view.Reference, _ string, data json.RawMessage) (view.Reference, error) { return ref, nil }
 	d := NewDispatcher(StreamRequest{RunID: "run_1", ChatID: "chat_1"})
 	_ = d.Dispatch(ContentDelta{ContentID: "c1", Delta: "```view key=a/b\n{}\n```\n", BindView: binder})
 	_ = d.Dispatch(ModelTurnDiscard{ContentIDs: []string{"c1"}})

@@ -1,0 +1,36 @@
+{
+  "views": {
+    "automations": {
+      "title": "Automations",
+      "description": "Show automations with schedule, status, next run and last execution as a pageable table. Prefer query mode with query=list so the user can page; or pass an automation_query list result as data.",
+      "renderer": "html",
+      "usage": ["display"],
+      "entry": "views/automations.html",
+      "dataSchema": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {"type": "array", "items": {"type": "object"}},
+          "total": {"type": "integer"},
+          "hasMore": {"type": "boolean"},
+          "nextOffset": {"type": "integer"}
+        }
+      },
+      "queries": {
+        "list": {
+          "description": "List automations.",
+          "adapter": "native",
+          "operation": "automation.list",
+          "paramsSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+              "offset": {"type": "integer", "minimum": 0}
+            }
+          }
+        }
+      }
+    }
+  }
+}

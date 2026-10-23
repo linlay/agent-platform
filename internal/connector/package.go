@@ -180,12 +180,15 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 		if err := view.ValidateDefinitions(dir, viewConfig.Views); err != nil {
 			return Package{}, fmt.Errorf("connector %s view.json: %w", id, err)
 		}
+		if err := validateViewQueries(id, viewConfig.Views); err != nil {
+			return Package{}, fmt.Errorf("connector %s view.json: %w", id, err)
+		}
 		pkg.Views = viewConfig.Views
 	} else if pkg.Type == "view" || !os.IsNotExist(err) {
 		return Package{}, fmt.Errorf("connector %s view.json: %w", id, err)
 	}
 	if pkg.Type == "native" {
-		if !IsNative(id) || pkg.AuthMode != AuthNoAuth || pkg.CLI != nil || len(pkg.MCP) != 0 || len(pkg.Views) != 0 || pkg.BinDir != "" {
+		if !IsNative(id) || pkg.AuthMode != AuthNoAuth || pkg.CLI != nil || len(pkg.MCP) != 0 || pkg.BinDir != "" {
 			return Package{}, fmt.Errorf("native connectors require a registered builtin capability package without executable components")
 		}
 	}
@@ -557,4 +560,17 @@ func (m Manifest) AuthorizationBrowser() string {
 // AuthorizationBrowser is declared only by the manifest.
 func (p Package) AuthorizationBrowser() string {
 	return p.Manifest.AuthorizationBrowser()
+}
+
+// validateViewQueries admits only operations registered for this connector;
+// a package cannot borrow another connector's Platform read operations.
+func validateViewQueries(id string, views map[string]view.Definition) error {
+	for key, definition := range views {
+		for name, query := range definition.Queries {
+			if owner, ok := NativeViewOperationOwner(query.Operation); !ok || owner != id {
+				return fmt.Errorf("%w: query %s of %s uses operation %q not registered for %s", view.ErrInvalid, name, key, query.Operation, id)
+			}
+		}
+	}
+	return nil
 }

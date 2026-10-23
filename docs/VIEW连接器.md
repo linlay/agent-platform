@@ -4,7 +4,9 @@
 
 连接器主类型为 `mcp | cli | view`，界面显示 MCP / CLI / VIEW。主类型决定必填组件文件，同一个包可以组合 `mcp.json`、`cli.json`、`view.json`。VIEW 提供展示模板：`usage: display` 渲染结果，`usage: form` 展示 HITL 表单。业务查询和执行由 Tool/MCP/CLI 完成，决定和提交仍由 HITL 控制面处理。纯 VIEW 包不自动增加 Bash 或 PATH。
 
-VIEW 复用 ZIP 导入、原包编辑、Agent 挂载、运行目录组装和租约。`internal/view` 负责中立定义、资源读取、远端模板获取和快照；`internal/connector` 负责包校验；Server 将冻结的 Agent 挂载绑定到 QuerySession。Team 成员只使用自己的挂载。
+VIEW 复用 ZIP 导入、原包编辑、Agent 挂载、运行目录组装和租约。`internal/view` 负责中立定义、资源读取、远端模板获取和快照；`internal/connector` 负责包校验；`internal/viewquery` 执行快照声明的只读查询；Server 将冻结的 Agent 挂载绑定到 QuerySession。Team 成员只使用自己的挂载。
+
+内嵌原生连接器也可以携带 `view.json` 与 `views/`，随连接器挂载发布、进入 prompt 目录并冻结快照，规则与外部 VIEW 包相同。当前提供 `builtin.task-control/automations`（自动化列表）与 `builtin.platform-control/catalog`（智能体/连接器目录）。
 
 ## 包配置
 
@@ -104,7 +106,11 @@ HTTP：`GET /api/view?source=connector&chatId=<chat>&connectorId=crm-views&key=c
 
 展示消息由宿主发送：`{type:"view_init" | "view_update",data:{view,payload}}`，payload 是工具结果或 Markdown 数据。展示 iframe 没有提交或执行消息处理器。
 
-宿主为 display VIEW 注入 `window.zenmindView` 适配脚本（不写入快照，随宿主协议演进）：`zenmindView.onData((payload, view) => …)` 接收 init/update，`zenmindView.resize()` 手动上报高度；脚本默认以 ResizeObserver 发送 `{type:"view_resize",height}`。宿主只接受来自该 iframe 的消息，高度限定在 48–1600px，首次上报前保持 320px。
+宿主为 display VIEW 注入 `window.zenmindView` 适配脚本（不写入快照，随宿主协议演进）：
+
+- `zenmindView.onData((payload, view, context) => …)` 接收 init/update；`context` 含 `queryable`、`locale`、`colorScheme`，查询块另有 `query:{name,params}`，首次查询失败时有 `error`。脚本把 `colorScheme` 写到 `<html data-color-scheme>` 与 `color-scheme`，模板按宿主主题而非系统主题配色。
+- `zenmindView.query(name, params)` 返回 Promise：发送 `{type:"view_query",id,query,params}`，宿主只对本 iframe、快照声明的查询调用 `/api/view/query`，回复 `{type:"view_query_result",id,ok,result|error}`。工具结果 VIEW 没有 Run 上下文，不可查询。
+- `zenmindView.resize()` 手动上报高度；脚本默认以 ResizeObserver 发送 `{type:"view_resize",height}`。宿主只接受来自该 iframe 的消息，高度限定在 48–1600px，首次上报前保持 320px。
 
 表单使用 `awaiting_init/awaiting_update`，data 含 `runId/awaitingId/view/mode/timeout/form`，其中 `form` 为 `{title, data}`。宿主按钮发送 `{type:"awaiting_collect",data:{runId,awaitingId,decision:"submit"|"reject"}}`，模板读取字段后回复：
 
@@ -129,14 +135,42 @@ QLC 当前采用 JSON 展示与 JSON 表单兜底，尚未实现专有 QLC 控�
 语法（平台与 WebClient 按同一组 golden 用例 `internal/view/testdata/markdown_cases.json` 校验）：
 
 - 栅栏从行首开始；恰好三个反引号加单词 `view`（不区分大小写），其后为空白或行尾。
-- 属性只接受 `key=<connectorId>/<viewKey>`，两段均为小写 ID；重复、未知属性（含 `hash=`、`query=`）均为 `invalid_view`。不带 `/` 的内置 VIEW 不能用于 Markdown。
-- 正文为一个 JSON 对象或数组，去除首尾空白后 ≤256 KiB；有 `dataSchema` 时按其校验，失败为 `view_data_invalid`。
+- 属性接受必填的 `key=<connectorId>/<viewKey>` 与可选的 `query=<name>`，顺序不限，各至多一次；ID 均为小写；重复或未知属性（含 `hash=`）均为 `invalid_view`。不带 `/` 的内置 VIEW 不能用于 Markdown。
+- 无 `query` 时正文为数据：一个 JSON 对象或数组，去除首尾空白后 ≤256 KiB；有 `dataSchema` 时按其校验，失败为 `view_data_invalid`。
+- 有 `query` 时正文为该查询的参数对象：查询必须由 VIEW 声明（否则 `invalid_view`），参数必须是 JSON 对象并符合 `paramsSchema`（否则 `view_data_invalid`）。
 - 单独一行、至少同样数量的同种栅栏字符闭合，允许尾随空白。其他代码块（``` 或 ~~~）内的 `view` 栅栏是代码，不是 VIEW；未闭合的块不渲染。
 - `index` 为同一 content 内已闭合 VIEW 块的顺序号，非法块也占号，平台绑定与客户端分段靠它对齐。
 
 Run 输出时由平台绑定：内容流每收到含换行的增量即扫描新闭合的块（流式期间末行须以换行结束才算闭合，content 结束时行尾即可），用**产生该内容的执行者**本 Run 冻结的挂载解析模板、写入快照并校验数据，随后发布 `content.view`；`content.snapshot.views` 汇总持久化。Team 成员使用自己的挂载，模型无需也不能填写 hash。原文不改写。ACP/PROXY/CHANNEL 不绑定，其 VIEW 块按普通代码块显示。旧 JSON 信封 `{"view":…,"payload":…}` 已删除，历史中的旧块因无绑定按代码块显示。
 
 WebClient 只用绑定中的 hash 读取快照：块已闭合但绑定未到时显示加载中；content 结束仍无绑定则按代码块显示；`viewError` 时显示错误并折叠原始 JSON。
+
+## VIEW 查询
+
+display VIEW 可以在 `view.json` 声明只读查询，让模板自己取数，用户在界面上改条件后重新查询：
+
+```json
+"queries": {
+  "list": {
+    "description": "List automations.",
+    "adapter": "native",
+    "operation": "automation.list",
+    "paramsSchema": {"type":"object","additionalProperties":false,"properties":{"limit":{"type":"integer","minimum":1,"maximum":100},"offset":{"type":"integer","minimum":0}}}
+  }
+}
+```
+
+- 当前只有 `adapter: "native"`：`operation` 必须登记在 `internal/connector/native.go` 的原生 VIEW 操作表，且属于声明它的连接器（`automation.list` 归 `builtin.task-control`，`catalog.list` 归 `builtin.platform-control`）；外部包与跨连接器借用在加载时拒绝。CLI/MCP 查询尚未实现。
+- 查询声明随模板写入快照并计入 hash，历史快照不会因升级获得新查询。prompt 目录为每个查询列出 `query <name>: <description> params: <paramsSchema>`。
+- 模型写 ` ```view key=builtin.task-control/automations query=list ` 并以参数对象为正文；WebClient 打开时以这些参数执行首次查询，模板通过 `zenmindView.query(name, params)` 重新查询。
+
+`POST /api/view/query`（WS 同名 route）请求体为 `{chatId, runId, view:{connectorId,key,hash}, query, params}`，严格拒绝未知字段，响应 `{code:0,data:{result}}`。授权与执行规则：
+
+1. 查询是**查看者**的操作，等同用户打开管理页：沿用 Chat 资源鉴权，不经过工具准入，不检查 Agent 挂载、根 Run、阶段或审批，也不构造 Run 执行上下文。
+2. 只执行快照中声明、且在原生操作表中登记的操作；参数先按 `paramsSchema` 校验，操作再复用对应工具的参数校验与读取逻辑，结果形状与工具结果一致（`catalog.list` 只允许 `resourceType` 为 agent 或 connector）。
+3. `runId` 必须属于该 Chat，平台解析出该 Run 的根 `agentKey` 并随查询上下文传给操作。当前两个操作是部署级列表，只记录不裁剪；需要按智能体范围裁剪的操作可基于它扩展。
+4. 只服务在线 Chat；归档 Chat 的 VIEW 仍可显示，但查询返回 404。BTW/Explain 侧链的 Run 不在主 Chat 查询行中，查询返回 `view_query_run_not_found`。
+5. 结果 ≤1 MiB。错误：400 `invalid_view` / `view_query_params_invalid`、403 `view_access_denied`、404 `view_not_found` / `view_query_run_not_found`、422 `view_query_failed`（`data.error.message` 为操作错误）、503 `view_query_unavailable`。
 
 ### Prompt 目录
 
@@ -147,7 +181,7 @@ shared:
   view:
     instructions-prompt: |
       ...VIEW 用法规则...
-    catalog-header: "Available views (key, purpose, data schema):"
+    catalog-header: "Available views (key, purpose, data schema, queries):"
 ```
 
 注入规则：
@@ -160,7 +194,7 @@ shared:
 6. section 为 `view-catalog`（`views.catalog`），紧跟 `skill-catalog`；内容为 instructions、header 与条目依次拼接。
 7. 规划与执行 Run 内容相同，与 mode、editingMode 无关；目录计入 system-init 指纹。
 8. Run 启动时随 Session 冻结，目录热重载只影响下一次 Run。
-9. 条目按 `connectorId/viewKey` 字典序，字段为 `key/title/description/data`（结构标签由代码生成，description 折叠空白，data 为紧凑 JSON）；整段上限 32 KiB，超出从末尾整条移除并记录 warning。
+9. 条目按 `connectorId/viewKey` 字典序，字段为 `key/title/description/data` 和每个查询一行 `query <name>: <description> params: <paramsSchema>`（结构标签由代码生成，description 折叠空白，JSON 为紧凑形式）；整段上限 32 KiB，超出从末尾整条移除并记录 warning。
 10. 不提供 Agent 级覆盖；不需要某个 VIEW 就不挂载对应连接器。
 11. description 与 dataSchema 来自包作者，信任等级同工具描述，不授予工具或权限。
 12. 渲染与绑定不依赖 prompt：未注入时模型写出的 VIEW 块仍按上述规则绑定。

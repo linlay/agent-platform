@@ -24,8 +24,10 @@ const MaxMarkdownDataBytes = 256 << 10
 type MarkdownBlock struct {
 	Index     int
 	Reference *Reference
-	Data      json.RawMessage
-	Err       error
+	// Query names a declared view query; Data then holds its params object.
+	Query string
+	Data  json.RawMessage
+	Err   error
 }
 
 // ParseMarkdownBlocks scans Markdown for top-level ```view fences.
@@ -34,7 +36,8 @@ type MarkdownBlock struct {
 //   - fences start at column 0; ``` or ~~~ runs of three or more open a fence;
 //   - a view fence is exactly three backticks followed by the word "view"
 //     (case-insensitive) and then whitespace or end of line;
-//   - its info string accepts only key=<connectorId>/<viewKey>;
+//   - its info string accepts key=<connectorId>/<viewKey> and optionally
+//     query=<name>, each at most once; with query the body is a params object;
 //   - a fence closes on a line with only the same character repeated at least
 //     as many times, optionally followed by spaces or tabs;
 //   - view fences inside other fences are code, not views;
@@ -64,9 +67,9 @@ func ParseMarkdownBlocks(text string, final bool) []MarkdownBlock {
 		}
 		if attrs, isView := viewInfo(char, width, info); isView {
 			block := MarkdownBlock{Index: len(blocks)}
-			block.Reference, block.Err = parseViewAttributes(attrs)
+			block.Reference, block.Query, block.Err = parseViewAttributes(attrs)
 			if block.Err == nil {
-				block.Data, block.Err = parseMarkdownData(strings.Join(lines[i+1:end], "\n"))
+				block.Data, block.Err = parseMarkdownData(strings.Join(lines[i+1:end], "\n"), block.Query != "")
 			}
 			blocks = append(blocks, block)
 		}
@@ -114,28 +117,35 @@ func viewInfo(char byte, width int, info string) (string, bool) {
 	return rest, true
 }
 
-func parseViewAttributes(attrs string) (*Reference, error) {
-	var key string
+func parseViewAttributes(attrs string) (*Reference, string, error) {
+	values := map[string]string{}
 	for _, field := range strings.Fields(attrs) {
 		name, value, ok := strings.Cut(field, "=")
-		if !ok || name != "key" || key != "" {
-			return nil, fmt.Errorf("%w: view block accepts only key=<connectorId>/<viewKey>", ErrInvalid)
+		if _, seen := values[name]; !ok || seen || (name != "key" && name != "query") {
+			return nil, "", fmt.Errorf("%w: view block accepts key=<connectorId>/<viewKey> and query=<name>", ErrInvalid)
 		}
-		key = value
+		values[name] = value
 	}
-	connectorID, viewKey, ok := strings.Cut(key, "/")
+	connectorID, viewKey, ok := strings.Cut(values["key"], "/")
 	if !ok || !idPattern.MatchString(connectorID) || !idPattern.MatchString(viewKey) {
-		return nil, fmt.Errorf("%w: view block key must be <connectorId>/<viewKey>", ErrInvalid)
+		return nil, "", fmt.Errorf("%w: view block key must be <connectorId>/<viewKey>", ErrInvalid)
 	}
-	return &Reference{Source: "connector", ConnectorID: connectorID, Key: viewKey}, nil
+	query, hasQuery := values["query"]
+	if hasQuery && !idPattern.MatchString(query) {
+		return nil, "", fmt.Errorf("%w: view block query name", ErrInvalid)
+	}
+	return &Reference{Source: "connector", ConnectorID: connectorID, Key: viewKey}, query, nil
 }
 
-func parseMarkdownData(body string) (json.RawMessage, error) {
+func parseMarkdownData(body string, params bool) (json.RawMessage, error) {
 	data := bytes.TrimSpace([]byte(body))
 	if len(data) > MaxMarkdownDataBytes {
 		return nil, fmt.Errorf("%w: body exceeds %d bytes", ErrDataInvalid, MaxMarkdownDataBytes)
 	}
-	if len(data) == 0 || (data[0] != '{' && data[0] != '[') || !json.Valid(data) {
+	if len(data) == 0 || (data[0] != '{' && (params || data[0] != '[')) || !json.Valid(data) {
+		if params {
+			return nil, fmt.Errorf("%w: query body must be one JSON object", ErrDataInvalid)
+		}
 		return nil, fmt.Errorf("%w: body must be one JSON object or array", ErrDataInvalid)
 	}
 	return json.RawMessage(data), nil
@@ -154,12 +164,30 @@ func compileDataSchema(raw json.RawMessage) (*jsonschema.Resolved, error) {
 
 // ValidateData checks a Markdown view body against the definition's schema.
 func ValidateData(d Definition, data json.RawMessage) error {
-	if len(d.DataSchema) == 0 {
+	return validateAgainst(d.DataSchema, data)
+}
+
+// ValidateQuery checks that the definition declares the query and that params
+// satisfy its paramsSchema. Params must be a JSON object.
+func ValidateQuery(queries map[string]Query, name string, params json.RawMessage) (Query, error) {
+	q, ok := queries[name]
+	if !ok {
+		return Query{}, fmt.Errorf("%w: query %s is not declared", ErrInvalid, name)
+	}
+	var object map[string]any
+	if json.Unmarshal(params, &object) != nil || object == nil {
+		return Query{}, fmt.Errorf("%w: params must be a JSON object", ErrDataInvalid)
+	}
+	return q, validateAgainst(q.ParamsSchema, params)
+}
+
+func validateAgainst(schema json.RawMessage, data json.RawMessage) error {
+	if len(schema) == 0 {
 		return nil
 	}
-	resolved, err := compileDataSchema(d.DataSchema)
+	resolved, err := compileDataSchema(schema)
 	if err != nil {
-		return fmt.Errorf("%w: dataSchema", ErrInvalid)
+		return fmt.Errorf("%w: schema", ErrInvalid)
 	}
 	var instance any
 	if err := json.Unmarshal(data, &instance); err != nil {

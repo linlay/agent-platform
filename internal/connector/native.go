@@ -25,6 +25,26 @@ var nativeConnectorTools = map[string][]string{
 	},
 }
 
+// nativeViewOperations lists the Platform read operations each native
+// connector's views may declare as queries. Operations run as the viewer, not
+// as an Agent, so only read-only, deployment-level listings belong here.
+var nativeViewOperations = map[string][]string{
+	TaskControlConnectorID:     {"automation.list"},
+	PlatformControlConnectorID: {"catalog.list"},
+}
+
+// NativeViewOperationOwner returns the native connector that owns operation.
+func NativeViewOperationOwner(operation string) (string, bool) {
+	for id, operations := range nativeViewOperations {
+		for _, name := range operations {
+			if name == operation {
+				return id, true
+			}
+		}
+	}
+	return "", false
+}
+
 // IsNative reports whether id is a native connector compiled into Platform.
 func IsNative(id string) bool {
 	_, ok := nativeConnectorTools[id]

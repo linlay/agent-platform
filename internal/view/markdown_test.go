@@ -23,6 +23,7 @@ func TestParseMarkdownBlocksSharedCases(t *testing.T) {
 			Blocks []struct {
 				Index int             `json:"index"`
 				Key   string          `json:"key"`
+				Query string          `json:"query"`
 				Data  json.RawMessage `json:"data"`
 				Error string          `json:"error"`
 			} `json:"blocks"`
@@ -43,7 +44,7 @@ func TestParseMarkdownBlocksSharedCases(t *testing.T) {
 				if got.Reference != nil {
 					key = got.Reference.ConnectorID + "/" + got.Reference.Key
 				}
-				if got.Index != want.Index || key != want.Key || ErrorCode(got.Err) != want.Error {
+				if got.Index != want.Index || key != want.Key || got.Query != want.Query || ErrorCode(got.Err) != want.Error {
 					t.Fatalf("block %d = index %d key %q err %v, want %+v", i, got.Index, key, got.Err, want)
 				}
 				if len(want.Data) > 0 && !sameJSON(t, got.Data, want.Data) {

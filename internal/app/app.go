@@ -59,6 +59,7 @@ import (
 	"agent-platform/internal/terminal"
 	"agent-platform/internal/toolinteraction"
 	"agent-platform/internal/tools"
+	"agent-platform/internal/viewquery"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -445,6 +446,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		BackgroundContext:      backgroundCtx,
 		Config:                 cfg,
 		Chats:                  chatStore,
+		ViewQueries:            &viewquery.Service{Operations: controlHandler.ViewQueryOperations()},
 		Archives:               archiveStore,
 		Archiver:               archiver,
 		Memory:                 memoryStore,

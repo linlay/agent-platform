@@ -1,0 +1,39 @@
+{
+  "views": {
+    "catalog": {
+      "title": "Catalog",
+      "description": "Show the Agent or connector catalog with validity and diagnostics; the user can switch between Agents and connectors and filter by status. Prefer query mode with query=list; or pass a catalog_query list result as data.",
+      "renderer": "html",
+      "usage": ["display"],
+      "entry": "views/catalog.html",
+      "dataSchema": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {"type": "array", "items": {"type": "object"}},
+          "total": {"type": "integer"},
+          "hasMore": {"type": "boolean"},
+          "nextCursor": {"type": "string"}
+        }
+      },
+      "queries": {
+        "list": {
+          "description": "List Agents or connectors.",
+          "adapter": "native",
+          "operation": "catalog.list",
+          "paramsSchema": {
+            "type": "object",
+            "required": ["resourceType"],
+            "additionalProperties": false,
+            "properties": {
+              "resourceType": {"enum": ["agent", "connector"]},
+              "status": {"enum": ["all", "valid", "invalid"]},
+              "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+              "cursor": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

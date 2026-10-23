@@ -48,6 +48,9 @@ func (s *Service) Resolve(ctx context.Context, mounts []Mount, ref Reference, us
 			return Document{}, fmt.Errorf("%w: unsupported usage", ErrInvalid)
 		}
 		doc := Document{View: Reference{Source: "connector", ConnectorID: mount.ID, Key: ref.Key, Version: mount.Version, Renderer: d.Renderer}, Entry: d.Entry}
+		if usage == "display" {
+			doc.Queries = d.Queries
+		}
 		if d.Remote != nil {
 			data, err := s.fetch(ctx, mount.ID, ref.Key, d.Renderer, *d.Remote)
 			if err != nil {

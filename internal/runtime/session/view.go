@@ -67,14 +67,19 @@ func (s *Builder) ConfigureViews(session *contracts.QuerySession, def catalog.Ag
 		return resolved, err
 	}
 	session.ResolveView = resolve
-	session.BindMarkdownView = func(ctx context.Context, ref view.Reference, data json.RawMessage) (view.Reference, error) {
+	session.BindMarkdownView = func(ctx context.Context, ref view.Reference, query string, body json.RawMessage) (view.Reference, error) {
 		resolved, err := resolve(ctx, ref, "display")
 		if err != nil {
 			return view.Reference{}, err
 		}
 		// The template is frozen even when the body fails, so the client can
 		// show the error next to the exact view the model addressed.
-		return resolved, view.ValidateData(mountDefinition(mounts, ref), data)
+		definition := mountDefinition(mounts, ref)
+		if query != "" {
+			_, err = view.ValidateQuery(definition.Queries, query, body)
+			return resolved, err
+		}
+		return resolved, view.ValidateData(definition, body)
 	}
 	return nil
 }

@@ -170,7 +170,7 @@ func (d *StreamEventDispatcher) bindContentViews(contentID string, block content
 			binding["view"] = markdown.Reference.Map()
 		}
 		if err == nil {
-			resolved, bindErr := binder(*markdown.Reference, markdown.Data)
+			resolved, bindErr := binder(*markdown.Reference, markdown.Query, markdown.Data)
 			if resolved.Key != "" {
 				binding["view"] = resolved.Map()
 			}

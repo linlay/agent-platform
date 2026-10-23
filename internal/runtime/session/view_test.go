@@ -72,18 +72,18 @@ func TestConfigureViewsBindsMarkdownWithFrozenMountsAndSchema(t *testing.T) {
 		t.Fatalf("catalog prompt: %q", session.ViewCatalogPrompt)
 	}
 	ref := view.Reference{Source: "connector", ConnectorID: "crm", Key: "orders"}
-	bound, err := session.BindMarkdownView(context.Background(), ref, json.RawMessage(`{"items":[]}`))
+	bound, err := session.BindMarkdownView(context.Background(), ref, "", json.RawMessage(`{"items":[]}`))
 	if err != nil || bound.Hash == "" {
 		t.Fatalf("bind: %#v %v", bound, err)
 	}
 	if _, err := view.LoadSnapshot(session.ChatRoot, bound); err != nil {
 		t.Fatalf("snapshot not frozen in Chat: %v", err)
 	}
-	invalid, err := session.BindMarkdownView(context.Background(), ref, json.RawMessage(`{}`))
+	invalid, err := session.BindMarkdownView(context.Background(), ref, "", json.RawMessage(`{}`))
 	if !errors.Is(err, view.ErrDataInvalid) || invalid.Hash != bound.Hash {
 		t.Fatalf("schema failure: %#v %v", invalid, err)
 	}
-	if _, err := session.BindMarkdownView(context.Background(), view.Reference{Source: "connector", ConnectorID: "other", Key: "orders"}, json.RawMessage(`{}`)); !errors.Is(err, view.ErrNotFound) {
+	if _, err := session.BindMarkdownView(context.Background(), view.Reference{Source: "connector", ConnectorID: "other", Key: "orders"}, "", json.RawMessage(`{}`)); !errors.Is(err, view.ErrNotFound) {
 		t.Fatalf("unmounted connector: %v", err)
 	}
 }

@@ -34,10 +34,10 @@ type ContentDelta struct {
 	BindView ContentViewBinder
 }
 
-// ContentViewBinder resolves one Markdown view block and validates its body.
-// A returned Reference with a non-nil error is the resolved template whose
-// data failed validation.
-type ContentViewBinder func(ref view.Reference, data json.RawMessage) (view.Reference, error)
+// ContentViewBinder resolves one Markdown view block and validates its body:
+// view data, or the params of the named query when query is set. A returned
+// Reference with a non-nil error is the resolved template whose body failed.
+type ContentViewBinder func(ref view.Reference, query string, body json.RawMessage) (view.Reference, error)
 
 func (ContentDelta) streamInputTag() {}
 

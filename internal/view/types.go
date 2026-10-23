@@ -21,6 +21,8 @@ var (
 	ErrInvalid     = errors.New("invalid view")
 	idPattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 	hashPattern    = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	// operationPattern names a Platform read operation such as automation.list.
+	operationPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$`)
 )
 
 const (
@@ -138,6 +140,18 @@ type Definition struct {
 	Entry       string          `json:"entry,omitempty"`
 	Assets      []string        `json:"assets,omitempty"`
 	Remote      *Remote         `json:"remote,omitempty"`
+	// Queries are read operations the rendered view may run through the host.
+	// They are frozen into the snapshot with the template.
+	Queries map[string]Query `json:"queries,omitempty"`
+}
+
+// Query declares one read operation of a display view. Only the native adapter
+// exists: its operation must be registered for the declaring native connector.
+type Query struct {
+	Description  string          `json:"description,omitempty"`
+	Adapter      string          `json:"adapter"`
+	Operation    string          `json:"operation"`
+	ParamsSchema json.RawMessage `json:"paramsSchema,omitempty"`
 }
 
 // Remote fetches only a template by key; no conversation/tool/form data is sent.
@@ -177,6 +191,9 @@ func ValidateDefinitions(root string, definitions map[string]Definition) error {
 			seen[usage] = true
 		}
 		if err := validateModelContract(key, d); err != nil {
+			return err
+		}
+		if err := validateQueries(key, d); err != nil {
 			return err
 		}
 		if d.Remote != nil {
@@ -237,6 +254,26 @@ func validateModelContract(key string, d Definition) error {
 	return nil
 }
 
+func validateQueries(key string, d Definition) error {
+	if len(d.Queries) > 0 && !d.Supports("display") {
+		return fmt.Errorf("%w: queries for %s require display usage", ErrInvalid, key)
+	}
+	for name, q := range d.Queries {
+		if !idPattern.MatchString(name) || q.Adapter != "native" || !operationPattern.MatchString(q.Operation) {
+			return fmt.Errorf("%w: query %s of %s needs a name, adapter native and an operation", ErrInvalid, name, key)
+		}
+		if utf8.RuneCountInString(strings.TrimSpace(q.Description)) > MaxDescriptionRunes {
+			return fmt.Errorf("%w: query %s of %s description is too long", ErrInvalid, name, key)
+		}
+		if len(q.ParamsSchema) > 0 {
+			if _, err := compileDataSchema(q.ParamsSchema); err != nil {
+				return fmt.Errorf("%w: paramsSchema of query %s of %s: %v", ErrInvalid, name, key, err)
+			}
+		}
+	}
+	return nil
+}
+
 // View files must live in the dedicated public subtree, never bin/skills/config.
 func ValidResourcePath(name string) bool {
 	return strings.HasPrefix(name, "views/") && !strings.ContainsAny(name, "\\\x00?#:%") && path.Clean(name) == name && !strings.HasSuffix(name, "/") && len(name) > len("views/")
@@ -275,11 +312,12 @@ type Asset struct {
 }
 
 type Document struct {
-	View   Reference      `json:"view"`
-	Entry  string         `json:"entry,omitempty"`
-	HTML   string         `json:"html,omitempty"`
-	QLC    map[string]any `json:"qlc,omitempty"`
-	Assets []Asset        `json:"assets,omitempty"`
+	View    Reference        `json:"view"`
+	Entry   string           `json:"entry,omitempty"`
+	HTML    string           `json:"html,omitempty"`
+	QLC     map[string]any   `json:"qlc,omitempty"`
+	Assets  []Asset          `json:"assets,omitempty"`
+	Queries map[string]Query `json:"queries,omitempty"`
 }
 
 func (r Reference) ConfigMap() map[string]any {

@@ -1,0 +1,165 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+:root { --fg: #1f2328; --muted: #656d76; --line: rgba(127,127,127,.22); --ok: #1a7f37; --bad: #cf222e; --chip: rgba(127,127,127,.12); --accent: rgba(9,105,218,.14); color-scheme: light; }
+:root[data-color-scheme="dark"] { --fg: #e6edf3; --muted: #8d96a0; --ok: #3fb950; --bad: #f85149; --accent: rgba(56,139,253,.22); color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 4px 2px 8px; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; color: var(--fg); background: transparent; }
+header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.tabs button { border: 0; border-radius: 0; background: transparent; }
+.tabs button[aria-pressed="true"] { background: var(--accent); font-weight: 600; }
+.count { color: var(--muted); }
+.spacer { flex: 1; }
+button, select { font: inherit; color: inherit; background: var(--chip); border: 1px solid var(--line); border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+button:disabled, select:disabled { opacity: .45; cursor: default; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+.key { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.name { font-weight: 600; }
+.sub { color: var(--muted); font-size: 12px; }
+.chip { display: inline-block; font-size: 11px; background: var(--chip); border-radius: 4px; padding: 0 5px; margin: 0 4px 2px 0; }
+.ok { color: var(--ok); }
+.bad { color: var(--bad); }
+.empty, .error { color: var(--muted); padding: 16px 8px; text-align: center; }
+.error { color: var(--bad); }
+footer { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 8px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <span class="tabs"><button data-type="agent" data-i18n="agents"></button><button data-type="connector" data-i18n="connectors"></button></span>
+  <span class="count" id="count"></span>
+  <span class="spacer"></span>
+  <select id="status"><option value="all" data-i18n="all"></option><option value="valid" data-i18n="valid"></option><option value="invalid" data-i18n="invalid"></option></select>
+  <button id="refresh" data-i18n="refresh"></button>
+</header>
+<div id="body"></div>
+<footer id="pager" hidden>
+  <button id="prev" data-i18n="prev"></button>
+  <button id="next" data-i18n="next"></button>
+</footer>
+<script>
+(() => {
+  'use strict';
+  const text = {
+    en: { agents: 'Agents', connectors: 'Connectors', all: 'All', valid: 'Valid', invalid: 'Invalid', refresh: 'Refresh', prev: 'Previous', next: 'Next', key: 'Key', name: 'Name', mode: 'Mode', status: 'Status', capabilities: 'Components', none: 'Nothing to show', loading: 'Loading…', total: '{n} total', invocable: 'invocable', builtin: 'built-in', editable: 'editable' },
+    zh: { agents: '智能体', connectors: '连接器', all: '全部', valid: '有效', invalid: '无效', refresh: '刷新', prev: '上一页', next: '下一页', key: 'Key', name: '名称', mode: '类型', status: '状态', capabilities: '组件', none: '没有可显示的内容', loading: '加载中…', total: '共 {n} 个', invocable: '可调用', builtin: '内置', editable: '可编辑' },
+  };
+  let dict = text.zh;
+  const t = (key, values) => (dict[key] || key).replace(/\{(\w+)\}/g, (_, name) => values?.[name] ?? '');
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, className, content) => { const node = document.createElement(tag); if (className) node.className = className; if (content !== undefined) node.textContent = content; return node; };
+  // cursors[i] is the cursor that loaded page i; page 0 has none.
+  let data = null, params = { resourceType: 'agent', status: 'all', limit: 20 }, cursors = [''], queryable = false, busy = false;
+
+  function applyText() { document.querySelectorAll('[data-i18n]').forEach((node) => { node.textContent = t(node.dataset.i18n); }); }
+
+  function typeOf() {
+    return params.resourceType || data?.items?.[0]?.resourceType || 'agent';
+  }
+
+  function diagnostics(item) {
+    return (Array.isArray(item.diagnostics) ? item.diagnostics : []).map((d) => d?.message || d?.code || JSON.stringify(d)).join('; ');
+  }
+
+  function render() {
+    const type = typeOf();
+    document.querySelectorAll('.tabs button').forEach((button) => {
+      button.setAttribute('aria-pressed', String(button.dataset.type === type));
+      button.disabled = busy || !queryable;
+    });
+    $('status').value = params.status || 'all';
+    $('status').disabled = busy || !queryable;
+    $('refresh').disabled = busy || !queryable;
+    $('count').textContent = data ? t('total', { n: data.total ?? data.items.length }) : '';
+    const body = $('body');
+    body.replaceChildren();
+    if (!data) { body.append(el('div', 'empty', t('loading'))); return; }
+    const items = data.items || [];
+    if (!items.length) body.append(el('div', 'empty', t('none')));
+    else {
+      const table = el('table');
+      const head = el('tr');
+      (type === 'agent' ? ['key', 'name', 'mode', 'status'] : ['key', 'capabilities', 'status']).forEach((key) => head.append(el('th', '', t(key))));
+      table.append(el('thead')); table.tHead.append(head);
+      const rows = el('tbody');
+      for (const item of items) {
+        const row = el('tr');
+        row.append(el('td', 'key', item.resourceKey || item.key || ''));
+        if (type === 'agent') {
+          const name = el('td');
+          name.append(el('div', 'name', item.name || ''));
+          if (item.role || item.description) name.append(el('div', 'sub', item.role || item.description));
+          row.append(name, el('td', '', item.mode || ''));
+        } else {
+          const parts = el('td');
+          [['hasNative', 'native'], ['hasMcp', 'MCP'], ['hasCli', 'CLI'], ['hasView', 'VIEW']].forEach(([field, label]) => { if (item[field]) parts.append(el('span', 'chip', label)); });
+          if (item.editable === false) parts.append(el('span', 'chip', t('builtin')));
+          row.append(parts);
+        }
+        const status = el('td');
+        status.append(el('div', item.valid ? 'ok' : 'bad', item.valid ? t('valid') : t('invalid')));
+        if (type === 'agent' && item.invocable) status.append(el('div', 'sub', t('invocable')));
+        if (!item.valid && diagnostics(item)) status.append(el('div', 'sub', diagnostics(item)));
+        row.append(status);
+        rows.append(row);
+      }
+      table.append(rows);
+      body.append(table);
+    }
+    const page = cursors.length - 1;
+    $('pager').hidden = !queryable || (page === 0 && !data.hasMore);
+    $('prev').disabled = busy || page === 0;
+    $('next').disabled = busy || !data.hasMore;
+  }
+
+  function showError(error) {
+    $('body').replaceChildren(el('div', 'error', String(error?.message || error)));
+  }
+
+  async function load(next, nextCursors) {
+    if (!queryable || busy) return;
+    busy = true; render();
+    const request = { ...next };
+    const cursor = nextCursors[nextCursors.length - 1];
+    if (cursor) request.cursor = cursor; else delete request.cursor;
+    try {
+      const result = await zenmindView.query('list', request);
+      params = next; cursors = nextCursors; data = result;
+    } catch (error) { busy = false; render(); showError(error); return; }
+    busy = false; render();
+  }
+
+  zenmindView.onData((payload, _view, context) => {
+    dict = String(context?.locale || navigator.language).toLowerCase().startsWith('zh') ? text.zh : text.en;
+    applyText();
+    queryable = Boolean(context?.queryable);
+    const queryParams = context?.query?.params;
+    if (queryParams) {
+      const { cursor, ...rest } = queryParams;
+      params = { ...params, ...rest };
+      cursors = [cursor || ''];
+    } else if (payload?.items?.[0]?.resourceType) {
+      params = { ...params, resourceType: payload.items[0].resourceType };
+    }
+    if (context?.error) { data = { items: [] }; render(); showError(context.error); return; }
+    data = payload && Array.isArray(payload.items) ? payload : { items: [] };
+    render();
+  });
+  document.querySelectorAll('.tabs button').forEach((button) => button.addEventListener('click', () => {
+    if (button.dataset.type !== params.resourceType || !data) load({ ...params, resourceType: button.dataset.type }, ['']);
+  }));
+  $('status').addEventListener('change', () => load({ ...params, status: $('status').value }, ['']));
+  $('refresh').addEventListener('click', () => load({ ...params }, cursors));
+  $('prev').addEventListener('click', () => load({ ...params }, cursors.slice(0, -1)));
+  $('next').addEventListener('click', () => load({ ...params }, [...cursors, data.nextCursor]));
+  applyText();
+  render();
+})();
+</script>
+</body>
+</html>
