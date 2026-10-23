@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -57,7 +58,8 @@ func Unknown(path string, allowed []string) *Error {
 }
 
 // Validate uses the existing compact native contract: s string, b boolean,
-// n integer 1..100, a string array, o object; ! marks required fields (strings must be non-empty).
+// n integer 1..100, i non-negative integer representable as int, a string array,
+// o object; ! marks required fields (strings must be non-empty).
 // ? permits an explicit null on an optional field.
 func Validate(values map[string]any, fields map[string]string, prefix string) error {
 	for _, key := range Keys(values) {
@@ -95,6 +97,10 @@ func Validate(values map[string]any, fields map[string]string, prefix string) er
 			expected = "JSON integer in range 1–100"
 			n, ok := v.(float64)
 			valid = ok && n >= 1 && n <= 100 && math.Trunc(n) == n
+		case 'i':
+			expected = "non-negative JSON integer representable as int"
+			n, ok := v.(float64)
+			valid = ok && n >= 0 && n < math.Ldexp(1, strconv.IntSize-1) && math.Trunc(n) == n
 		case 'a':
 			expected = "JSON array of strings"
 			items, ok := v.([]any)

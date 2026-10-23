@@ -2,9 +2,26 @@ package toolinput
 
 import (
 	"encoding/json"
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestNonNegativeIntegerValidation(t *testing.T) {
+	fields := map[string]string{"offset": "i"}
+	for _, value := range []any{float64(0), float64(1), float64(100), float64(101), float64(1000)} {
+		if err := Validate(map[string]any{"offset": value}, fields, "params."); err != nil {
+			t.Fatalf("valid offset %v rejected: %v", value, err)
+		}
+	}
+	for _, value := range []any{float64(-1), float64(0.5), "0", nil, true, math.Inf(1), math.NaN(), math.Ldexp(1, strconv.IntSize-1)} {
+		err := Validate(map[string]any{"offset": value}, fields, "params.")
+		if err == nil || err.(*Error).Field != "params.offset" {
+			t.Fatalf("invalid offset %v accepted: %v", value, err)
+		}
+	}
+}
 
 func TestNullableFieldDoesNotRelaxNumberValidation(t *testing.T) {
 	for _, value := range []any{nil, float64(3)} {

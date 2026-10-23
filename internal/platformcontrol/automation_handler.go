@@ -29,9 +29,9 @@ func init() {
 	for _, a := range []string{"delete", "trigger"} {
 		argumentFields["automation_manage."+a] = map[string]string{"id": "s!", "baseRevision": "s!"}
 	}
-	argumentFields["automation_query.list"] = map[string]string{"limit": "n", "offset": "n"}
+	argumentFields["automation_query.list"] = map[string]string{"limit": "n", "offset": "i"}
 	argumentFields["automation_query.get"] = map[string]string{"id": "s!"}
-	argumentFields["automation_query.executions"] = map[string]string{"id": "s!", "limit": "n", "offset": "n"}
+	argumentFields["automation_query.executions"] = map[string]string{"id": "s!", "limit": "n", "offset": "i"}
 	argumentFields["automation_query.execution"] = map[string]string{"executionId": "s!"}
 	argumentFields["automation_query.validate"] = candidate
 }
