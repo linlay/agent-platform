@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"agent-platform/internal/chat"
+	"context"
 	"testing"
 )
 
@@ -16,7 +17,7 @@ func TestControlArchiveBatchContinuesAndRestores(t *testing.T) {
 	s.Archiver = chat.NewArchiver(store, archive)
 	// Failure before and after a valid target must not stop or undo it.
 	ids := []any{"current", "target", "foreign", "missing"}
-	result, err := s.ControlManage(c, "archive", map[string]any{"chatIds": ids}, "")
+	result, err := s.ControlManage(context.Background(), c, "archive", map[string]any{"chatIds": ids}, "")
 	if err != nil || result["succeeded"] != 1 || result["failed"] != 3 {
 		t.Fatalf("%v %v", result, err)
 	}
@@ -26,7 +27,7 @@ func TestControlArchiveBatchContinuesAndRestores(t *testing.T) {
 	if _, err = s.ResolveControlChat(c, "foreign", false); err == nil {
 		t.Fatal("foreign owner admitted")
 	}
-	result, err = s.ControlManage(c, "restore", map[string]any{"chatIds": []any{"missing", "target"}}, "")
+	result, err = s.ControlManage(context.Background(), c, "restore", map[string]any{"chatIds": []any{"missing", "target"}}, "")
 	if err != nil || result["succeeded"] != 1 || result["failed"] != 1 {
 		t.Fatalf("%v %v", result, err)
 	}
@@ -42,7 +43,7 @@ func TestControlArchiveBatchValidatesBeforeMutating(t *testing.T) {
 		{"chatIds": []any{"target", 3}}, {"chatIds": []any{"target", "../bad"}},
 		{"chatId": "target", "chatIds": []any{"target"}},
 	} {
-		if _, err := s.ControlManage(c, "archive", args, ""); err == nil {
+		if _, err := s.ControlManage(context.Background(), c, "archive", args, ""); err == nil {
 			t.Fatalf("accepted %v", args)
 		}
 	}

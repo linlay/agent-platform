@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -12,6 +13,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/chatresource"
 	"agent-platform/internal/conversationexport"
 	"agent-platform/internal/i18n"
 )
@@ -20,10 +22,6 @@ const (
 	chatMarkdownExportFormat = "markdown"
 	chatSnapshotExportFormat = "snapshot"
 )
-
-type publishedArtifactReader interface {
-	PublishedArtifacts(string) ([]chat.ArtifactManifestItem, error)
-}
 
 func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	format, err := parseConversationExportFormat(r)
@@ -40,52 +38,23 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid chatId"))
 		return
 	}
-	var body []byte
-	var contentType string
-	var extension string
-	var title string
-	locale := requestLocale(r, i18n.LocaleZhCN)
-	var attachments []conversationexport.AttachmentV1
+	contentType, extension := "text/markdown; charset=utf-8", ".md"
 	if format == chatSnapshotExportFormat {
-		reader, ok := s.deps.Chats.(publishedArtifactReader)
-		if ok {
-			if items, readErr := reader.PublishedArtifacts(chatID); readErr == nil {
-				var skipped int
-				attachments, skipped = conversationexport.BuildSnapshotAttachments(chatID, items)
-				if skipped > 0 {
-					log.Printf("[chat] snapshot omitted %d invalid artifacts chatId=%s", skipped, chatID)
-				}
-			} else {
-				log.Printf("[chat] snapshot artifact manifest unavailable chatId=%s: %v", chatID, readErr)
-			}
-		}
-		contentType = "application/json; charset=utf-8"
-		extension = ".snapshot.json"
-	} else {
-		contentType = "text/markdown; charset=utf-8"
-		extension = ".md"
+		contentType, extension = "application/json; charset=utf-8", ".snapshot.json"
 	}
-	var document conversationexport.SnapshotDocument
-	if err == nil {
-		document, err = s.loadConversationSnapshot(chatID, attachments, time.Now().UnixMilli(), locale)
-	}
+	document, err := s.loadConversationSnapshot(r.Context(), chatID, format == chatSnapshotExportFormat, time.Now().UnixMilli(), requestLocale(r, i18n.LocaleZhCN))
 	if err == nil && len(document.JSON) > s.deps.Config.Export.MaxSnapshotBytes {
 		err = &conversationexport.SizeLimitError{Actual: len(document.JSON), Limit: s.deps.Config.Export.MaxSnapshotBytes}
 	}
-	if err == nil {
-		title = document.Snapshot.Title
-		if format == chatSnapshotExportFormat {
-			body = document.JSON
-		} else {
-			body, err = conversationexport.RenderMarkdown(document.Snapshot)
-		}
+	body := document.JSON
+	if err == nil && format == chatMarkdownExportFormat {
+		body, err = conversationexport.RenderMarkdown(document.Snapshot)
 	}
 	if err != nil {
 		writeConversationExportError(w, err)
 		return
 	}
-
-	filename := safeExportFilenameWithExtension(title, chatID, extension)
+	filename := safeExportFilenameWithExtension(document.Snapshot.Title, chatID, extension)
 	if format == chatSnapshotExportFormat {
 		w.Header().Set("X-Conversation-Export-Max-Bytes", strconv.Itoa(s.deps.Config.Export.MaxSnapshotBytes))
 		if s.deps.Config.CORS.Enabled {
@@ -99,7 +68,7 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
-func (s *Server) loadConversationSnapshot(chatID string, attachments []conversationexport.AttachmentV1, capturedAt int64, locale string) (conversationexport.SnapshotDocument, error) {
+func (s *Server) loadConversationSnapshot(ctx context.Context, chatID string, includeResources bool, capturedAt int64, locale string) (conversationexport.SnapshotDocument, error) {
 	summary, err := s.deps.Chats.Summary(chatID)
 	if err != nil {
 		return conversationexport.SnapshotDocument{}, err
@@ -115,7 +84,14 @@ func (s *Server) loadConversationSnapshot(chatID string, attachments []conversat
 	for index := range detail.Events {
 		detail.Events[index] = localizeStreamEventData(locale, detail.Events[index])
 	}
-	return conversationexport.BuildSnapshotDocument(summary, detail.Events, attachments, capturedAt, locale, s.resolveExportAssistant)
+	var files *chatresource.Export
+	if includeResources {
+		files = s.chatResources.Export(chatID)
+		if files.Err != nil && !errors.Is(files.Err, chatresource.ErrNotConfigured) {
+			log.Printf("[chat] snapshot artifact manifest unavailable chatId=%s: %v", chatID, files.Err)
+		}
+	}
+	return conversationexport.BuildDocument(ctx, summary, detail.Events, capturedAt, locale, s.resolveExportAssistant, files)
 }
 
 func parseConversationExportFormat(r *http.Request) (string, error) {

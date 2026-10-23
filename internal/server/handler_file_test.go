@@ -8,12 +8,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"agent-platform/internal/api"
 	channelpkg "agent-platform/internal/channel"
 	"agent-platform/internal/config"
+	"agent-platform/internal/documentmeta"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -26,7 +28,7 @@ func TestAgentFileEndpointReadsCoderAndKBaseWorkspaceFiles(t *testing.T) {
 	if coderResp.AgentKey != "coder-file" || coderResp.ContentKind != "text" || coderResp.Encoding != "utf-8" {
 		t.Fatalf("unexpected coder response metadata: %#v", coderResp)
 	}
-	if coderResp.DocumentKind != documentKindMarkdown || coderResp.MimeType != "text/markdown; charset=utf-8" || coderResp.Revision == "" || coderResp.SizeBytes == 0 {
+	if coderResp.DocumentKind != documentmeta.KindMarkdown || coderResp.MimeType != "text/markdown; charset=utf-8" || coderResp.Revision == "" || coderResp.SizeBytes == 0 {
 		t.Fatalf("unexpected authoritative coder document metadata: %#v", coderResp)
 	}
 	if coderResp.Path != "docs/hello.md" || coderResp.Content != "# Hello\n\ncoder workspace\n" {
@@ -91,7 +93,7 @@ func TestAgentFileEndpointSupportsAbsolutePathAndContentResponse(t *testing.T) {
 	if contentType := rec.Header().Get("Content-Type"); !strings.HasPrefix(contentType, "text/") {
 		t.Fatalf("expected text content type, got %q", contentType)
 	}
-	if got := rec.Header().Get("X-Document-Kind"); got != documentKindMarkdown {
+	if got := rec.Header().Get("X-Document-Kind"); got != documentmeta.KindMarkdown {
 		t.Fatalf("expected markdown document kind, got %q", got)
 	}
 	if got := rec.Header().Get("X-Document-Revision"); got == "" {
@@ -123,27 +125,31 @@ func TestAgentFileEndpointKeepsUnsafeMarkdownReadOnly(t *testing.T) {
 	}
 
 	response := getAgentFileJSON(t, fixture.server, "coder-file", "docs/bad.md")
-	if response.DocumentKind != documentKindBinary || response.ContentKind != "binary" || response.Content != "" || response.MimeType != "application/octet-stream" {
+	if response.DocumentKind != documentmeta.KindBinary || response.ContentKind != "binary" || response.Content != "" || response.MimeType != "application/octet-stream" {
 		t.Fatalf("unsafe markdown response=%#v", response)
 	}
 }
 
 func TestAgentFileEndpointKeepsUTF8SplitAtReadLimitAsMarkdown(t *testing.T) {
-	fixture, coderWorkspace, _ := newAgentFileTestFixture(t)
-	fixture.server.deps.Config.FileTools.MaxReadBytes = 512
-	bindTestRuntime(fixture.server)
-	body := append(bytes.Repeat([]byte("a"), 510), []byte("工作正文")...)
-	path := filepath.Join(coderWorkspace, "docs", "boundary.md")
-	if err := os.WriteFile(path, body, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	for _, limit := range []int{8, 512} {
+		t.Run(strconv.Itoa(limit), func(t *testing.T) {
+			fixture, coderWorkspace, _ := newAgentFileTestFixture(t)
+			fixture.server.deps.Config.FileTools.MaxReadBytes = limit
+			bindTestRuntime(fixture.server)
+			body := append(bytes.Repeat([]byte("a"), limit-2), []byte("工作正文")...)
+			path := filepath.Join(coderWorkspace, "docs", "boundary.md")
+			if err := os.WriteFile(path, body, 0o644); err != nil {
+				t.Fatal(err)
+			}
 
-	response := getAgentFileJSON(t, fixture.server, "coder-file", "docs/boundary.md")
-	if response.DocumentKind != documentKindMarkdown || response.ContentKind != "text" || response.Encoding != "utf-8" {
-		t.Fatalf("boundary markdown metadata=%#v", response)
-	}
-	if !response.Truncated || response.ReadBytes != 510 || response.Content != string(bytes.Repeat([]byte("a"), 510)) {
-		t.Fatalf("boundary markdown prefix=%#v", response)
+			response := getAgentFileJSON(t, fixture.server, "coder-file", "docs/boundary.md")
+			if response.DocumentKind != documentmeta.KindMarkdown || response.ContentKind != "text" || response.Encoding != "utf-8" {
+				t.Fatalf("boundary markdown metadata=%#v", response)
+			}
+			if !response.Truncated || response.ReadBytes != limit-2 || response.Content != string(bytes.Repeat([]byte("a"), limit-2)) {
+				t.Fatalf("boundary markdown prefix=%#v", response)
+			}
+		})
 	}
 }
 

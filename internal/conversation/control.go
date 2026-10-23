@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"agent-platform/internal/chat"
+	"agent-platform/internal/chatresource"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/conversationexport"
@@ -218,14 +220,14 @@ func (s *Service) controlMessages(c ControlCaller, id string, archived bool, ref
 			return nil, nil, e
 		}
 	}
-	doc, e := conversationexport.BuildSnapshotDocument(summary, detail.Events, nil, time.Now().UnixMilli(), "zh-CN", nil)
+	snapshot, e := conversationexport.BuildSnapshot(summary, detail.Events, time.Now().UnixMilli(), "zh-CN", nil)
 	if errors.Is(e, conversationexport.ErrNoRootTurn) {
 		return summary, []ControlMessage{}, nil
 	}
 	if e != nil {
 		return nil, nil, e
 	}
-	return summary, controlSnapshotMessages(doc.Snapshot), nil
+	return summary, controlSnapshotMessages(snapshot), nil
 }
 
 func controlSnapshotMessages(snapshot conversationexport.SnapshotV1) []ControlMessage {
@@ -553,7 +555,7 @@ func (s *Service) EnsureControlIdle(sum *chat.Summary) error {
 	}
 	return s.EnsureNoActiveRun(sum.ChatID)
 }
-func (s *Service) ControlManage(c ControlCaller, action string, args map[string]any, revision string) (out map[string]any, err error) {
+func (s *Service) ControlManage(ctx context.Context, c ControlCaller, action string, args map[string]any, revision string) (out map[string]any, err error) {
 	state := "not_started"
 	defer func() {
 		if err != nil {
@@ -566,7 +568,7 @@ func (s *Service) ControlManage(c ControlCaller, action string, args map[string]
 			return nil, e
 		}
 		if batch {
-			return s.controlArchiveBatch(c, action, ids), nil
+			return s.controlArchiveBatch(ctx, c, action, ids), nil
 		}
 	}
 	// Serializes deterministic fork/export receipts and tool mutations. Store locks
@@ -725,23 +727,22 @@ func (s *Service) ControlManage(c ControlCaller, action string, args map[string]
 			if e != nil {
 				return nil, e
 			}
-			var attachments []conversationexport.AttachmentV1
-			if reader, ok := s.Chats.(interface {
-				PublishedArtifacts(string) ([]chat.ArtifactManifestItem, error)
-			}); ok && !archived && format == "snapshot" {
-				items, err := reader.PublishedArtifacts(id)
-				if err != nil {
-					return nil, err
+			if e = ctx.Err(); e != nil {
+				return nil, e
+			}
+			var files *chatresource.Export
+			if format == "snapshot" && !archived {
+				files = chatresource.NewService(s.Chats).Export(id)
+				if files.Err != nil && !errors.Is(files.Err, chatresource.ErrNotConfigured) {
+					return nil, files.Err
 				}
-				attachments, _ = conversationexport.BuildSnapshotAttachments(id, items)
 			}
 			if s.ExportMaxBytes <= 0 {
 				return nil, ErrNotConfigured
 			}
-			var doc conversationexport.SnapshotDocument
-			doc, e = conversationexport.BuildSnapshotDocument(sum, detail.Events, attachments, time.Now().UnixMilli(), "zh-CN", nil)
+			doc, e := conversationexport.BuildDocument(ctx, sum, detail.Events, time.Now().UnixMilli(), "zh-CN", nil, files)
 			if format == "markdown" && errors.Is(e, conversationexport.ErrNoRootTurn) {
-				e = nil // Preserve the existing empty Markdown export.
+				e = nil // Preserve empty Markdown exports.
 			}
 			if e != nil {
 				return nil, e
@@ -761,6 +762,9 @@ func (s *Service) ControlManage(c ControlCaller, action string, args map[string]
 			}
 			filename := stem + ext
 			path := filepath.Join(s.Chats.ChatDir(c.ChatID), filename)
+			if e = ctx.Err(); e != nil {
+				return nil, e
+			}
 			state = "unknown"
 			if e = controlAtomicFile(path, body); e != nil {
 				return nil, e

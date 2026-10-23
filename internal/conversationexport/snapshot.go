@@ -1,6 +1,7 @@
 package conversationexport
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,7 +20,6 @@ const (
 	SnapshotVersion = 1
 	MaxItems        = 2_000
 	MaxTitleBytes   = 300
-	MaxLabelBytes   = 300
 )
 
 var (
@@ -59,13 +59,14 @@ const (
 // SnapshotV1 contains only the facts needed to reconstruct a frozen timeline.
 // It deliberately excludes live tool output and arbitrary protocol payloads.
 type SnapshotV1 struct {
-	Version     int            `json:"version"`
-	Title       string         `json:"title"`
-	Locale      string         `json:"locale"`
-	CreatedAt   int64          `json:"createdAt"`
-	CapturedAt  int64          `json:"capturedAt"`
-	Turns       []TurnV1       `json:"turns"`
-	Attachments []AttachmentV1 `json:"attachments"`
+	Version          int                 `json:"version"`
+	Title            string              `json:"title"`
+	Locale           string              `json:"locale"`
+	CreatedAt        int64               `json:"createdAt"`
+	CapturedAt       int64               `json:"capturedAt"`
+	Turns            []TurnV1            `json:"turns"`
+	Attachments      []AttachmentV1      `json:"attachments"`
+	OmittedResources []OmittedResourceV1 `json:"omittedResources,omitempty"`
 }
 
 type SnapshotDocument struct {
@@ -85,6 +86,7 @@ type TurnV1 struct {
 }
 
 type NodeV1 struct {
+	AttachmentIDs   []string           `json:"attachmentIds,omitempty"`
 	SteerID         string             `json:"steerId,omitempty"`
 	Origin          *queryinput.Origin `json:"origin,omitempty"`
 	ID              string             `json:"id"`
@@ -142,96 +144,66 @@ type TaskV1 struct {
 }
 
 type AttachmentV1 struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	MIMEType  string `json:"mimeType"`
-	Size      int64  `json:"size"`
-	SHA256    string `json:"sha256"`
-	SourceRef string `json:"sourceRef"`
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	MIMEType  string            `json:"mimeType"`
+	Size      int64             `json:"size"`
+	SHA256    string            `json:"sha256,omitempty"`
+	SourceRef string            `json:"sourceRef"`
+	MediaRefs map[string]string `json:"mediaRefs,omitempty"`
 }
 
 func sourceV1FromEvent(event stream.EventData) ([]SourceV1, int) {
-	rawItems := objectSlice(event.Value("sources"))
-	sources := make([]SourceV1, 0, len(rawItems))
+	sources := []SourceV1{}
 	chunkCount := 0
-	for sourceIndex, raw := range rawItems {
-		item, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		rawChunks := objectSlice(item["chunks"])
-		if len(rawChunks) == 0 {
-			continue
-		}
-		title, _ := item["title"].(string)
-		name, _ := item["name"].(string)
-		if name == "" {
-			name = path.Base(title)
-		}
-		if name == "" {
-			name = fmt.Sprintf("source_%d", sourceIndex+1)
-		}
-		id, _ := item["id"].(string)
-		if id == "" {
-			id = title
-		}
-		if id == "" {
-			id = name
-		}
-		source := SourceV1{ID: id, Name: name, Title: title, ChunkIndexes: []int{}, Chunks: []SourceChunkV1{}}
-		for chunkIndex, chunkRaw := range rawChunks {
-			chunk, ok := chunkRaw.(map[string]any)
-			if !ok {
+	for _, raw := range objectSlice(event.Value("sources")) {
+		item, _ := raw.(map[string]any)
+		title := stringField(item, "title")
+		name := cmp.Or(stringField(item, "name"), path.Base(title))
+		source := SourceV1{ID: cmp.Or(stringField(item, "id"), title, name), Name: name, Title: title}
+		for index, raw := range objectSlice(item["chunks"]) {
+			item, _ := raw.(map[string]any)
+			chunk := SourceChunkV1{ChunkID: stringField(item, "chunkId"), Content: stringField(item, "content"), Path: stringField(item, "path")}
+			if chunk.ChunkID == "" && chunk.Content == "" && chunk.Path == "" {
 				continue
 			}
-			chunkID, _ := chunk["chunkId"].(string)
-			content, _ := chunk["content"].(string)
-			chunkPath, _ := chunk["path"].(string)
-			if chunkID == "" && content == "" && chunkPath == "" {
-				continue
+			chunk.ChunkID = cmp.Or(chunk.ChunkID, fmt.Sprintf("%s_%d", source.ID, index+1))
+			chunk.Index = index + 1
+			if number, ok := item["index"].(float64); ok && number > 0 {
+				chunk.Index = int(number)
 			}
-			if chunkID == "" {
-				chunkID = fmt.Sprintf("%s_%d", id, chunkIndex+1)
-			}
-			index := chunkIndex + 1
-			if number, ok := chunk["index"].(float64); ok && number > 0 {
-				index = int(number)
-			}
-			source.Chunks = append(source.Chunks, SourceChunkV1{ChunkID: chunkID, Index: index, Content: content, Path: chunkPath})
-			source.ChunkIndexes = append(source.ChunkIndexes, index)
+			source.Chunks = append(source.Chunks, chunk)
+			source.ChunkIndexes = append(source.ChunkIndexes, chunk.Index)
 		}
-		if len(source.Chunks) == 0 {
-			continue
+		if len(source.Chunks) > 0 {
+			source.MinIndex = source.ChunkIndexes[0]
+			chunkCount += len(source.Chunks)
+			sources = append(sources, source)
 		}
-		source.MinIndex = source.ChunkIndexes[0]
-		chunkCount += len(source.Chunks)
-		sources = append(sources, source)
 	}
 	return sources, chunkCount
 }
 
+func stringField(item map[string]any, key string) string {
+	value, _ := item[key].(string)
+	return value
+}
+
 func objectSlice(value any) []any {
-	switch items := value.(type) {
-	case []any:
+	if items, ok := value.([]any); ok {
 		return items
-	case []map[string]any:
-		out := make([]any, 0, len(items))
-		for _, item := range items {
-			out = append(out, item)
-		}
-		return out
-	default:
-		return nil
 	}
+	items, _ := value.([]map[string]any)
+	out := make([]any, len(items))
+	for i, item := range items {
+		out[i] = item
+	}
+	return out
 }
 
 func toolResultFailed(value any) bool {
-	if text, ok := value.(string); ok {
-		var decoded any
-		if json.Unmarshal([]byte(text), &decoded) != nil {
-			return false
-		}
-		value = decoded
+	if text, ok := value.(string); ok && json.Unmarshal([]byte(text), &value) != nil {
+		return false
 	}
 	record, ok := value.(map[string]any)
 	if !ok {
@@ -246,65 +218,76 @@ func toolResultFailed(value any) bool {
 		}
 	}
 	for _, key := range []string{"result", "data"} {
-		if nested := record[key]; nested != nil {
-			if toolResultFailed(nested) {
-				return true
-			}
+		if nested := record[key]; nested != nil && toolResultFailed(nested) {
+			return true
 		}
 	}
 	return false
 }
 
-func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, attachments []AttachmentV1, capturedAt int64, locale string, resolveAssistant ResolveAssistant) (SnapshotDocument, error) {
+// BuildSnapshot projects ordinary conversation reads without resource I/O or JSON encoding.
+func BuildSnapshot(summary *chat.Summary, events []stream.EventData, capturedAt int64, locale string, resolveAssistant ResolveAssistant) (SnapshotV1, error) {
+	return projectSnapshot(summary, events, capturedAt, locale, resolveAssistant, nil)
+}
+
+func projectSnapshot(summary *chat.Summary, events []stream.EventData, capturedAt int64, locale string, resolveAssistant ResolveAssistant, resourceRefs map[string][]string) (SnapshotV1, error) {
+	forExport := resourceRefs != nil
 	if summary == nil {
-		return SnapshotDocument{}, ErrInvalidTimeline
+		return SnapshotV1{}, ErrInvalidTimeline
 	}
 	if err := timecontract.ValidateEpochMillis(summary.CreatedAt, "createdAt", "conversation.snapshot.createdAt"); err != nil {
-		return SnapshotDocument{}, err
+		return SnapshotV1{}, err
 	}
 	if err := timecontract.ValidateEpochMillis(capturedAt, "capturedAt", "conversation.snapshot.capturedAt"); err != nil {
-		return SnapshotDocument{}, err
+		return SnapshotV1{}, err
 	}
 	if capturedAt < summary.CreatedAt {
-		return SnapshotDocument{}, ErrInvalidTimeline
+		return SnapshotV1{}, ErrInvalidTimeline
 	}
 	title := strings.TrimSpace(summary.ChatName)
 	if title == "" {
 		title = "Chat"
 	}
 	if len(title) > MaxTitleBytes {
-		return SnapshotDocument{}, ErrTooLarge
+		return SnapshotV1{}, ErrTooLarge
 	}
 	if i18n.ResolveLocale(i18n.LocaleZhCN, locale) == i18n.LocaleEN {
 		locale = "en-US"
 	} else {
 		locale = i18n.LocaleZhCN
 	}
-	snapshot := SnapshotV1{Version: SnapshotVersion, Title: title, Locale: locale, CreatedAt: summary.CreatedAt, CapturedAt: capturedAt, Turns: []TurnV1{}, Attachments: append([]AttachmentV1{}, attachments...)}
+	snapshot := SnapshotV1{Version: SnapshotVersion, Title: title, Locale: locale, CreatedAt: summary.CreatedAt, CapturedAt: capturedAt, Turns: []TurnV1{}, Attachments: []AttachmentV1{}}
 	turnByRun := map[string]int{}
-	toolPosition := map[string]struct{ turn, node int }{}
-	toolByID := map[string]struct{ turn, node int }{}
-	nodePosition := map[string]struct{ turn, node int }{}
+	toolPosition := map[string]int{}
+	toolByID := map[string]string{}
+	nodePosition := map[string]int{}
 	taskStartedAt := map[string]int64{}
 	pendingTurn := -1
 	for ordinal, event := range events {
 		if err := timecontract.ValidateEpochMillis(event.Timestamp, "timestamp", "conversation.snapshot.events"); err != nil {
-			return SnapshotDocument{}, err
+			return SnapshotV1{}, err
 		}
 		if event.Type == "request.query" && event.String("taskId") == "" && requestQueryVisible(event) {
 			text := event.String("message")
-			if strings.TrimSpace(text) == "" {
+			var refs []string
+			if forExport {
+				refs = queryResourceRefs(event.Value("references"))
+			}
+			if strings.TrimSpace(text) == "" && len(refs) == 0 {
 				pendingTurn = -1
 				continue
 			}
 			runID := strings.TrimSpace(event.String("runId"))
 			if runID != "" {
 				if _, exists := turnByRun[runID]; exists {
-					return SnapshotDocument{}, ErrInvalidTimeline
+					return SnapshotV1{}, ErrInvalidTimeline
 				}
 			}
 			turn := TurnV1{RunID: runID, QueryAt: event.Timestamp, StartedAt: event.Timestamp, Outcome: OutcomeRunning,
 				Nodes: []NodeV1{{ID: fmt.Sprintf("query_%d_%d", event.Seq, ordinal), Kind: "message", Role: "user", Text: text, At: event.Timestamp, RunID: runID}}}
+			if forExport {
+				resourceRefs[turn.Nodes[0].ID] = refs
+			}
 			snapshot.Turns = append(snapshot.Turns, turn)
 			index := len(snapshot.Turns) - 1
 			if runID == "" {
@@ -326,9 +309,7 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, att
 		}
 		runID := strings.TrimSpace(event.String("runId"))
 		if runID == "" && event.Type == "tool.result" {
-			if position, ok := toolByID[event.String("toolId")]; ok {
-				runID = snapshot.Turns[position.turn].RunID
-			}
+			runID = toolByID[event.String("toolId")]
 		}
 		turnIndex, found := turnByRun[runID]
 		if !found {
@@ -366,115 +347,101 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, att
 			if raw := event.Value("origin"); raw != nil {
 				data, err := json.Marshal(raw)
 				if err != nil || json.Unmarshal(data, &origin) != nil {
-					return SnapshotDocument{}, ErrInvalidTimeline
+					return SnapshotV1{}, ErrInvalidTimeline
 				}
 			}
-			// Preserve the historical projection for human steers; only the new
-			// Agent instruction carries provenance into the export timeline.
-			if origin == nil {
+			var refs []string
+			if forExport {
+				refs = queryResourceRefs(event.Value("references"))
+				if strings.TrimSpace(event.String("message")) == "" && len(refs) == 0 {
+					continue
+				}
+			} else if origin == nil {
 				continue
 			}
 			turn.Nodes = append(turn.Nodes, NodeV1{ID: id, Kind: "message", Role: "user", Text: event.String("message"), At: event.Timestamp, RunID: runID, SteerID: event.String("steerId"), Origin: origin})
+			if forExport {
+				resourceRefs[id] = refs
+			}
 		case "reasoning.snapshot", "content.snapshot", "planning.snapshot":
 			text := event.String("text")
 			if strings.TrimSpace(text) == "" {
 				continue
 			}
-			node := NodeV1{ID: id, Kind: "content", Role: "assistant", Text: text, At: event.Timestamp, RunID: runID, TaskID: taskID}
-			if event.Type == "reasoning.snapshot" {
-				node.Kind = "thinking"
-				node.ReasoningLabel = event.String("reasoningLabel")
-			}
-			if event.Type == "planning.snapshot" {
-				node.Kind = "planning"
-			}
-			if event.Type == "content.snapshot" {
-				node.ContentID = event.String("contentId")
-			}
-			identity := node.ContentID
-			if node.Kind == "thinking" {
-				identity = event.String("reasoningId")
-			}
-			if node.Kind == "planning" {
-				identity = event.String("planningId")
+			kind := strings.TrimSuffix(event.Type, ".snapshot")
+			identity := event.String(kind + "Id")
+			node := NodeV1{ID: id, Kind: kind, Role: "assistant", Text: text, At: event.Timestamp, RunID: runID, TaskID: taskID}
+			switch kind {
+			case "reasoning":
+				node.Kind, node.ReasoningLabel = "thinking", event.String("reasoningLabel")
+			case "content":
+				node.ContentID = identity
 			}
 			if identity != "" {
 				key := runID + "\x00" + node.Kind + "\x00" + identity
 				if position, exists := nodePosition[key]; exists {
-					snapshot.Turns[position.turn].Nodes[position.node].Text = text
+					turn.Nodes[position].Text = text
 					continue
 				}
-				nodePosition[key] = struct{ turn, node int }{turnIndex, len(turn.Nodes)}
+				nodePosition[key] = len(turn.Nodes)
 			}
 			turn.Nodes = append(turn.Nodes, node)
-		case "tool.snapshot", "tool.start":
+		case "tool.snapshot", "tool.start", "tool.args", "tool.end", "tool.result":
 			toolID := event.String("toolId")
 			if toolID == "" {
 				continue
 			}
-			if position, exists := toolPosition[runID+"\x00"+toolID]; exists {
-				node := &snapshot.Turns[position.turn].Nodes[position.node]
-				if name := event.String("toolName"); name != "" {
-					node.ToolName = name
-				}
-				if label := event.String("toolLabel"); label != "" {
-					node.ToolLabel = label
-				}
-				if description := event.String("description"); description != "" {
-					node.Description = description
-				}
-				if args := event.String("arguments"); args != "" {
-					node.ArgsText = args
-				}
-				continue
-			}
-			node := NodeV1{ID: id, Kind: "tool", Role: "assistant", At: event.Timestamp, RunID: runID, TaskID: taskID,
-				ToolID: toolID, ToolName: event.String("toolName"), ToolLabel: event.String("toolLabel"), Description: event.String("description"), ArgsText: event.String("arguments"), Status: "running", StartedAt: event.Timestamp}
-			turn.Nodes = append(turn.Nodes, node)
-			toolPosition[runID+"\x00"+toolID] = struct{ turn, node int }{turnIndex, len(turn.Nodes) - 1}
-			toolByID[toolID] = struct{ turn, node int }{turnIndex, len(turn.Nodes) - 1}
-		case "tool.args":
-			if position, exists := toolPosition[runID+"\x00"+event.String("toolId")]; exists {
-				snapshot.Turns[position.turn].Nodes[position.node].ArgsText += event.String("delta")
-			}
-		case "tool.end":
-			if position, exists := toolPosition[runID+"\x00"+event.String("toolId")]; exists {
-				if args := event.String("arguments"); args != "" {
-					snapshot.Turns[position.turn].Nodes[position.node].ArgsText = args
-				}
-			}
-		case "tool.result":
-			toolID := event.String("toolId")
-			position, ok := toolPosition[runID+"\x00"+toolID]
-			if !ok {
-				if toolID == "" {
+			key := runID + "\x00" + toolID
+			position, exists := toolPosition[key]
+			if !exists {
+				if event.Type == "tool.args" || event.Type == "tool.end" {
 					continue
 				}
-				turn.Nodes = append(turn.Nodes, NodeV1{ID: id, Kind: "tool", Role: "assistant", At: event.Timestamp,
-					RunID: runID, TaskID: taskID, ToolID: toolID, ToolName: event.String("toolName"),
-					ToolLabel: event.String("toolLabel"), ArgsText: event.String("arguments")})
-				position = struct{ turn, node int }{turnIndex, len(turn.Nodes) - 1}
-				toolPosition[runID+"\x00"+toolID] = position
-				toolByID[toolID] = position
+				node := NodeV1{ID: id, Kind: "tool", Role: "assistant", At: event.Timestamp, RunID: runID, TaskID: taskID,
+					ToolID: toolID, ToolName: event.String("toolName"), ToolLabel: event.String("toolLabel"), ArgsText: event.String("arguments")}
+				if event.Type != "tool.result" {
+					node.Status, node.StartedAt = "running", event.Timestamp
+				}
+				position = len(turn.Nodes)
+				turn.Nodes = append(turn.Nodes, node)
+				toolPosition[key], toolByID[toolID] = position, runID
 			}
-			node := &snapshot.Turns[position.turn].Nodes[position.node]
+			node := &turn.Nodes[position]
+			if event.Type == "tool.args" {
+				node.ArgsText += event.String("delta")
+				continue
+			}
 			if args := event.String("arguments"); args != "" {
 				node.ArgsText = args
+			}
+			if event.Type == "tool.end" {
+				continue
+			}
+			if event.Type != "tool.result" {
+				node.ToolName = cmp.Or(event.String("toolName"), node.ToolName)
+				node.ToolLabel = cmp.Or(event.String("toolLabel"), node.ToolLabel)
+				node.Description = cmp.Or(event.String("description"), node.Description)
+				if exists {
+					continue
+				}
+				break
 			}
 			node.EndedAt = event.Timestamp
 			if node.StartedAt > 0 {
 				node.DurationMs = max(0, event.Timestamp-node.StartedAt)
 			}
 			value := event.Value("result")
-			if value == nil {
-				value = event.Value("output")
-			}
-			if value == nil {
-				value = event.Value("text")
+			for _, key := range []string{"output", "text"} {
+				if value == nil {
+					value = event.Value(key)
+				}
 			}
 			node.Status = "success"
 			if event.String("error") != "" || toolResultFailed(value) {
 				node.Status = "failed"
+			}
+			if forExport && node.Status == "success" && node.ToolName == "image_generate" {
+				resourceRefs[node.ID] = generatedImageRefs(value)
 			}
 			if text, ok := value.(string); ok {
 				node.ResultText = text
@@ -525,7 +492,7 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, att
 				SourceCount: len(sources), ChunkCount: chunks, Sources: sources})
 		}
 		if len(turn.Nodes) > MaxItems {
-			return SnapshotDocument{}, ErrTooLarge
+			return SnapshotV1{}, ErrTooLarge
 		}
 	}
 	filtered := make([]TurnV1, 0, len(snapshot.Turns))
@@ -540,13 +507,9 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, att
 	}
 	snapshot.Turns = filtered
 	if len(snapshot.Turns) == 0 {
-		return SnapshotDocument{}, ErrNoRootTurn
+		return SnapshotV1{}, ErrNoRootTurn
 	}
-	encoded, err := json.Marshal(snapshot)
-	if err != nil {
-		return SnapshotDocument{}, err
-	}
-	return SnapshotDocument{Snapshot: snapshot, JSON: encoded}, nil
+	return snapshot, nil
 }
 
 // requestQueryVisible reports conversation input. Automation input is not part

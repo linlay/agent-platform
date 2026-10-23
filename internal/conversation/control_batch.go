@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -41,13 +42,13 @@ func ControlArchiveIDs(args map[string]any) ([]string, bool, error) {
 	return ids, true, nil
 }
 
-func (s *Service) controlArchiveBatch(c ControlCaller, action string, ids []string) map[string]any {
+func (s *Service) controlArchiveBatch(ctx context.Context, c ControlCaller, action string, ids []string) map[string]any {
 	results := make([]map[string]any, 0, len(ids))
 	succeeded := 0
 	for _, id := range ids {
 		// Each call acquires the shared mutation lock, rechecks owner/idle state and
 		// emits its existing notification. No recursive locking or whole-batch rollback.
-		_, err := s.ControlManage(c, action, map[string]any{"chatId": id}, "")
+		_, err := s.ControlManage(ctx, c, action, map[string]any{"chatId": id}, "")
 		item := map[string]any{"chatId": id, "success": err == nil}
 		if err == nil {
 			succeeded++
