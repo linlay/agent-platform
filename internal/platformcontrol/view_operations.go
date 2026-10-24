@@ -24,10 +24,10 @@ func (h *ToolHandler) ViewQueryOperations() map[string]viewquery.Operation {
 			if err := h.validateViewParams("catalog_query", "list", params); err != nil {
 				return nil, err
 			}
-			// Views list Agents and connectors only; other catalog resources
-			// stay with the management tools.
-			if resourceType := stringValue(params, "resourceType"); resourceType != "agent" && resourceType != "connector" {
-				return nil, fmt.Errorf("resourceType must be agent or connector")
+			switch stringValue(params, "resourceType") {
+			case "agent", "connector", "provider", "model", "skill", "tool", "mcp":
+			default:
+				return nil, fmt.Errorf("unsupported catalog view resourceType")
 			}
 			return h.catalogQuery(ctx, "list", params)
 		},

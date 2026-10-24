@@ -349,12 +349,12 @@ func TestViewPromptsLoadAndRequireBothKeys(t *testing.T) {
 	}
 }
 
-func TestShippedAgentPromptExampleConfiguresViewRules(t *testing.T) {
+func TestShippedAgentPromptExampleConfiguresViewProtocol(t *testing.T) {
 	var c Config
 	if err := c.applyAgentPromptFile(ProjectFile("configs/agent-prompt.example.yml")); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(c.Prompts.View.InstructionsPrompt, "```view key=<key>") || !strings.Contains(c.Prompts.View.InstructionsPrompt, "256 KiB") || strings.TrimSpace(c.Prompts.View.CatalogHeader) == "" {
+	if !strings.Contains(c.Prompts.View.InstructionsPrompt, "fenced `view` block") || !strings.Contains(c.Prompts.View.InstructionsPrompt, "key and schema") || !strings.Contains(c.Prompts.View.InstructionsPrompt, "query=<name>") || strings.TrimSpace(c.Prompts.View.CatalogHeader) == "" {
 		t.Fatalf("example view prompts: %#v", c.Prompts.View)
 	}
 }

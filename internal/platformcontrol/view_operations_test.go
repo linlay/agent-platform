@@ -4,14 +4,92 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"agent-platform/internal/automation"
+	"agent-platform/internal/config"
+	"agent-platform/internal/models"
 	"agent-platform/internal/resources"
 	"agent-platform/internal/view"
 	"agent-platform/internal/viewquery"
 )
+
+func TestIndependentCatalogViewsConstrainResourceAndPreservePagination(t *testing.T) {
+	root := t.TempDir()
+	discoveryWrite(t, filepath.Join(root, "providers/demo.yml"), "key: demo\napiKey: secret-credential\nbaseUrl: https://secret.invalid\n")
+	for _, key := range []string{"a", "b"} {
+		discoveryWrite(t, filepath.Join(root, "models", key+".yml"), "key: "+key+"\nprovider: demo\nmodel: upstream\n")
+	}
+	registry, err := models.LoadModelRegistry(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewToolHandler(config.Config{}, nil, nil).ConfigureControl(nil, nil, registry)
+	data, err := resources.ConnectorFS.ReadFile("connectors/builtin.platform-control/view.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest view.Config
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	service := &viewquery.Service{Operations: h.ViewQueryOperations()}
+	for key, typ := range map[string]string{"agents": "agent", "connectors": "connector", "providers": "provider", "models": "model", "skills": "skill", "tools": "tool", "mcp": "mcp"} {
+		t.Run(key, func(t *testing.T) {
+			definition, ok := manifest.Views[key]
+			if !ok {
+				t.Fatalf("missing view %s", key)
+			}
+			doc := view.Document{View: view.Reference{ConnectorID: "builtin.platform-control", Key: key}, Queries: definition.Queries}
+			for _, other := range []string{"agent", "connector", "provider", "model", "skill", "tool", "mcp"} {
+				if other == typ {
+					continue
+				}
+				if _, err := service.Execute(context.Background(), doc, "list", json.RawMessage(fmt.Sprintf(`{"resourceType":%q}`, other)), viewquery.Context{}); err == nil {
+					t.Fatalf("%s accepted resourceType %s", key, other)
+				}
+			}
+			if typ != "provider" && typ != "model" {
+				return
+			}
+			result, err := service.Execute(context.Background(), doc, "list", json.RawMessage(fmt.Sprintf(`{"resourceType":%q,"limit":1}`, typ)), viewquery.Context{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, _ := json.Marshal(result)
+			if strings.Contains(string(raw), "secret") {
+				t.Fatalf("private provider fields leaked: %s", raw)
+			}
+			var page map[string]any
+			if err := json.Unmarshal(raw, &page); err != nil {
+				t.Fatal(err)
+			}
+			items := page["items"].([]any)
+			if len(items) != 1 || items[0].(map[string]any)["definition"] == nil {
+				t.Fatalf("missing display fields: %#v", page)
+			}
+			if typ == "model" {
+				if page["hasMore"] != true {
+					t.Fatal("missing next page", page)
+				}
+				params, _ := json.Marshal(map[string]any{"resourceType": typ, "limit": 1, "cursor": page["nextCursor"]})
+				next, err := service.Execute(context.Background(), doc, "list", params, viewquery.Context{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				var nextPage map[string]any
+				if err := json.Unmarshal(next.(json.RawMessage), &nextPage); err != nil {
+					t.Fatal(err)
+				}
+				if nextPage["items"].([]any)[0].(map[string]any)["resourceKey"] == items[0].(map[string]any)["resourceKey"] {
+					t.Fatal("cursor repeated first page")
+				}
+			}
+		})
+	}
+}
 
 func TestAutomationViewPaginationWithPublishedSchema(t *testing.T) {
 	data, err := resources.ConnectorFS.ReadFile("connectors/builtin.task-control/view.json")
@@ -82,7 +160,8 @@ func TestViewQueryOperationsKeepToolValidationWithoutAdmission(t *testing.T) {
 		t.Fatalf("catalog list: %#v %v", result, err)
 	}
 	for _, params := range []map[string]any{
-		{"resourceType": "model"},
+		{"resourceType": "unknown"},
+		{"resourceType": "team"},
 		{"resourceType": "agent", "status": "broken"},
 		{"resourceType": "agent", "extra": true},
 	} {

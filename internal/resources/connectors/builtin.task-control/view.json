@@ -2,7 +2,7 @@
   "views": {
     "automations": {
       "title": "Automations",
-      "description": "Show automations with schedule, status, next run and last execution as a pageable table. Prefer query mode with query=list so the user can page; or pass an automation_query list result as data.",
+      "description": "List automations with schedules, status and recent execution.",
       "renderer": "html",
       "usage": ["display"],
       "entry": "views/automations.html",

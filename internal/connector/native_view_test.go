@@ -16,7 +16,7 @@ func writeNativeViewPackage(t *testing.T, root, id string) {
 
 func TestEmbeddedNativeConnectorsDeclareViewQueriesTheyOwn(t *testing.T) {
 	root := t.TempDir()
-	for id, want := range map[string]string{TaskControlConnectorID: "automations", PlatformControlConnectorID: "catalog"} {
+	for id, want := range map[string]string{TaskControlConnectorID: "automations", PlatformControlConnectorID: "agents"} {
 		writeNativeViewPackage(t, root, id)
 		pkg, err := Load(root, id)
 		if err != nil {

@@ -6,7 +6,7 @@
 
 VIEW 复用 ZIP 导入、原包编辑、Agent 挂载、运行目录组装和租约。`internal/view` 负责中立定义、资源读取、远端模板获取和快照；`internal/connector` 负责包校验；`internal/viewquery` 执行快照声明的只读查询；Server 将冻结的 Agent 挂载绑定到 QuerySession。Team 成员只使用自己的挂载。
 
-内嵌原生连接器也可以携带 `view.json` 与 `views/`，随连接器挂载发布、进入 prompt 目录并冻结快照，规则与外部 VIEW 包相同。当前提供 `builtin.task-control/automations`（自动化列表）与 `builtin.platform-control/catalog`（智能体/连接器目录）。
+内嵌原生连接器也可以携带 `view.json` 与 `views/`，随连接器挂载发布、进入 prompt 目录并冻结快照，规则与外部 VIEW 包相同。当前提供 `builtin.task-control/automations`（自动化列表），以及 `builtin.platform-control` 下独立的 `agents`、`connectors`、`providers`、`models`、`skills`、`tools`、`mcp` 列表 VIEW。每个 VIEW 有独立 HTML 入口，固定对应资源类型，不提供跨资源 Tab；共享的样式与列表脚本作为声明资源随快照发布。原 `catalog` 合并入口不再发布，已有 Chat 的冻结快照仍按原内容读取。
 
 ## 包配置
 
@@ -167,7 +167,7 @@ display VIEW 可以在 `view.json` 声明只读查询，让模板自己取数，
 `POST /api/view/query`（WS 同名 route）请求体为 `{chatId, runId, view:{connectorId,key,hash}, query, params}`，严格拒绝未知字段，响应 `{code:0,data:{result}}`。授权与执行规则：
 
 1. 查询是**查看者**的操作，等同用户打开管理页：沿用 Chat 资源鉴权，不经过工具准入，不检查 Agent 挂载、根 Run、阶段或审批，也不构造 Run 执行上下文。
-2. 只执行快照中声明、且在原生操作表中登记的操作；参数先按 `paramsSchema` 校验，操作再复用对应工具的参数校验与读取逻辑，结果形状与工具结果一致（`catalog.list` 只允许 `resourceType` 为 agent 或 connector）。
+2. 只执行快照中声明、且在原生操作表中登记的操作；参数先按 `paramsSchema` 校验，操作再复用对应工具的参数校验与读取逻辑，结果形状与工具结果一致。`catalog.list` 支持 agent、connector、provider、model、skill、tool、mcp；各独立 VIEW 的 Schema 将 `resourceType` 限定为单个值，翻页、刷新和状态筛选不能切换资源类型。provider/model 的 valid 仅表示本地配置已加载，MCP 仅展示连接器本地组件声明，均不代表远端可用性；provider 仅返回允许公开的摘要，不包含凭据或端点。
 3. `runId` 必须属于该 Chat，平台解析出该 Run 的根 `agentKey` 并随查询上下文传给操作。当前两个操作是部署级列表，只记录不裁剪；需要按智能体范围裁剪的操作可基于它扩展。
 4. 只服务在线 Chat；归档 Chat 的 VIEW 仍可显示，但查询返回 404。BTW/Explain 侧链的 Run 不在主 Chat 查询行中，查询返回 `view_query_run_not_found`。
 5. 结果 ≤1 MiB。错误：400 `invalid_view` / `view_query_params_invalid`、403 `view_access_denied`、404 `view_not_found` / `view_query_run_not_found`、422 `view_query_failed`（`data.error.message` 为操作错误）、503 `view_query_unavailable`。

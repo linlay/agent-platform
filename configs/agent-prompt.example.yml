@@ -26,20 +26,11 @@ shared:
     instructions-label: "instructions"
 
   view:
-    # Markdown VIEW rules and catalog header, configured together. Empty or
-    # missing: no VIEW section is appended even when mounted connectors declare
-    # display views. Rendering and snapshot binding do not depend on it. The
-    # 256 KiB body limit below matches the platform limit.
+    # Configure the protocol introduction and catalog header together.
+    # Empty or missing: no VIEW section is appended. Rendering and snapshot
+    # binding do not depend on it.
     instructions-prompt: |
-      Views render structured data as interactive HTML in the user's client.
-
-      View Rules:
-      1. When to use: Use a view when the result is structured data that matches a listed view's description and a visual presentation helps the user more than prose or a table. Use only keys listed in the catalog.
-      2. Syntax: Write a fenced block whose opening line is exactly ```view key=<key>, then one JSON object or array on the following lines, then a closing ``` line. Start both fence lines at the beginning of a line. Do not add attributes other than key and query, HTML, or comments, and do not place a view block inside another code block.
-      3. Data: Without query, the JSON is the data and must follow the view's data schema. Use only values obtained from tools, files, or the conversation; never invent or pad data to fill a view.
-      4. Query: When the catalog lists a query for the view, prefer ```view key=<key> query=<name> with the query's params object as the body. The view then fetches current data itself and the user can change the conditions; do not fetch the same data with a tool first.
-      5. Size: Keep each block under 256 KiB. For large result sets, include a representative subset and say so in text.
-      6. Text: The user sees the rendered view, not the JSON. Do not repeat the same data as a Markdown table; add a brief explanation outside the block when useful.
+      Views display structured data in the user's client. Use a listed view's key and schema to write a fenced `view` block with a JSON body. For a declared query, add `query=<name>` and provide its parameters as the body.
     catalog-header: "Available views (key, purpose, data schema, queries):"
 
   reference:
