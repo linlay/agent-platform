@@ -10,17 +10,16 @@ import (
 
 // resultSubmitReminder is the one reminder a Run started through /api/execute
 // gets when the model answers without delivering its result.
-const resultSubmitReminder = "This task must end with a result_submit call: status success with output, or status failure with reason. Call result_submit now."
+const resultSubmitReminder = "This task requires a result_submit call: status success with output, or status failure with reason. Call result_submit now."
 
-// observeResultSubmit ends the Run after an accepted result_submit. A Run
-// started through /api/execute also counts rejected submissions and fails
-// once they are used up.
+// observeResultSubmit counts rejected submissions for /api/execute and fails
+// once they are used up. Accepted submissions continue through the normal
+// model/tool loop; the model decides when to finish its response.
 func (s *llmRunStream) observeResultSubmit(invocation *preparedToolInvocation, result ToolExecutionResult) {
 	if invocation == nil || !IsResultSubmitToolName(invocation.toolName) {
 		return
 	}
 	if result.ExitCode == 0 && result.Error == "" {
-		s.stopAfterToolBatch = true
 		return
 	}
 	if s.session.ResultContract == nil {

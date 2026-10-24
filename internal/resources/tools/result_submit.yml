@@ -4,7 +4,7 @@ i18n:
     label: "Submit Result"
   zh-CN:
     label: "提交结果"
-description: Submit the final result of the current task and end the Run. Call it exactly once, on its own, when the task is done (status success with output) or cannot be done (status failure with reason). If the result includes files, write them under @chat and give their @chat/... paths in output. If the submission is rejected, fix what the error names and submit again.
+description: Submit the final structured result of the current task. Call it exactly once, on its own, when the task is done (status success with output) or cannot be done (status failure with reason). If the result includes files, write them under @chat and give their @chat/... paths in output. If the submission is rejected, fix what the error names and submit again. An accepted submission does not end your response; continue and finish normally.
 inputSchema:
   type: object
   properties:

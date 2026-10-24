@@ -32,8 +32,9 @@ var executeTestSchema = map[string]any{
 }
 
 type executeModelRequest struct {
-	Messages []map[string]any `json:"messages"`
-	Tools    []map[string]any `json:"tools"`
+	Messages   []map[string]any `json:"messages"`
+	Tools      []map[string]any `json:"tools"`
+	ToolChoice string           `json:"tool_choice"`
 }
 
 // newExecuteFixture adds an EXECUTOR agent, cloned from mock-agent, whose
@@ -143,10 +144,24 @@ func executeErrorCode(response api.ApiResponse[map[string]any]) string {
 }
 
 func TestExecuteDeliversAcceptedResult(t *testing.T) {
+	var initialToolCount int
+	var initialToolChoice string
 	fixture, calls := newExecuteFixture(t, func(call int32, request executeModelRequest, w http.ResponseWriter) {
-		if call != 1 {
-			t.Fatalf("the Run continued after an accepted result: call %d", call)
+		if call == 2 {
+			if len(request.Tools) != initialToolCount || request.ToolChoice != initialToolChoice {
+				t.Errorf("submission changed normal tool availability: %#v", request)
+			}
+			last := lastMessage(request)
+			if last["role"] != "tool" || !strings.Contains(messageText(last), `"accepted":true`) {
+				t.Errorf("expected the ordinary accepted tool result, got %#v", last)
+			}
+			writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"审查完成，未发现风险。"},"finish_reason":"stop"}]}`, `[DONE]`)
+			return
 		}
+		if call != 1 {
+			t.Fatalf("unexpected model call %d", call)
+		}
+		initialToolCount, initialToolChoice = len(request.Tools), request.ToolChoice
 		tool := modelTool(request, "result_submit")
 		parameters, _ := tool["parameters"].(map[string]any)
 		properties, _ := parameters["properties"].(map[string]any)
@@ -176,21 +191,64 @@ func TestExecuteDeliversAcceptedResult(t *testing.T) {
 		t.Fatalf("execute: %d %#v", status, response)
 	}
 	output, _ := response.Data["output"].(map[string]any)
-	if output["summary"] != "无风险" || response.Data["chatId"] == "" || calls.Load() != 1 {
+	if output["summary"] != "无风险" || response.Data["chatId"] == "" || calls.Load() != 2 {
 		t.Fatalf("unexpected result %#v after %d model calls", response.Data, calls.Load())
+	}
+	chatID, _ := response.Data["chatId"].(string)
+	messages, err := fixture.chats.LoadRawMessages(chatID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, message := range messages {
+		if message["role"] == "assistant" && strings.Contains(messageText(message), "审查完成，未发现风险。") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("final assistant response missing from Chat: %#v", messages)
 	}
 }
 
 func TestExecuteReturnsDeclaredFailure(t *testing.T) {
-	fixture, _ := newExecuteFixture(t, func(_ int32, _ executeModelRequest, w http.ResponseWriter) {
+	fixture, calls := newExecuteFixture(t, func(call int32, _ executeModelRequest, w http.ResponseWriter) {
+		if call == 2 {
+			writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"缺少合同第 3 页，暂时无法完成审查。"},"finish_reason":"stop"}]}`, `[DONE]`)
+			return
+		}
 		writeProviderSSE(t, w, submitFrame(t, "call_submit", map[string]any{"status": "failure", "reason": "缺少合同第 3 页"}), `[DONE]`)
 	})
 	status, response := postExecute(t, fixture.server, map[string]any{"agentKey": executeTestAgent, "message": "审查合同", "outputSchema": executeTestSchema})
-	if status != http.StatusOK || response.Data["status"] != "failure" || response.Data["reason"] != "缺少合同第 3 页" {
+	if status != http.StatusOK || response.Data["status"] != "failure" || response.Data["reason"] != "缺少合同第 3 页" || calls.Load() != 2 {
 		t.Fatalf("execute: %d %#v", status, response)
 	}
 	if _, ok := response.Data["output"]; ok {
 		t.Fatalf("failure carries output: %#v", response.Data)
+	}
+}
+
+func TestQueryResultSubmitContinuesUntilModelFinishes(t *testing.T) {
+	fixture, calls := newExecuteFixture(t, func(call int32, request executeModelRequest, w http.ResponseWriter) {
+		switch call {
+		case 1:
+			writeProviderSSE(t, w, submitFrame(t, "call_submit", map[string]any{"status": "success", "output": map[string]any{"summary": "ok"}}), `[DONE]`)
+		case 2:
+			if lastMessage(request)["role"] != "tool" {
+				t.Errorf("expected normal tool continuation: %#v", lastMessage(request))
+			}
+			writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"任务已完成，结果已提交。"},"finish_reason":"stop"}]}`, `[DONE]`)
+		default:
+			t.Fatalf("unexpected model call %d", call)
+		}
+	})
+	body, err := json.Marshal(api.QueryRequest{ChatID: "submit-chat", AgentKey: executeTestAgent, Message: "总结"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK || calls.Load() != 2 || !strings.Contains(rec.Body.String(), "任务已完成，结果已提交。") || !strings.Contains(rec.Body.String(), `"type":"run.complete"`) {
+		t.Fatalf("query did not finish normally after submission: %d, %d model calls, %s", rec.Code, calls.Load(), rec.Body.String())
 	}
 }
 
@@ -204,12 +262,14 @@ func TestExecuteSendsRejectedSubmissionBackToTheModel(t *testing.T) {
 				t.Errorf("model did not see the rejection: %s", text)
 			}
 			writeProviderSSE(t, w, submitFrame(t, "call_good", map[string]any{"status": "success", "output": map[string]any{"summary": "ok"}}), `[DONE]`)
+		case 3:
+			writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"已完成。"},"finish_reason":"stop"}]}`, `[DONE]`)
 		default:
 			t.Fatalf("unexpected model call %d", call)
 		}
 	})
 	status, response := postExecute(t, fixture.server, map[string]any{"agentKey": executeTestAgent, "message": "总结", "outputSchema": executeTestSchema})
-	if status != http.StatusOK || response.Data["status"] != "success" || calls.Load() != 2 {
+	if status != http.StatusOK || response.Data["status"] != "success" || calls.Load() != 3 {
 		t.Fatalf("execute: %d %#v after %d calls", status, response, calls.Load())
 	}
 }
@@ -296,6 +356,10 @@ func TestExecuteRejectsInvalidRequestsBeforeStarting(t *testing.T) {
 
 func TestExecuteStoresInputFiles(t *testing.T) {
 	fixture, calls := newExecuteFixture(t, func(call int32, request executeModelRequest, w http.ResponseWriter) {
+		if call == 2 {
+			writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"审查完成。"},"finish_reason":"stop"}]}`, `[DONE]`)
+			return
+		}
 		if call != 1 {
 			t.Fatalf("unexpected model call %d", call)
 		}
@@ -331,7 +395,7 @@ func TestExecuteStoresInputFiles(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/execute", &body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	status, response := serveExecute(t, fixture.server, req)
-	if status != http.StatusOK || response.Data["status"] != "success" || calls.Load() != 1 {
+	if status != http.StatusOK || response.Data["status"] != "success" || calls.Load() != 2 {
 		t.Fatalf("execute: %d %#v after %d calls", status, response, calls.Load())
 	}
 	chatID, _ := response.Data["chatId"].(string)

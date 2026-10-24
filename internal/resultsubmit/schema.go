@@ -1,6 +1,6 @@
 // Package resultsubmit owns the result_submit tool: the caller's output format,
 // the per-Run tool definition built from it, and the checks a submission must
-// pass before it ends the Run. It is mode neutral; any native Agent that
+// pass before it is accepted. It is mode neutral; any native Agent that
 // mounts result_submit can deliver a result this way.
 package resultsubmit
 
