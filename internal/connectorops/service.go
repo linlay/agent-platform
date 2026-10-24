@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -14,6 +13,7 @@ import (
 
 	"agent-platform/internal/connector"
 	"agent-platform/internal/connectorauth"
+	"agent-platform/internal/hostenv"
 	"agent-platform/internal/mcp"
 )
 
@@ -224,7 +224,7 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 		}()
 	}
 	if req.Adapter == "cli" {
-		result, err = callCLI(ctx, pkg, req.Args, revision)
+		result, err = callCLI(ctx, auth, pkg, req.Args, revision)
 	} else {
 		result.MCP, err = callMCP(ctx, pkg, req.Component, req.ToolName, req.Arguments)
 	}
@@ -291,21 +291,14 @@ func credentialFailure(err error) error {
 }
 
 // revision is the credential revision reported with the result. A token account
-// read for this execution must be that same revision.
-func callCLI(ctx context.Context, pkg connector.Package, args []string, revision string) (Result, error) {
+// read for this execution must be that same revision. The base environment is
+// the one Host Bash and the connector lifecycle use; only this connector's
+// credentials are added.
+func callCLI(ctx context.Context, auth *connectorauth.Manager, pkg connector.Package, args []string, revision string) (Result, error) {
 	var result Result
-	env := []string{}
-	for _, name := range []string{"PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL"} {
-		if value, ok := os.LookupEnv(name); ok {
-			env = append(env, name+"="+value)
-		}
-	}
-	values, err := pkg.CLIConfigEnvironment()
+	env, err := auth.ExecutionEnvironment(pkg)
 	if err != nil {
 		return result, failure("connector_unavailable", 503)
-	}
-	for k, v := range values {
-		env = append(env, k+"="+v)
 	}
 	binding, err := connectorauth.CLIEnvironment(pkg)
 	if err != nil {
@@ -319,7 +312,7 @@ func callCLI(ctx context.Context, pkg connector.Package, args []string, revision
 		return result, failure("connector_auth_expired", 401)
 	}
 	for k, v := range credentials {
-		env = append(env, k+"="+v)
+		env = hostenv.Set(env, k, v)
 	}
 	cmd, err := connectorauth.ExecutionCommand(ctx, pkg, args, env)
 	if errors.Is(err, connectorauth.ErrPreparationRequired) {

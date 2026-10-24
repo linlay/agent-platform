@@ -117,11 +117,13 @@ func TestCLIHelper(t *testing.T) {
 	if json.Unmarshal([]byte(os.Args[len(os.Args)-1]), &value) != nil {
 		os.Exit(5)
 	}
-	json.NewEncoder(os.Stdout).Encode(map[string]any{"value": value["value"], "config": os.Getenv("DEMO_CONFIG_DIR")})
+	json.NewEncoder(os.Stdout).Encode(map[string]any{"value": value["value"], "config": os.Getenv("DEMO_CONFIG_DIR"), "home": os.Getenv("HOME")})
 	os.Exit(0)
 }
 func TestCLIUsesSingleJSONArgumentWithoutShellOrAmbientCredentials(t *testing.T) {
 	t.Setenv("UNRELATED_SECRET", "do-not-inherit")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "bin")
 	os.MkdirAll(bin, 0700)
@@ -151,7 +153,8 @@ func TestCLIUsesSingleJSONArgumentWithoutShellOrAmbientCredentials(t *testing.T)
 	}
 	malicious := `$(touch should-not-exist); " %PATH% & | < >`
 	args, _ := json.Marshal(map[string]any{"value": malicious})
-	output, err := callCLI(context.Background(), pkg, []string{"-test.run=^TestCLIHelper$", "--", "connectorops-helper", "--json", string(args)}, "")
+	manager := connectorauth.New(t.Context(), connector.Sources{}, nil)
+	output, err := callCLI(context.Background(), manager, pkg, []string{"-test.run=^TestCLIHelper$", "--", "connectorops-helper", "--json", string(args)}, "")
 	var decoded map[string]any
 	json.Unmarshal([]byte(output.Stdout), &decoded)
 	if err != nil || decoded["value"] != malicious {
@@ -159,6 +162,10 @@ func TestCLIUsesSingleJSONArgumentWithoutShellOrAmbientCredentials(t *testing.T)
 	}
 	if decoded["config"] != filepath.Join(pkg.StateRoot, "demo", "config") {
 		t.Fatal("wrong credential locator", output)
+	}
+	// Same host base as Host Bash: CLIs resolving default paths from HOME work.
+	if decoded["home"] != home {
+		t.Fatal("HOME not inherited", output)
 	}
 	if _, err = os.Stat(filepath.Join(dir, "should-not-exist")); !os.IsNotExist(err) {
 		t.Fatal("shell ran")
