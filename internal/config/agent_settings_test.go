@@ -354,7 +354,9 @@ func TestShippedAgentPromptExampleConfiguresViewProtocol(t *testing.T) {
 	if err := c.applyAgentPromptFile(ProjectFile("configs/agent-prompt.example.yml")); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(c.Prompts.View.InstructionsPrompt, "fenced `view` block") || !strings.Contains(c.Prompts.View.InstructionsPrompt, "key and schema") || !strings.Contains(c.Prompts.View.InstructionsPrompt, "query=<name>") || strings.TrimSpace(c.Prompts.View.CatalogHeader) == "" {
+	// The model only learns the fence header from this prompt; without it the
+	// blocks it writes carry no key and every view fails to bind.
+	if !strings.Contains(c.Prompts.View.InstructionsPrompt, "```view key=<key>") || !strings.Contains(c.Prompts.View.InstructionsPrompt, "```view key=<key> query=<name>") || strings.TrimSpace(c.Prompts.View.CatalogHeader) == "" {
 		t.Fatalf("example view prompts: %#v", c.Prompts.View)
 	}
 }

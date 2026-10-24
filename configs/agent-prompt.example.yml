@@ -30,7 +30,8 @@ shared:
     # Empty or missing: no VIEW section is appended. Rendering and snapshot
     # binding do not depend on it.
     instructions-prompt: |
-      Views display structured data in the user's client. Use a listed view's key and schema to write a fenced `view` block with a JSON body. For a declared query, add `query=<name>` and provide its parameters as the body.
+      Views display structured data in the user's client. To show a view, write a fenced block whose opening line is exactly ```view key=<key> using a key from the catalog, then one JSON object or array that follows the view's data schema, then a closing ``` line. Start both fence lines at the beginning of a line.
+      When the catalog lists a query for the view, prefer ```view key=<key> query=<name> with the query's params object as the body. The view then fetches current data itself; do not fetch the same data with a tool first.
     catalog-header: "Available views (key, purpose, data schema, queries):"
 
   reference:
