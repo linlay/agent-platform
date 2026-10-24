@@ -21,8 +21,6 @@ var (
 	ErrInvalid     = errors.New("invalid view")
 	idPattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 	hashPattern    = regexp.MustCompile(`^[a-f0-9]{64}$`)
-	// operationPattern names a Platform read operation such as automation.list.
-	operationPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$`)
 )
 
 const (
@@ -145,15 +143,6 @@ type Definition struct {
 	Queries map[string]Query `json:"queries,omitempty"`
 }
 
-// Query declares one read operation of a display view. Only the native adapter
-// exists: its operation must be registered for the declaring native connector.
-type Query struct {
-	Description  string          `json:"description,omitempty"`
-	Adapter      string          `json:"adapter"`
-	Operation    string          `json:"operation"`
-	ParamsSchema json.RawMessage `json:"paramsSchema,omitempty"`
-}
-
 // Remote fetches only a template by key; no conversation/tool/form data is sent.
 type Remote struct {
 	URL       string            `json:"url"`
@@ -250,26 +239,6 @@ func validateModelContract(key string, d Definition) error {
 	}
 	if _, err := compileDataSchema(d.DataSchema); err != nil {
 		return fmt.Errorf("%w: dataSchema for %s: %v", ErrInvalid, key, err)
-	}
-	return nil
-}
-
-func validateQueries(key string, d Definition) error {
-	if len(d.Queries) > 0 && !d.Supports("display") {
-		return fmt.Errorf("%w: queries for %s require display usage", ErrInvalid, key)
-	}
-	for name, q := range d.Queries {
-		if !idPattern.MatchString(name) || q.Adapter != "native" || !operationPattern.MatchString(q.Operation) {
-			return fmt.Errorf("%w: query %s of %s needs a name, adapter native and an operation", ErrInvalid, name, key)
-		}
-		if utf8.RuneCountInString(strings.TrimSpace(q.Description)) > MaxDescriptionRunes {
-			return fmt.Errorf("%w: query %s of %s description is too long", ErrInvalid, name, key)
-		}
-		if len(q.ParamsSchema) > 0 {
-			if _, err := compileDataSchema(q.ParamsSchema); err != nil {
-				return fmt.Errorf("%w: paramsSchema of query %s of %s: %v", ErrInvalid, name, key, err)
-			}
-		}
 	}
 	return nil
 }

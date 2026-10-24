@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/connector"
 	"agent-platform/internal/view"
@@ -25,10 +26,10 @@ func TestExecuteRunsDeclaredOperationWithContext(t *testing.T) {
 	service := &Service{Operations: map[string]Operation{"automation.list": func(_ context.Context, qc Context, params map[string]any) (any, error) {
 		seen, seenParams = qc, params
 		return map[string]any{"items": []any{}}, nil
-	}}}
+	}}, Now: func() time.Time { return time.UnixMilli(1700000000123) }}
 	result, err := service.Execute(context.Background(), automationsDocument(), "list", json.RawMessage(`{"limit":5}`), Context{ChatID: "c", RunID: "r", AgentKey: "a"})
-	if err != nil || string(result.(json.RawMessage)) != `{"items":[]}` {
-		t.Fatalf("result %v err %v", result, err)
+	if err != nil || string(result.Data) != `{"items":[]}` || result.ExecutedAt != 1700000000123 {
+		t.Fatalf("result %+v err %v", result, err)
 	}
 	if seen.AgentKey != "a" || seen.RunID != "r" || seenParams["limit"] != float64(5) {
 		t.Fatalf("context %#v params %#v", seen, seenParams)

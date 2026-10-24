@@ -106,11 +106,11 @@ HTTP：`GET /api/view?source=connector&chatId=<chat>&connectorId=crm-views&key=c
 
 展示消息由宿主发送：`{type:"view_init" | "view_update",data:{view,payload}}`，payload 是工具结果或 Markdown 数据。展示 iframe 没有提交或执行消息处理器。
 
-宿主为 display VIEW 注入 `window.zenmindView` 适配脚本（不写入快照，随宿主协议演进）：
+宿主为 display VIEW 注入 `window.viewHost` 适配脚本（不写入快照，随宿主协议演进；内置与外部连接器的 VIEW 使用同一套接口）：
 
-- `zenmindView.onData((payload, view, context) => …)` 接收 init/update；`context` 含 `queryable`、`locale`、`colorScheme`，查询块另有 `query:{name,params}`，首次查询失败时有 `error`。脚本把 `colorScheme` 写到 `<html data-color-scheme>` 与 `color-scheme`，模板按宿主主题而非系统主题配色。
-- `zenmindView.query(name, params)` 返回 Promise：发送 `{type:"view_query",id,query,params}`，宿主只对本 iframe、快照声明的查询调用 `/api/view/query`，回复 `{type:"view_query_result",id,ok,result|error}`。工具结果 VIEW 没有 Run 上下文，不可查询。
-- `zenmindView.resize()` 手动上报高度；脚本默认以 ResizeObserver 发送 `{type:"view_resize",height}`。宿主只接受来自该 iframe 的消息，高度限定在 48–1600px，首次上报前保持 320px。
+- `viewHost.onData((payload, view, context) => …)` 接收 init/update；`context` 含 `queryable`、`locale`、`colorScheme`，查询块另有 `query:{name,params}` 与首次查询完成时间 `executedAt`（Unix 毫秒），首次查询失败时有 `error`。脚本把 `colorScheme` 写到 `<html data-color-scheme>` 与 `color-scheme`，模板按宿主主题而非系统主题配色。
+- `viewHost.query(name, params)` 返回 Promise，成功时为 `{data, executedAt}`：发送 `{type:"view_query",id,query,params}`，宿主只对本 iframe、快照声明的查询调用 `/api/view/query`，回复 `{type:"view_query_result",id,ok,data,executedAt|error}`。同一 iframe 内同名查询以最后一次为准，被取代的请求以 `view_query_superseded` 拒绝（模板可忽略）；不同查询名互不影响。工具结果 VIEW 没有 Run 上下文，不可查询。
+- `viewHost.resize()` 手动上报高度；脚本默认以 ResizeObserver 发送 `{type:"view_resize",height}`。宿主只接受来自该 iframe 的消息，高度由 HTML 内容决定，仅设 48px 下限、不设上限（内容不应按 vh 定高），首次上报前保持 320px；HITL 表单宿主的限高不变。
 
 表单使用 `awaiting_init/awaiting_update`，data 含 `runId/awaitingId/view/mode/timeout/form`，其中 `form` 为 `{title, data}`。宿主按钮发送 `{type:"awaiting_collect",data:{runId,awaitingId,decision:"submit"|"reject"}}`，模板读取字段后回复：
 
@@ -147,30 +147,83 @@ WebClient 只用绑定中的 hash 读取快照：块已闭合但绑定未到时�
 
 ## VIEW 查询
 
-display VIEW 可以在 `view.json` 声明只读查询，让模板自己取数，用户在界面上改条件后重新查询：
+display VIEW 可以在 `view.json` 声明只读查询，让模板自己取数，用户在界面上改条件后重新查询。内置与外部连接器的查询共用同一套 Markdown 语法、接口、宿主桥接、结果形状与错误处理，`adapter` 只决定数据来源：
+
+| adapter | 数据来源 | 声明字段 |
+|---|---|---|
+| `native` | Platform 登记给该内嵌原生连接器的读操作 | `operation` |
+| `cli` | 本包 `cli.json` 声明的 CLI | `args` |
+| `mcp` | 本包 `mcp.json` 中某个组件的工具 | `component`、`toolName`、可选 `arguments` |
 
 ```json
 "queries": {
   "list": {
-    "description": "List automations.",
-    "adapter": "native",
-    "operation": "automation.list",
-    "paramsSchema": {"type":"object","additionalProperties":false,"properties":{"limit":{"type":"integer","minimum":1,"maximum":100},"offset":{"type":"integer","minimum":0}}}
+    "description": "List orders by status.",
+    "adapter": "cli",
+    "args": ["orders", "list", "--json",
+             {"opt": "--status", "param": "status"},
+             {"opt": "--limit", "param": "limit"},
+             {"flag": "--archived", "param": "archived"}],
+    "paramsSchema": {"type":"object","additionalProperties":false,"properties":{
+      "status":{"type":"string","enum":["open","paid","closed"]},
+      "limit":{"type":"integer","minimum":1,"maximum":100},
+      "archived":{"type":"boolean"}}}
+  },
+  "detail": {
+    "description": "Get one order.",
+    "adapter": "mcp",
+    "component": "crmapi",
+    "toolName": "get_order",
+    "arguments": {"includeItems": true},
+    "paramsSchema": {"type":"object","required":["id"],"properties":{"id":{"type":"string"}}}
   }
 }
 ```
 
-- 当前只有 `adapter: "native"`：`operation` 必须登记在 `internal/connector/native.go` 的原生 VIEW 操作表，且属于声明它的连接器（`automation.list` 归 `builtin.task-control`，`catalog.list` 归 `builtin.platform-control`）；外部包与跨连接器借用在加载时拒绝。CLI/MCP 查询尚未实现。
-- 查询声明随模板写入快照并计入 hash，历史快照不会因升级获得新查询。prompt 目录为每个查询列出 `query <name>: <description> params: <paramsSchema>`。
-- 模型写 ` ```view key=builtin.task-control/automations query=list ` 并以参数对象为正文；WebClient 打开时以这些参数执行首次查询，模板通过 `zenmindView.query(name, params)` 重新查询。
+声明规则：
 
-`POST /api/view/query`（WS 同名 route）请求体为 `{chatId, runId, view:{connectorId,key,hash}, query, params}`，严格拒绝未知字段，响应 `{code:0,data:{result}}`。授权与执行规则：
+- 一个查询只能填写本 adapter 的字段，混用其他 adapter 的字段在加载时拒绝。查询只能使用声明它的包：`native` 的 `operation` 必须登记在 `internal/connector/native.go` 的原生 VIEW 操作表并归属本连接器（`automation.list` 归 `builtin.task-control`，`catalog.list` 归 `builtin.platform-control`）；`cli` 要求本包有 `cli.json`；`mcp` 的 `component` 必须是本包 `mcp.json` 的组件。不能跨连接器借用。
+- `cli` 的 `args` 为 1–64 项，每项只能是以下四种之一，按顺序拼成 argv，**不经过 Shell**，不支持字符串插值：
 
-1. 查询是**查看者**的操作，等同用户打开管理页：沿用 Chat 资源鉴权，不经过工具准入，不检查 Agent 挂载、根 Run、阶段或审批，也不构造 Run 执行上下文。
-2. 只执行快照中声明、且在原生操作表中登记的操作；参数先按 `paramsSchema` 校验，操作再复用对应工具的参数校验与读取逻辑，结果形状与工具结果一致。`catalog.list` 支持 agent、connector、provider、model、skill、tool、mcp；各独立 VIEW 的 Schema 将 `resourceType` 限定为单个值，翻页、刷新和状态筛选不能切换资源类型。provider/model 的 valid 仅表示本地配置已加载，MCP 仅展示连接器本地组件声明，均不代表远端可用性；provider 仅返回允许公开的摘要，不包含凭据或端点。
-3. `runId` 必须属于该 Chat，平台解析出该 Run 的根 `agentKey` 并随查询上下文传给操作。当前两个操作是部署级列表，只记录不裁剪；需要按智能体范围裁剪的操作可基于它扩展。
-4. 只服务在线 Chat；归档 Chat 的 VIEW 仍可显示，但查询返回 404。BTW/Explain 侧链的 Run 不在主 Chat 查询行中，查询返回 `view_query_run_not_found`。
-5. 结果 ≤1 MiB。错误：400 `invalid_view` / `view_query_params_invalid`、403 `view_access_denied`、404 `view_not_found` / `view_query_run_not_found`、422 `view_query_failed`（`data.error.message` 为操作错误）、503 `view_query_unavailable`。
+  | 写法 | 参数 | 结果 |
+  |---|---|---|
+  | `"orders"` | — | `orders` |
+  | `{"param":"id"}` | `{"id":"A1"}` | `A1` |
+  | `{"opt":"--status","param":"status"}` | `{"status":"paid"}` | `--status paid` |
+  | `{"flag":"--archived","param":"archived"}` | `{"archived":true}` | `--archived` |
+
+  参数缺省或为 null 时整项省略；`flag` 只接受布尔值，false 时省略；参数值只能是字符串、数字或布尔值（数字按原文传递）；`{"param"}` 直接放值的项，值不能以 `-` 开头，防止被当作选项。`opt`/`flag` 必须形如 `-x` 或 `--name`。
+- `mcp` 以 `arguments` 的固定参数加校验后的 params 作为工具参数；params 不能覆盖固定参数（`paramsSchema.properties` 与 `arguments` 重名时加载拒绝，调用时同名参数返回 `view_query_params_invalid`）。
+- 查询声明随模板写入快照并计入 hash，历史快照不会因升级获得新查询。prompt 目录为每个查询列出 `query <name>: <description> params: <paramsSchema>`，不区分 adapter。
+- 查询由包作者声明为只读；Platform 无法证明 CLI 或 MCP 工具没有副作用，安装包即信任包。写操作仍走工具与 HITL。
+
+结果规则：
+
+- `native`：操作结果原样序列化，形状与对应工具结果一致。
+- `cli`：退出码必须为 0，stdout 去除首尾空白后必须是 JSON（多数 CLI 提供 `--json`/`--format json`），否则为 `view_query_failed`；非 0 退出时错误信息取 stderr 首行。
+- `mcp`：优先使用 `structuredContent`；否则唯一一段文本内容是 JSON 时解析使用；再否则包成 `{"text":"…"}`。工具返回 `isError` 时为 `view_query_failed`，错误信息取文本首行。
+
+模型写 ` ```view key=crm/orders query=list ` 并以参数对象为正文；WebClient 打开时以这些参数执行首次查询，模板通过 `viewHost.query(name, params)` 重新查询。
+
+`POST /api/view/query`（WS 同名 route）请求体为 `{chatId, runId, view:{connectorId,key,hash}, query, params}`，严格拒绝未知字段，响应 `{code:0,data:{data,executedAt}}`，`executedAt` 为查询完成时间（Unix 毫秒）。授权与执行规则：
+
+1. 查询是**查看者**的操作，等同用户打开管理页：沿用 Chat 资源鉴权，不经过工具准入，不检查 Agent 挂载、根 Run、阶段或审批，也不构造 Run 执行上下文。VIEW 块只能在产生它的执行者挂载了该连接器时绑定，因此查询时不再复查挂载；之后解除挂载不影响已绑定 VIEW 的查询。
+2. 只执行快照中声明的查询，参数先按 `paramsSchema` 校验。`native` 再复用对应工具的参数校验与读取逻辑；`catalog.list` 支持 agent、connector、provider、model、skill、tool、mcp，各独立 VIEW 的 Schema 将 `resourceType` 限定为单个值，翻页、刷新和状态筛选不能切换资源类型。provider/model 的 valid 仅表示本地配置已加载，MCP 仅展示连接器本地组件声明，均不代表远端可用性；provider 仅返回允许公开的摘要，不包含凭据或端点。
+3. `cli`/`mcp` 经 `connectorops` 的直接执行入口运行，授权范围只含声明连接器的该 adapter；沿用其安装、配置、授权与准备检查、凭据注入、30 秒超时与 1 MiB 输出上限。执行使用**当前安装**的连接器：快照只冻结查询声明，不保存历史连接器，连接器升级后不兼容或被删除时查询直接失败。
+4. `runId` 必须属于该 Chat，平台解析出该 Run 的根 `agentKey` 并随查询上下文传给操作。当前操作只记录不裁剪；需要按智能体范围裁剪的操作可基于它扩展。
+5. 只服务在线 Chat；归档 Chat 的 VIEW 仍可显示，但查询返回 404。BTW/Explain 侧链的 Run 不在主 Chat 查询行中，查询返回 `view_query_run_not_found`。
+6. Platform 不对查询限流；用户取消请求时停止执行。结果 ≤1 MiB。
+7. 错误：400 `invalid_view` / `view_query_params_invalid`、403 `view_access_denied`、404 `view_not_found` / `view_query_run_not_found`、422 `view_query_failed`（`data.error.message` 为操作错误）、503 `view_query_unavailable`。连接器执行失败保留 `connectorops` 的错误码，供模板提示用户：
+
+   | 错误码 | 含义 | 建议提示 |
+   |---|---|---|
+   | `connector_auth_required` | 未登录或登录失效 | 请先在连接器页面完成授权 |
+   | `connector_configuration_required` | 尚未配置 | 请先完成连接器配置 |
+   | `connector_preparation_required` | CLI 尚未准备 | 连接器尚未准备完成 |
+   | `connector_unavailable` | 连接器被删除或不可用 | 连接器不可用 |
+   | `invocation_timeout` | 超过 30 秒 | 查询超时，请重试 |
+
+   HTTP 状态沿用 `connectorops`，但 401/403 改为 409，避免被客户端误判为 Platform 登录失效。
 
 ### Prompt 目录
 

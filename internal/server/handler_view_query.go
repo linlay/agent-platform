@@ -10,6 +10,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/connectorops"
 	"agent-platform/internal/view"
 	"agent-platform/internal/viewquery"
 	"agent-platform/internal/ws"
@@ -29,8 +30,11 @@ type ViewQueryRequest struct {
 	Params json.RawMessage `json:"params,omitempty"`
 }
 
+// ViewQueryResponse is the same for native, CLI and MCP queries; executedAt
+// is Unix milliseconds when the query completed.
 type ViewQueryResponse struct {
-	Result json.RawMessage `json:"result"`
+	Data       json.RawMessage `json:"data"`
+	ExecutedAt int64           `json:"executedAt"`
 }
 
 func (s *Server) queryView(ctx context.Context, req ViewQueryRequest) (ViewQueryResponse, error) {
@@ -67,11 +71,21 @@ func (s *Server) queryView(ctx context.Context, req ViewQueryRequest) (ViewQuery
 	if err != nil {
 		return ViewQueryResponse{}, err
 	}
-	data, _ := result.(json.RawMessage)
-	return ViewQueryResponse{Result: data}, nil
+	return ViewQueryResponse{Data: result.Data, ExecutedAt: result.ExecutedAt}, nil
 }
 
 func viewQueryStatus(err error) (int, string, string) {
+	// Connector failures keep their code (connector_auth_required, …) for the
+	// view to explain, but never 401/403: those would read as the viewer's own
+	// Platform session failing.
+	var connectorErr *connectorops.Error
+	if errors.As(err, &connectorErr) {
+		status := connectorErr.Status
+		if status == http.StatusUnauthorized || status == http.StatusForbidden || status < 400 {
+			status = http.StatusConflict
+		}
+		return status, connectorErr.Code, connectorErr.Code
+	}
 	switch {
 	case errors.Is(err, view.ErrDataInvalid):
 		return http.StatusBadRequest, "view_query_params_invalid", err.Error()

@@ -180,7 +180,7 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 		if err := view.ValidateDefinitions(dir, viewConfig.Views); err != nil {
 			return Package{}, fmt.Errorf("connector %s view.json: %w", id, err)
 		}
-		if err := validateViewQueries(id, viewConfig.Views); err != nil {
+		if err := validateViewQueries(id, pkg, viewConfig.Views); err != nil {
 			return Package{}, fmt.Errorf("connector %s view.json: %w", id, err)
 		}
 		pkg.Views = viewConfig.Views
@@ -562,13 +562,25 @@ func (p Package) AuthorizationBrowser() string {
 	return p.Manifest.AuthorizationBrowser()
 }
 
-// validateViewQueries admits only operations registered for this connector;
-// a package cannot borrow another connector's Platform read operations.
-func validateViewQueries(id string, views map[string]view.Definition) error {
+// validateViewQueries binds every query to the declaring package: native
+// operations must be registered for this connector, and CLI/MCP queries may
+// use only this package's own CLI or MCP components.
+func validateViewQueries(id string, pkg Package, views map[string]view.Definition) error {
 	for key, definition := range views {
 		for name, query := range definition.Queries {
-			if owner, ok := NativeViewOperationOwner(query.Operation); !ok || owner != id {
-				return fmt.Errorf("%w: query %s of %s uses operation %q not registered for %s", view.ErrInvalid, name, key, query.Operation, id)
+			switch query.Adapter {
+			case "native":
+				if owner, ok := NativeViewOperationOwner(query.Operation); !ok || owner != id {
+					return fmt.Errorf("%w: query %s of %s uses operation %q not registered for %s", view.ErrInvalid, name, key, query.Operation, id)
+				}
+			case "cli":
+				if pkg.CLI == nil {
+					return fmt.Errorf("%w: query %s of %s uses cli but the package has no cli.json", view.ErrInvalid, name, key)
+				}
+			case "mcp":
+				if _, ok := pkg.MCP[query.Component]; !ok {
+					return fmt.Errorf("%w: query %s of %s uses MCP component %q not declared in mcp.json", view.ErrInvalid, name, key, query.Component)
+				}
 			}
 		}
 	}

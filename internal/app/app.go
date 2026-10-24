@@ -24,6 +24,7 @@ import (
 	"agent-platform/internal/chatresource"
 	"agent-platform/internal/config"
 	"agent-platform/internal/connectorauth"
+	"agent-platform/internal/connectorops"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/credentialview"
@@ -450,7 +451,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		BackgroundContext:      backgroundCtx,
 		Config:                 cfg,
 		Chats:                  chatStore,
-		ViewQueries:            &viewquery.Service{Operations: controlHandler.ViewQueryOperations()},
+		ViewQueries:            &viewquery.Service{Operations: controlHandler.ViewQueryOperations(), Connectors: &connectorops.Service{Auth: connectorAuth, Sources: cfg.Paths.ConnectorSources()}},
 		Archives:               archiveStore,
 		Archiver:               archiver,
 		Memory:                 memoryStore,

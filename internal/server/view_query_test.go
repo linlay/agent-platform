@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/connectorops"
 	"agent-platform/internal/viewquery"
 )
 
@@ -94,7 +96,11 @@ func TestViewQueryRunsDeclaredBuiltinQueryForTheViewer(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("query: %d %s", rec.Code, rec.Body.String())
 	}
-	result := response["data"].(map[string]any)["result"].(map[string]any)
+	body := response["data"].(map[string]any)
+	if executedAt, _ := body["executedAt"].(float64); executedAt <= 0 {
+		t.Fatalf("executedAt missing: %#v", body)
+	}
+	result := body["data"].(map[string]any)
 	if result["total"] != float64(1) || result["limit"] != float64(5) {
 		t.Fatalf("result: %#v", result)
 	}
@@ -116,6 +122,25 @@ func TestViewQueryRunsDeclaredBuiltinQueryForTheViewer(t *testing.T) {
 		rec, _ := post(tc.body)
 		if rec.Code != tc.code || !strings.Contains(rec.Body.String(), tc.want) {
 			t.Fatalf("%s: %d %s", name, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// Connector failures keep their code but never reach the client as 401/403,
+// which would read as the viewer's own Platform session failing.
+func TestViewQueryConnectorFailuresKeepCodeWithoutAuthStatus(t *testing.T) {
+	for _, tc := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{&connectorops.Error{Code: "connector_auth_required", Status: http.StatusUnauthorized}, http.StatusConflict, "connector_auth_required"},
+		{&connectorops.Error{Code: "connector_execution_not_allowed", Status: http.StatusForbidden}, http.StatusConflict, "connector_execution_not_allowed"},
+		{fmt.Errorf("wrapped: %w", &connectorops.Error{Code: "invocation_timeout", Status: http.StatusGatewayTimeout}), http.StatusGatewayTimeout, "invocation_timeout"},
+	} {
+		status, code, _ := viewQueryStatus(tc.err)
+		if status != tc.status || code != tc.code {
+			t.Fatalf("%v: %d %s", tc.err, status, code)
 		}
 	}
 }

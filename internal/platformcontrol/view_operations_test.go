@@ -58,7 +58,7 @@ func TestIndependentCatalogViewsConstrainResourceAndPreservePagination(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			raw, _ := json.Marshal(result)
+			raw := result.Data
 			if strings.Contains(string(raw), "secret") {
 				t.Fatalf("private provider fields leaked: %s", raw)
 			}
@@ -80,7 +80,7 @@ func TestIndependentCatalogViewsConstrainResourceAndPreservePagination(t *testin
 					t.Fatal(err)
 				}
 				var nextPage map[string]any
-				if err := json.Unmarshal(next.(json.RawMessage), &nextPage); err != nil {
+				if err := json.Unmarshal(next.Data, &nextPage); err != nil {
 					t.Fatal(err)
 				}
 				if nextPage["items"].([]any)[0].(map[string]any)["resourceKey"] == items[0].(map[string]any)["resourceKey"] {
@@ -118,8 +118,8 @@ func TestAutomationViewPaginationWithPublishedSchema(t *testing.T) {
 			HasMore    bool `json:"hasMore"`
 			NextOffset int  `json:"nextOffset"`
 		}
-		if err := json.Unmarshal(result.(json.RawMessage), &page); err != nil || page.Total != 0 || page.HasMore || page.NextOffset != 0 {
-			t.Fatalf("unexpected empty page: %s (%v)", result, err)
+		if err := json.Unmarshal(result.Data, &page); err != nil || page.Total != 0 || page.HasMore || page.NextOffset != 0 {
+			t.Fatalf("unexpected empty page: %s (%v)", result.Data, err)
 		}
 	}
 }

@@ -111,13 +111,13 @@ footer { display: flex; justify-content: flex-end; align-items: center; gap: 8px
     if (!queryable || busy) return;
     busy = true; render();
     try {
-      const result = await zenmindView.query('list', next);
+      const { data: result } = await viewHost.query('list', next);
       params = next; data = result;
     } catch (error) { busy = false; render(); showError(error); return; }
     busy = false; render();
   }
 
-  zenmindView.onData((payload, _view, context) => {
+  viewHost.onData((payload, _view, context) => {
     dict = String(context?.locale || navigator.language).toLowerCase().startsWith('zh') ? text.zh : text.en;
     applyText();
     queryable = Boolean(context?.queryable);

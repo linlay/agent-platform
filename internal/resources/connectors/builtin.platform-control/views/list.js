@@ -86,13 +86,13 @@
     const cursor = nextCursors[nextCursors.length - 1];
     if (cursor) request.cursor = cursor; else delete request.cursor;
     try {
-      const result = await zenmindView.query('list', request);
+      const { data: result } = await viewHost.query('list', request);
       params = next; cursors = nextCursors; data = result;
     } catch (error) { busy = false; render(); showError(error); return; }
     busy = false; render();
   }
 
-  zenmindView.onData((payload, _view, context) => {
+  viewHost.onData((payload, _view, context) => {
     dict = String(context?.locale || navigator.language).toLowerCase().startsWith('zh') ? text.zh : text.en;
     applyText();
     queryable = Boolean(context?.queryable);

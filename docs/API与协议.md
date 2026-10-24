@@ -739,7 +739,7 @@ Memory 已替换为纯 Markdown 文件管理，只提供 HTTP `/api/memory/file`
 | GET | `/api/project/changes` | query: `agentKey`、`chatId`、可选 `runId/limit/cursor` | 当前 Chat 的 Run 文件历史列表 |
 | GET | `/api/project/diff` | query: `agentKey`、`chatId`、`runId`、`path`、可选 `encoding` | 单个 Run 快照的原始/当前文本 |
 | GET | `/api/view` | query: `source,key`；connector 另需 `chatId,connectorId,hash`，可选 `usage` | 统一返回 `{view,html?,qlc?,entry?,assets?}`；connector 缺 hash 返回 400 `view_snapshot_required`；未知内置 key 或 native 文档返回 404 |
-| POST | `/api/view/query` | body: `chatId,runId,view:{connectorId,key,hash},query,params` | `{result}`；只执行快照声明的只读查询，按查看者授权，`runId` 须属于该 Chat |
+| POST | `/api/view/query` | body: `chatId,runId,view:{connectorId,key,hash},query,params` | `{data,executedAt}`；只执行快照声明的只读查询（native/cli/mcp），按查看者授权，`runId` 须属于该 Chat |
 | GET | `/api/resource` | query: `file`、`chatId`、`t`、`download` | ChatScope 或普通 Agent Workspace/冻结临时根资源字节；绝对路径必须传 `chatId` |
 | GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tools/results/<toolId>.json` 完整工具结果；`t` 为可选 resource ticket |
 | POST | `/api/upload` | multipart: `requestId`、`chatId`、`name`、`file` | upload ticket；文件保存为 `<chatId>/<name>` |
@@ -1014,7 +1014,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/compact` | `requestId`、`chatId`、`trigger`、`level` | `response`；活动 native root Run 时等待最终 completed/failed/skipped |
 | `/api/file` | `agentKey`、`path`、可选 `encoding`、可选 `response=json` | `response`；data 为 agent workspace 文件 metadata，文本文件包含 `content` |
 | `/api/view` | `source,key`；connector 另带 `chatId,connectorId,hash`，可选 `usage` | `response`；来源与错误语义同 HTTP |
-| `/api/view/query` | `chatId,runId,view:{connectorId,key,hash},query,params` | `response`；data 为 `{result}`，错误语义同 HTTP |
+| `/api/view/query` | `chatId,runId,view:{connectorId,key,hash},query,params` | `response`；data 为 `{data,executedAt}`，错误语义同 HTTP |
 | `/api/resource` | `file`、`pushURL` | `response` |
 | `/api/upload` | gateway upload metadata | `response` |
 
@@ -1160,7 +1160,7 @@ HTTP GET 和 WS `/api/view` 对 connector 接受 `chatId/connectorId/key/hash/us
 
 助手正文中的 Markdown VIEW 块由 Run 在块闭合时绑定：`content.view` 携带 `{contentId,runId,taskId?,index,view?,viewError?}`，`index` 为该 content 内已闭合 VIEW 块的序号；`content.snapshot` 以 `views:[{index,view?,viewError?}]` 汇总并持久化到 assistant message，冷回放的 `content.snapshot` 原样返回。原文不改写，绑定不进入模型上下文。`viewError` 取 `invalid_view`、`view_not_found`、`view_unavailable` 或 `view_data_invalid`。
 
-`POST /api/view/query`（WS 同名）执行 VIEW 快照声明的只读查询：请求 `{chatId,runId,view:{connectorId,key,hash},query,params}`，响应 `{result}`。按查看者的 Chat 权限授权，不经过工具准入；`runId` 必须属于该 Chat，其根 agentKey 进入查询上下文。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md#view-查询)。
+`POST /api/view/query`（WS 同名）执行 VIEW 快照声明的只读查询：请求 `{chatId,runId,view:{connectorId,key,hash},query,params}`，响应 `{data,executedAt}`（executedAt 为 Unix 毫秒）。查询来源为登记的原生操作或声明包自身的 CLI/MCP，三者结果形状一致；按查看者的 Chat 权限授权，不经过工具准入，不复查挂载；连接器失败保留 `connector_*` 错误码且不返回 401/403；`runId` 必须属于该 Chat，其根 agentKey 进入查询上下文。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md#view-查询)。
 
 技能候选的 `icon` 使用 `/api/skills/icon?id=...`，读取技能中心图标，不因 Agent 改变。缺图省略 `icon`；HTTP/WS 共享字段，图片校验与 ETag 缓存保留。旧带 `agentKey` 的图标请求仍按 Agent 运行副本解析，不影响新全局目录。
 

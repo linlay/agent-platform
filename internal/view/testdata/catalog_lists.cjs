@@ -14,12 +14,12 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     const w = dom.window, doc = w.document, calls = [];
     let receive, fail = false;
     const item = { resourceKey: 'demo', valid: true, name: '<img src=x onerror=alert(1)>', mode: 'TEAM', hasMcp: true, description: 'Description', definition: { provider: 'demo-provider', modelId: 'upstream', protocols: ['OPENAI'], modelCount: 0, credentialConfigured: false, enabled: false, transport: 'stdio' } };
-    w.zenmindView = {
+    w.viewHost = {
       onData: fn => { receive = fn; },
       query: async (name, params) => {
         calls.push(JSON.parse(JSON.stringify({ name, params })));
         if (fail) throw new Error('Query failed');
-        return { items: [{...item, resourceKey: params.cursor ? 'second' : 'first'}], total: 2, hasMore: !params.cursor, nextCursor: params.cursor ? '' : 'page2' };
+        return { executedAt: 1, data: { items: [{...item, resourceKey: params.cursor ? 'second' : 'first'}], total: 2, hasMore: !params.cursor, nextCursor: params.cursor ? '' : 'page2' } };
       },
     };
     for (const asset of definition.assets.filter(p => p.endsWith('.js'))) w.eval(fs.readFileSync(path.join(root, asset), 'utf8'));
