@@ -125,7 +125,7 @@ func TestRenderCatalogListsDisplayViewsDeterministically(t *testing.T) {
 		}},
 	}
 	got, omitted := RenderCatalog(mounts)
-	want := "key: alpha/list\ndescription: List rows.\n\nkey: zeta/card\ntitle: Card\ndescription: Show a card.\ndata: {\"type\":\"object\"}"
+	want := "- alpha/list — List rows.\n- zeta/card — Show a card."
 	if got != want || omitted != 0 {
 		t.Fatalf("catalog = %q omitted %d", got, omitted)
 	}
@@ -149,4 +149,28 @@ func sameJSON(t *testing.T, a, b json.RawMessage) bool {
 		return false
 	}
 	return reflect.DeepEqual(left, right)
+}
+
+func TestDescribeDisclosesOneMountedDisplayView(t *testing.T) {
+	mounts := []Mount{{ID: "crm", Views: map[string]Definition{
+		"orders": {Title: "Orders", Description: "List\n orders.", Usage: []string{"display"}, DataSchema: json.RawMessage("{\n \"type\": \"object\"\n}"),
+			Queries: map[string]Query{"list": {Description: "List.", Adapter: "native", Operation: "crm.list", ParamsSchema: json.RawMessage(`{"type": "object"}`)}}},
+		"edit": {Description: "Edit.", Usage: []string{"form"}},
+	}}}
+	got, err := Describe(mounts, "crm/orders")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(got)
+	want := `{"key":"crm/orders","title":"Orders","description":"List orders.","dataSchema":{"type":"object"},"queries":{"list":{"description":"List.","paramsSchema":{"type":"object"}}},` +
+		`"usage":["` + "```view key=crm/orders query=list\\n{params object matching queries.list.paramsSchema}\\n```" + `","` + "```view key=crm/orders\\n{data matching dataSchema}\\n```" + `"]}`
+	if string(data) != want {
+		t.Fatalf("describe = %s", data)
+	}
+	// Adapters and operations stay private; form views and other mounts are not found.
+	for _, key := range []string{"crm/edit", "crm/missing", "other/orders", "orders", ""} {
+		if _, err := Describe(mounts, key); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("%q: %v", key, err)
+		}
+	}
 }

@@ -36,7 +36,7 @@ crm-views/
 }}
 ```
 
-`description` 与 `dataSchema` 是 display VIEW 面向模型的契约：`usage` 含 `display` 时 `description` 必填（≤1024 字符）；`dataSchema` 可选，仅限 display，序列化后 ≤4 KiB 且必须是可编译的 JSON Schema。两者只进入 prompt 目录和 Markdown 数据校验，不发送给 iframe。
+`description` 与 `dataSchema` 是 display VIEW 面向模型的契约：`usage` 含 `display` 时 `description` 必填（≤1024 字符）；`dataSchema` 可选，仅限 display，序列化后 ≤4 KiB 且必须是可编译的 JSON Schema。`description` 进入 prompt 目录，`dataSchema` 由 `view_describe` 按需返回并用于 Markdown 数据校验，两者都不发送给 iframe。
 
 `renderer` 接受 `html | qlc`，与 HITL mode 无关。QLC 必须是 JSON 对象；HTML 必须是非空 UTF-8。`usage` 显式声明 `display`、`form` 或两者。入口和资源必须是 `views/` 下的规范 POSIX 路径，禁止绝对路径、回退段、查询串和逃出 views 的符号链接，`views` 本身也不能是链接。只发布显式声明的资源，完整 JSON 文档（含资源 base64）上限 8 MiB。
 
@@ -194,7 +194,7 @@ display VIEW 可以在 `view.json` 声明只读查询，让模板自己取数，
 
   参数缺省或为 null 时整项省略；`flag` 只接受布尔值，false 时省略；参数值只能是字符串、数字或布尔值（数字按原文传递）；`{"param"}` 直接放值的项，值不能以 `-` 开头，防止被当作选项。`opt`/`flag` 必须形如 `-x` 或 `--name`。
 - `mcp` 以 `arguments` 的固定参数加校验后的 params 作为工具参数；params 不能覆盖固定参数（`paramsSchema.properties` 与 `arguments` 重名时加载拒绝，调用时同名参数返回 `view_query_params_invalid`）。
-- 查询声明随模板写入快照并计入 hash，历史快照不会因升级获得新查询。prompt 目录为每个查询列出 `query <name>: <description> params: <paramsSchema>`，不区分 adapter。
+- 查询声明随模板写入快照并计入 hash，历史快照不会因升级获得新查询。`view_describe` 为每个查询返回 description 与 paramsSchema，不区分 adapter，也不暴露 adapter、operation、args 等执行细节。
 - 查询由包作者声明为只读；Platform 无法证明 CLI 或 MCP 工具没有副作用，安装包即信任包。写操作仍走工具与 HITL。
 
 结果规则：
@@ -227,15 +227,25 @@ display VIEW 可以在 `view.json` 声明只读查询，让模板自己取数，
 
 ### Prompt 目录
 
-display VIEW 通过 `configs/agent-prompt.yml` 的 `shared.view` 注入 system prompt，源码不提供任何默认文案：
+display VIEW 采用渐进式披露：system prompt 只列每个 VIEW 的 key 与用途，Schema、查询和块模板由只读工具 `view_describe` 按需返回。文案通过 `configs/agent-prompt.yml` 的 `shared.view` 配置，源码不提供任何默认文案：
 
 ```yaml
 shared:
   view:
     instructions-prompt: |
-      ...VIEW 用法规则...
-    catalog-header: "Available views (key, purpose, data schema, queries):"
+      ...VIEW 块语法，以及写块前先调用 view_describe...
+    catalog-header: "Available views:"
 ```
+
+目录示例：
+
+```text
+Available views:
+- builtin.platform-control/agents — List public Agents, including TEAM Agents.
+- builtin.task-control/automations — List automations with schedules, status and recent execution.
+```
+
+`view_describe({"key":"builtin.platform-control/agents"})` 返回 `key/title/description/dataSchema/queries/usage`：`queries` 每项只有 description 与 paramsSchema；`usage` 是块模板，有查询时查询模板在前、静态数据模板在后。只查当前执行者冻结挂载中的 display VIEW，其他 key 返回 `view_not_found`。
 
 注入规则：
 
@@ -247,10 +257,11 @@ shared:
 6. section 为 `view-catalog`（`views.catalog`），紧跟 `skill-catalog`；内容为 instructions、header 与条目依次拼接。
 7. 规划与执行 Run 内容相同，与 mode、editingMode 无关；目录计入 system-init 指纹。
 8. Run 启动时随 Session 冻结，目录热重载只影响下一次 Run。
-9. 条目按 `connectorId/viewKey` 字典序，字段为 `key/title/description/data` 和每个查询一行 `query <name>: <description> params: <paramsSchema>`（结构标签由代码生成，description 折叠空白，JSON 为紧凑形式）；整段上限 32 KiB，超出从末尾整条移除并记录 warning。
-10. 不提供 Agent 级覆盖；不需要某个 VIEW 就不挂载对应连接器。
-11. description 与 dataSchema 来自包作者，信任等级同工具描述，不授予工具或权限。
-12. 渲染与绑定不依赖 prompt：未注入时模型写出的 VIEW 块仍按上述规则绑定。
+9. 条目按 `connectorId/viewKey` 字典序，每个 VIEW 一行 `- <connectorId>/<viewKey> — <description>`（description 折叠空白）；整段上限 32 KiB，超出从末尾整条移除并记录 warning。
+10. `view_describe` 是普通只读工具，没有隐式注入：分发配置只在 `agent-settings.yml` 的 general、coder 段 preset，其他 mode 或 Agent 需要时显式声明；`toolConfig.excludeTools` 可排除。没有该工具时目录照常注入，模型只能按目录写块。没有挂载 display VIEW 时调用返回 `view_not_found`。
+11. 不提供 Agent 级覆盖；不需要某个 VIEW 就不挂载对应连接器。
+12. description 与 dataSchema 来自包作者，信任等级同工具描述，不授予工具或权限。
+13. 渲染与绑定不依赖 prompt：未注入时模型写出的 VIEW 块仍按上述规则绑定。
 
 ## 来源统一与硬切边界
 

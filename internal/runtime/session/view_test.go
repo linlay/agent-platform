@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"agent-platform/internal/catalog"
@@ -40,7 +39,7 @@ func TestViewCatalogPromptInjectionRules(t *testing.T) {
 	}}}
 	config := contracts.ViewAppendConfig{InstructionsPrompt: "RULES", CatalogHeader: "HEADER"}
 	native := catalog.AgentDefinition{Key: "demo", Mode: "GENERAL", Engine: catalog.AgentEngineNative}
-	want := "RULES\n\nHEADER\n\nkey: crm/orders\ntitle: Orders\ndescription: List orders."
+	want := "RULES\n\nHEADER\n\n- crm/orders — List orders."
 	if got := BuildViewCatalogPrompt(native, mounts, config); got != want {
 		t.Fatalf("native prompt = %q", got)
 	}
@@ -68,8 +67,8 @@ func TestConfigureViewsBindsMarkdownWithFrozenMountsAndSchema(t *testing.T) {
 	if err := New(Dependencies{}).ConfigureViews(&session, def); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(session.ViewCatalogPrompt, "key: crm/orders") || !strings.Contains(session.ViewCatalogPrompt, `data: {"type":"object","required":["items"]}`) {
-		t.Fatalf("catalog prompt: %q", session.ViewCatalogPrompt)
+	if session.ViewCatalogPrompt != "RULES\n\nHEADER\n\n- crm/orders — List orders." || len(session.ViewMounts) != 1 {
+		t.Fatalf("catalog prompt: %q mounts %d", session.ViewCatalogPrompt, len(session.ViewMounts))
 	}
 	ref := view.Reference{Source: "connector", ConnectorID: "crm", Key: "orders"}
 	bound, err := session.BindMarkdownView(context.Background(), ref, "", json.RawMessage(`{"items":[]}`))

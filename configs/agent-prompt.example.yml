@@ -30,9 +30,9 @@ shared:
     # Empty or missing: no VIEW section is appended. Rendering and snapshot
     # binding do not depend on it.
     instructions-prompt: |
-      Views display structured data in the user's client. To show a view, write a fenced block whose opening line is exactly ```view key=<key> using a key from the catalog, then one JSON object or array that follows the view's data schema, then a closing ``` line. Start both fence lines at the beginning of a line.
-      When the catalog lists a query for the view, prefer ```view key=<key> query=<name> with the query's params object as the body. The view then fetches current data itself; do not fetch the same data with a tool first.
-    catalog-header: "Available views (key, purpose, data schema, queries):"
+      Views display structured data in the user's client. The catalog below lists each view's key and purpose. When view_describe is available, call it with the key before writing a view block to get the data schema, queries and block templates; details returned earlier in this Chat stay valid.
+      A view block opens with exactly ```view key=<key>, or ```view key=<key> query=<name> for a declared query, followed by one JSON body and a closing ``` line; both fence lines start at the beginning of a line. Prefer a declared query: the view then fetches current data itself, so do not fetch the same data with a tool first.
+    catalog-header: "Available views:"
 
   reference:
     # Empty or missing: the reference protocol section is not appended.

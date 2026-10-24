@@ -356,7 +356,7 @@ func TestShippedAgentPromptExampleConfiguresViewProtocol(t *testing.T) {
 	}
 	// The model only learns the fence header from this prompt; without it the
 	// blocks it writes carry no key and every view fails to bind.
-	if !strings.Contains(c.Prompts.View.InstructionsPrompt, "```view key=<key>") || !strings.Contains(c.Prompts.View.InstructionsPrompt, "```view key=<key> query=<name>") || strings.TrimSpace(c.Prompts.View.CatalogHeader) == "" {
+	if !strings.Contains(c.Prompts.View.InstructionsPrompt, "```view key=<key>") || !strings.Contains(c.Prompts.View.InstructionsPrompt, "```view key=<key> query=<name>") || !strings.Contains(c.Prompts.View.InstructionsPrompt, "view_describe") || strings.TrimSpace(c.Prompts.View.CatalogHeader) == "" {
 		t.Fatalf("example view prompts: %#v", c.Prompts.View)
 	}
 }
@@ -393,5 +393,21 @@ executor:
 	// Mode-level connectors count as preset references for every mode, TEAM included.
 	if got := cfg.AllPresetConnectors(); !reflect.DeepEqual(got, []string{"builtin.task-control", "builtin.web-control"}) {
 		t.Fatalf("preset connectors = %v", got)
+	}
+}
+
+func TestShippedAgentSettingsPresetViewDescribeForGeneralAndCoder(t *testing.T) {
+	var cfg Config
+	if err := cfg.applyAgentSettingsFile(ProjectFile("configs/agent-settings.example.yml")); err != nil {
+		t.Fatal(err)
+	}
+	for mode, want := range map[string]bool{"GENERAL": true, "CODER": true, "KBASE": false, "TEAM": false, "EXECUTOR": false} {
+		has := false
+		for _, tool := range cfg.PresetsForMode(mode).Tools {
+			has = has || tool == "view_describe"
+		}
+		if has != want {
+			t.Fatalf("%s view_describe preset = %v", mode, has)
+		}
 	}
 }

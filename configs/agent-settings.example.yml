@@ -66,6 +66,7 @@ general:
   preset-tools:
     - ask_user_question
     - artifact_publish
+    - view_describe
   preset-connectors:
     - builtin.web-control
     - builtin.task-control
@@ -83,6 +84,7 @@ coder:
     - regex
     - ask_user_question
     - artifact_publish
+    - view_describe
   preset-connectors:
     - builtin.web-control
     - builtin.task-control

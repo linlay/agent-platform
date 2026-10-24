@@ -79,7 +79,8 @@ func TestViewQueryRunsDeclaredBuiltinQueryForTheViewer(t *testing.T) {
 		t.Fatalf("no binding: %s", rec.Body.String())
 	}
 	prompt := <-systemPrompt
-	if !strings.Contains(prompt, "key: builtin.task-control/automations") || !strings.Contains(prompt, "query list: List automations.") {
+	// The catalog lists only key and purpose; details come from view_describe.
+	if !strings.Contains(prompt, "- builtin.task-control/automations — ") || strings.Contains(prompt, "paramsSchema") {
 		t.Fatalf("builtin view missing from catalog prompt: %s", prompt)
 	}
 

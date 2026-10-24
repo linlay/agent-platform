@@ -40,6 +40,8 @@ func (s *Builder) ConfigureViews(session *contracts.QuerySession, def catalog.Ag
 		return err
 	}
 	session.ViewCatalogPrompt = BuildViewCatalogPrompt(def, mounts, session.PromptAppend.View)
+	// view_describe discloses exactly these frozen mounts.
+	session.ViewMounts = mounts
 	service := s.ViewService()
 	chatDir := session.ChatRoot
 	if s.deps.Chats != nil {
