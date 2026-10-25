@@ -167,7 +167,7 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 	if err != nil {
 		return err
 	}
-	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "general", "coder", "kbase", "team", "executor", "acp-bridges")
+	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "general", "coder", "kbase", "team", "executor", "plan-execute", "proxy", "channel", "acp-bridges")
 	if err != nil {
 		return err
 	}
@@ -179,6 +179,31 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 	if c.PlanningMode, err = parsePlanningMode(values, path, c.PlanningMode); err != nil {
 		return err
 	}
+	c.ModeDefaultDetails = map[string]string{}
+	for _, mode := range []string{"general", "coder", "kbase", "team", "executor", "plan-execute", "proxy", "channel"} {
+		raw, exists := values[mode]
+		if !exists {
+			continue
+		}
+		section, err := configMap(raw, path+"."+mode, "preset-tools", "preset-connectors", "default-agent", "workspace-agents", "interaction-config")
+		if mode == "plan-execute" || mode == "proxy" || mode == "channel" {
+			section, err = configMap(raw, path+"."+mode, "interaction-config")
+		}
+		if err != nil {
+			return err
+		}
+		node, err := optionalConfigMap(section, "interaction-config", path+"."+mode, "default-detail")
+		if err != nil {
+			return err
+		}
+		if value, exists := node["default-detail"]; exists {
+			level, ok := value.(string)
+			if !ok || (level != "summary" && level != "full") {
+				return fmt.Errorf("%s.%s.interaction-config.default-detail must be summary or full", path, mode)
+			}
+			c.ModeDefaultDetails[mode] = level
+		}
+	}
 	c.ModePresets = map[string]AgentPresets{}
 	c.ACP.SourcePath = path
 	c.ACP.ACPBridges, err = parseCoderACPBridges(values["acp-bridges"], nil)
@@ -186,7 +211,7 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 		return err
 	}
 	for _, mode := range presetModeSections {
-		v, err := optionalConfigMap(values, mode, path, "preset-tools", "preset-connectors", "default-agent", "workspace-agents")
+		v, err := optionalConfigMap(values, mode, path, "preset-tools", "preset-connectors", "default-agent", "workspace-agents", "interaction-config")
 		if err != nil {
 			return err
 		}

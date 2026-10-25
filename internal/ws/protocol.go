@@ -33,7 +33,7 @@ type RequestFrame struct {
 
 var detailFrameTypes = map[string]bool{"/api/query": true, "/api/attach": true, "/api/chat": true}
 
-// DetailLevel is the validated detail level; empty means summary.
+// DetailLevel is the validated override; empty is resolved from the Agent by Server.
 func (r RequestFrame) DetailLevel() stream.DetailLevel {
 	level, _ := stream.ParseDetailLevel(r.Detail)
 	return level

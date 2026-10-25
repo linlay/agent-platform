@@ -105,6 +105,10 @@ func (s *Server) writeRuntimeQueryStream(w http.ResponseWriter, ctx context.Cont
 		writeQueryStartError(w, err)
 		return
 	}
+	display := s.chatDisplay(handle.AgentKey, detail)
+	detail = display.EffectiveDetail
+	w.Header().Set("X-Event-Detail", string(detail))
+	w.Header().Set("X-Agent-Default-Detail", string(display.DefaultDetail))
 	if handle.SideID != "" {
 		w.Header().Set("X-Side-Id", handle.SideID)
 		w.Header().Set("X-Run-Id", handle.RunID)
@@ -139,6 +143,7 @@ func (s *Server) writeRuntimeQueryStream(w http.ResponseWriter, ctx context.Cont
 				_ = sseWriter.WriteDone()
 				return
 			}
+			event = stream.WithDisplay(event, display.DefaultDetail, detail)
 			if !detail.Allows(event.Type, event.Payload) {
 				continue
 			}

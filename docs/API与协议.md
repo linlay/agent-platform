@@ -548,7 +548,9 @@ TEAM 总控的普通工具与 reasoning 沿普通 Agent 事件链路；内部 `a
 
 #### 细节等级与 run.activity
 
-`/api/query`、`/api/attach`、`/api/chat` 接受细节等级 `detail`：HTTP 用 URL 参数（`?detail=full`），WS 用请求帧顶层字段（与 `type`、`id` 并列，见[帧类型](#帧类型)），不放进 query 请求体，因此不进入 JSONL 原始 query。取值 `summary`（缺省）或 `full`，其他值返回 400 `invalid_detail`；WS 其他路由携带 `detail` 同样拒绝。落盘始终完整，细节等级只决定下发哪些事件：
+`/api/query`、`/api/attach`、`/api/chat` 接受细节等级 `detail`：HTTP 用 URL 参数（`?detail=full`），WS 用请求帧顶层字段（与 `type`、`id` 并列，见[帧类型](#帧类型)），不放进 query 请求体，因此不进入 JSONL 原始 query。显式取值为 `summary` 或 `full`；省略时按实际 owner Agent 的 `interactionConfig.defaultDetail` 解析（Agent 显式配置 > agent-settings.yml 对应 mode 配置 > summary），其他值返回 400 `invalid_detail`；WS 其他路由携带 `detail` 同样拒绝。`/api/chat` 返回 `display: {defaultDetail,effectiveDetail}`，前者为 Agent 有效默认值，后者为本次请求覆盖后的下发档位。流式 `run.start` 在下发时附加相同 display（不修改共享事件或落盘）；HTTP SSE 另提供 `X-Agent-Default-Detail` 和 `X-Event-Detail` 响应头。query 按实际准入 Agent、attach 按 Run owner、chat 按 Chat owner 解析；Agent 不存在时兜底 summary，不阻止历史读取。Desktop broker 固定 full 下发时，页面仍使用 defaultDetail 决定展示。
+
+落盘始终完整，细节等级只决定下发哪些事件：
 
 | 事件 | summary | full |
 |---|---|---|
@@ -877,7 +879,7 @@ WebSocket 存活配置与 SSE heartbeat 完全独立。服务端默认每 30 秒
 }
 ```
 
-`/api/query`、`/api/attach`、`/api/chat` 的请求帧可在顶层携带 `detail`（`summary` 缺省或 `full`），它是下发选项而非 payload，规则见[细节等级](#细节等级与-runactivity)：
+`/api/query`、`/api/attach`、`/api/chat` 的请求帧可在顶层携带 `detail`（显式 `summary` 或 `full`，省略跟随 Agent），它是下发选项而非 payload，规则见[细节等级](#细节等级与-runactivity)：
 
 ```json
 {"frame":"request","type":"/api/query","id":"req-2","detail":"full","payload":{"message":"hello"}}

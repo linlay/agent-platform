@@ -105,6 +105,13 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, chatsD
 		adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_config", err)
 		return err
 	}
+	// Resolve display defaults without writing inherited values into the source.
+	declared := mapNode(definition["interactionConfig"])
+	if _, explicit := declared["defaultDetail"]; !explicit {
+		if level := assembler.modeDefaultDetails[strings.ToLower(def.Mode)]; level != "" {
+			def.InteractionConfig.DefaultDetail = level
+		}
+	}
 	if source.Kind == "directory" && def.Key != name {
 		err := fmt.Errorf("key mismatch (file key=%q, directory=%q)", def.Key, name)
 		log.Printf("[catalog][agents] skip directory %s: %v", name, err)

@@ -12,7 +12,7 @@ func TestRequestFrameDetail(t *testing.T) {
 		level   stream.DetailLevel
 		invalid bool
 	}{
-		{RequestFrame{Type: "/api/query"}, stream.DetailSummary, false},
+		{RequestFrame{Type: "/api/query"}, "", false},
 		{RequestFrame{Type: "/api/attach", Detail: "full"}, stream.DetailFull, false},
 		{RequestFrame{Type: "/api/chat", Detail: "summary"}, stream.DetailSummary, false},
 		{RequestFrame{Type: "/api/query", Detail: "verbose"}, "", true},

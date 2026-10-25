@@ -42,6 +42,10 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	display := s.chatDisplay(status.AgentKey, detail)
+	detail = display.EffectiveDetail
+	w.Header().Set("X-Event-Detail", string(detail))
+	w.Header().Set("X-Agent-Default-Detail", string(display.DefaultDetail))
 	observer, err := s.deps.Runs.AttachObserver(runID, lastSeq)
 	if err != nil {
 		var replayErr *stream.ReplayWindowExceededError
@@ -88,6 +92,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 				_ = sseWriter.WriteDone()
 				return
 			}
+			event = stream.WithDisplay(event, display.DefaultDetail, detail)
 			if !detail.Allows(event.Type, event.Payload) {
 				continue
 			}

@@ -3,7 +3,7 @@ package stream
 import "testing"
 
 func TestParseDetailLevel(t *testing.T) {
-	for raw, want := range map[string]DetailLevel{"": DetailSummary, "summary": DetailSummary, "full": DetailFull, " full ": DetailFull} {
+	for raw, want := range map[string]DetailLevel{"": "", "summary": DetailSummary, "full": DetailFull, " full ": DetailFull} {
 		if got, ok := ParseDetailLevel(raw); !ok || got != want {
 			t.Fatalf("ParseDetailLevel(%q)=%q,%v want %q", raw, got, ok, want)
 		}
@@ -68,5 +68,17 @@ func TestDetailLevelFilterEvents(t *testing.T) {
 	}
 	if full := DetailFull.FilterEvents(events); len(full) != 4 {
 		t.Fatalf("full=%#v", full)
+	}
+}
+
+func TestDeliveryDisplayDoesNotMutatePersistedEvent(t *testing.T) {
+	original := EventData{Type: "run.start", Payload: map[string]any{"runId": "run"}}
+	delivered := WithDisplay(original, DetailSummary, DetailFull)
+	if original.Payload["display"] != nil {
+		t.Fatal("shared event mutated")
+	}
+	display := delivered.Payload["display"].(map[string]any)
+	if display["defaultDetail"] != DetailSummary || display["effectiveDetail"] != DetailFull {
+		t.Fatal(display)
 	}
 }

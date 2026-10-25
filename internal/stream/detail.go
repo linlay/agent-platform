@@ -20,10 +20,12 @@ const (
 	DetailFull    DetailLevel = "full"
 )
 
-// ParseDetailLevel accepts summary, full, or empty (summary).
+// ParseDetailLevel validates an explicit override. Empty inherits the Agent default.
 func ParseDetailLevel(raw string) (DetailLevel, bool) {
 	switch strings.TrimSpace(raw) {
-	case "", string(DetailSummary):
+	case "":
+		return "", true
+	case string(DetailSummary):
 		return DetailSummary, true
 	case string(DetailFull):
 		return DetailFull, true
@@ -64,4 +66,19 @@ func (level DetailLevel) FilterEvents(events []EventData) []EventData {
 		}
 	}
 	return out
+}
+
+// WithDisplay annotates run.start at the delivery boundary. Shared/persisted
+// events remain untouched; a broker may request full while displaying default.
+func WithDisplay(event EventData, defaultDetail, effectiveDetail DetailLevel) EventData {
+	if event.Type != "run.start" {
+		return event
+	}
+	payload := make(map[string]any, len(event.Payload)+1)
+	for key, value := range event.Payload {
+		payload[key] = value
+	}
+	payload["display"] = map[string]any{"defaultDetail": defaultDetail, "effectiveDetail": effectiveDetail}
+	event.Payload = payload
+	return event
 }

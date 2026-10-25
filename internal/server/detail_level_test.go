@@ -1,17 +1,24 @@
 package server
 
 import (
+	"agent-platform/internal/api"
+	platformws "agent-platform/internal/ws"
 	"bytes"
+	"context"
 	"encoding/json"
+	gws "github.com/gorilla/websocket"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newDatetimeToolLoopFixture(t *testing.T) testFixture {
 	t.Helper()
-	return newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+	return newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode model request: %v", err)
@@ -30,7 +37,7 @@ func newDatetimeToolLoopFixture(t *testing.T) testFixture {
 			`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_datetime","type":"function","function":{"name":"datetime","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":3,"total_tokens":13}}`,
 			`[DONE]`,
 		)
-	})
+	}, testFixtureOptions{notifications: platformws.NewHub()})
 }
 
 func TestQueryDefaultsToSummaryDetail(t *testing.T) {
@@ -134,6 +141,140 @@ func TestDetailLevelRejectsUnknownValue(t *testing.T) {
 		fixture.server.ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "detail must be summary or full") {
 			t.Fatalf("%s: %d %s", req.URL, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestConfiguredAgentDetailAcrossHTTPAndWS(t *testing.T) {
+	f := newDatetimeToolLoopFixture(t)
+	path := filepath.Join(f.cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, []byte("\ninteractionConfig:\n  defaultDetail: full\n")...)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.registry.Reload(context.Background(), "agents"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		detail string
+		full   bool
+	}{{"", true}, {"summary", false}, {"full", true}} {
+		chatID := "configured-" + tc.detail
+		url := "/api/query"
+		if tc.detail != "" {
+			url += "?detail=" + tc.detail
+		}
+		rec := httptest.NewRecorder()
+		f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, url, strings.NewReader(`{"chatId":"`+chatID+`","message":"time"}`)))
+		if rec.Code != 200 {
+			t.Fatalf("query: %d %s", rec.Code, rec.Body.String())
+		}
+		sawTool := false
+		runID := ""
+		for _, event := range decodeSSEMessages(t, rec.Body.String()) {
+			if event["type"] == "tool.start" {
+				sawTool = true
+			}
+			if event["type"] == "run.start" {
+				runID, _ = event["runId"].(string)
+				if display, _ := event["display"].(map[string]any); display["defaultDetail"] != "full" {
+					t.Fatal(event)
+				}
+			}
+		}
+		if sawTool != tc.full {
+			t.Fatalf("override=%q tools=%v", tc.detail, sawTool)
+		}
+		suffix := ""
+		if tc.detail != "" {
+			suffix = "&detail=" + tc.detail
+		}
+		rec = httptest.NewRecorder()
+		f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID+suffix, nil))
+		var response api.ApiResponse[api.ChatDetailResponse]
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		sawTool = false
+		for _, event := range response.Data.Events {
+			if event.Type == "tool.snapshot" {
+				sawTool = true
+			}
+			if event.Payload["display"] != nil {
+				t.Fatal("delivery metadata persisted")
+			}
+		}
+		if sawTool != tc.full || response.Data.Display.DefaultDetail != "full" {
+			t.Fatalf("history: %s", rec.Body.String())
+		}
+		rec = httptest.NewRecorder()
+		f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/attach?agentKey=mock-agent&runId="+runID+suffix, nil))
+		if rec.Code != 200 {
+			t.Fatalf("attach: %d %s", rec.Code, rec.Body.String())
+		}
+		sawTool = false
+		for _, event := range decodeSSEMessages(t, rec.Body.String()) {
+			if event["type"] == "tool.start" {
+				sawTool = true
+			}
+		}
+		if sawTool != tc.full {
+			t.Fatalf("attach override=%q tools=%v", tc.detail, sawTool)
+		}
+	}
+	srv := newLoopbackServer(t, f.server)
+	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	readConnectedPush(t, conn)
+	for _, tc := range []struct {
+		detail string
+		full   bool
+	}{{"", true}, {"summary", false}} {
+		id := "ws-" + tc.detail
+		frame := map[string]any{"frame": "request", "type": "/api/query", "id": id, "payload": map[string]any{"chatId": id, "message": "time"}}
+		if tc.detail != "" {
+			frame["detail"] = tc.detail
+		}
+		if err := conn.WriteJSON(frame); err != nil {
+			t.Fatal(err)
+		}
+		sawTool, sawDisplay := false, false
+		for {
+			_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			var message struct {
+				Frame, ID, Type string
+				Event           map[string]any
+				Code            int
+			}
+			if err := conn.ReadJSON(&message); err != nil {
+				t.Fatal(err)
+			}
+			if message.ID != id {
+				continue
+			}
+			if message.Frame == "error" {
+				t.Fatalf("WS error: %+v", message)
+			}
+			if message.Event["type"] == "tool.start" {
+				sawTool = true
+			}
+			if message.Event["type"] == "run.start" {
+				display, _ := message.Event["display"].(map[string]any)
+				sawDisplay = display["defaultDetail"] == "full"
+			}
+			if message.Frame == "stream" && message.Event == nil {
+				break
+			}
+		}
+		if sawTool != tc.full || !sawDisplay {
+			t.Fatalf("WS override=%q tools=%v display=%v", tc.detail, sawTool, sawDisplay)
 		}
 	}
 }

@@ -15,6 +15,8 @@ type ConversationExportConfig struct {
 }
 
 type Config struct {
+	ModeDefaultDetails map[string]string
+
 	Export           ConversationExportConfig
 	PresetTools      []string
 	PresetConnectors []string

@@ -63,6 +63,9 @@ planning-mode:
     - ask_user_form
 
 general:
+  # Default delivery/display level for existing and new Agents; agent.yml may override.
+  interaction-config:
+    default-detail: summary
   preset-tools:
     - ask_user_question
     - artifact_publish
@@ -80,6 +83,9 @@ general:
     #   maxSteps: 200
 
 coder:
+  # Default delivery/display level for existing and new Agents; agent.yml may override.
+  interaction-config:
+    default-detail: full
   preset-tools:
     - regex
     - ask_user_question
@@ -106,6 +112,9 @@ coder:
     file: AGENTS.md
 
 kbase:
+  # Default delivery/display level for existing and new Agents; agent.yml may override.
+  interaction-config:
+    default-detail: summary
   # workspace-agents is accepted here and under general/team with the same meaning.
   preset-tools:
     - ask_user_question
@@ -133,6 +142,9 @@ acp-bridges:
 
 # TEAM uses ordinary Agent capabilities plus run-scoped member delegation.
 team:
+  # Default delivery/display level for existing and new Agents; agent.yml may override.
+  interaction-config:
+    default-detail: full
   preset-tools:
     - ask_user_question
     - artifact_publish
@@ -146,6 +158,9 @@ team:
 # it has no question or display tools and no platform connectors by default.
 # Workspace editing defaults to off; agent.yml can turn it on.
 executor:
+  # Default delivery/display level for existing and new Agents; agent.yml may override.
+  interaction-config:
+    default-detail: summary
   preset-tools:
     - result_submit
   preset-connectors: []
@@ -158,3 +173,14 @@ executor:
     # budget:
     #   timeout: 600
     #   maxSteps: 100
+
+# Other public modes use the same display-default contract.
+plan-execute:
+  interaction-config:
+    default-detail: full
+proxy:
+  interaction-config:
+    default-detail: summary
+channel:
+  interaction-config:
+    default-detail: summary
