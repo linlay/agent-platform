@@ -329,6 +329,17 @@ i18n:
 
 `i18n.description` 是受支持的可选界面说明，但 Platform 内嵌的全部工具（含 builtin.platform-control / builtin.web-control 的 native 工具）仅配置翻译名称，不配置翻译描述。内嵌工具原始 description、输入与输出 Schema 中的 description 均使用英文。dbx/httpx 是 CLI 连接器，不新增独立模型工具，仍通过 Bash 调用。
 
+### 工具活动说明 activityArgs
+
+工具 YAML 可选顶层 `activityArgs`：按顺序列出输入 Schema 中的字符串参数名。工具真正开始执行时，summary 细节等级的 `run.activity` 显示“工具 label：取值”，取值为列表中第一个非空参数；都为空或未配置时显示“正在调用「工具 label」”。取值压成单行并截断到 60 字符，http(s) URL 只保留主机与路径（去掉 query 与 fragment），绝对路径只显示文件名。列表中的名字必须是 `inputSchema.properties` 下 `type: string` 的参数，否则加载失败。只列面向用户的说明或目标参数，不列命令原文、正文或凭据；MCP 与连接器工具不配置时只显示 label。
+
+```yaml
+name: file_write
+activityArgs: [description, filePath]
+```
+
+内嵌配置：`bash`/`bash_sandbox`/`wait` 用 `description`，`file_write`/`file_edit` 用 `description, filePath`，`file_read` 用 `filePath`，`file_glob`/`file_grep` 用 `pattern`，`web_fetch`/`surface_navigate` 用 `url`，`kbase_search` 用 `query`，`kbase_read` 用 `path`。规则见 [细节等级与 run.activity](API与协议.md#细节等级与-runactivity)。
+
 展示名称仅使用当前语言的 i18n.label，缺失时回退到工具 name，不能回退到上一次显示的其他语言名称。界面描述优先使用当前语言的 i18n.description，缺失时回退原始英文 description。API 的 label/toolLabel 是解析结果，不是源码中的重复配置。模型协议只从原始定义构造 name、description、parameters/input_schema 等协议字段，不发送 label、翻译表或界面翻译后的 description。工具名称、action、参数、权限与执行逻辑不受界面语言影响。
 
 工具元数据内部使用 `meta.toolI18n` 携带翻译。Native 调用在 tool.start / tool.snapshot / tool.result 保存冻结的 `toolI18n` 展示快照，以支持多个客户端和历史读取；它不进入模型上下文。HTTP/WS 目录响应、SSE/WS 工具事件、Chat/Archive 回放和会话导出在输出边界按查看者语言解析，并移除内部翻译表，不修改共享定义或原始事件。英文请求同样进行工具展示解析。

@@ -313,6 +313,9 @@ func LocalizeEventPayload(locale string, eventType string, payload map[string]an
 		localizeToolPresentation(locale, out)
 		return out
 	}
+	if eventType == "run.activity" {
+		return localizeActivityPayload(locale, payload)
+	}
 	out, _ := localizeJSONValue(locale, payload).(map[string]any)
 	if len(out) == 0 {
 		return payload

@@ -128,6 +128,7 @@ func TestUsageSnapshotIncludesToolCallCountSincePreviousSnapshot(t *testing.T) {
 		TotalTokens:      12,
 	})
 	stream.emitPendingUsageDelta()
+	stream.pending = withoutRunActivities(stream.pending)
 
 	if stream.runToolCallCount != 2 || stream.lastSnapshotToolCallCount != 2 {
 		t.Fatalf("expected two counted tool calls, got run=%d snapshot=%d", stream.runToolCallCount, stream.lastSnapshotToolCallCount)

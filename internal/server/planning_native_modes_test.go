@@ -86,7 +86,7 @@ func TestGeneralPlanningModeConfirmsThenExecutesInNewRun(t *testing.T) {
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"plan this","agentKey":"general-app","planningMode":true}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"plan this","agentKey":"general-app","planningMode":true}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}

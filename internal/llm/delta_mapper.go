@@ -479,18 +479,11 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}}
 	case DeltaRunActivity:
 		m.lastKind = ""
-		return []stream.StreamInput{stream.InputRunActivity{
-			TaskID:      value.TaskID,
-			ChatID:      value.ChatID,
-			Phase:       value.Phase,
-			Status:      value.Status,
-			Backend:     value.Backend,
-			Key:         value.Key,
-			Message:     value.Message,
-			Retry:       CloneMap(value.Retry),
-			Recovery:    CloneMap(value.Recovery),
-			Degradation: CloneMap(value.Degradation),
-		}}
+		activity := m.runActivity(value)
+		if activity == nil {
+			return nil
+		}
+		return []stream.StreamInput{stream.InputRunActivity{TaskID: value.TaskID, ChatID: value.ChatID, Activity: activity}}
 	case DeltaContextCompact:
 		m.lastKind = ""
 		return []stream.StreamInput{stream.InputContextCompact{

@@ -92,7 +92,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId=chat-plan", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId=chat-plan", nil))
 	var detail api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
 		t.Fatalf("decode chat detail: %v", err)

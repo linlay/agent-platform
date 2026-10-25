@@ -327,7 +327,7 @@ func TestRouteChildStreamInputAttributesModelAndUsageEventsToTask(t *testing.T) 
 	for _, input := range []stream.StreamInput{
 		stream.InputLLMRequest{ModelKey: "member-model"},
 		stream.InputUsageSnapshot{ModelKey: "member-model", LLMReturnTotalTokens: 12},
-		stream.InputRunActivity{Phase: "model", Status: "running"},
+		stream.InputRunActivity{Activity: map[string]any{"kind": "thinking"}},
 	} {
 		routed := routeChildStreamInput("parent-run", taskID, input)
 		switch value := routed.(type) {

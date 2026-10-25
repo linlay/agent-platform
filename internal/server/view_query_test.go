@@ -60,7 +60,7 @@ func TestViewQueryRunsDeclaredBuiltinQueryForTheViewer(t *testing.T) {
 	}}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"message":"list automations","agentKey":"mock-agent"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(`{"message":"list automations","agentKey":"mock-agent"}`))
 	req.Header.Set("Content-Type", "application/json")
 	fixture.server.ServeHTTP(rec, req)
 	var chatID, runID, hash string

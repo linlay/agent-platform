@@ -102,8 +102,8 @@ func (t *ProxyUsageTracker) decorateTerminalUsage(event *stream.EventData) {
 	chatUsage := AddUsageData(t.chatUsage, *t.runUsage)
 	chatUsage.ModelKey = ""
 	event.Payload["usage"] = map[string]any{
-		"chat": UsageDataMap(chatUsage),
-		"run":  UsageDataMap(runUsage),
+		"chat": TerminalUsageDataMap(chatUsage),
+		"run":  TerminalUsageDataMap(runUsage),
 	}
 }
 

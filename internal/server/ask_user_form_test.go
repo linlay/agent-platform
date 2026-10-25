@@ -51,7 +51,7 @@ func TestAskUserFormSubmitProtocolAndSiblingWait(t *testing.T) {
 	server := newLoopbackServer(t, fixture.server)
 	defer server.Close()
 	client := &http.Client{Timeout: 15 * time.Second}
-	response, err := client.Post(server.URL+"/api/query", "application/json", strings.NewReader(`{"message":"collect profile"}`))
+	response, err := client.Post(server.URL+"/api/query?detail=full", "application/json", strings.NewReader(`{"message":"collect profile"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

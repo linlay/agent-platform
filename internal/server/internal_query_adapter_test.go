@@ -51,6 +51,6 @@ func (s *Server) ExecuteInternalQueryStream(ctx context.Context, req api.QueryRe
 		ctx = context.Background()
 	}
 	rw := newSSEInterceptor(onEvent)
-	s.writeRuntimeQueryResponse(rw, ctx, trustedQueryCommand(ctx, req))
+	s.writeRuntimeQueryResponse(rw, ctx, trustedQueryCommand(ctx, req), stream.DetailFull)
 	return rw.err
 }

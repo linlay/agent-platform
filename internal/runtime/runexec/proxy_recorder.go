@@ -41,6 +41,8 @@ type ProxyEventRecorder struct {
 	planningSnapshots map[string]bool
 	markdownGuards    map[string]*stream.MarkdownDestinationGuard
 	markdownText      map[string]*strings.Builder
+	// activities derives summary progress from the upstream's full stream.
+	activities *stream.ActivityTracker
 }
 
 type proxyContentBucket struct {
@@ -109,6 +111,7 @@ func NewProxyEventRecorder(
 		planningSnapshots: map[string]bool{},
 		markdownGuards:    map[string]*stream.MarkdownDestinationGuard{},
 		markdownText:      map[string]*strings.Builder{},
+		activities:        stream.NewActivityTracker(req.RunID, req.ChatID),
 	}
 	recorder.usageTracker = NewProxyUsageTracker(chatUsage, &recorder.runUsage, models, billing)
 	return recorder
@@ -187,8 +190,22 @@ func PublishProxyLiveEvent(eventBus *stream.RunEventBus, recorder *ProxyEventRec
 		assignProxySyntheticSeq(&snapshot, seq, event.Seq)
 		publishProxyEventData(eventBus, recorder, snapshot)
 	}
+	var activities []stream.StreamEvent
+	if recorder != nil {
+		var keep bool
+		keep, activities = recorder.activities.Track(event.Type, event.Payload)
+		if !keep {
+			return event, nil
+		}
+	}
 	assignProxyEventSeq(&event, seq)
 	publishProxyEventData(eventBus, recorder, event)
+	// Like native ones, derived activities take no public sequence.
+	for _, activity := range activities {
+		data := activity.Data()
+		data.Seq = 0
+		publishProxyEventData(eventBus, recorder, data)
+	}
 	return event, nil
 }
 

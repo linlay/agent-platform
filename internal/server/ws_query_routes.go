@@ -106,7 +106,7 @@ func (s *Server) wsQueryForLane(ctx context.Context, conn *ws.Conn, req ws.Reque
 	}
 	conn.AttachStreamCleanup(req.ID, subscription.Close)
 	forwarding = true
-	conn.StartEventForward(req.ID, subscription.Events, subscription.Close)
+	conn.StartEventForward(req.ID, subscription.Events, subscription.Close, req.DetailLevel())
 }
 
 // wsQueryDetachedRequested peeks the flag before stream admission: a detached
@@ -241,7 +241,7 @@ func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	if !conn.IsDesktopBTW() && !conn.IsDesktopExplain() {
 		bindRunWebClientTarget(s.deps.Runs, payload.RunID, conn.WebClientTarget())
 	}
-	conn.StartStreamForward(req.ID, observer)
+	conn.StartStreamForward(req.ID, observer, req.DetailLevel())
 }
 
 func (s *Server) wsDetach(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {

@@ -26,7 +26,7 @@ func TestAssemblerBootstrapAndComplete(t *testing.T) {
 	}
 
 	events := assembler.Consume(ContentDelta{ContentID: "run_1_c_1", Delta: "hello"})
-	assertStampedTypes(t, events, "content.start", "content.delta")
+	assertStampedTypes(t, events, "content.start", "run.activity", "content.delta")
 
 	complete := assembler.Consume(InputRunComplete{FinishReason: "stop"})
 	if len(complete) != 0 {
@@ -216,17 +216,18 @@ func TestAssemblerInternalEventsDoNotAdvancePublicSequence(t *testing.T) {
 		t.Fatalf("llm.request advanced public cursor: %#v current=%d", request[0], assembler.CurrentSeq())
 	}
 
-	activity := assembler.Consume(InputRunActivity{ChatID: "chat_visible_seq", Phase: "model_call", Status: "waiting"})
+	activity := assembler.Consume(InputRunActivity{ChatID: "chat_visible_seq", Activity: map[string]any{"kind": "thinking"}})
 	assertStampedTypes(t, activity, "run.activity")
-	if activity[0].Seq != 3 {
-		t.Fatalf("run.activity seq=%d want 3", activity[0].Seq)
+	if assembler.CurrentSeq() != 2 {
+		t.Fatalf("run.activity advanced public cursor to %d", assembler.CurrentSeq())
 	}
 
+	// content.start implies a new activity, stamped right after it.
 	content := assembler.Consume(ContentDelta{ContentID: "run_visible_seq_c_1", Delta: "answer"})
-	assertStampedTypes(t, content, "content.start", "content.delta")
+	assertStampedTypes(t, content, "content.start", "run.activity", "content.delta")
 	final := assembler.CompleteEmissions()
 	assertEmissionTypes(t, final, "content.end", "content.snapshot", "run.complete")
-	if final[0].Event.Seq != 6 || final[1].Visible || final[1].Cursor != 6 || final[2].Event.Seq != 7 {
+	if final[0].Event.Seq != 5 || final[1].Visible || final[1].Cursor != 5 || final[2].Event.Seq != 6 {
 		t.Fatalf("snapshot created a public sequence gap: %#v", final)
 	}
 }
@@ -257,9 +258,15 @@ func TestAssemblerHiddenToolEventsDoNotAdvancePublicSequence(t *testing.T) {
 		t.Fatalf("hidden tool lifecycle advanced public cursor to %d", assembler.CurrentSeq())
 	}
 
-	activity := assembler.Consume(InputRunActivity{ChatID: "chat_hidden_tool", Phase: "model_call", Status: "completed"})
-	if len(activity) != 1 || activity[0].Seq != 1 {
-		t.Fatalf("first public event after hidden tool=%#v want seq 1", activity)
+	running := assembler.Consume(InputRunActivity{ChatID: "chat_hidden_tool", Activity: map[string]any{
+		"kind": "tool_run", "toolId": "tool_1", "toolName": "internal_tool",
+	}})
+	if len(running) != 0 {
+		t.Fatalf("hidden tool produced an activity: %#v", running)
+	}
+	activity := assembler.Consume(InputRunActivity{ChatID: "chat_hidden_tool", Activity: map[string]any{"kind": "thinking"}})
+	if len(activity) != 1 || activity[0].Seq != 0 || assembler.CurrentSeq() != 0 {
+		t.Fatalf("activity after hidden tool=%#v cursor=%d", activity, assembler.CurrentSeq())
 	}
 }
 
@@ -267,7 +274,7 @@ func TestAssemblerPublishesToolOutputWithPublicSequence(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{RunID: "run_output", ChatID: "chat_output"})
 	assertStampedTypes(t, assembler.Consume(ToolArgs{
 		ToolID: "tool_1", ToolName: "bash", Delta: `{}`, ChunkIndex: 0,
-	}), "tool.start", "tool.args")
+	}), "tool.start", "run.activity", "tool.args")
 	assertStampedTypes(t, assembler.Consume(ToolEnd{ToolID: "tool_1"}), "tool.end")
 
 	output := assembler.Consume(ToolOutput{
@@ -465,6 +472,13 @@ func assertStampedTypes(t *testing.T, events []StreamEvent, want ...string) {
 	assertEventTypes(t, events, want...)
 	var prev int64
 	for _, event := range events {
+		if IsProgressActivity(event.Type, event.Payload) {
+			// Progress activities are live only and take no public sequence.
+			if event.Seq != 0 {
+				t.Fatalf("progress activity reserved seq: %#v", event)
+			}
+			continue
+		}
 		if event.Seq <= prev {
 			t.Fatalf("expected ascending seq values, got %#v", events)
 		}

@@ -72,6 +72,7 @@ func (o *Observer) Done() <-chan struct{} {
 
 type RunEventBus struct {
 	activeWaits           map[string]EventData
+	activities            map[string]EventData
 	mu                    sync.RWMutex
 	events                []EventData
 	frozen                bool
@@ -123,13 +124,27 @@ func (b *RunEventBus) Publish(event EventData) {
 		b.activeWaits[key] = event
 	case "tool.result":
 		delete(b.activeWaits, key)
+	case "run.activity":
+		if IsProgressActivity(event.Type, event.Payload) {
+			if b.activities == nil {
+				b.activities = map[string]EventData{}
+			}
+			b.activities[event.String("taskId")] = event
+		}
+	case "task.complete", "task.cancel", "task.error":
+		delete(b.activities, event.String("taskId"))
 	case "run.complete", "run.cancel", "run.error":
 		b.activeWaits = nil
+		b.activities = nil
 	}
-	b.events = append(b.events, event)
-	b.latestSeq = event.Seq
-	if len(b.events) == 1 || b.oldestSeq == 0 {
-		b.oldestSeq = event.Seq
+	// A Seq 0 event is a live projection: it reaches current observers but is
+	// not part of the replay log.
+	if event.Seq > 0 {
+		b.events = append(b.events, event)
+		b.latestSeq = event.Seq
+		if len(b.events) == 1 || b.oldestSeq == 0 {
+			b.oldestSeq = event.Seq
+		}
 	}
 	if b.maxEvents > 0 && len(b.events) > b.maxEvents {
 		b.replayTruncated = true
@@ -234,6 +249,14 @@ func (b *RunEventBus) Subscribe(afterSeq int64) (*Observer, error) {
 		snapshot.Type = "tool.wait.update"
 		snapshot.Payload = clonePayload(wait.Payload)
 		snapshot.Payload["attachSnapshot"] = true
+		replay = append(replay, snapshot)
+	}
+	// The current activity of each scope may predate afterSeq; resend it so
+	// a reattached viewer shows what the Run is doing now.
+	for _, activity := range b.activities {
+		snapshot := activity
+		snapshot.Seq = 0
+		snapshot.Payload = clonePayload(activity.Payload)
 		replay = append(replay, snapshot)
 	}
 	bufferSize := len(replay) + defaultObserverBuffer

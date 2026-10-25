@@ -4,6 +4,7 @@ i18n:
     label: "Read Knowledge Base Excerpt"
   zh-CN:
     label: "读取知识库片段"
+activityArgs: [path]
 description: "Read an evidence range by chunkId or indexed text by source path. Read the kbase-control skill before use."
 clientVisible: true
 readOnly: true

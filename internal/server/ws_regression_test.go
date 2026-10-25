@@ -274,7 +274,7 @@ func TestLoadChatDetailReturnsNotFoundAcrossHTTP(t *testing.T) {
 	}
 
 	chatRec := httptest.NewRecorder()
-	server.handleChat(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId=missing-chat", nil))
+	server.handleChat(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId=missing-chat", nil))
 	if chatRec.Code != http.StatusNotFound {
 		t.Fatalf("expected HTTP chat 404, got %d: %s", chatRec.Code, chatRec.Body.String())
 	}
@@ -427,7 +427,7 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 	})
 
 	rec := httptest.NewRecorder()
-	server.handleChat(rec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId=chat-live", nil))
+	server.handleChat(rec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId=chat-live", nil))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected HTTP 409, got %d: %s", rec.Code, rec.Body.String())
 	}

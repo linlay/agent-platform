@@ -81,7 +81,7 @@ func TestPrepareQueryUsesGlobalDefaultWithoutChannelOverride(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"wecom#single#u1","message":"hello"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"wecom#single#u1","message":"hello"}`))
 	prepared, err := prepareQueryForTest(server, req)
 	if err != nil {
 		t.Fatalf("prepareQueryForTest: %v", err)
@@ -93,7 +93,7 @@ func TestPrepareQueryUsesGlobalDefaultWithoutChannelOverride(t *testing.T) {
 	if _, _, err := chats.EnsureChat("wecom#existing#u1", "assistant", "seed"); err != nil {
 		t.Fatalf("seed existing chat: %v", err)
 	}
-	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"wecom#existing#u1","message":"hello again"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"wecom#existing#u1","message":"hello again"}`))
 	prepared, err = prepareQueryForTest(server, req)
 	if err != nil {
 		t.Fatalf("prepareQueryForTest existing chat: %v", err)
@@ -111,7 +111,7 @@ func TestPrepareQueryUsesGlobalDefaultWithoutChannelOverride(t *testing.T) {
 		t.Fatalf("expected orchestrated Team owner, got %#v", admission)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"wecom#explicit#u1","agentKey":"assistant","message":"explicit"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"wecom#explicit#u1","agentKey":"assistant","message":"explicit"}`))
 	prepared, err = prepareQueryForTest(server, req)
 	if err != nil {
 		t.Fatalf("prepareQueryForTest explicit agent: %v", err)
@@ -132,7 +132,7 @@ func TestPrepareQueryDoesNotApplyChannelAgentAllowlist(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"feishu#p2p#u1","agentKey":"customer-service","message":"hello"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"feishu#p2p#u1","agentKey":"customer-service","message":"hello"}`))
 	prepared, err := prepareQueryForTest(server, req)
 	if err != nil || prepared.Req.AgentKey != "customer-service" {
 		t.Fatalf("explicit agent must not be channel-filtered: prepared=%#v err=%v", prepared, err)

@@ -132,6 +132,9 @@ func Execute(params ExecuteOptions) (result Result) {
 			// Storage records the public coverage boundary. Hidden events reuse
 			// the latest cursor but never reserve or publish that sequence.
 			event.Seq = emission.Cursor
+			if emission.Ephemeral {
+				event.Seq = 0
+			}
 			data, _, err := processor.Consume(event)
 			if err != nil {
 				processingErr = err

@@ -236,7 +236,7 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 | GET | `/api/chats` | query: `lastRunId`、`agentKey`、`mode`、`pinned`、`hasWorkspace`、`limit` | chat 摘要列表 |
 | GET | `/api/chats/order` | 无 | 当前 `sortMode`、完整有序 `pinnedChats`、兼容投影 `pinnedOrder` 与可选 `updatedAt` |
 | PUT | `/api/chats/order` | body: `set_mode`、`move` 或 `set_pinned` operation | 更新后的 `sortMode`、`pinnedOrder` 与 `updatedAt` |
-| GET | `/api/chat` | query: `chatId`、`includeRawMessages` | chat 详情，默认含 events |
+| GET | `/api/chat` | query: `chatId`、`includeRawMessages`、`detail` | chat 详情，默认含 events；`detail` 见 [细节等级](#细节等级与-runactivity) |
 | POST | `/api/chats/search` | body: `query`、`agentKey`、`limit` | 全局 chat 搜索结果 |
 | POST | `/api/read` | body: `chatId` | 标记已读结果 |
 | POST | `/api/feedback` | body: `chatId`、`runId`、`messageId`、`rating`、`reason` | feedback 写入结果 |
@@ -372,8 +372,8 @@ Automation 只配置 `agentKey`，TEAM 也按普通 Agent 准入执行。
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
 | POST | `/api/execute` | body（JSON 或 multipart 的 `request` 字段）: `agentKey`、`message`、`outputSchema`、`input`、`requestId`、`accessLevel`；multipart 其余字段为输入文件 | 等待 Run 结束，返回 `result_submit` 的 `{chatId,status,output|reason}`；契约见 [智能体执行接口](智能体执行接口.md) |
-| POST | `/api/query` | body: `lane`（默认 `main`，可选 `btw`）、`sideId`（旁路分支续问）、`message`、`agentKey`、`chatId`、`runId`、`requestId`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
-| GET | `/api/attach` | query: `runId`、根 `agentKey`、`lastSeq` | 按公开 owner 续接 run 的 SSE stream |
+| POST | `/api/query` | query: `detail`；body: `lane`（默认 `main`，可选 `btw`）、`sideId`（旁路分支续问）、`message`、`agentKey`、`chatId`、`runId`、`requestId`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
+| GET | `/api/attach` | query: `runId`、根 `agentKey`、`lastSeq`、`detail` | 按公开 owner 续接 run 的 SSE stream |
 | POST | `/api/submit` | body: 根 `agentKey`、`runId`、`awaitingId`，以及 `params`（question/approval 的数组）或 `param`（planning/form 的单个对象），二选一 | HITL submit ack |
 | POST | `/api/steer` | body: 根 `agentKey`、`runId`、`message`、`requestId`、`chatId`、`steerId`、`references` | steer ack |
 | POST | `/api/interrupt` | body: 根 `agentKey`、`runId`、`message`、`requestId`、`chatId` | interrupt ack |
@@ -546,7 +546,30 @@ Native Query 的 SSE、`stream:false` 和进程内阻塞调用共用同一执行
 
 TEAM 总控的普通工具与 reasoning 沿普通 Agent 事件链路；内部 `agent_delegate` 不展示工具卡。成员输出继续使用现有 `task.*` 与 task-scoped `content.*`：成员事件带 `taskId`，携带成员 `agentKey`、`presentation:"task"`，并在 `actor` 中标记 `type:"agent"`。一项和多项委派使用相同终止规则，成员正文不会成为根回答；最终非流式 `content`、run summary 与 `AssistantText` 只取总控生成的唯一 Team 最终正文。
 
-`run.activity` 是运行中的非终止状态事件，用于展示当前 run 正在等待、运行、重试或完成某个活动阶段。基础字段为 `runId`、`chatId`、`phase`、`status`；可选字段包括 `taskId`、`backend`、`key`、`message`，以及按场景嵌套的 `retry` / `recovery` / `degradation` 对象。当前 native 模型调用使用 `phase:"model_call"`，可恢复重试使用 `status:"retrying"` 且把 `attempt`、`maxAttempts`、`reason`、`timeoutSeconds`、`elapsedMs` 放入 `retry`。重试的 `retry.error` 保留公共结构化错误（错误码、消息及诊断），供客户端明确展示重试原因。普通重试还携带 `retry.delayMs`（本次计划等待毫秒数）与 `retry.retryAt`（最早重试时间，epoch ms），顶层 `runSeq` 标识模型轮次；`attempt` 包含首次请求，客户端重试序号展示为 `attempt-1` / `maxAttempts-1`。等待前先发出事件，message 明确说明序号及等待秒数；等待支持取消。`run.activity` 不表示 run 失败；`run.error` 仍是终止事件，发出后不应再出现 content / reasoning / tool 等业务事件，后面只允许传输层 `[DONE]`。`run.activity` 只用于 live / attach，默认不进入 `/api/chat` 历史回放。
+#### 细节等级与 run.activity
+
+`/api/query`、`/api/attach`、`/api/chat` 接受细节等级 `detail`：HTTP 用 URL 参数（`?detail=full`），WS 用请求帧顶层字段（与 `type`、`id` 并列，见[帧类型](#帧类型)），不放进 query 请求体，因此不进入 JSONL 原始 query。取值 `summary`（缺省）或 `full`，其他值返回 400 `invalid_detail`；WS 其他路由携带 `detail` 同样拒绝。落盘始终完整，细节等级只决定下发哪些事件：
+
+| 事件 | summary | full |
+|---|---|---|
+| `request.query/steer/submit`、`chat.start` | ✓ | ✓ |
+| `run.start/complete/cancel/error`、`task.start/complete/cancel/error` | ✓ | ✓ |
+| `content.*`（含 `content.view`、`content.snapshot`） | ✓ | ✓ |
+| `planning.*`、`plan.create/update`、`artifact.publish`、`source.publish` | ✓ | ✓ |
+| `awaiting.ask/answer` | ✓ | ✓ |
+| 进度 `run.activity`（不带 `retry`） | ✓ | ✓ |
+| 重试 `run.activity`（带 `retry`） | — | ✓ |
+| `reasoning.*`、`tool.*`、`usage.snapshot`、`context.compact.*`、`debug.llmChat`、`memory.*` 及其他类型 | — | ✓ |
+
+summary 是白名单，新增事件类型默认不进入 summary。full 是全集：一条 full stream 能同时服务两档查看者，供 Desktop broker 这类按 Run 共享一条上游 stream 的中间层使用；客户端的详细视图忽略进度活动，因为细节事件本身已经展示了进度。summary 不下发 `usage.snapshot`，用量读取 `run.complete/cancel/error` 的 `usage.run` 与 `usage.chat`：其中 `toolCallCount`、`llmChatCompletionCount` 固定输出（含 0），另有 `promptTokens`、`completionTokens`、`completionTokensDetails.reasoningTokens`、`estimatedCost` 等；full 仍实时下发 `usage.snapshot`。`/api/chat` 只按等级过滤 `events`，`runs[].usage` 与顶层 `usage` 不受影响。Proxy 上游查询固定请求 `full`，由本地按查看者等级过滤；gateway 与 Desktop 透传客户端的 `detail`。
+
+`run.activity` 用一句话说明 Run（或带 `taskId` 的子任务）现在在做什么。字段只有 `runId`、`chatId`、可选 `taskId`、`message`，重试时另带 `retry`；`message` 按查看者语言渲染（HTTP 用请求语言、WS 用连接当前语言）。同一 `(runId, taskId)` 新的一条替换旧的一条，没有结束事件；`task.complete/cancel/error` 清除该子任务的活动，Run 终止事件清除全部。
+
+- 进度活动（两档都有，summary 视图展示）：模型请求开始时为“正在思考”；`reasoning.start` 时为“正在”加该段的 `reasoningLabel`（英文为 `reasoningLabel…`），不读取推理正文；`content.start` 为“正在回复”；`planning.start` 为“正在制定计划”；`tool.start` 为“正在准备「工具 label」”；工具真正开始执行时为“工具 label：说明”，说明取工具定义 `activityArgs` 中第一个非空参数，没有则为“正在调用「工具 label」”；`task.start` 在父级显示“正在委派子任务「taskName」”；`awaiting.ask` 按 mode 显示“等待你审批 / 回答 / 填写表单 / 确认计划”，`awaiting.answer` 后恢复等待前的那条活动；`context.compact.start` 为“正在整理上下文”。与当前活动文字相同的不重复发送；`clientVisible:false` 工具不产生活动。
+- 进度活动不占公共序号：`seq` 为 0，不进入 attach 回放日志、不落盘；attach 时服务端为每个仍在活动的 scope 补发当前那一条（同样 `seq` 为 0）。因此 full 的公共 `seq` 保持连续（忽略 `seq` 为 0 的事件）；summary 因过滤会出现跳号，客户端不能把跳号当作丢事件。
+- 重试活动（仅 full）：模型请求可恢复重试时发出，`retry` 含 `runSeq`（模型轮次）、`attempt`（含首次请求）、`maxAttempts`、`reason`、`error`（公共结构化错误）、`timeoutSeconds`、`elapsedMs`，普通重试另带 `delayMs` 与 `retryAt`（epoch ms），客户端显示序号为 `attempt-1` / `maxAttempts-1`；等待前先发出，等待支持取消。summary 看不到重试，重试耗尽后两档都收到终止 `run.error`。
+
+`run.activity` 不表示 run 失败；`run.error` 仍是终止事件，发出后不应再出现 content / reasoning / tool 等业务事件，后面只允许传输层 `[DONE]`。
 
 native LLM loop 以平台内部的 model turn commit 作为唯一接受边界。provider 合法终止、流式块完整收尾、tool call 完成 materialize 且通过平台接纳检查后才 commit；该控制信号不进入 SSE / WebSocket。`usage`、`contextWindow`、provider `finish_reason` 和 tool result 都不是完成标记，其中 `usage` / `contextWindow` 是可选元数据，缺失不会阻止正常 turn 提交。
 
@@ -571,7 +594,7 @@ commit 前遇到 EOF、非法流帧、连接中断或可重试的 provider strea
 
 `reasoning.end`、`content.end`、`tool.end` 统一约定：正常结束保持原结构，不发送 `status` 或 `error`；异常增加 `status:"failed"` 与同源公共错误对象。失败段停止计时并保留内容，重试使用新 ID。一个未提交 attempt 内已经正常关闭的段也可能收到失败结束修正，因为段结束不等于 model turn commit；重复失败通知幂等，后到 snapshot/delta 不得覆盖失败状态。已提交轮次和已执行工具不受影响，`tool.end` 只表示参数流结束，不替代执行结果 `tool.result`。
 
-失败结束事件另外携带原始 `startedAt`（epoch ms）、`runId/taskId`、节点展示元数据以及 `text` 或 `arguments`，作为独立 JSONL event 展示记录，实时与历史回放一致；不产生 assistant/tool messages，不进入模型上下文或成功回答摘要。`run.activity` 仍可携带 `retry` 显示重试进度，但不再发送 `recovery.action:discard_incomplete_model_turn` 或控制节点删除。重试耗尽时在输出段结束之后发送 `run.error`。
+失败结束事件另外携带原始 `startedAt`（epoch ms）、`runId/taskId`、节点展示元数据以及 `text` 或 `arguments`，作为独立 JSONL event 展示记录，实时与历史回放一致；不产生 assistant/tool messages，不进入模型上下文或成功回答摘要。重试进度只通过带 `retry` 的 `run.activity` 显示，不控制节点删除；不重试的丢弃只发失败结束事件。重试耗尽时在输出段结束之后发送 `run.error`。
 
 model turn 与后续 tool batch 是两个独立事务边界：turn commit 后完整 tool call 保留，工具执行失败写正常失败 tool result。工具已经开始执行或可能产生副作用时，不通过回滚 turn 自动重试。异常诊断复用常开的 `llm_model_attempt_error`，不改变 Trace 文件结构。
 
@@ -852,6 +875,12 @@ WebSocket 存活配置与 SSE heartbeat 完全独立。服务端默认每 30 秒
   "id": "req-1",
   "payload": {}
 }
+```
+
+`/api/query`、`/api/attach`、`/api/chat` 的请求帧可在顶层携带 `detail`（`summary` 缺省或 `full`），它是下发选项而非 payload，规则见[细节等级](#细节等级与-runactivity)：
+
+```json
+{"frame":"request","type":"/api/query","id":"req-2","detail":"full","payload":{"message":"hello"}}
 ```
 
 Desktop Action 反向请求直接使用具体 Action 名作为 `type`，可信上下文位于帧顶层，payload 只包含该 Action 参数：

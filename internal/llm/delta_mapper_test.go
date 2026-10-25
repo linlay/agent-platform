@@ -331,18 +331,7 @@ func TestDeltaMapper_DebugLLMChat(t *testing.T) {
 func TestDeltaMapper_RunActivity(t *testing.T) {
 	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{}, nil, nil)
 
-	inputs := mapper.Map(contracts.DeltaRunActivity{
-		TaskID:  "task_1",
-		ChatID:  "chat_1",
-		Phase:   "model_call",
-		Status:  "retrying",
-		Message: "retrying",
-		Retry: map[string]any{
-			"attempt":     2,
-			"maxAttempts": 4,
-			"reason":      "model_stream_idle_timeout",
-		},
-	})
+	inputs := mapper.Map(contracts.DeltaRunActivity{TaskID: "task_1", ChatID: "chat_1", Kind: contracts.ActivityThinking})
 	if len(inputs) != 1 {
 		t.Fatalf("expected one mapped input, got %#v", inputs)
 	}
@@ -350,11 +339,17 @@ func TestDeltaMapper_RunActivity(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InputRunActivity, got %#v", inputs[0])
 	}
-	if activity.TaskID != "task_1" || activity.Status != "retrying" || activity.Message != "retrying" {
+	if activity.TaskID != "task_1" || activity.Activity["kind"] != "thinking" {
 		t.Fatalf("unexpected run activity %#v", activity)
 	}
-	if activity.Retry["attempt"] != 2 || activity.Retry["maxAttempts"] != 4 {
-		t.Fatalf("expected cloned retry payload, got %#v", activity.Retry)
+
+	inputs = mapper.Map(contracts.DeltaRunActivity{ChatID: "chat_1", Kind: contracts.ActivityToolRun, ToolID: "call_1", ToolName: "web_fetch"})
+	activity = inputs[0].(stream.InputRunActivity)
+	if activity.Activity["kind"] != "tool_run" || activity.Activity["toolId"] != "call_1" || activity.Activity["toolName"] != "web_fetch" {
+		t.Fatalf("unexpected tool activity %#v", activity)
+	}
+	if got := mapper.Map(contracts.DeltaRunActivity{Kind: "unknown"}); len(got) != 0 {
+		t.Fatalf("unknown activity kind mapped to %#v", got)
 	}
 }
 

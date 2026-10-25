@@ -307,8 +307,7 @@ func (d *Driver) runSSE(
 		return
 	}
 
-	baseURL := strings.TrimRight(proxy.BaseURL, "/")
-	targetURL := baseURL + "/api/query"
+	targetURL := QueryURL(proxy.BaseURL)
 	proxyReferences, err := PrepareReferences(d.Chats, d.Tickets, ReferenceOptions{
 		ChatID:          prepared.Req.ChatID,
 		RunID:           prepared.Req.RunID,

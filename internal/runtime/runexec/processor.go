@@ -393,7 +393,7 @@ func (p *Processor) decorateTerminalUsage(data *stream.EventData) {
 	runUsage := *p.runUsage
 	runUsage.ModelKey = ""
 	data.Payload["usage"] = map[string]any{
-		"chat": UsageDataMap(chatUsage),
-		"run":  UsageDataMap(runUsage),
+		"chat": TerminalUsageDataMap(chatUsage),
+		"run":  TerminalUsageDataMap(runUsage),
 	}
 }

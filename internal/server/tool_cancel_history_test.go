@@ -108,7 +108,7 @@ func TestCanceledBashHistoryLoadsAndContinues(t *testing.T) {
 			server := newLoopbackServer(t, fixture.server)
 			defer server.Close()
 			client := &http.Client{Timeout: 15 * time.Second}
-			response, err := client.Post(server.URL+"/api/query", "application/json", strings.NewReader(`{"message":"synthetic cancellation test","agentKey":"mock-agent","accessLevel":"full_access"}`))
+			response, err := client.Post(server.URL+"/api/query?detail=full", "application/json", strings.NewReader(`{"message":"synthetic cancellation test","agentKey":"mock-agent","accessLevel":"full_access"}`))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -171,7 +171,7 @@ func TestCanceledBashHistoryLoadsAndContinues(t *testing.T) {
 				t.Fatalf("missing cancellation: %s", body.String())
 			}
 			history := httptest.NewRecorder()
-			fixture.server.ServeHTTP(history, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID+"&includeRawMessages=true", nil))
+			fixture.server.ServeHTTP(history, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatID+"&includeRawMessages=true", nil))
 			if history.Code != http.StatusOK {
 				t.Fatalf("history: %s", history.Body.String())
 			}
@@ -184,7 +184,7 @@ func TestCanceledBashHistoryLoadsAndContinues(t *testing.T) {
 			}
 			query, _ := json.Marshal(map[string]any{"message": "continue", "agentKey": "mock-agent", "chatId": chatID})
 			next := httptest.NewRecorder()
-			fixture.server.ServeHTTP(next, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(query)))
+			fixture.server.ServeHTTP(next, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewReader(query)))
 			if next.Code != http.StatusOK || !strings.Contains(next.Body.String(), "continued safely") {
 				t.Fatalf("continuation: %s", next.Body.String())
 			}
@@ -257,7 +257,7 @@ func TestAuditedUnknownToolOutcomeRepairLoadsAndContinues(t *testing.T) {
 		t.Fatal("repair erased original run failure")
 	}
 	next := httptest.NewRecorder()
-	fixture.server.ServeHTTP(next, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"agentKey":"mock-agent","chatId":"`+chatID+`","message":"continue without replay"}`)))
+	fixture.server.ServeHTTP(next, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(`{"agentKey":"mock-agent","chatId":"`+chatID+`","message":"continue without replay"}`)))
 	if next.Code != http.StatusOK || !strings.Contains(next.Body.String(), "verify side effects") {
 		t.Fatalf("continuation: %s", next.Body.String())
 	}

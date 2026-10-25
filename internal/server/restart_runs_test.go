@@ -70,7 +70,7 @@ func TestRestartCancelsEveryAwaitingAndAllowsFreshQuery(t *testing.T) {
 				t.Fatal("restart reconciliation rewrote terminal history")
 			}
 			rec := httptest.NewRecorder()
-			restarted.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"agentKey":"mock-agent","chatId":"restart-chat","runId":"fresh-run","message":"new request"}`)))
+			restarted.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(`{"agentKey":"mock-agent","chatId":"restart-chat","runId":"fresh-run","message":"new request"}`)))
 			if rec.Code != http.StatusOK || calls.Load() != 1 || !strings.Contains(rec.Body.String(), "fresh request") {
 				t.Fatalf("fresh query failed: calls=%d status=%d body=%s", calls.Load(), rec.Code, rec.Body.String())
 			}

@@ -179,18 +179,6 @@ func TestResponsesReportedErrorIsBounded(t *testing.T) {
 	}
 }
 
-func TestModelRetryMessageDistinguishesTimeout(t *testing.T) {
-	for _, reason := range []string{"provider_timeout", "model_stream_idle_timeout", "provider_stream_invalid", "provider_stream_failed", "provider_unavailable"} {
-		want := "模型响应失败，正在重试"
-		if reason == "provider_timeout" || reason == "model_stream_idle_timeout" {
-			want = "模型响应超时，正在重试"
-		}
-		if got := modelActivityMessage("retrying", reason); got != want {
-			t.Fatalf("reason=%s message=%s want=%s", reason, got, want)
-		}
-	}
-}
-
 func TestResponsesStructuredProviderFailures(t *testing.T) {
 	for _, tc := range []struct {
 		code      string

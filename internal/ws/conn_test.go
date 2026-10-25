@@ -175,7 +175,7 @@ func TestConnDetachRunStreamReleasesObserverAndAllowsReobserve(t *testing.T) {
 		detachCount++
 		close(events)
 	})
-	conn.StartStreamForward("req_1", &stream.Observer{Events: events})
+	conn.StartStreamForward("req_1", &stream.Observer{Events: events}, stream.DetailFull)
 	events <- stream.EventData{Seq: 7, Type: "content.delta", Timestamp: time.Now().UnixMilli()}
 
 	msg := mustReadQueuedMessage(t, conn.writeQueue)
@@ -368,7 +368,7 @@ func TestConnStartStreamForwardMapsExpiredRunErrorToErrorReason(t *testing.T) {
 	}
 
 	events := make(chan stream.EventData, 2)
-	conn.StartStreamForward("req_1", &stream.Observer{Events: events})
+	conn.StartStreamForward("req_1", &stream.Observer{Events: events}, stream.DetailFull)
 
 	events <- stream.EventData{
 		Seq:       1,
@@ -414,7 +414,7 @@ func TestConnStartStreamForwardMarksObserverDoneAfterTerminalFrame(t *testing.T)
 		t.Fatalf("subscribe observer: %v", err)
 	}
 
-	conn.StartStreamForward("req_1", observer)
+	conn.StartStreamForward("req_1", observer, stream.DetailFull)
 	bus.Publish(stream.EventData{
 		Seq:       1,
 		Type:      "run.complete",

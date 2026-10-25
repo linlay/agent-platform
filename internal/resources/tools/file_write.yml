@@ -4,6 +4,7 @@ i18n:
     label: "Write File"
   zh-CN:
     label: "写入文件"
+activityArgs: [description, filePath]
 description: |
   Create or overwrite a single text file on the host filesystem. Prefer this tool for creating files, writing scripts, or replacing complete file contents when available.
   A script written to @chat with this tool runs without execution approval while unchanged, in this run only; write one-off scripts there.

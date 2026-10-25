@@ -1,9 +1,6 @@
 package stream
 
-import (
-	"fmt"
-	"strings"
-)
+import "strings"
 
 func (d *StreamEventDispatcher) handleModelTurnDiscard(input ModelTurnDiscard) []StreamEvent {
 	if d == nil || d.state == nil {
@@ -60,48 +57,29 @@ func (d *StreamEventDispatcher) discardModelTurn(input ModelTurnDiscard, taskID 
 		delete(d.state.emittedAwaitings, id)
 	}
 
-	status := "discarded"
-	message := "已丢弃未完成的模型响应"
-	if input.Retrying {
-		status = "retrying"
-		message = "模型响应不完整，已丢弃并正在重试"
-		if input.RetryDelayMs > 0 {
-			message = fmt.Sprintf("正在重试（第 %d/%d 次），等待 %g 秒后发起请求", input.Attempt-1, input.MaxAttempts-1, float64(input.RetryDelayMs)/1000)
-		}
+	if !input.Retrying {
+		return events
 	}
-	payload := map[string]any{
-		"runId":   d.request.RunID,
-		"chatId":  d.request.ChatID,
-		"phase":   "model_call",
-		"runSeq":  input.RunSeq,
-		"status":  status,
-		"message": message,
+	retry := map[string]any{
+		"runSeq":      input.RunSeq,
+		"attempt":     input.Attempt,
+		"maxAttempts": input.MaxAttempts,
+		"error":       normalizeErrorMap(input.Error, input.Reason, "model", "model"),
 	}
-	if taskID != "" {
-		payload["taskId"] = taskID
+	if input.RetryDelayMs > 0 {
+		retry["delayMs"] = input.RetryDelayMs
+		retry["retryAt"] = input.RetryAt
 	}
-	if input.Retrying {
-		retry := map[string]any{
-			"attempt":     input.Attempt,
-			"maxAttempts": input.MaxAttempts,
-			"error":       normalizeErrorMap(input.Error, input.Reason, "model", "model"),
-		}
-		if input.RetryDelayMs > 0 {
-			retry["delayMs"] = input.RetryDelayMs
-			retry["retryAt"] = input.RetryAt
-		}
-		if reason := strings.TrimSpace(input.Reason); reason != "" {
-			retry["reason"] = reason
-		}
-		if input.TimeoutSeconds > 0 {
-			retry["timeoutSeconds"] = input.TimeoutSeconds
-		}
-		if input.ElapsedMs > 0 {
-			retry["elapsedMs"] = input.ElapsedMs
-		}
-		payload["retry"] = retry
+	if reason := strings.TrimSpace(input.Reason); reason != "" {
+		retry["reason"] = reason
 	}
-	return append(events, NewEvent("run.activity", payload))
+	if input.TimeoutSeconds > 0 {
+		retry["timeoutSeconds"] = input.TimeoutSeconds
+	}
+	if input.ElapsedMs > 0 {
+		retry["elapsedMs"] = input.ElapsedMs
+	}
+	return append(events, newRetryActivityEvent(d.request.RunID, d.request.ChatID, taskID, retry))
 }
 
 func compactIDs(values []string) []string {
@@ -175,11 +153,7 @@ func (d *StreamEventDispatcher) failOpenBlocks(cause map[string]any) []StreamEve
 	}
 	var events []StreamEvent
 	for scope := range scopes {
-		for _, event := range d.discardModelTurn(ModelTurnDiscard{TaskID: scope, Error: cause}, scope) {
-			if event.Type != "run.activity" {
-				events = append(events, event)
-			}
-		}
+		events = append(events, d.discardModelTurn(ModelTurnDiscard{TaskID: scope, Error: cause}, scope)...)
 	}
 	return events
 }

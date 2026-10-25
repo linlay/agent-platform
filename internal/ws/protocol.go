@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/stream"
@@ -23,7 +24,32 @@ type RequestFrame struct {
 	Type       string                         `json:"type"`
 	ID         string                         `json:"id"`
 	Source     *contracts.ClientRequestSource `json:"source,omitempty"`
-	Payload    json.RawMessage                `json:"payload,omitempty"`
+	// Detail selects the event detail level of /api/query, /api/attach and
+	// /api/chat. It is a delivery option, so it stays out of the payload
+	// that a query persists.
+	Detail  string          `json:"detail,omitempty"`
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+var detailFrameTypes = map[string]bool{"/api/query": true, "/api/attach": true, "/api/chat": true}
+
+// DetailLevel is the validated detail level; empty means summary.
+func (r RequestFrame) DetailLevel() stream.DetailLevel {
+	level, _ := stream.ParseDetailLevel(r.Detail)
+	return level
+}
+
+func (r RequestFrame) detailError() string {
+	if strings.TrimSpace(r.Detail) == "" {
+		return ""
+	}
+	if !detailFrameTypes[r.Type] {
+		return "detail is only accepted by /api/query, /api/attach and /api/chat"
+	}
+	if _, ok := stream.ParseDetailLevel(r.Detail); !ok {
+		return "detail must be summary or full"
+	}
+	return ""
 }
 
 type ResponseFrame struct {

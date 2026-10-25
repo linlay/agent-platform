@@ -17,6 +17,10 @@ import (
 )
 
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
+	detail, ok := requestDetailLevel(w, r)
+	if !ok {
+		return
+	}
 	req, err := decodeQueryRequest(r)
 	if err != nil {
 		writeQueryStartError(w, err)
@@ -40,7 +44,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		command.SideID = req.SideID
 		command.Locale = requestLocale(r, s.deps.Config.Prompts.Runtime.ResolveLocale(""))
 		command.ResourceBaseURL = s.requestBaseURL(r)
-		s.writeRuntimeQueryResponse(w, r.Context(), command)
+		s.writeRuntimeQueryResponse(w, r.Context(), command, detail)
 
 		return
 	case "explain":
@@ -51,7 +55,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !isNonStreamingQuery(req) {
-		s.handleRuntimeQueryAsync(w, r, req)
+		s.handleRuntimeQueryAsync(w, r, req, detail)
 		return
 	}
 	command := trustedQueryCommand(r.Context(), req)
@@ -83,7 +87,7 @@ func writeQueryStartError(w http.ResponseWriter, err error) {
 	writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 }
 
-func (s *Server) handleRuntimeQueryAsync(w http.ResponseWriter, r *http.Request, req api.QueryRequest) {
+func (s *Server) handleRuntimeQueryAsync(w http.ResponseWriter, r *http.Request, req api.QueryRequest, detail stream.DetailLevel) {
 	command := trustedQueryCommand(r.Context(), req)
 	command.Locale = requestLocale(r, s.deps.Config.Prompts.Runtime.ResolveLocale(""))
 	command.ResourceBaseURL = s.requestBaseURL(r)
@@ -92,10 +96,10 @@ func (s *Server) handleRuntimeQueryAsync(w http.ResponseWriter, r *http.Request,
 	if principal := PrincipalFromContext(r.Context()); principal != nil {
 		command.Caller.Subject = strings.TrimSpace(principal.Subject)
 	}
-	s.writeRuntimeQueryStream(w, r.Context(), command)
+	s.writeRuntimeQueryStream(w, r.Context(), command, detail)
 }
 
-func (s *Server) writeRuntimeQueryStream(w http.ResponseWriter, ctx context.Context, command runtimetypes.QueryCommand) {
+func (s *Server) writeRuntimeQueryStream(w http.ResponseWriter, ctx context.Context, command runtimetypes.QueryCommand, detail stream.DetailLevel) {
 	handle, err := s.deps.Runtime.StartQuery(ctx, command)
 	if err != nil {
 		writeQueryStartError(w, err)
@@ -134,6 +138,9 @@ func (s *Server) writeRuntimeQueryStream(w http.ResponseWriter, ctx context.Cont
 			if !ok {
 				_ = sseWriter.WriteDone()
 				return
+			}
+			if !detail.Allows(event.Type, event.Payload) {
+				continue
 			}
 			if err := sseWriter.WriteJSON("message", localizeStreamEventData(command.Locale, event)); err != nil {
 				if isTimeContractViolation(err) {
@@ -271,12 +278,22 @@ func cloneQueryErrorPayload(input map[string]any) map[string]any {
 // A blocking caller remains an observer for its whole execution, preserving the
 // existing run-control policy independently of HTTP request cancellation.
 
-func (s *Server) writeRuntimeQueryResponse(w http.ResponseWriter, ctx context.Context, cmd runtimetypes.QueryCommand) {
+func (s *Server) writeRuntimeQueryResponse(w http.ResponseWriter, ctx context.Context, cmd runtimetypes.QueryCommand, detail stream.DetailLevel) {
 	if cmd.Stream != nil && !*cmd.Stream {
 		s.writeRuntimeQueryNonStream(w, ctx, cmd)
 	} else {
-		s.writeRuntimeQueryStream(w, ctx, cmd)
+		s.writeRuntimeQueryStream(w, ctx, cmd, detail)
 	}
+}
+
+// requestDetailLevel reads the detail query parameter; an invalid value has
+// already been answered with 400 when ok is false.
+func requestDetailLevel(w http.ResponseWriter, r *http.Request) (stream.DetailLevel, bool) {
+	level, ok := stream.ParseDetailLevel(r.URL.Query().Get("detail"))
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "detail must be summary or full", map[string]any{"code": "invalid_detail"}))
+	}
+	return level, ok
 }
 func (s *Server) writeRuntimeQueryNonStream(w http.ResponseWriter, ctx context.Context, cmd runtimetypes.QueryCommand) {
 	result, err := s.deps.Runtime.ExecuteQueryWithHooks(ctx, cmd, runtimetypes.QueryHooks{})

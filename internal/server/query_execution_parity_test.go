@@ -139,7 +139,7 @@ func TestQueryExecutionEntryPointParity(t *testing.T) {
 					}
 					body, _ := json.Marshal(req)
 					response := httptest.NewRecorder()
-					fixture.server.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body)))
+					fixture.server.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewReader(body)))
 					expectedStatus := http.StatusOK
 					if entry == "json" && expectedReason == "error" {
 						expectedStatus = http.StatusInternalServerError

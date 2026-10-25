@@ -70,7 +70,7 @@ func TestQueryDisconnectAndBlockingCallerPolicies(t *testing.T) {
 					body += `,"stream":false`
 				}
 				body += "}"
-				fixture.server.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(body)).WithContext(ctx))
+				fixture.server.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(body)).WithContext(ctx))
 			}()
 			select {
 			case <-engine.entered:

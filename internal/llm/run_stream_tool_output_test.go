@@ -84,6 +84,7 @@ func TestActiveToolExecutionEmitsOutputBeforeUniqueResult(t *testing.T) {
 		if err := stream.consumeActiveToolExecution(); err != nil {
 			t.Fatalf("consume output %d: %v", index, err)
 		}
+		stream.pending = withoutRunActivities(stream.pending)
 		if len(stream.pending) != 1 {
 			t.Fatalf("output %d pending=%#v", index, stream.pending)
 		}

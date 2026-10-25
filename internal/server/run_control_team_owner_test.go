@@ -49,19 +49,19 @@ func TestTeamOwnedRunControlUsesAgentKey(t *testing.T) {
 		{
 			name:   "attach requires agentKey",
 			method: http.MethodGet,
-			path:   "/api/attach?runId=run-team-control",
+			path:   "/api/attach?detail=full&runId=run-team-control",
 			status: http.StatusBadRequest,
 		},
 		{
 			name:   "attach rejects wrong agentKey",
 			method: http.MethodGet,
-			path:   "/api/attach?runId=run-team-control&agentKey=writer",
+			path:   "/api/attach?detail=full&runId=run-team-control&agentKey=writer",
 			status: http.StatusForbidden,
 		},
 		{
 			name:   "attach rejects member key",
 			method: http.MethodGet,
-			path:   "/api/attach?runId=run-team-control&agentKey=writer",
+			path:   "/api/attach?detail=full&runId=run-team-control&agentKey=writer",
 			status: http.StatusForbidden,
 		},
 		{

@@ -13,6 +13,10 @@ import (
 func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	runID := strings.TrimSpace(r.URL.Query().Get("runId"))
 	agentKey := strings.TrimSpace(r.URL.Query().Get("agentKey"))
+	detail, ok := requestDetailLevel(w, r)
+	if !ok {
+		return
+	}
 
 	if !s.validateHTTPRunControl(w, r, runID) {
 		return
@@ -83,6 +87,9 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				_ = sseWriter.WriteDone()
 				return
+			}
+			if !detail.Allows(event.Type, event.Payload) {
+				continue
 			}
 			if err := sseWriter.WriteJSON("message", localizeStreamEventData(requestLocale(r, "en"), event)); err != nil {
 				if isTimeContractViolation(err) {

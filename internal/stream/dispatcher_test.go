@@ -192,30 +192,26 @@ func TestDispatcherEmitsRunActivity(t *testing.T) {
 	})
 
 	events := dispatcher.Dispatch(InputRunActivity{
-		TaskID:  "task_1",
-		ChatID:  "chat_1",
-		Phase:   "model_call",
-		Status:  "retrying",
-		Message: "retrying",
-		Retry: map[string]any{
-			"attempt":        2,
-			"maxAttempts":    4,
-			"reason":         "model_stream_idle_timeout",
-			"timeoutSeconds": int64(60),
-			"elapsedMs":      int64(60001),
-		},
+		TaskID:   "task_1",
+		ChatID:   "chat_1",
+		Activity: map[string]any{"kind": "thinking"},
 	})
 	assertEventTypes(t, events, "run.activity")
 	data := events[0].ToData()
 	if data["runId"] != "run_1" || data["chatId"] != "chat_1" || data["taskId"] != "task_1" {
 		t.Fatalf("unexpected identity payload %#v", data)
 	}
-	if data["status"] != "retrying" || data["message"] != "retrying" {
+	activity, _ := data["activity"].(map[string]any)
+	if data["message"] != "Thinking…" || activity["kind"] != "thinking" {
 		t.Fatalf("unexpected activity payload %#v", data)
 	}
-	retry, _ := data["retry"].(map[string]any)
-	if retry["attempt"] != 2 || retry["maxAttempts"] != 4 || retry["timeoutSeconds"] != int64(60) {
-		t.Fatalf("unexpected retry payload %#v", data)
+	for _, removed := range []string{"phase", "status", "backend", "key", "recovery", "degradation"} {
+		if _, ok := data[removed]; ok {
+			t.Fatalf("run.activity still carries %s: %#v", removed, data)
+		}
+	}
+	if got := dispatcher.Dispatch(InputRunActivity{ChatID: "chat_1"}); len(got) != 0 {
+		t.Fatalf("empty activity emitted %#v", got)
 	}
 }
 
@@ -279,14 +275,11 @@ func TestDispatcherFailsIncompleteModelTurnBlocksBeforeRetry(t *testing.T) {
 		}
 	}
 	data := events[3].ToData()
-	if data["status"] != "retrying" {
+	retry, _ := data["retry"].(map[string]any)
+	if retry == nil || data["recovery"] != nil || data["status"] != nil || data["phase"] != nil {
 		t.Fatalf("unexpected discard activity: %#v", data)
 	}
-	if data["recovery"] != nil {
-		t.Fatal("activity must not control blocks")
-	}
-	retry, _ := data["retry"].(map[string]any)
-	if retry["timeoutSeconds"] != int64(60) || retry["elapsedMs"] != int64(1250) {
+	if retry["timeoutSeconds"] != int64(60) || retry["elapsedMs"] != int64(1250) || retry["runSeq"] != 1 {
 		t.Fatalf("unexpected retry timing: %#v", retry)
 	}
 
@@ -1914,12 +1907,19 @@ func TestModelRetryActivityCarriesBackoff(t *testing.T) {
 	if retry["error"].(map[string]any)["code"] != "provider_rate_limited" {
 		t.Fatal("retry lost original error", retry)
 	}
-	if retry["delayMs"] != int64(500) || retry["retryAt"] != int64(1500) || payload["runSeq"] != 3 {
+	if retry["delayMs"] != int64(500) || retry["retryAt"] != int64(1500) || retry["runSeq"] != 3 || payload["runSeq"] != nil {
 		t.Fatalf("%#v", payload)
 	}
-	if !strings.Contains(payload["message"].(string), "等待 0.5 秒") || !strings.Contains(payload["message"].(string), "1/5") {
+	if payload["message"] != "Model request failed; retry 1/5 in 0.5s" {
 		t.Fatal(payload["message"])
 	}
+}
+
+func TestModelTurnDiscardWithoutRetryEmitsNoActivity(t *testing.T) {
+	d := NewDispatcher(StreamRequest{RunID: "run", ChatID: "c"})
+	_ = d.Dispatch(ContentDelta{ContentID: "c_1", Delta: "partial"})
+	events := d.Dispatch(ModelTurnDiscard{RunSeq: 1, Attempt: 1, MaxAttempts: 1, ContentIDs: []string{"c_1"}})
+	assertEventTypes(t, events, "content.end")
 }
 
 func TestDispatcherClosesReplacedContentAndReasoningBlocks(t *testing.T) {

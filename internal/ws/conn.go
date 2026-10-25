@@ -772,17 +772,18 @@ func (c *Conn) AttachStreamCleanup(requestID string, cleanup func()) {
 	c.AttachObserver(requestID, "", cleanup)
 }
 
-func (c *Conn) StartStreamForward(requestID string, observer *stream.Observer) {
+func (c *Conn) StartStreamForward(requestID string, observer *stream.Observer, detail stream.DetailLevel) {
 	if c == nil || observer == nil {
 		return
 	}
-	c.StartEventForward(requestID, observer.Events, observer.MarkDone)
+	c.StartEventForward(requestID, observer.Events, observer.MarkDone, detail)
 }
 
-// StartEventForward forwards a transport-neutral run subscription. The done
-// callback acknowledges delivery completion and may also detach the backing
-// subscription; it is safe for callers to make it idempotent.
-func (c *Conn) StartEventForward(requestID string, events <-chan stream.EventData, done func()) {
+// StartEventForward forwards a transport-neutral run subscription at the
+// requested detail level. The done callback acknowledges delivery completion
+// and may also detach the backing subscription; it is safe for callers to
+// make it idempotent.
+func (c *Conn) StartEventForward(requestID string, events <-chan stream.EventData, done func(), detail stream.DetailLevel) {
 	if c == nil || events == nil {
 		return
 	}
@@ -811,6 +812,9 @@ func (c *Conn) StartEventForward(requestID string, events <-chan stream.EventDat
 					reason = "error"
 				case "run.cancel":
 					reason = "cancelled"
+				}
+				if !detail.Allows(event.Type, event.Payload) {
+					continue
 				}
 				if !c.sendStreamEvent(requestID, event) {
 					return

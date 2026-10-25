@@ -552,6 +552,7 @@ func (s *llmRunStream) startToolCallBatch(invocations []*preparedToolInvocation)
 		completion := &toolCompletion{done: make(chan struct{})}
 		completions[index] = completion
 		s.beginToolInvocation(invocation)
+		s.pending = append(s.pending, s.toolRunActivity(invocation))
 		if invocation.queuedResult != nil {
 			result.result = *invocation.queuedResult
 			invocation.queuedResult = nil
@@ -1007,6 +1008,7 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		return nil
 	}
 	s.beginToolInvocation(invocation)
+	s.pending = append(s.pending, s.toolRunActivity(invocation))
 	keepActive := false
 	defer func() {
 		if !keepActive {
@@ -1058,6 +1060,15 @@ func (s *llmRunStream) beginToolInvocation(invocation *preparedToolInvocation) {
 		s.stageToolCalls++
 		s.runToolCallCount++
 		invocation.toolCallCounted = true
+	}
+}
+
+// toolRunActivity marks a tool starting to execute. Arguments are complete
+// by now, so its activity text is available.
+func (s *llmRunStream) toolRunActivity(invocation *preparedToolInvocation) DeltaRunActivity {
+	return DeltaRunActivity{
+		TaskID: s.modelActivityTaskID(), ChatID: s.session.ChatID, Kind: ActivityToolRun,
+		ToolID: invocation.toolID, ToolName: invocation.toolName, ToolArgs: invocation.args,
 	}
 }
 

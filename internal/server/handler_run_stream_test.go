@@ -67,7 +67,7 @@ func TestHandleAttachDefaultsMissingLastSeqToZero(t *testing.T) {
 		},
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/attach?runId="+session.RunID+"&agentKey="+session.AgentKey, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/attach?detail=full&runId="+session.RunID+"&agentKey="+session.AgentKey, nil)
 	rec := httptest.NewRecorder()
 
 	bindTestRunControl(t, server, session.RunID, "http", "")
@@ -110,7 +110,7 @@ func TestHandleAttachBindsLatestWebClientTargetAfterSuccess(t *testing.T) {
 		Config: config.Config{SSE: config.SSEConfig{}},
 		Runs:   runs,
 	}}
-	req := httptest.NewRequest(http.MethodGet, "/api/attach?runId="+session.RunID+"&agentKey="+session.AgentKey, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/attach?detail=full&runId="+session.RunID+"&agentKey="+session.AgentKey, nil)
 	req.Header.Set(webClientDeviceIDHeader, "device-2")
 	req.Header.Set(webClientSurfaceIDHeader, "surface-2")
 	rec := httptest.NewRecorder()
@@ -148,12 +148,12 @@ func TestHandleAttachWithoutTargetOrWithInvalidOwnerDoesNotReplaceBinding(t *tes
 	bindTestRunControl(t, server, session.RunID, "http", "")
 	server.handleAttach(httptest.NewRecorder(), httptest.NewRequest(
 		http.MethodGet,
-		"/api/attach?runId="+session.RunID+"&agentKey="+session.AgentKey,
+		"/api/attach?detail=full&runId="+session.RunID+"&agentKey="+session.AgentKey,
 		nil,
 	))
 	invalid := httptest.NewRequest(
 		http.MethodGet,
-		"/api/attach?runId="+session.RunID+"&agentKey=other-agent",
+		"/api/attach?detail=full&runId="+session.RunID+"&agentKey=other-agent",
 		nil,
 	)
 	invalid.Header.Set(webClientDeviceIDHeader, "device-invalid")
@@ -219,7 +219,7 @@ func TestHandleAttachTerminatesInvalidObserverEventWithLocalTimeContractError(t 
 		},
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/attach?runId="+session.RunID+"&agentKey="+session.AgentKey+"&lastSeq=6", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/attach?detail=full&runId="+session.RunID+"&agentKey="+session.AgentKey+"&lastSeq=6", nil)
 	rec := httptest.NewRecorder()
 	bindTestRunControl(t, server, session.RunID, "http", "")
 	server.handleAttach(rec, req)
@@ -300,7 +300,7 @@ func TestHandleAttachInvalidCompletedReplayDoesNotCancelHistoricalRun(t *testing
 	}
 	rec := httptest.NewRecorder()
 	bindTestRunControl(t, server, session.RunID, "http", "")
-	server.handleAttach(rec, httptest.NewRequest(http.MethodGet, "/api/attach?runId="+session.RunID+"&agentKey="+session.AgentKey+"&lastSeq=8", nil))
+	server.handleAttach(rec, httptest.NewRequest(http.MethodGet, "/api/attach?detail=full&runId="+session.RunID+"&agentKey="+session.AgentKey+"&lastSeq=8", nil))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "data: [DONE]") {
 		t.Fatalf("expected local SSE error and done for completed replay, got %d %s", rec.Code, rec.Body.String())
 	}

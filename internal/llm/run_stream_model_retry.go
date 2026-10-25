@@ -8,8 +8,6 @@ import (
 	. "agent-platform/internal/contracts"
 )
 
-const modelActivityPhase = "model_call"
-
 func (s *llmRunStream) modelMaxAttempts() int {
 	if s == nil || s.execCtx == nil || s.summaryCall {
 		return 1
@@ -22,50 +20,10 @@ func (s *llmRunStream) modelMaxAttempts() int {
 	return maxAttempts
 }
 
-func (s *llmRunStream) buildModelRunActivity(status string, call *pendingModelCall, err error) DeltaRunActivity {
-	if call == nil {
-		call = s.modelCall
-	}
-	attempt := 1
-	maxAttempts := 1
-	var startedAt time.Time
-	if call != nil {
-		attempt = call.attempt
-		maxAttempts = call.maxAttempts
-		startedAt = call.attemptStartedAt
-	}
-	if maxAttempts < 1 {
-		maxAttempts = 1
-	}
-	if attempt < 1 {
-		attempt = 1
-	}
-	payload := modelErrorPayload(err)
-	reason := modelActivityReason(status, payload)
-	activity := DeltaRunActivity{
-		TaskID:  s.modelActivityTaskID(),
-		ChatID:  s.session.ChatID,
-		Phase:   modelActivityPhase,
-		Status:  status,
-		Message: modelActivityMessage(status, reason),
-	}
-	if status == "retrying" {
-		retry := map[string]any{
-			"attempt":     attempt,
-			"maxAttempts": maxAttempts,
-		}
-		if reason != "" {
-			retry["reason"] = reason
-		}
-		if timeoutSeconds := s.modelActivityTimeoutSeconds(payload); timeoutSeconds > 0 {
-			retry["timeoutSeconds"] = timeoutSeconds
-		}
-		if elapsedMs := modelActivityElapsedMs(startedAt); elapsedMs > 0 {
-			retry["elapsedMs"] = elapsedMs
-		}
-		activity.Retry = retry
-	}
-	return activity
+// modelCallActivity marks a model request being sent: the Run is thinking
+// until reasoning, content or a tool call shows what it does.
+func (s *llmRunStream) modelCallActivity() DeltaRunActivity {
+	return DeltaRunActivity{TaskID: s.modelActivityTaskID(), ChatID: s.session.ChatID, Kind: ActivityThinking}
 }
 
 func (s *llmRunStream) modelActivityTaskID() string {
@@ -128,7 +86,7 @@ func modelErrorPayload(err error) map[string]any {
 	)
 }
 
-func modelActivityReason(status string, payload map[string]any) string {
+func modelRetryReason(payload map[string]any) string {
 	if len(payload) > 0 {
 		if diagnostics, _ := payload["diagnostics"].(map[string]any); len(diagnostics) > 0 {
 			if reason, _ := diagnostics["reason"].(string); reason != "" {
@@ -139,36 +97,7 @@ func modelActivityReason(status string, payload map[string]any) string {
 			return code
 		}
 	}
-	switch status {
-	case "waiting":
-		return "model_call_waiting"
-	case "retrying":
-		return "model_call_retrying"
-	case "running":
-		return "model_call_running"
-	case "completed":
-		return "model_call_completed"
-	default:
-		return "model_call"
-	}
-}
-
-func modelActivityMessage(status string, reason string) string {
-	switch status {
-	case "waiting":
-		return "正在等待模型响应"
-	case "retrying":
-		if reason == string(apperrors.CodeProviderTimeout) || reason == "model_stream_idle_timeout" {
-			return "模型响应超时，正在重试"
-		}
-		return "模型响应失败，正在重试"
-	case "running":
-		return "模型正在响应"
-	case "completed":
-		return "模型调用完成"
-	default:
-		return reason
-	}
+	return "model_call_retrying"
 }
 
 func modelErrorRetryable(err error) bool {
@@ -299,7 +228,7 @@ func (s *llmRunStream) modelTurnDiscardDelta(call *pendingModelCall, err error, 
 		RunSeq:      call.runSeq,
 		Attempt:     attempt,
 		MaxAttempts: maxAttempts,
-		Reason:      modelActivityReason("retrying", payload),
+		Reason:      modelRetryReason(payload),
 		Retrying:    retrying,
 	}
 	if retrying {

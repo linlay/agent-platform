@@ -29,7 +29,7 @@ func RunChild(ctx context.Context, runID string, taskID string, subReq runtimety
 		return result
 	}
 
-	targetURL := strings.TrimRight(proxy.BaseURL, "/") + "/api/query"
+	targetURL := QueryURL(proxy.BaseURL)
 	payload := map[string]any{
 		"agentKey":   AgentKey(proxy, subReq.AgentKey),
 		"message":    subReq.Message,

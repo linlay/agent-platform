@@ -51,7 +51,7 @@ func TestInteractionSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please confirm first"}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"please confirm first"}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestInteractionSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	}
 
 	chatRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatsResp.Data[0].ChatID, nil))
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatsResp.Data[0].ChatID, nil))
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)
@@ -390,7 +390,7 @@ func runSubAgentAwaitingSubmitRoutingTest(t *testing.T, useTaskRunID bool) {
 	defer httpServer.Close()
 
 	chatID := "chat-subagent-hitl"
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"main-agent","message":"delegate"}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"main-agent","message":"delegate"}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -495,7 +495,7 @@ func TestAwaitingChatDetailExposesReplayUsageWithoutUsageSnapshotEvent(t *testin
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please ask first","agentKey":"mock-agent"}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"please ask first","agentKey":"mock-agent"}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -531,7 +531,7 @@ func TestAwaitingChatDetailExposesReplayUsageWithoutUsageSnapshotEvent(t *testin
 	}
 
 	chatRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatID, nil))
 	if chatRec.Code != http.StatusOK {
 		t.Fatalf("chat detail expected 200, got %d: %s", chatRec.Code, chatRec.Body.String())
 	}
@@ -634,7 +634,7 @@ func TestQuestionAwaitFollowsToolEnd(t *testing.T) {
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"ask me a few things"}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"ask me a few things"}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -769,7 +769,7 @@ func TestQuestionSubmitRejectsMultiSelectAnswerAndAllowsRetry(t *testing.T) {
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"问我一个关于生活习惯方面的问题，类型为多选"}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"问我一个关于生活习惯方面的问题，类型为多选"}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -923,7 +923,7 @@ func TestQuestionChunkedArgsEmitAwaitAfterToolEnd(t *testing.T) {
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"ask me a few things"}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"ask me a few things"}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -1050,7 +1050,7 @@ func TestQuestionInvalidSelectOptionsFailsBeforeAwait(t *testing.T) {
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"ask me a question"}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"ask me a question"}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -1123,7 +1123,7 @@ func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"ask me a question"}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"ask me a question"}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -1406,7 +1406,7 @@ func TestBashHITLApproveFlowReplaysApprovalSummaryInChatRawMessages(t *testing.T
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please push the change"}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"please push the change"}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -1467,7 +1467,7 @@ func TestBashHITLApproveFlowReplaysApprovalSummaryInChatRawMessages(t *testing.T
 
 	chatID := chatsResp.Data[0].ChatID
 	chatRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID+"&includeRawMessages=true", nil))
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatID+"&includeRawMessages=true", nil))
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat response: %v", err)
@@ -1971,7 +1971,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please push the change"}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"please push the change"}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -2149,7 +2149,7 @@ func runSandboxBashQueryForResultShape(t *testing.T, sandbox contracts.SandboxCl
 		sandbox: sandbox,
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"list sample","agentKey":"mock-agent"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"list sample","agentKey":"mock-agent"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)

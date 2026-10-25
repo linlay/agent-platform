@@ -62,7 +62,7 @@ func TestMarkdownViewBlocksBindFrozenSnapshotsAndReplay(t *testing.T) {
 	}})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"message":"show orders","agentKey":"mock-agent"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(`{"message":"show orders","agentKey":"mock-agent"}`))
 	req.Header.Set("Content-Type", "application/json")
 	fixture.server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -101,7 +101,7 @@ func TestMarkdownViewBlocksBindFrozenSnapshotsAndReplay(t *testing.T) {
 	}
 
 	chatRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatID, nil))
 	var chat api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chat); err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestMarkdownViewBlocksBindFrozenSnapshotsAndReplay(t *testing.T) {
 
 	// Bindings never reach the model in later turns.
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"message":"again","agentKey":"mock-agent","chatId":"`+chatID+`"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(`{"message":"again","agentKey":"mock-agent","chatId":"`+chatID+`"}`))
 	req.Header.Set("Content-Type", "application/json")
 	fixture.server.ServeHTTP(rec, req)
 	body := <-secondRequest

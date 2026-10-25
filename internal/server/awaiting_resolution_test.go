@@ -129,7 +129,7 @@ func TestLiveApprovalTimeoutKeepsSingleBatchResultsAndValidContinuation(t *testi
 	rec := httptest.NewRecorder()
 	go func() {
 		defer close(done)
-		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"agentKey":"mock-agent","chatId":"`+chatID+`","runId":"`+runID+`","message":"inventory"}`)))
+		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(`{"agentKey":"mock-agent","chatId":"`+chatID+`","runId":"`+runID+`","message":"inventory"}`)))
 	}()
 	defer func() { unblock(); waitAwaitingSignal(t, done) }()
 	select {
@@ -163,7 +163,7 @@ func TestLiveApprovalTimeoutKeepsSingleBatchResultsAndValidContinuation(t *testi
 		t.Fatalf("expected awaiting gate, got %#v", gate)
 	}
 	queryRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(queryRec, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"agentKey":"mock-agent","chatId":"`+chatID+`","message":"continue early"}`)))
+	fixture.server.ServeHTTP(queryRec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(`{"agentKey":"mock-agent","chatId":"`+chatID+`","message":"continue early"}`)))
 	if queryRec.Code != http.StatusConflict {
 		t.Fatalf("live query admitted: %d %s", queryRec.Code, queryRec.Body.String())
 	}
@@ -214,7 +214,7 @@ func TestLiveApprovalTimeoutKeepsSingleBatchResultsAndValidContinuation(t *testi
 		}
 	}
 	next := httptest.NewRecorder()
-	fixture.server.ServeHTTP(next, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"agentKey":"mock-agent","chatId":"`+chatID+`","message":"continue"}`)))
+	fixture.server.ServeHTTP(next, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(`{"agentKey":"mock-agent","chatId":"`+chatID+`","message":"continue"}`)))
 	if next.Code != 200 || strings.Contains(next.Body.String(), `"type":"run.error"`) || requests.Load() != 3 {
 		t.Fatalf("continuation failed: requests=%d body=%s", requests.Load(), next.Body.String())
 	}

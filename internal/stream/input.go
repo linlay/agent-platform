@@ -121,7 +121,7 @@ func (StageMarker) streamInputTag() {}
 
 // ModelTurnCommit and ModelTurnDiscard are platform-internal transaction
 // controls. Commit has no SSE representation. Discard is converted into
-// failed block end events plus an informational run.activity event.
+// failed block end events, plus a run.activity retry event when retrying.
 type ModelTurnCommit struct {
 	ResponseID         string
 	EncryptedReasoning []modelcontent.ReasoningPart
@@ -457,17 +457,13 @@ type UsageSnapshotTool struct {
 
 func (InputUsageSnapshot) streamInputTag() {}
 
+// InputRunActivity carries a progress point that public events do not show.
+// Activity holds the message template (kind plus its parameters); the
+// viewer's locale renders it at the output boundary.
 type InputRunActivity struct {
-	TaskID      string
-	ChatID      string
-	Phase       string
-	Status      string
-	Backend     string
-	Key         string
-	Message     string
-	Retry       map[string]any
-	Recovery    map[string]any
-	Degradation map[string]any
+	TaskID   string
+	ChatID   string
+	Activity map[string]any
 }
 
 func (InputRunActivity) streamInputTag() {}

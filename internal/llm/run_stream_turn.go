@@ -248,7 +248,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 		attempt:             1,
 		maxAttempts:         s.modelMaxAttempts(),
 	}
-	s.pending = append(s.pending, s.buildModelRunActivity("waiting", s.modelCall, nil))
+	s.pending = append(s.pending, s.modelCallActivity())
 	return nil
 }
 
@@ -615,7 +615,6 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		if strings.TrimSpace(content) == "" {
 			s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, ResponseID: turn.responseID, EncryptedReasoning: turn.encryptedReasoning})
 		}
-		s.pending = append(s.pending, s.buildModelRunActivity("completed", nil, nil))
 		if finishReason := strings.TrimSpace(turn.finishReason); finishReason != "" && !strings.EqualFold(finishReason, "tool_calls") {
 			s.pending = append(s.pending, DeltaFinishReason{Reason: finishReason})
 		}
@@ -686,7 +685,6 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	s.pending = append(s.pending, turn.emptyArgumentToolCallDeltas()...)
 	s.pending = append(s.pending, DeltaToolEnd{ToolIDs: toolIDs, FileChanges: fileChanges})
 	s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, ResponseID: turn.responseID, EncryptedReasoning: turn.encryptedReasoning})
-	s.pending = append(s.pending, s.buildModelRunActivity("completed", nil, nil))
 	for _, prepared := range preparedCalls {
 		toolCall := prepared.toolCall
 		invocation := prepared.invocation

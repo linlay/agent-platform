@@ -271,34 +271,14 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) (events []StreamEven
 		}
 		return []StreamEvent{usageSnapshotEvent(d.request.RunID, value.TaskID, value.ChatID, value.ModelKey, value.ReasoningEffort, value.ContextWindow, value.CurrentContextSize, value.EstimatedNextCallSize, value.LLMReturnPromptTokens, value.LLMReturnCompletionTokens, value.LLMReturnTotalTokens, value.LLMReturnReasoningTokens, value.LLMReturnPromptCacheHitTokens, value.LLMReturnPromptCacheMissTokens, value.LLMReturnLLMChatCompletionCount, value.LLMReturnToolCallCount, value.LLMReturnFirstTokenLatencyMs, value.LLMReturnGenerationDurationMs, value.LLMReturnUpstreamRequestID, value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs, value.Tool)}
 	case InputRunActivity:
-		payload := map[string]any{
-			"runId":  d.request.RunID,
-			"chatId": value.ChatID,
-			"phase":  value.Phase,
-			"status": value.Status,
+		if len(value.Activity) == 0 {
+			return nil
 		}
-		if value.TaskID != "" {
-			payload["taskId"] = value.TaskID
+		chatID := value.ChatID
+		if chatID == "" {
+			chatID = d.request.ChatID
 		}
-		if value.Backend != "" {
-			payload["backend"] = value.Backend
-		}
-		if value.Key != "" {
-			payload["key"] = value.Key
-		}
-		if value.Message != "" {
-			payload["message"] = value.Message
-		}
-		if len(value.Retry) > 0 {
-			payload["retry"] = clonePayload(value.Retry)
-		}
-		if len(value.Recovery) > 0 {
-			payload["recovery"] = clonePayload(value.Recovery)
-		}
-		if len(value.Degradation) > 0 {
-			payload["degradation"] = clonePayload(value.Degradation)
-		}
-		return []StreamEvent{NewEvent("run.activity", payload)}
+		return []StreamEvent{newActivityEvent(d.request.RunID, chatID, d.resolveTaskID(value.TaskID), value.Activity)}
 	case InputContextCompact:
 		status := strings.ToLower(strings.TrimSpace(value.Status))
 		if status != "start" && status != "complete" && status != "failed" {

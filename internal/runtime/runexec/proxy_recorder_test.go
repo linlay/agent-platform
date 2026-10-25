@@ -140,3 +140,41 @@ func TestProxyEventRecorderPersistsDecoratedUsageSnapshotCost(t *testing.T) {
 		t.Fatalf("expected replay chat cost from proxy step usage, got %#v", detail.ReplayUsage.Chat)
 	}
 }
+
+func TestProxyLiveEventDerivesUnsequencedActivity(t *testing.T) {
+	const startedAtMillis int64 = 1_700_000_000_000
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, _, err := store.EnsureChat("chat-proxy-activity", "proxy-agent", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	req := runtimetypes.QueryCommand{ChatID: "chat-proxy-activity", RunID: "run-proxy-activity", AgentKey: "proxy-agent", Message: "hello"}
+	writer := chat.NewStepWriter(store, req.ChatID, req.RunID, "PROXY")
+	recorder := NewProxyEventRecorder(req, startedAtMillis, catalog.AgentDefinition{Key: "proxy-agent", Mode: "PROXY"}, store, writer, nil, nil, chat.UsageData{}, nil, config.BillingConfig{})
+	bus := stream.NewRunEventBus(100, 0, nil)
+	observer, err := bus.Subscribe(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seq int64
+	if _, err := PublishProxyLiveEvent(bus, recorder, req, &seq, stream.EventData{
+		Seq: 7, Type: "tool.start", Timestamp: startedAtMillis + 1,
+		Payload: map[string]any{"toolId": "t1", "toolName": "web_fetch", "toolLabel": "网页抓取", "runId": req.RunID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	first, second := <-observer.Events, <-observer.Events
+	if first.Type != "tool.start" || first.Seq != 7 {
+		t.Fatalf("upstream event changed: %#v", first)
+	}
+	if second.Type != "run.activity" || second.Seq != 0 || seq != 7 {
+		t.Fatalf("derived activity must not take a public seq: %#v seq=%d", second, seq)
+	}
+	activity, _ := second.Payload["activity"].(map[string]any)
+	if activity["kind"] != "tool_prepare" || activity["toolLabel"] != "网页抓取" {
+		t.Fatalf("unexpected derived activity %#v", second.Payload)
+	}
+}

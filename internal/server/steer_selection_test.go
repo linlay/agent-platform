@@ -96,7 +96,7 @@ func TestSelectionSteerNonVisionPersistsAndReplays(t *testing.T) {
 			if !bytes.Contains(replayJSON, []byte("UNIQUE_SELECTED_TEXT")) || !bytes.Contains(replayJSON, []byte("UNIQUE_ANNOTATION")) || !bytes.Contains(replayJSON, []byte("selection-long-stable-id")) {
 				t.Fatalf("selection missing in replay: %s", replayJSON)
 			}
-			next, err := http.Post(server.URL+"/api/query", "application/json", strings.NewReader(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"continue"}`))
+			next, err := http.Post(server.URL+"/api/query?detail=full", "application/json", strings.NewReader(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"continue"}`))
 			if err != nil {
 				t.Fatal(err)
 			}

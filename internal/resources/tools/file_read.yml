@@ -4,6 +4,7 @@ i18n:
     label: "Read File"
   zh-CN:
     label: "读取文件"
+activityArgs: [filePath]
 description: |
   Read a single file from the host filesystem. Use this before editing or inspecting file contents; this tool is read-only and does not require approval. PNG/JPEG/WebP/GIF images return base64 image payloads, known binary/device files are rejected, and repeating the same read of an unchanged file in the same run may return kind=unchanged.
   Text is returned in pages of whole lines that fit the model output budget. The result reports totalLines, startLine, endLine and hasMore; when hasMore is true, call again with offset=nextOffset to continue. A single line larger than the budget is cut and reported as longLineTruncated.
