@@ -13,8 +13,6 @@ type activityText struct{ en, zhCN string }
 
 var activityTexts = map[string]activityText{
 	"thinking":   {"Thinking…", "正在思考"},
-	"responding": {"Responding…", "正在回复"},
-	"planning":   {"Planning…", "正在制定计划"},
 	"compacting": {"Organizing context…", "正在整理上下文"},
 }
 
@@ -34,7 +32,8 @@ func (t activityText) in(locale string) string {
 	return t.en
 }
 
-// ActivityMessage renders one activity template. Unknown kinds render empty.
+// ActivityMessage renders one activity template. "idle" (the user is reading
+// visible output) and unknown kinds render empty.
 func ActivityMessage(locale string, activity map[string]any) string {
 	zh := ResolveLocale(locale) == LocaleZhCN
 	kind, _ := activity["kind"].(string)

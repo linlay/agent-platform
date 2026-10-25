@@ -41,7 +41,7 @@ func TestActivityTrackerDerivesProgressInOrder(t *testing.T) {
 	track("content.start", map[string]any{})
 	want := []string{
 		"Thinking…", "Thinking…", `Preparing "Fetch Page"…`, "Fetch Page: example.com",
-		"Waiting for your approval", "Fetch Page: example.com", "Responding…",
+		"Waiting for your approval", "Fetch Page: example.com", "",
 	}
 	if !reflect.DeepEqual(messages, want) {
 		t.Fatalf("messages=%#v\nwant %#v", messages, want)
@@ -104,7 +104,7 @@ func TestEventBusResendsCurrentActivityOnAttach(t *testing.T) {
 		bus.Publish(data)
 	}
 	publish(0, newActivityEvent("run", "chat", "", map[string]any{"kind": "thinking"}))
-	publish(0, newActivityEvent("run", "chat", "member", map[string]any{"kind": "responding"}))
+	publish(0, newActivityEvent("run", "chat", "member", map[string]any{"kind": "compacting"}))
 	publish(1, newRetryActivityEvent("run", "chat", "", map[string]any{"attempt": 2}))
 	publish(2, NewEvent("task.complete", map[string]any{"taskId": "member"}))
 	if bus.LatestSeq() != 2 || bus.OldestSeq() != 1 {
@@ -136,6 +136,34 @@ func TestEventBusResendsCurrentActivityOnAttach(t *testing.T) {
 	select {
 	case event := <-late.Events:
 		t.Fatalf("activity resent after run terminal: %#v", event)
+	default:
+	}
+}
+
+func TestVisibleOutputClearsActivity(t *testing.T) {
+	tracker := NewActivityTracker("run", "chat")
+	tracker.Track("run.activity", newActivityEvent("run", "chat", "", map[string]any{"kind": "thinking"}).Payload)
+	for _, eventType := range []string{"content.start", "planning.start"} {
+		_, derived := tracker.Track(eventType, map[string]any{})
+		if len(derived) != 1 || derived[0].Payload["message"] != "" {
+			t.Fatalf("%s must clear the line with an empty message: %#v", eventType, derived)
+		}
+		// The next real activity is news again.
+		if keep, _ := tracker.Track("run.activity", newActivityEvent("run", "chat", "", map[string]any{"kind": "thinking"}).Payload); !keep {
+			t.Fatalf("activity after %s dropped", eventType)
+		}
+	}
+
+	bus := NewRunEventBus(100, 0, nil)
+	bus.Publish(newActivityEvent("run", "chat", "", map[string]any{"kind": "thinking"}).Data())
+	bus.Publish(newActivityEvent("run", "chat", "", map[string]any{"kind": "idle"}).Data())
+	observer, err := bus.Subscribe(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-observer.Events:
+		t.Fatalf("cleared activity resent on attach: %#v", event)
 	default:
 	}
 }

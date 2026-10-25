@@ -125,12 +125,17 @@ func (b *RunEventBus) Publish(event EventData) {
 	case "tool.result":
 		delete(b.activeWaits, key)
 	case "run.activity":
-		if IsProgressActivity(event.Type, event.Payload) {
-			if b.activities == nil {
-				b.activities = map[string]EventData{}
-			}
-			b.activities[event.String("taskId")] = event
+		if !IsProgressActivity(event.Type, event.Payload) {
+			break
 		}
+		if event.String("message") == "" {
+			delete(b.activities, event.String("taskId"))
+			break
+		}
+		if b.activities == nil {
+			b.activities = map[string]EventData{}
+		}
+		b.activities[event.String("taskId")] = event
 	case "task.complete", "task.cancel", "task.error":
 		delete(b.activities, event.String("taskId"))
 	case "run.complete", "run.cancel", "run.error":

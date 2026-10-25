@@ -8,9 +8,11 @@ import (
 
 // run.activity tells a summary viewer, in one sentence, what the Run (or one
 // of its subtasks, by taskId) is doing now. A newer activity replaces the
-// older one of the same scope; a Run terminal event clears them all. Progress
-// activities carry an internal "activity" template that the output boundary
-// renders in the viewer's locale; a model retry carries "retry" instead.
+// older one of the same scope; an empty message clears it while the user
+// reads visible output (content or a plan), and a Run terminal event clears
+// them all. Progress activities carry an internal "activity" template that
+// the output boundary renders in the viewer's locale; a model retry carries
+// "retry" instead.
 
 func newActivityEvent(runID, chatID, taskID string, activity map[string]any) StreamEvent {
 	payload := map[string]any{
@@ -148,10 +150,9 @@ func derivedActivity(eventType string, payload map[string]any) map[string]any {
 	switch eventType {
 	case "reasoning.start":
 		return map[string]any{"kind": "reasoning", "reasoningId": anyString(payload["reasoningId"])}
-	case "content.start":
-		return map[string]any{"kind": "responding"}
-	case "planning.start":
-		return map[string]any{"kind": "planning"}
+	case "content.start", "planning.start":
+		// The output itself shows progress; clear the line instead.
+		return map[string]any{"kind": "idle"}
 	case "context.compact.start":
 		return map[string]any{"kind": "compacting"}
 	case "awaiting.ask":

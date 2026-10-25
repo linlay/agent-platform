@@ -16,7 +16,7 @@ func TestActivityMessageRendersViewerLocale(t *testing.T) {
 		{LocaleEN, map[string]any{"kind": "thinking"}, "Thinking…"},
 		{LocaleZhCN, map[string]any{"kind": "reasoning", "reasoningId": ""}, "正在思考"},
 		{LocaleEN, map[string]any{"kind": "reasoning", "reasoningId": ""}, "Thinking…"},
-		{LocaleZhCN, map[string]any{"kind": "responding"}, "正在回复"},
+		{LocaleZhCN, map[string]any{"kind": "idle"}, ""},
 		{LocaleZhCN, tool, "写入文件：README.md"},
 		{LocaleEN, tool, "Write File: README.md"},
 		{LocaleZhCN, map[string]any{"kind": "tool_run", "toolName": "mcp_x"}, "正在调用「mcp_x」"},

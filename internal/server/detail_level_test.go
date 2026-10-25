@@ -68,7 +68,8 @@ func TestQueryDefaultsToSummaryDetail(t *testing.T) {
 		}
 		lastSeq = seq
 	}
-	want := []string{"正在思考", "正在准备「日期时间」", "正在调用「日期时间」", "正在思考", "正在回复"}
+	// Content clears the line with an empty message instead of "replying".
+	want := []string{"正在思考", "正在准备「日期时间」", "正在调用「日期时间」", "正在思考", ""}
 	if strings.Join(activities, "|") != strings.Join(want, "|") {
 		t.Fatalf("activities=%q want %q", activities, want)
 	}
