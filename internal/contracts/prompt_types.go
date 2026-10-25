@@ -7,6 +7,7 @@ type PromptAppendConfig struct {
 	Tool      ToolAppendConfig
 	Reference ReferenceAppendConfig
 	View      ViewAppendConfig
+	Announce  AnnounceAppendConfig
 }
 
 // ViewAppendConfig has no source defaults: the VIEW catalog section is
@@ -14,6 +15,12 @@ type PromptAppendConfig struct {
 type ViewAppendConfig struct {
 	InstructionsPrompt string
 	CatalogHeader      string
+}
+
+// AnnounceAppendConfig has no source defaults: the announcement rules are
+// appended only when configured and the stage has an announce tool.
+type AnnounceAppendConfig struct {
+	InstructionsPrompt string
 }
 
 // ReferenceAppendConfig has no source defaults: an empty prompt omits its

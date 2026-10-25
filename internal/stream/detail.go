@@ -2,8 +2,10 @@ package stream
 
 import "strings"
 
-// DetailLevel selects which events a viewer receives. Persistence always
-// keeps every event; the level only filters delivery.
+// DetailLevel selects which events viewers receive. A Run's level is fixed
+// when it is admitted and every observer gets the same events; only a Chat
+// with no active Run is read at another level. Persistence always keeps
+// every event; the level only filters delivery.
 //
 //   - summary (default): what a user reads and answers — input, Run and
 //     subtask lifecycle, content, plans, artifacts, sources, awaiting
@@ -37,6 +39,18 @@ func ParseDetailLevel(raw string) (DetailLevel, bool) {
 	default:
 		return "", false
 	}
+}
+
+// ResolveDetailLevel is the level a Run is delivered at: the request's
+// explicit level, else the Agent default, else summary.
+func ResolveDetailLevel(requested DetailLevel, agentDefault string) DetailLevel {
+	if level, ok := ParseDetailLevel(string(requested)); ok && level != "" {
+		return level
+	}
+	if level, ok := ParseDetailLevel(agentDefault); ok && level != "" {
+		return level
+	}
+	return DetailSummary
 }
 
 var summaryEventTypes = map[string]bool{

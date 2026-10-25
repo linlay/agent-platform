@@ -349,6 +349,28 @@ func TestViewPromptsLoadAndRequireBothKeys(t *testing.T) {
 	}
 }
 
+func TestAnnouncePromptLoads(t *testing.T) {
+	var c Config
+	body := "shared:\n  announce:\n    instructions-prompt: |\n      announce rules\n"
+	if err := c.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", body)); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(c.Prompts.Announce.InstructionsPrompt) != "announce rules" {
+		t.Fatalf("announce prompt: %#v", c.Prompts.Announce)
+	}
+	var cfg Config
+	if err := cfg.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", "shared:\n  announce:\n    label: x\n")); err == nil {
+		t.Fatal("accepted unknown announce key")
+	}
+	var shipped Config
+	if err := shipped.applyAgentPromptFile(ProjectFile("configs/agent-prompt.example.yml")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(shipped.Prompts.Announce.InstructionsPrompt, "{{announce_tool_name}}") {
+		t.Fatalf("example announce prompt: %q", shipped.Prompts.Announce.InstructionsPrompt)
+	}
+}
+
 func TestShippedAgentPromptExampleConfiguresViewProtocol(t *testing.T) {
 	var c Config
 	if err := c.applyAgentPromptFile(ProjectFile("configs/agent-prompt.example.yml")); err != nil {

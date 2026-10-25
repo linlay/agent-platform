@@ -302,13 +302,14 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	if err := validatePromptTemplates(v, path); err != nil {
 		return err
 	}
-	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "view", "reference", "tool-appendix", "plan-execute", "automation", "btw", "planning-mode")
+	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "view", "announce", "reference", "tool-appendix", "plan-execute", "automation", "btw", "planning-mode")
 	if err != nil {
 		return err
 	}
 	schemas := map[string][]string{
 		"skill":         {"instructions-prompt", "catalog-header", "disclosure-header", "instructions-label"},
 		"view":          {"instructions-prompt", "catalog-header"},
+		"announce":      {"instructions-prompt"},
 		"reference":     {"protocol-prompt", "advanced-protocol-prompt"},
 		"tool-appendix": {"tool-description-title", "after-call-hint-title"},
 		"plan-execute":  {"task-execution-prompt-template", "plan-user-prompt-template", "summary-system-prompt", "summary-user-prompt-template"},

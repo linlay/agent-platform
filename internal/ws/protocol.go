@@ -31,7 +31,9 @@ type RequestFrame struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
-var detailFrameTypes = map[string]bool{"/api/query": true, "/api/attach": true, "/api/chat": true}
+// detailFrameTypes accept a detail field. A Run's level is fixed by its
+// /api/query, so attach cannot choose one.
+var detailFrameTypes = map[string]bool{"/api/query": true, "/api/chat": true}
 
 // DetailLevel is the validated override; empty is resolved from the Agent by Server.
 func (r RequestFrame) DetailLevel() stream.DetailLevel {
@@ -44,7 +46,7 @@ func (r RequestFrame) detailError() string {
 		return ""
 	}
 	if !detailFrameTypes[r.Type] {
-		return "detail is only accepted by /api/query, /api/attach and /api/chat"
+		return "detail is only accepted by /api/query and /api/chat"
 	}
 	if _, ok := stream.ParseDetailLevel(r.Detail); !ok {
 		return "detail must be summary, full or none"

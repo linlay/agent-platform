@@ -15,8 +15,11 @@ func (s *Server) agentDefaultDetail(agentKey string) stream.DetailLevel {
 			}
 		}
 	}
-	return stream.DetailSummary
+	return stream.ResolveDetailLevel("", "")
 }
+
+// chatDisplay pairs the Agent default with the level actually delivered: a
+// Run's frozen level, or the level a Chat with no active Run is read at.
 func (s *Server) chatDisplay(agentKey string, override stream.DetailLevel) api.EventDisplay {
 	defaultDetail := s.agentDefaultDetail(agentKey)
 	effectiveDetail := override
@@ -24,4 +27,14 @@ func (s *Server) chatDisplay(agentKey string, override stream.DetailLevel) api.E
 		effectiveDetail = defaultDetail
 	}
 	return api.EventDisplay{DefaultDetail: defaultDetail, EffectiveDetail: effectiveDetail}
+}
+
+// chatReadDetail is the level a Chat read is delivered at. While a Run is
+// active every reader gets that Run's level and the requested one is
+// ignored; a Chat with no active Run can be read at any level.
+func chatReadDetail(response api.ChatDetailResponse, requested stream.DetailLevel) stream.DetailLevel {
+	if response.ActiveRun != nil && response.ActiveRun.Detail != "" {
+		return response.ActiveRun.Detail
+	}
+	return requested
 }

@@ -1438,6 +1438,8 @@ type ActiveRunInfo struct {
 	EditingMode        bool   `json:"editingMode"`
 	AccessLevel        string `json:"accessLevel"`
 	AccessLevelVersion int64  `json:"accessLevelVersion"`
+	// Detail is the delivery level fixed when the Run started.
+	Detail stream.DetailLevel `json:"detail"`
 }
 
 type FeedbackRequest struct {

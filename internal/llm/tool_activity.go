@@ -12,7 +12,7 @@ import (
 
 const toolActivityTextLimit = 60
 
-// announceTextLimit only bounds what is shown; plan_announce rejects longer
+// announceTextLimit only bounds what is shown; action_announce rejects longer
 // messages itself.
 const announceTextLimit = 120
 

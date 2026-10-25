@@ -200,6 +200,7 @@ type PromptsConfig struct {
 	Runtime      RuntimePromptConfig
 	Skill        PromptSkillConfig
 	View         PromptViewConfig
+	Announce     PromptAnnounceConfig
 	Reference    PromptReferenceConfig
 	ToolAppendix ToolAppendixPromptsConfig
 	PlanExecute  PlanExecutePromptsConfig
@@ -226,6 +227,12 @@ type PromptSkillConfig struct {
 type PromptViewConfig struct {
 	InstructionsPrompt string
 	CatalogHeader      string
+}
+
+// PromptAnnounceConfig holds the progress announcement rules, appended when
+// the stage's tools include an announce tool. Empty omits the section.
+type PromptAnnounceConfig struct {
+	InstructionsPrompt string
 }
 
 type PromptReferenceConfig struct {

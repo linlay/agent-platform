@@ -25,6 +25,7 @@ func BuildPromptAppendConfig(global config.PromptsConfig, def catalog.AgentDefin
 	config.Reference.ProtocolPrompt = strings.TrimSpace(global.Reference.ProtocolPrompt)
 	config.View.InstructionsPrompt = strings.TrimSpace(global.View.InstructionsPrompt)
 	config.View.CatalogHeader = strings.TrimSpace(global.View.CatalogHeader)
+	config.Announce.InstructionsPrompt = strings.TrimSpace(global.Announce.InstructionsPrompt)
 	config.Reference.AdvancedProtocolPrompt = strings.TrimSpace(global.Reference.AdvancedProtocolPrompt)
 	if strings.TrimSpace(global.Skill.CatalogHeader) != "" {
 		config.Skill.CatalogHeader = strings.TrimSpace(global.Skill.CatalogHeader)

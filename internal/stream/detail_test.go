@@ -113,3 +113,20 @@ func TestDeliveryDisplayDoesNotMutatePersistedEvent(t *testing.T) {
 		t.Fatal(display)
 	}
 }
+
+func TestResolveDetailLevel(t *testing.T) {
+	for _, tc := range []struct {
+		requested    DetailLevel
+		agentDefault string
+		want         DetailLevel
+	}{
+		{"", "", DetailSummary},
+		{"", "none", DetailNone},
+		{"", "verbose", DetailSummary},
+		{DetailFull, "none", DetailFull},
+	} {
+		if got := ResolveDetailLevel(tc.requested, tc.agentDefault); got != tc.want {
+			t.Fatalf("ResolveDetailLevel(%q, %q) = %q, want %q", tc.requested, tc.agentDefault, got, tc.want)
+		}
+	}
+}

@@ -36,6 +36,7 @@ func toAPIActiveRunInfo(activeRun contracts.RunStatusInfo) *api.ActiveRunInfo {
 		// reloads mid-Run shows them without replaying events.
 		PlanningMode:       activeRun.PlanningMode,
 		EditingMode:        activeRun.EditingMode,
+		Detail:             activeRun.Detail,
 		AccessLevel:        activeRun.AccessLevel,
 		AccessLevelVersion: activeRun.AccessLevelVersion,
 	}

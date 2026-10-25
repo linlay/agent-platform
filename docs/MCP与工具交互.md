@@ -69,7 +69,7 @@ SDK 负责 session ID、协议头、JSON/SSE、初始化通知和标准关闭；
 
 本地 `plan_add_tasks`、`plan_get_tasks`、`plan_update_task` 使用有序、单活动任务状态机。新 task 固定为 `init` 且不会自动启动；只允许最前面的非终态 task 由 `init` 进入 `in_progress` 或直接进入 `completed/failed/canceled`，且只有当前活动 task 可由 `in_progress` 进入任一终态。相同状态更新幂等，终态重试通过追加新 task 表达。非法更新不改变内存或 snapshot，工具结果分别使用稳定错误码 `plan_task_predecessor_incomplete`、`plan_task_not_current`、`invalid_plan_task_transition`，并在 structured result 中返回未变化的 plan 和状态诊断。
 
-`plan_announce` 只有一个必填参数 `message`（一句话，最多 120 字符），用于告诉用户接下来要做什么；它不改任务状态、不等待用户，执行时只校验长度并返回 `announced`，公示本身在参数完整时作为进度活动发出（见 [细节等级与 run.activity](API与协议.md#细节等级与-runactivity)）。分发示例把它放在 general/coder/kbase/team 段的 preset-tools，executor 段不放；planning 不排除它。模型应与它描述的工具调用放在同一回合并排在最前，只在开始多步工作、完成一组相关操作或转换阶段时公示，并用它代替在正文里叙述下一步。 Plan 状态转移错误额外提供 `message` 与 `recovery`，明确本次更新未生效、当前/阻塞任务及纠正方向；应直接使用返回快照纠正调用，必要时再调用 `plan_get_tasks`，不要原样重试或为解除阻塞将任务标为完成。`plan_update_task` 成功时向模型返回与 Structured 相同的 JSON 快照（`planId`、`plan`、有活动项时的 `currentTaskId`），不再只返回 `OK`；`plan_add_tasks` 的新增任务文本返回保持不变。
+`action_announce` 只有一个必填参数 `message`（一句话，最多 120 字符），用于告诉用户接下来要做什么；它不改任务状态、不等待用户，执行时只校验长度并返回 `announced`。它是 `clientVisible:false` 工具，tool.* 事件不下发、历史不显示工具卡片；公示本身在参数完整时作为进度活动发出（不落盘，见 [细节等级与 run.activity](API与协议.md#细节等级与-runactivity)）。分发示例把它放在 general/coder/kbase/team 段的 preset-tools，executor 段不放；planning 不排除它。模型应在每个需要工具的回合先公示，与它描述的工具调用放在同一回合并排在最前，进入新阶段、改变方向或完成一组相关操作时再公示，只有不调用其他工具直接回答时跳过；公示要具体说明要做什么、作用于什么，并用它代替在正文里叙述下一步。使用规则同时由 `agent-prompt.yml` 的 `shared.announce.instructions-prompt` 写入 system prompt（见 [Agent 配置合并](Agent配置合并.md)）。 Plan 状态转移错误额外提供 `message` 与 `recovery`，明确本次更新未生效、当前/阻塞任务及纠正方向；应直接使用返回快照纠正调用，必要时再调用 `plan_get_tasks`，不要原样重试或为解除阻塞将任务标为完成。`plan_update_task` 成功时向模型返回与 Structured 相同的 JSON 快照（`planId`、`plan`、有活动项时的 `currentTaskId`），不再只返回 `OK`；`plan_add_tasks` 的新增任务文本返回保持不变。
 
 ## 图片生成与产物发布 URL
 
@@ -340,7 +340,7 @@ name: file_write
 activityArgs: [description, filePath]
 ```
 
-`activityAnnounce` 与 `activityArgs` 互斥，取一个字符串参数名：该工具本身就是向用户公示下一步，参数值作为 `kind:"announce"` 的活动原样显示（压成单行，不加 label、不按 60 字符截断），同一回合中优先于第一个工具显示，并按 `announce-hold-seconds` 压住后续活动。内嵌的 `plan_announce` 声明 `activityAnnounce: message`。
+`activityAnnounce` 与 `activityArgs` 互斥，取一个字符串参数名：该工具本身就是向用户公示下一步，参数值作为 `kind:"announce"` 的活动原样显示（压成单行，不加 label、不按 60 字符截断），同一回合中优先于第一个工具显示，并按 `announce-hold-seconds` 压住后续活动。内嵌的 `action_announce` 声明 `activityAnnounce: message`。
 
 内嵌配置：`bash`/`bash_sandbox`/`wait` 用 `description`，`file_write`/`file_edit` 用 `description, filePath`，`file_read` 用 `filePath`，`file_glob`/`file_grep` 用 `pattern`，`web_fetch`/`surface_navigate` 用 `url`，`kbase_search` 用 `query`，`kbase_read` 用 `path`。规则见 [细节等级与 run.activity](API与协议.md#细节等级与-runactivity)。
 

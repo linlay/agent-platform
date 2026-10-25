@@ -204,6 +204,10 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	// The source Run's query was admitted through chat_start, so its recorded
 	// references stay exempt from the frozen interaction policy here as well.
 	sourceStatus, sourceFound := s.deps.Runs.RunStatus(sourceRunID)
+	if sourceFound {
+		// Whoever watched the source Run keeps its delivery level.
+		req.Detail = sourceStatus.Detail
+	}
 	session, err := s.deps.Sessions.BuildQuerySession(context.Background(), req, summary, agentDef, sessionbuild.Options{
 		DisableSkillScriptGrants: !newExecutionRun,
 		SkipInteractionPolicy:    sourceFound && sourceStatus.RunOrigin != nil,

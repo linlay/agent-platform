@@ -2,6 +2,7 @@ package server
 
 import (
 	"agent-platform/internal/api"
+	"agent-platform/internal/stream"
 	platformws "agent-platform/internal/ws"
 	"bytes"
 	"context"
@@ -135,12 +136,19 @@ func TestDetailLevelRejectsUnknownValue(t *testing.T) {
 	for _, req := range []*http.Request{
 		httptest.NewRequest(http.MethodPost, "/api/query?detail=verbose", bytes.NewBufferString(`{"message":"hi"}`)),
 		httptest.NewRequest(http.MethodGet, "/api/chat?chatId=x&detail=verbose", nil),
-		httptest.NewRequest(http.MethodGet, "/api/attach?runId=x&detail=verbose", nil),
 	} {
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "detail must be summary, full or none") {
 			t.Fatalf("%s: %d %s", req.URL, rec.Code, rec.Body.String())
+		}
+	}
+	// A Run's level is fixed by its query; attach cannot pass one, valid or not.
+	for _, detail := range []string{"full", ""} {
+		rec := httptest.NewRecorder()
+		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/attach?runId=x&detail="+detail, nil))
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "detail_not_allowed") {
+			t.Fatalf("attach detail=%q: %d %s", detail, rec.Code, rec.Body.String())
 		}
 	}
 }
@@ -212,7 +220,8 @@ func TestConfiguredAgentDetailAcrossHTTPAndWS(t *testing.T) {
 			t.Fatalf("history: %s", rec.Body.String())
 		}
 		rec = httptest.NewRecorder()
-		f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/attach?agentKey=mock-agent&runId="+runID+suffix, nil))
+		// Attach follows the level the Run was started with.
+		f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/attach?agentKey=mock-agent&runId="+runID, nil))
 		if rec.Code != 200 {
 			t.Fatalf("attach: %d %s", rec.Code, rec.Body.String())
 		}
@@ -276,5 +285,15 @@ func TestConfiguredAgentDetailAcrossHTTPAndWS(t *testing.T) {
 		if sawTool != tc.full || !sawDisplay {
 			t.Fatalf("WS override=%q tools=%v display=%v", tc.detail, sawTool, sawDisplay)
 		}
+	}
+}
+
+func TestChatReadDetailFollowsActiveRun(t *testing.T) {
+	active := api.ChatDetailResponse{ActiveRun: &api.ActiveRunInfo{RunID: "run_1", Detail: stream.DetailNone}}
+	if got := chatReadDetail(active, stream.DetailFull); got != stream.DetailNone {
+		t.Fatalf("active Chat read at %q, want the Run's none", got)
+	}
+	if got := chatReadDetail(api.ChatDetailResponse{}, stream.DetailFull); got != stream.DetailFull {
+		t.Fatalf("idle Chat read at %q, want the requested full", got)
 	}
 }

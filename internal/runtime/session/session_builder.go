@@ -24,6 +24,7 @@ import (
 	"agent-platform/internal/querymessages"
 	"agent-platform/internal/runenv"
 	runtimetypes "agent-platform/internal/runtime/types"
+	"agent-platform/internal/stream"
 	"agent-platform/internal/temppaths"
 )
 
@@ -225,6 +226,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		PlanExecuteExcludeTools:   append([]string(nil), planningMode.ExecuteExcludeTools...),
 		EditingMode:               editingMode,
 		WorkspaceReadOnly:         !editingMode,
+		Detail:                    stream.ResolveDetailLevel(req.Detail, agentDef.Interaction().DefaultDetail),
 
 		Created:              options.Created,
 		ConnectorDirs:        RuntimeConnectorDirs(agentDef),

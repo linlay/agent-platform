@@ -34,13 +34,13 @@ func TestRunControlHTTPRequiresAndValidatesAgentKey(t *testing.T) {
 		{
 			name:   "attach missing agentKey",
 			method: http.MethodGet,
-			path:   "/api/attach?detail=full&runId=run-agent-check",
+			path:   "/api/attach?runId=run-agent-check",
 			status: http.StatusBadRequest,
 		},
 		{
 			name:   "attach mismatched agentKey",
 			method: http.MethodGet,
-			path:   "/api/attach?detail=full&runId=run-agent-check&agentKey=other-agent",
+			path:   "/api/attach?runId=run-agent-check&agentKey=other-agent",
 			status: http.StatusForbidden,
 		},
 		{

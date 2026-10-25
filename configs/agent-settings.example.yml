@@ -62,7 +62,7 @@ planning-mode:
     - ask_user_question
     - ask_user_form
 
-# An announcement (plan_announce) stays the progress line of its scope for at
+# An announcement (action_announce) stays the progress line of its scope for at
 # least this many seconds; other progress activities wait. Output starting, a
 # newer announcement or the Run ending replaces it sooner. 0 disables the hold.
 announce-hold-seconds: 60
@@ -73,7 +73,7 @@ general:
   interaction-config:
     default-detail: none
   preset-tools:
-    - plan_announce
+    - action_announce
     - ask_user_question
     - artifact_publish
     - view_describe
@@ -94,7 +94,7 @@ coder:
   interaction-config:
     default-detail: full
   preset-tools:
-    - plan_announce
+    - action_announce
     - regex
     - ask_user_question
     - artifact_publish
@@ -125,7 +125,7 @@ kbase:
     default-detail: summary
   # workspace-agents is accepted here and under general/team with the same meaning.
   preset-tools:
-    - plan_announce
+    - action_announce
     - ask_user_question
     - artifact_publish
   # kbase_search/files/read/status belong to builtin.kbase-control.
@@ -155,7 +155,7 @@ team:
   interaction-config:
     default-detail: full
   preset-tools:
-    - plan_announce
+    - action_announce
     - ask_user_question
     - artifact_publish
   preset-connectors:

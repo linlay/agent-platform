@@ -73,22 +73,22 @@ func TestParseToolActivityAnnounce(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, def := range defs {
-		if def.Name == contracts.PlanAnnounceToolName {
+		if def.Name == contracts.ActionAnnounceToolName {
 			if contracts.ToolActivityAnnounce(def.Meta) != "message" {
-				t.Fatalf("plan_announce must announce its message: %#v", def.Meta)
+				t.Fatalf("action_announce must announce its message: %#v", def.Meta)
 			}
 			return
 		}
 	}
-	t.Fatal("plan_announce is not embedded")
+	t.Fatal("action_announce is not embedded")
 }
 
-func TestPlanAnnounceValidatesMessage(t *testing.T) {
-	if result := invokePlanAnnounce(map[string]any{"message": "Read the config."}); result.ExitCode != 0 {
+func TestActionAnnounceValidatesMessage(t *testing.T) {
+	if result := invokeActionAnnounce(map[string]any{"message": "Read the config."}); result.ExitCode != 0 {
 		t.Fatalf("valid announcement failed: %#v", result)
 	}
-	for _, message := range []any{nil, "  ", strings.Repeat("长", planAnnounceMaxRunes+1)} {
-		if result := invokePlanAnnounce(map[string]any{"message": message}); result.ExitCode == 0 {
+	for _, message := range []any{nil, "  ", strings.Repeat("长", actionAnnounceMaxRunes+1)} {
+		if result := invokeActionAnnounce(map[string]any{"message": message}); result.ExitCode == 0 {
 			t.Fatalf("accepted %#v", message)
 		}
 	}

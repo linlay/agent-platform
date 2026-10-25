@@ -270,6 +270,23 @@ func TestAssemblerHiddenToolEventsDoNotAdvancePublicSequence(t *testing.T) {
 	}
 }
 
+func TestAssemblerHiddenAnnounceToolStillPublishesAnnouncement(t *testing.T) {
+	assembler := NewAssembler(StreamRequest{RunID: "run_hidden_announce", ChatID: "chat_hidden_announce"})
+	assembler.RegisterHiddenTools("action_announce")
+	start := assembler.ConsumeEmissions(ToolArgs{ToolID: "tool_1", ToolName: "action_announce", Delta: `{"message":"Read the config."}`})
+	for _, emission := range start {
+		if emission.Visible {
+			t.Fatalf("hidden announce tool event is visible: %#v", emission)
+		}
+	}
+	announce := assembler.Consume(InputRunActivity{ChatID: "chat_hidden_announce", Activity: map[string]any{
+		"kind": ActivityKindAnnounce, "toolId": "tool_1", "toolName": "action_announce", "text": "Read the config.",
+	}})
+	if len(announce) != 1 || announce[0].Type != "run.activity" {
+		t.Fatalf("hidden announce tool suppressed its announcement: %#v", announce)
+	}
+}
+
 func TestAssemblerPublishesToolOutputWithPublicSequence(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{RunID: "run_output", ChatID: "chat_output"})
 	assertStampedTypes(t, assembler.Consume(ToolArgs{

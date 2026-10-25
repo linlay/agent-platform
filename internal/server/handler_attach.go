@@ -13,8 +13,10 @@ import (
 func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	runID := strings.TrimSpace(r.URL.Query().Get("runId"))
 	agentKey := strings.TrimSpace(r.URL.Query().Get("agentKey"))
-	detail, ok := requestDetailLevel(w, r)
-	if !ok {
+	// A Run is delivered at the level it was admitted with; observers cannot
+	// choose another.
+	if r.URL.Query().Has("detail") {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "detail is fixed when the Run starts and cannot be set on attach", map[string]any{"code": "detail_not_allowed"}))
 		return
 	}
 
@@ -42,8 +44,8 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	display := s.chatDisplay(status.AgentKey, detail)
-	detail = display.EffectiveDetail
+	display := s.chatDisplay(status.AgentKey, status.Detail)
+	detail := display.EffectiveDetail
 	w.Header().Set("X-Event-Detail", string(detail))
 	w.Header().Set("X-Agent-Default-Detail", string(display.DefaultDetail))
 	observer, err := s.deps.Runs.AttachObserver(runID, lastSeq)

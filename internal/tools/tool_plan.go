@@ -5,7 +5,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
@@ -74,22 +73,6 @@ func (t *RuntimeToolExecutor) invokePlanAddTasks(args map[string]any, execCtx *E
 		Structured: planStatePayload(state),
 		ExitCode:   0,
 	}, nil
-}
-
-// planAnnounceMaxRunes matches the maxLength in plan_announce.yml.
-const planAnnounceMaxRunes = 120
-
-// invokePlanAnnounce only validates: the announcement itself was published as
-// the progress line once the arguments were complete.
-func invokePlanAnnounce(args map[string]any) ToolExecutionResult {
-	message := strings.TrimSpace(AnyStringNode(args["message"]))
-	if message == "" {
-		return ToolExecutionResult{Output: "失败: 缺少 message", Error: "missing_message", ExitCode: -1}
-	}
-	if utf8.RuneCountInString(message) > planAnnounceMaxRunes {
-		return ToolExecutionResult{Output: fmt.Sprintf("失败: message 超过 %d 个字符，请改成一句更短的话", planAnnounceMaxRunes), Error: "message_too_long", ExitCode: -1}
-	}
-	return ToolExecutionResult{Output: "announced", ExitCode: 0}
 }
 
 func (t *RuntimeToolExecutor) invokePlanGetTasks(execCtx *ExecutionContext) (ToolExecutionResult, error) {

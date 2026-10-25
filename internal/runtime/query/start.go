@@ -100,7 +100,7 @@ func (s *Service) StartQuery(ctx context.Context, cmd runtimetypes.QueryCommand)
 		s.startPreparedLocalRun(prepared, registered, bus)
 	}
 	owner := contracts.ResolveRunOwner(prepared.Session.RunOwner)
-	return runtimetypes.RunHandle{SideID: sideQueryID(prepared), RunID: prepared.Req.RunID, ChatID: prepared.Req.ChatID, AgentKey: owner.AgentKey, StartedAt: registered.StartedAtMillis, Status: "running", Detached: true}, nil
+	return runtimetypes.RunHandle{SideID: sideQueryID(prepared), RunID: prepared.Req.RunID, ChatID: prepared.Req.ChatID, AgentKey: owner.AgentKey, StartedAt: registered.StartedAtMillis, Status: "running", Detached: true, Detail: prepared.Session.Detail}, nil
 }
 func (s *Service) ExecuteQuery(ctx context.Context, cmd runtimetypes.QueryCommand, hooks runtimetypes.QueryHooks) (runtimetypes.QueryResult, error) {
 	ctx = context.WithValue(queryContext(ctx, cmd), queryHooksKey{}, hooks)

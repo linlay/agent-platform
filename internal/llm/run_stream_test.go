@@ -7344,11 +7344,11 @@ func nextWithoutRunActivity(s *llmRunStream) (contracts.AgentDelta, error) {
 func TestFinishCurrentTurnShowsAnnouncementOverFirstTool(t *testing.T) {
 	root := t.TempDir()
 	session := contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root}
-	announce := backendToolDefinition("plan_announce")
+	announce := backendToolDefinition("action_announce")
 	announce.Meta["activityAnnounce"] = "message"
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{writeToolDefinition(), announce}}
 	turn := providerTurnWithToolCall("tool_1", "file_write", `{"filePath":"owner.md","content":"one\n"}`)
-	second := &toolCallAccumulator{ID: "tool_2", Type: "function", FunctionName: "plan_announce"}
+	second := &toolCallAccumulator{ID: "tool_2", Type: "function", FunctionName: "action_announce"}
 	second.Arguments.WriteString(`{"message":"Write the owner file, then verify it."}`)
 	turn.toolCalls[1] = second
 	stream := &llmRunStream{

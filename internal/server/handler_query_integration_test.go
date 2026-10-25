@@ -1516,7 +1516,7 @@ func TestQueryAndRunDebugEventsDisabledByDefault(t *testing.T) {
 	}
 
 	runRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/attach?detail=full&runId="+runID+"&agentKey=mock-agent", nil))
+	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/attach?runId="+runID+"&agentKey=mock-agent", nil))
 	if runRec.Code != http.StatusOK {
 		t.Fatalf("expected run stream 200, got %d: %s", runRec.Code, runRec.Body.String())
 	}
@@ -1615,7 +1615,7 @@ func TestQueryLLMChatRecordEmitsDebugLLMChat(t *testing.T) {
 	}
 
 	runRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/attach?detail=full&runId="+runID+"&agentKey=mock-agent", nil))
+	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/attach?runId="+runID+"&agentKey=mock-agent", nil))
 	if runRec.Code != http.StatusOK {
 		t.Fatalf("expected run stream 200, got %d: %s", runRec.Code, runRec.Body.String())
 	}
@@ -2847,7 +2847,7 @@ func jsonLCoderExecuteRunID(t *testing.T, store chat.Store, chatID string, oldRu
 
 func attachRunSSE(t *testing.T, baseURL string, agentKey string, runID string) string {
 	t.Helper()
-	resp, err := http.Get(baseURL + "/api/attach?detail=full&agentKey=" + agentKey + "&runId=" + runID)
+	resp, err := http.Get(baseURL + "/api/attach?agentKey=" + agentKey + "&runId=" + runID)
 	if err != nil {
 		t.Fatalf("attach run %s: %v", runID, err)
 	}
@@ -3613,7 +3613,7 @@ func TestQueryToolBudgetExceededIsVisibleAndDurable(t *testing.T) {
 	attachRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(attachRec, httptest.NewRequest(
 		http.MethodGet,
-		"/api/attach?detail=full&runId="+runID+"&agentKey=mock-agent",
+		"/api/attach?runId="+runID+"&agentKey=mock-agent",
 		nil,
 	))
 	if attachRec.Code != http.StatusOK ||

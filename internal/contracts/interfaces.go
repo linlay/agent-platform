@@ -407,6 +407,9 @@ type QuerySession struct {
 	// plan; ToolNames already has the execution exclusions applied.
 	ConfirmedPlanRun bool
 	EditingMode      bool
+	// Detail is the delivery level frozen at admission; every observer of
+	// the Run receives the events it allows.
+	Detail stream.DetailLevel
 
 	Created             bool
 	Subject             string
@@ -772,6 +775,7 @@ type ActiveRun struct {
 	ScopeID      string
 	PlanningMode bool
 	EditingMode  bool
+	Detail       stream.DetailLevel
 }
 
 type RunStatusInfo struct {
@@ -789,6 +793,7 @@ type RunStatusInfo struct {
 	AccessLevelVersion int64
 	PlanningMode       bool
 	EditingMode        bool
+	Detail             stream.DetailLevel
 	RunOrigin          *RunOrigin `json:"-"`
 }
 

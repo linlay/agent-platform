@@ -129,7 +129,7 @@ func TestHTTPRunStreamDetachesObserverDuringRootContextShutdown(t *testing.T) {
 	httpServer := newLoopbackServerWithBaseContext(t, fixture.server, rootCtx)
 	defer httpServer.Close()
 
-	resp, err := http.Get(httpServer.URL + "/api/attach?detail=full&agentKey=mock-agent&runId=" + runID)
+	resp, err := http.Get(httpServer.URL + "/api/attach?agentKey=mock-agent&runId=" + runID)
 	if err != nil {
 		t.Fatalf("get run stream: %v", err)
 	}

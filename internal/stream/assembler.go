@@ -340,5 +340,10 @@ func (a *StreamEventAssembler) hiddenToolActivity(event StreamEvent) bool {
 	if !ok {
 		return false
 	}
+	// An announcement is the model's message to the user, not a view of the
+	// tool that carried it, so a hidden announce tool still publishes it.
+	if anyString(activity["kind"]) == ActivityKindAnnounce {
+		return false
+	}
 	return a.normalizer.IsHiddenTool(anyString(activity["toolId"]), anyString(activity["toolName"]))
 }

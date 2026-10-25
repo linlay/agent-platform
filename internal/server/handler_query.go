@@ -63,6 +63,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	command.ResourceBaseURL = s.requestBaseURL(r)
 	command.ChatSource = chatSourceFromContext(r.Context())
 	command.ClientTarget = runtimeClientTarget(webClientTargetFromHTTPRequest(r))
+	command.Detail = detail
 	s.writeRuntimeQueryNonStream(w, r.Context(), command)
 
 }
@@ -100,12 +101,13 @@ func (s *Server) handleRuntimeQueryAsync(w http.ResponseWriter, r *http.Request,
 }
 
 func (s *Server) writeRuntimeQueryStream(w http.ResponseWriter, ctx context.Context, command runtimetypes.QueryCommand, detail stream.DetailLevel) {
+	command.Detail = detail
 	handle, err := s.deps.Runtime.StartQuery(ctx, command)
 	if err != nil {
 		writeQueryStartError(w, err)
 		return
 	}
-	display := s.chatDisplay(handle.AgentKey, detail)
+	display := s.chatDisplay(handle.AgentKey, handle.Detail)
 	detail = display.EffectiveDetail
 	w.Header().Set("X-Event-Detail", string(detail))
 	w.Header().Set("X-Agent-Default-Detail", string(display.DefaultDetail))
