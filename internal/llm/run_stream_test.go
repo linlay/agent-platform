@@ -7340,3 +7340,39 @@ func nextWithoutRunActivity(s *llmRunStream) (contracts.AgentDelta, error) {
 		}
 	}
 }
+
+func TestFinishCurrentTurnShowsAnnouncementOverFirstTool(t *testing.T) {
+	root := t.TempDir()
+	session := contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root}
+	announce := backendToolDefinition("plan_announce")
+	announce.Meta["activityAnnounce"] = "message"
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{writeToolDefinition(), announce}}
+	turn := providerTurnWithToolCall("tool_1", "file_write", `{"filePath":"owner.md","content":"one\n"}`)
+	second := &toolCallAccumulator{ID: "tool_2", Type: "function", FunctionName: "plan_announce"}
+	second.Arguments.WriteString(`{"message":"Write the owner file, then verify it."}`)
+	turn.toolCalls[1] = second
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		session: session,
+		engine: &LLMAgentEngine{
+			cfg:   config.Config{FileTools: config.FileToolsConfig{MaxReadBytes: 1024, MaxWriteBytes: 1024}},
+			tools: executor,
+		},
+		execCtx:      &contracts.ExecutionContext{Session: session},
+		maxSteps:     2,
+		allowToolUse: true,
+		currentTurn:  turn,
+	}
+	if err := stream.finishCurrentTurn(); err != nil {
+		t.Fatalf("finishCurrentTurn: %v", err)
+	}
+	var activities []contracts.DeltaRunActivity
+	for _, delta := range stream.pending {
+		if activity, ok := delta.(contracts.DeltaRunActivity); ok {
+			activities = append(activities, activity)
+		}
+	}
+	if len(activities) != 1 || activities[0].ToolID != "tool_2" {
+		t.Fatalf("the turn must show only the announcement, got %#v", activities)
+	}
+}

@@ -56,6 +56,15 @@ type proxyToolBucket struct {
 	args     strings.Builder
 }
 
+// SetAnnounceHold makes an announcement hold the progress line locally too,
+// so activities derived from upstream events do not replace it early.
+func (r *ProxyEventRecorder) SetAnnounceHold(hold time.Duration) {
+	if r == nil {
+		return
+	}
+	r.activities = stream.NewActivityTracker(r.req.RunID, r.req.ChatID, hold)
+}
+
 func NewProxyEventRecorder(
 	req runtimetypes.QueryCommand,
 	startedAtMillis int64,
@@ -111,7 +120,7 @@ func NewProxyEventRecorder(
 		planningSnapshots: map[string]bool{},
 		markdownGuards:    map[string]*stream.MarkdownDestinationGuard{},
 		markdownText:      map[string]*strings.Builder{},
-		activities:        stream.NewActivityTracker(req.RunID, req.ChatID),
+		activities:        stream.NewActivityTracker(req.RunID, req.ChatID, 0),
 	}
 	recorder.usageTracker = NewProxyUsageTracker(chatUsage, &recorder.runUsage, models, billing)
 	return recorder
@@ -193,7 +202,7 @@ func PublishProxyLiveEvent(eventBus *stream.RunEventBus, recorder *ProxyEventRec
 	var activities []stream.StreamEvent
 	if recorder != nil {
 		var keep bool
-		keep, activities = recorder.activities.Track(event.Type, event.Payload)
+		keep, activities = recorder.activities.Track(event.Type, event.Timestamp, event.Payload)
 		if !keep {
 			return event, nil
 		}

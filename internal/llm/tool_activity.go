@@ -12,6 +12,10 @@ import (
 
 const toolActivityTextLimit = 60
 
+// announceTextLimit only bounds what is shown; plan_announce rejects longer
+// messages itself.
+const announceTextLimit = 120
+
 // runActivity turns a progress point into the activity template the stream
 // publishes. A tool that starts running shows its label plus the first
 // non-empty argument its definition lists in activityArgs.
@@ -22,6 +26,14 @@ func (m *DeltaMapper) runActivity(value DeltaRunActivity) map[string]any {
 	case ActivityToolRun:
 	default:
 		return nil
+	}
+	if text, ok := m.toolAnnounceText(value.ToolName, value.ToolArgs); ok {
+		if text == "" {
+			return nil
+		}
+		// toolId and toolName stay in the internal template so a hidden
+		// tool's activity is still recognized; the viewer sees only the text.
+		return map[string]any{"kind": ActivityAnnounce, "toolId": value.ToolID, "toolName": value.ToolName, "text": text}
 	}
 	label, _ := m.resolveToolMetadata(value.ToolName)
 	activity := map[string]any{
@@ -53,6 +65,28 @@ func (m *DeltaMapper) toolActivityText(toolName string, args map[string]any) str
 		}
 	}
 	return ""
+}
+
+// toolAnnounceText reports whether the tool announces next steps and, if so,
+// the announcement as one line.
+func (m *DeltaMapper) toolAnnounceText(toolName string, args map[string]any) (string, bool) {
+	if m.toolRegistry == nil {
+		return "", false
+	}
+	tool, ok := m.toolRegistry.Tool(toolName)
+	if !ok {
+		return "", false
+	}
+	name := ToolActivityAnnounce(tool.Meta)
+	if name == "" {
+		return "", false
+	}
+	text, _ := args[name].(string)
+	text = strings.Join(strings.Fields(text), " ")
+	if utf8.RuneCountInString(text) > announceTextLimit {
+		text = string([]rune(text)[:announceTextLimit-1]) + "…"
+	}
+	return text, true
 }
 
 // toolActivityDisplay keeps one short line: a URL loses its query and

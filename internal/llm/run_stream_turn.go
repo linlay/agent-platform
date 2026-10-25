@@ -684,13 +684,24 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	}
 	s.pending = append(s.pending, turn.emptyArgumentToolCallDeltas()...)
 	if !toolRoundLimited {
-		// Arguments are complete: show what the first tool will do while it
-		// waits for approval, instead of only during its own execution.
+		// Arguments are complete: the turn's one tool activity shows now, so
+		// it covers approval waits and the whole batch. An announcement of
+		// the next steps wins over the first tool's own description.
+		var shown *preparedToolInvocation
 		for _, prepared := range preparedCalls {
-			if prepared.invocation != nil {
-				s.pending = append(s.pending, s.toolRunActivity(prepared.invocation))
+			if prepared.invocation == nil {
+				continue
+			}
+			if s.isAnnounceTool(prepared.invocation.toolName) {
+				shown = prepared.invocation
 				break
 			}
+			if shown == nil {
+				shown = prepared.invocation
+			}
+		}
+		if shown != nil {
+			s.pending = append(s.pending, s.toolRunActivity(shown))
 		}
 	}
 	s.pending = append(s.pending, DeltaToolEnd{ToolIDs: toolIDs, FileChanges: fileChanges})

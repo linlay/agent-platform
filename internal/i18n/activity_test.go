@@ -20,7 +20,7 @@ func TestActivityMessageRendersViewerLocale(t *testing.T) {
 		{LocaleZhCN, tool, "写入文件：README.md"},
 		{LocaleEN, tool, "Write File: README.md"},
 		{LocaleZhCN, map[string]any{"kind": "tool_run", "toolName": "mcp_x"}, "正在调用「mcp_x」"},
-		{LocaleZhCN, map[string]any{"kind": "tool_prepare", "toolLabel": "网页抓取"}, "正在准备「网页抓取」"},
+		{LocaleZhCN, map[string]any{"kind": "announce", "text": "接下来检查配置加载顺序"}, "接下来检查配置加载顺序"},
 		{LocaleZhCN, map[string]any{"kind": "subtask", "taskName": "竞品调研"}, "正在委派子任务「竞品调研」"},
 		{LocaleZhCN, map[string]any{"kind": "awaiting", "mode": "approval"}, "等待你审批"},
 		{LocaleZhCN, map[string]any{"kind": "awaiting", "mode": "question"}, "等待你回答"},

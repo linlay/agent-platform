@@ -3,7 +3,7 @@ package stream
 import "testing"
 
 func TestParseDetailLevel(t *testing.T) {
-	for raw, want := range map[string]DetailLevel{"": "", "summary": DetailSummary, "full": DetailFull, " full ": DetailFull} {
+	for raw, want := range map[string]DetailLevel{"": "", "summary": DetailSummary, "full": DetailFull, " full ": DetailFull, "none": DetailNone} {
 		if got, ok := ParseDetailLevel(raw); !ok || got != want {
 			t.Fatalf("ParseDetailLevel(%q)=%q,%v want %q", raw, got, ok, want)
 		}
@@ -24,6 +24,37 @@ func TestDetailLevelActivities(t *testing.T) {
 	// full is a superset: one full stream serves viewers of either level.
 	if !DetailFull.Allows("run.activity", progress) || !DetailFull.Allows("run.activity", retry) {
 		t.Fatal("full must receive every activity")
+	}
+}
+
+func TestNoneDetailIsSummaryWithAnnouncementsOnly(t *testing.T) {
+	for eventType := range summaryEventTypes {
+		if !DetailNone.Allows(eventType, map[string]any{}) {
+			t.Fatalf("none dropped %s", eventType)
+		}
+	}
+	for _, eventType := range []string{"tool.start", "reasoning.start", "usage.snapshot", "some.future.event"} {
+		if DetailNone.Allows(eventType, map[string]any{}) {
+			t.Fatalf("none leaked %s", eventType)
+		}
+	}
+	for _, payload := range []map[string]any{
+		newActivityEvent("run", "chat", "", map[string]any{"kind": ActivityKindAnnounce, "text": "Next."}).Payload,
+		newActivityEvent("run", "chat", "member", map[string]any{"kind": ActivityKindAnnounce, "text": "Next."}).Payload,
+		newActivityEvent("run", "chat", "", map[string]any{"kind": "idle"}).Payload,
+	} {
+		if !DetailNone.Allows("run.activity", payload) {
+			t.Fatalf("none dropped %#v", payload)
+		}
+	}
+	for _, payload := range []map[string]any{
+		newActivityEvent("run", "chat", "", map[string]any{"kind": "thinking"}).Payload,
+		newActivityEvent("run", "chat", "", map[string]any{"kind": "tool_run", "toolName": "bash"}).Payload,
+		newRetryActivityEvent("run", "chat", "", map[string]any{"attempt": 2}).Payload,
+	} {
+		if DetailNone.Allows("run.activity", payload) {
+			t.Fatalf("none leaked activity %#v", payload)
+		}
 	}
 }
 

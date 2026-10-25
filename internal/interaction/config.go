@@ -83,8 +83,8 @@ func ParseForEngine(mode string, acp bool, raw any) (Config, error) {
 	for key, value := range node {
 		if key == "defaultDetail" {
 			level, ok := value.(string)
-			if !ok || (level != "summary" && level != "full") {
-				return c, fmt.Errorf("interactionConfig.defaultDetail must be summary or full")
+			if !ok || (level != "summary" && level != "full" && level != "none") {
+				return c, fmt.Errorf("interactionConfig.defaultDetail must be summary, full or none")
 			}
 			c.DefaultDetail = level
 			continue

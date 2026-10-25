@@ -76,7 +76,7 @@ func TestQueryDefaultsToSummaryDetail(t *testing.T) {
 		lastSeq = seq
 	}
 	// Content clears the line with an empty message instead of "replying".
-	want := []string{"正在思考", "正在准备「日期时间」", "正在调用「日期时间」", "正在思考", ""}
+	want := []string{"正在思考", "正在调用「日期时间」", "正在思考", ""}
 	if strings.Join(activities, "|") != strings.Join(want, "|") {
 		t.Fatalf("activities=%q want %q", activities, want)
 	}
@@ -139,7 +139,7 @@ func TestDetailLevelRejectsUnknownValue(t *testing.T) {
 	} {
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, req)
-		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "detail must be summary or full") {
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "detail must be summary, full or none") {
 			t.Fatalf("%s: %d %s", req.URL, rec.Code, rec.Body.String())
 		}
 	}

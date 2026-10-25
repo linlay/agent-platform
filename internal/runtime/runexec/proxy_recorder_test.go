@@ -161,20 +161,20 @@ func TestProxyLiveEventDerivesUnsequencedActivity(t *testing.T) {
 	}
 	var seq int64
 	if _, err := PublishProxyLiveEvent(bus, recorder, req, &seq, stream.EventData{
-		Seq: 7, Type: "tool.start", Timestamp: startedAtMillis + 1,
-		Payload: map[string]any{"toolId": "t1", "toolName": "web_fetch", "toolLabel": "网页抓取", "runId": req.RunID},
+		Seq: 7, Type: "reasoning.start", Timestamp: startedAtMillis + 1,
+		Payload: map[string]any{"reasoningId": "r1", "runId": req.RunID},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	first, second := <-observer.Events, <-observer.Events
-	if first.Type != "tool.start" || first.Seq != 7 {
+	if first.Type != "reasoning.start" || first.Seq != 7 {
 		t.Fatalf("upstream event changed: %#v", first)
 	}
 	if second.Type != "run.activity" || second.Seq != 0 || seq != 7 {
 		t.Fatalf("derived activity must not take a public seq: %#v seq=%d", second, seq)
 	}
 	activity, _ := second.Payload["activity"].(map[string]any)
-	if activity["kind"] != "tool_prepare" || activity["toolLabel"] != "网页抓取" {
+	if activity["kind"] != "reasoning" || activity["reasoningId"] != "r1" {
 		t.Fatalf("unexpected derived activity %#v", second.Payload)
 	}
 }

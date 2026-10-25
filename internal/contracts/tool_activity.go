@@ -17,3 +17,11 @@ func ToolActivityArgs(meta map[string]any) []string {
 	}
 	return nil
 }
+
+// ToolActivityAnnounce returns the argument a tool definition names in
+// activityAnnounce: its value is an announcement of the next steps, not a
+// description of the tool itself.
+func ToolActivityAnnounce(meta map[string]any) string {
+	name, _ := meta["activityAnnounce"].(string)
+	return name
+}

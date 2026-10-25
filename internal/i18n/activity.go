@@ -45,12 +45,10 @@ func ActivityMessage(locale string, activity map[string]any) string {
 			return "正在" + label
 		}
 		return label + "…"
-	case "tool_prepare":
-		label := activityToolLabel(locale, activity)
-		if zh {
-			return "正在准备「" + label + "」"
-		}
-		return fmt.Sprintf("Preparing %q…", label)
+	case "announce":
+		// The model wrote it in the user's language; it is shown as is.
+		text, _ := activity["text"].(string)
+		return text
 	case "tool_run":
 		label := activityToolLabel(locale, activity)
 		if text, _ := activity["text"].(string); text != "" {

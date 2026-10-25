@@ -86,7 +86,8 @@ func defaultConfig(options LoadOptions) Config {
 			Timezone:        "Local",
 			Worker:          MemoryWorkerConfig{Enabled: true, PollIntervalSeconds: 300, TimeoutSeconds: 120, MaxBatches: 20},
 		},
-		PlanningMode: DefaultPlanningModeConfig(),
+		PlanningMode:        DefaultPlanningModeConfig(),
+		AnnounceHoldSeconds: DefaultAnnounceHoldSeconds,
 		Defaults: DefaultsConfig{
 			Budget: BudgetDefaultsConfig{
 				Timeout:  3600,

@@ -353,6 +353,24 @@ func TestDeltaMapper_RunActivity(t *testing.T) {
 	}
 }
 
+func TestDeltaMapper_AnnouncingToolActivity(t *testing.T) {
+	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{}, stubToolLookup{
+		"plan_announce": {Name: "plan_announce", Meta: map[string]any{"activityAnnounce": "message"}},
+	}, nil)
+	inputs := mapper.Map(contracts.DeltaRunActivity{ChatID: "chat_1", Kind: contracts.ActivityToolRun, ToolID: "call_1", ToolName: "plan_announce",
+		ToolArgs: map[string]any{"message": "  Read the loader,\n then  check defaults.  "}})
+	activity := inputs[0].(stream.InputRunActivity)
+	if activity.Activity["kind"] != contracts.ActivityAnnounce || activity.Activity["text"] != "Read the loader, then check defaults." {
+		t.Fatalf("unexpected announcement %#v", activity.Activity)
+	}
+	if activity.Activity["toolLabel"] != nil {
+		t.Fatalf("announcement must not carry a tool label: %#v", activity.Activity)
+	}
+	if got := mapper.Map(contracts.DeltaRunActivity{Kind: contracts.ActivityToolRun, ToolName: "plan_announce", ToolArgs: map[string]any{"message": " "}}); len(got) != 0 {
+		t.Fatalf("blank announcement mapped to %#v", got)
+	}
+}
+
 func TestDeltaMapper_ModelTurnCommitUsesUnifiedToolRouting(t *testing.T) {
 	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{}, stubToolLookup{
 		"desktop_action": {

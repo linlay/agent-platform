@@ -9,8 +9,10 @@ import (
 // from a request's unverified Agent identity or the currently selected client Agent.
 func (s *Server) agentDefaultDetail(agentKey string) stream.DetailLevel {
 	if s.deps.Registry != nil {
-		if def, ok := s.deps.Registry.AgentDefinition(agentKey); ok && def.Interaction().DefaultDetail == "full" {
-			return stream.DetailFull
+		if def, ok := s.deps.Registry.AgentDefinition(agentKey); ok {
+			if level, valid := stream.ParseDetailLevel(def.Interaction().DefaultDetail); valid && level != "" {
+				return level
+			}
 		}
 	}
 	return stream.DetailSummary
@@ -18,7 +20,7 @@ func (s *Server) agentDefaultDetail(agentKey string) stream.DetailLevel {
 func (s *Server) chatDisplay(agentKey string, override stream.DetailLevel) api.EventDisplay {
 	defaultDetail := s.agentDefaultDetail(agentKey)
 	effectiveDetail := override
-	if effectiveDetail != stream.DetailFull && effectiveDetail != stream.DetailSummary {
+	if level, valid := stream.ParseDetailLevel(string(effectiveDetail)); !valid || level == "" {
 		effectiveDetail = defaultDetail
 	}
 	return api.EventDisplay{DefaultDetail: defaultDetail, EffectiveDetail: effectiveDetail}

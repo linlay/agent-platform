@@ -43,6 +43,7 @@ var requiredBuiltinToolNames = []string{
 	"file_read",
 	"file_write",
 	"plan_add_tasks",
+	"plan_announce",
 	"plan_get_tasks",
 	"plan_update_task",
 	"automation_query",

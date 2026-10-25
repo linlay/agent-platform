@@ -17,7 +17,7 @@ agent-settings 顶层 preset-tools/preset-connectors 与 general/coder/kbase/tea
 
 ### 过程展示默认值
 
-`agent-settings.yml` 每个 mode 的 `interaction-config.default-detail` 定义已有和新建 Agent 的默认过程展示，不属于仅创建时使用的 `default-agent`。支持 general/coder/kbase/team/executor/plan-execute/proxy/channel，取值仅 `summary` 或 `full`；未设置兜底 summary。分发示例为 coder/team/plan-execute 配置 full，其他模式配置 summary，代码不按 mode 硬编码这些档位。
+`agent-settings.yml` 每个 mode 的 `interaction-config.default-detail` 定义已有和新建 Agent 的默认过程展示，不属于仅创建时使用的 `default-agent`。支持 general/coder/kbase/team/executor/plan-execute/proxy/channel，取值为 `summary`、`full` 或 `none`；未设置兜底 summary。分发示例为 coder/team/plan-execute 配置 full，general 配置 none，其他模式配置 summary，代码不按 mode 硬编码这些档位。
 
 ```yaml
 coder:
@@ -25,9 +25,11 @@ coder:
     default-detail: full
 ```
 
-个别 Agent 在 `agent.yml` 中通过 `interactionConfig.defaultDetail: summary` 或 `full` 覆盖。删除字段恢复继承；显式 null、空字符串和其他值均拒绝。有效值在目录加载时合并，使用端 `/api/agent.interactionConfig.defaultDetail` 返回最终值，管理端 definition 保留源声明，不把继承值写回源文件。修改 agent-settings.yml 后需重启，Agent 源配置沿用目录重载流程。
+个别 Agent 在 `agent.yml` 中通过 `interactionConfig.defaultDetail: summary`、`full` 或 `none` 覆盖。删除字段恢复继承；显式 null、空字符串和其他值均拒绝。有效值在目录加载时合并，使用端 `/api/agent.interactionConfig.defaultDetail` 返回最终值，管理端 definition 保留源声明，不把继承值写回源文件。修改 agent-settings.yml 后需重启，Agent 源配置沿用目录重载流程。
 
-query/attach/chat 不传 detail 时跟随实际 owner Agent；显式 HTTP URL 参数或 WS 帧顶层 detail 只覆盖本次下发。默认值不改变模型执行、权限、原始 query 和完整落盘。Desktop broker 与 Proxy 上游继续请求 full；页面按下发元数据的 defaultDetail 展示。
+顶层 `announce-hold-seconds`（默认 60，0 关闭，须为非负整数）是一条公示（`plan_announce`）至少压住其他进度活动的秒数，见 [细节等级与 run.activity](API与协议.md#细节等级与-runactivity)。
+
+query/attach/chat 不传 detail 时跟随实际 owner Agent；显式 HTTP URL 参数或 WS 帧顶层 detail 只覆盖本次下发。默认值不改变模型执行、权限、原始 query 和完整落盘。Proxy 上游继续请求 full；Desktop broker 不改写 detail，窗口跟随 Agent，页面按下发元数据的 effectiveDetail 展示。
 
 ### planning-mode 工具排除
 

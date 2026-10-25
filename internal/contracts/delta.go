@@ -416,7 +416,8 @@ func (DeltaUsageSnapshot) agentDeltaTag() {}
 type DeltaRunActivity struct {
 	TaskID string
 	ChatID string
-	// Kind is ActivityThinking or ActivityToolRun.
+	// Kind is ActivityThinking or ActivityToolRun. A tool that declares
+	// activityAnnounce publishes ActivityAnnounce instead.
 	Kind     string
 	ToolID   string
 	ToolName string
@@ -426,6 +427,7 @@ type DeltaRunActivity struct {
 const (
 	ActivityThinking = "thinking"
 	ActivityToolRun  = "tool_run"
+	ActivityAnnounce = "announce"
 )
 
 func (DeltaRunActivity) agentDeltaTag() {}

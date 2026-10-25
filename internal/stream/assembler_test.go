@@ -274,7 +274,7 @@ func TestAssemblerPublishesToolOutputWithPublicSequence(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{RunID: "run_output", ChatID: "chat_output"})
 	assertStampedTypes(t, assembler.Consume(ToolArgs{
 		ToolID: "tool_1", ToolName: "bash", Delta: `{}`, ChunkIndex: 0,
-	}), "tool.start", "run.activity", "tool.args")
+	}), "tool.start", "tool.args")
 	assertStampedTypes(t, assembler.Consume(ToolEnd{ToolID: "tool_1"}), "tool.end")
 
 	output := assembler.Consume(ToolOutput{

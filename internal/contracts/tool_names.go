@@ -29,6 +29,10 @@ const PlanAddTasksToolName = "plan_add_tasks"
 const PlanGetTasksToolName = "plan_get_tasks"
 const PlanUpdateTaskToolName = "plan_update_task"
 
+// PlanAnnounceToolName tells the user what the Run does next. It shows as the
+// progress line and leaves plan tasks alone, so it is not a plan task tool.
+const PlanAnnounceToolName = "plan_announce"
+
 var PlanTaskToolNames = []string{
 	PlanAddTasksToolName,
 	PlanGetTasksToolName,

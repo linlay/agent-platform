@@ -10,14 +10,17 @@ import "strings"
 //     questions — plus one-sentence progress activities. Reasoning, tool
 //     calls, usage snapshots and retries stay behind.
 //   - full: every event, progress and retry activities included, so one
-//     full stream can serve viewers of either level (the Desktop broker
-//     shares one upstream stream per Run). A detailed view ignores progress
-//     activities; the detail events already show them.
+//     full stream can serve viewers of every level (a Proxy records its
+//     upstream in full and filters locally). A detailed view ignores
+//     progress activities; the detail events already show them.
+//   - none: the summary events, but progress only as the model announces it:
+//     announcements and the clear when output starts, no other activities.
 type DetailLevel string
 
 const (
 	DetailSummary DetailLevel = "summary"
 	DetailFull    DetailLevel = "full"
+	DetailNone    DetailLevel = "none"
 )
 
 // ParseDetailLevel validates an explicit override. Empty inherits the Agent default.
@@ -29,6 +32,8 @@ func ParseDetailLevel(raw string) (DetailLevel, bool) {
 		return DetailSummary, true
 	case string(DetailFull):
 		return DetailFull, true
+	case string(DetailNone):
+		return DetailNone, true
 	default:
 		return "", false
 	}
@@ -49,10 +54,17 @@ var summaryEventTypes = map[string]bool{
 }
 
 // Allows reports whether a viewer at this level receives the event. Unlisted
-// event types never reach summary, so new types default to hidden there.
+// event types never reach summary or none, so new types default to hidden there.
 func (level DetailLevel) Allows(eventType string, payload map[string]any) bool {
-	if level == DetailFull {
+	switch level {
+	case DetailFull:
 		return true
+	case DetailNone:
+		if IsProgressActivity(eventType, payload) {
+			kind := activityKind(payload)
+			return kind == ActivityKindAnnounce || kind == "idle"
+		}
+		return summaryEventTypes[eventType]
 	}
 	return summaryEventTypes[eventType] || IsProgressActivity(eventType, payload)
 }

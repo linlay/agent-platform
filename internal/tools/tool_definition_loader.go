@@ -130,6 +130,16 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	if len(activityArgs) > 0 {
 		meta["activityArgs"] = activityArgs
 	}
+	activityAnnounce, err := parseToolActivityAnnounce(root["activityAnnounce"], parameters)
+	if err != nil {
+		return api.ToolDetailResponse{}, fmt.Errorf("tool %q: %w", name, err)
+	}
+	if activityAnnounce != "" {
+		if len(activityArgs) > 0 {
+			return api.ToolDetailResponse{}, fmt.Errorf("tool %q: activityAnnounce and activityArgs are mutually exclusive", name)
+		}
+		meta["activityAnnounce"] = activityAnnounce
+	}
 	translations, err := i18n.ParseToolTranslations(root["i18n"])
 	if err != nil {
 		return api.ToolDetailResponse{}, fmt.Errorf("tool %q: %w", name, err)
@@ -174,6 +184,24 @@ func parseToolActivityArgs(raw any, inputSchema map[string]any) ([]string, error
 		out = append(out, name)
 	}
 	return out, nil
+}
+
+// parseToolActivityAnnounce reads the argument whose value is the tool's whole
+// purpose: an announcement shown as the progress line, held over the
+// activities that follow it. It must be a string property of the input schema.
+func parseToolActivityAnnounce(raw any, inputSchema map[string]any) (string, error) {
+	if raw == nil {
+		return "", nil
+	}
+	name, ok := raw.(string)
+	if !ok || strings.TrimSpace(name) == "" {
+		return "", fmt.Errorf("activityAnnounce must be an argument name")
+	}
+	property := AnyMapNode(AnyMapNode(inputSchema["properties"])[name])
+	if property == nil || AnyStringNode(property["type"]) != "string" {
+		return "", fmt.Errorf("activityAnnounce %q must name a string property of inputSchema", name)
+	}
+	return name, nil
 }
 
 func fallbackToolString(value string, fallback string) string {
