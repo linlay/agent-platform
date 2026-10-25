@@ -167,3 +167,18 @@ func TestVisibleOutputClearsActivity(t *testing.T) {
 	default:
 	}
 }
+
+func TestToolActivitiesCarryToolID(t *testing.T) {
+	tracker := NewActivityTracker("run", "chat")
+	_, derived := tracker.Track("tool.start", map[string]any{"toolId": "t1", "toolName": "bash", "toolLabel": "Run Command"})
+	if len(derived) != 1 || derived[0].Payload["toolId"] != "t1" {
+		t.Fatalf("preparing activity lost its toolId: %#v", derived)
+	}
+	running := newActivityEvent("run", "chat", "", map[string]any{"kind": "tool_run", "toolId": "t1", "toolName": "bash", "text": "list"})
+	if running.Payload["toolId"] != "t1" {
+		t.Fatalf("described activity lost its toolId: %#v", running.Payload)
+	}
+	if thinking := newActivityEvent("run", "chat", "", map[string]any{"kind": "thinking"}); thinking.Payload["toolId"] != nil {
+		t.Fatalf("non-tool activity got a toolId: %#v", thinking.Payload)
+	}
+}

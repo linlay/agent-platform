@@ -683,6 +683,16 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		fileChanges = nil
 	}
 	s.pending = append(s.pending, turn.emptyArgumentToolCallDeltas()...)
+	if !toolRoundLimited {
+		// Arguments are complete: show what the first tool will do while it
+		// waits for approval, instead of only during its own execution.
+		for _, prepared := range preparedCalls {
+			if prepared.invocation != nil {
+				s.pending = append(s.pending, s.toolRunActivity(prepared.invocation))
+				break
+			}
+		}
+	}
 	s.pending = append(s.pending, DeltaToolEnd{ToolIDs: toolIDs, FileChanges: fileChanges})
 	s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, ResponseID: turn.responseID, EncryptedReasoning: turn.encryptedReasoning})
 	for _, prepared := range preparedCalls {

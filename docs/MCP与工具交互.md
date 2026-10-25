@@ -331,7 +331,7 @@ i18n:
 
 ### 工具活动说明 activityArgs
 
-工具 YAML 可选顶层 `activityArgs`：按顺序列出输入 Schema 中的字符串参数名。工具真正开始执行时，summary 细节等级的 `run.activity` 显示“工具 label：取值”，取值为列表中第一个非空参数；都为空或未配置时显示“正在调用「工具 label」”。取值压成单行并截断到 60 字符，http(s) URL 只保留主机与路径（去掉 query 与 fragment），绝对路径只显示文件名。列表中的名字必须是 `inputSchema.properties` 下 `type: string` 的参数，否则加载失败。只列面向用户的说明或目标参数，不列命令原文、正文或凭据；MCP 与连接器工具不配置时只显示 label。
+工具 YAML 可选顶层 `activityArgs`：按顺序列出输入 Schema 中的字符串参数名。参数完整后（审批之前）第一个工具、以及之后每个工具开始执行时，summary 细节等级的 `run.activity` 显示“工具 label：取值”，取值为列表中第一个非空参数；都为空或未配置时显示“正在调用「工具 label」”。取值压成单行并截断到 60 字符，http(s) URL 只保留主机与路径（去掉 query 与 fragment），绝对路径只显示文件名。列表中的名字必须是 `inputSchema.properties` 下 `type: string` 的参数，否则加载失败。只列面向用户的说明或目标参数，不列命令原文、正文或凭据；MCP 与连接器工具不配置时只显示 label。
 
 ```yaml
 name: file_write

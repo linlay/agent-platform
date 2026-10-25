@@ -436,6 +436,12 @@ func TestParallelToolCallBatchStreamsResultAsEachToolCompletes(t *testing.T) {
 			t.Fatalf("expected empty-arguments DeltaToolCall for %s, got %#v", toolID, delta)
 		}
 	}
+	// Complete arguments let the first tool's activity show before it runs.
+	if delta, err := stream.Next(); err != nil {
+		t.Fatalf("expected first tool activity before tool end: %v", err)
+	} else if activity, ok := delta.(contracts.DeltaRunActivity); !ok || activity.Kind != contracts.ActivityToolRun || activity.ToolID != "tool_1" {
+		t.Fatalf("expected tool_run activity for tool_1 before tool end, got %#v", delta)
+	}
 	if delta, err := stream.Next(); err != nil {
 		t.Fatalf("expected tool end delta before batch starts: %v", err)
 	} else if _, ok := delta.(contracts.DeltaToolEnd); !ok {
@@ -1075,9 +1081,9 @@ func TestFinishCurrentTurnEstimatesFileWriteChangeOnToolEnd(t *testing.T) {
 	if err := stream.finishCurrentTurn(); err != nil {
 		t.Fatalf("finishCurrentTurn: %v", err)
 	}
-	end, ok := stream.pending[0].(contracts.DeltaToolEnd)
+	end, ok := stream.pending[1].(contracts.DeltaToolEnd)
 	if !ok {
-		t.Fatalf("expected DeltaToolEnd first, got %#v", stream.pending)
+		t.Fatalf("expected DeltaToolEnd after the tool activity, got %#v", stream.pending)
 	}
 	fileChange := end.FileChanges["tool_1"]
 	assertFileChange(t, fileChange, resolvedTestPath(t, root, "owner.md"), "write", 2, 0, 0)
@@ -1120,9 +1126,9 @@ func TestFinishCurrentTurnEstimatesFileEditChangeOnToolEnd(t *testing.T) {
 	if err := stream.finishCurrentTurn(); err != nil {
 		t.Fatalf("finishCurrentTurn: %v", err)
 	}
-	end, ok := stream.pending[0].(contracts.DeltaToolEnd)
+	end, ok := stream.pending[1].(contracts.DeltaToolEnd)
 	if !ok {
-		t.Fatalf("expected DeltaToolEnd first, got %#v", stream.pending)
+		t.Fatalf("expected DeltaToolEnd after the tool activity, got %#v", stream.pending)
 	}
 	fileChange := end.FileChanges["tool_1"]
 	assertFileChange(t, fileChange, resolvedTestPath(t, root, "owner.md"), "edit", 1, 1, 1)

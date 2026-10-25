@@ -24,6 +24,11 @@ func newActivityEvent(runID, chatID, taskID string, activity map[string]any) Str
 	if taskID = strings.TrimSpace(taskID); taskID != "" {
 		payload["taskId"] = taskID
 	}
+	// A tool's activities share its toolId, so a viewer can tell the
+	// described one refines "preparing" rather than replaces it.
+	if toolID := anyString(activity["toolId"]); toolID != "" {
+		payload["toolId"] = toolID
+	}
 	return NewEvent("run.activity", payload)
 }
 
@@ -162,6 +167,7 @@ func derivedActivity(eventType string, payload map[string]any) map[string]any {
 	case "tool.start":
 		activity := map[string]any{
 			"kind":      "tool_prepare",
+			"toolId":    anyString(payload["toolId"]),
 			"toolName":  anyString(payload["toolName"]),
 			"toolLabel": anyString(payload["toolLabel"]),
 		}
