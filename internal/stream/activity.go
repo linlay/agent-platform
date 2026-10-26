@@ -78,8 +78,8 @@ func activityKind(payload map[string]any) string {
 }
 
 // ActivityTracker derives progress activities from published events and
-// drops an activity that would repeat the current one of its scope. An
-// announcement holds its scope: for at least the hold after it, other
+// leaves repeated activity presentation to clients. An announcement holds
+// its scope: for at least the hold after it, other
 // activities of that scope are dropped, until visible output starts (idle),
 // a newer announcement replaces it, or the Run ends. The hold only expires
 // when the next activity arrives, so a long step keeps its announcement.
@@ -115,7 +115,7 @@ func (t *ActivityTracker) Track(eventType string, at int64, payload map[string]a
 	switch eventType {
 	case "run.activity":
 		if IsRetryActivity(eventType, payload) {
-			// A retry always passes; whatever follows it is news again.
+			// Retries pass independently of the current progress state.
 			delete(t.last, taskID)
 			return true, nil
 		}
@@ -123,7 +123,8 @@ func (t *ActivityTracker) Track(eventType string, at int64, payload map[string]a
 			return false, nil
 		}
 		if activity, ok := payload["activity"].(map[string]any); ok {
-			return t.changed(taskID, activity), nil
+			t.last[taskID] = activity
+			return true, nil
 		}
 		// An activity rendered upstream always passes.
 		delete(t.last, taskID)
@@ -168,9 +169,7 @@ func (t *ActivityTracker) Track(eventType string, at int64, payload map[string]a
 	if restored && t.held(taskID, at) && anyString(activity["kind"]) != ActivityKindAnnounce {
 		return true, nil
 	}
-	if !t.changed(taskID, activity) {
-		return true, nil
-	}
+	t.last[taskID] = activity
 	chatID := t.chatID
 	if chatID == "" {
 		chatID = anyString(payload["chatId"])
@@ -206,22 +205,6 @@ func (t *ActivityTracker) admit(scope string, kind string, at int64) bool {
 func (t *ActivityTracker) held(scope string, at int64) bool {
 	until, ok := t.heldUntil[scope]
 	return ok && at < until
-}
-
-func (t *ActivityTracker) changed(scope string, activity map[string]any) bool {
-	if previous := t.last[scope]; previous != nil && activityKey(previous) == activityKey(activity) {
-		return false
-	}
-	t.last[scope] = activity
-	return true
-}
-
-func activityKey(activity map[string]any) string {
-	parts := []string{anyString(activity["kind"])}
-	for _, field := range []string{"reasoningId", "toolName", "text", "taskName", "mode"} {
-		parts = append(parts, anyString(activity[field]))
-	}
-	return strings.Join(parts, "\x00")
 }
 
 func derivedActivity(eventType string, payload map[string]any) map[string]any {

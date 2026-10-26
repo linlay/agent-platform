@@ -48,16 +48,16 @@ func TestActivityTrackerDerivesProgressInOrder(t *testing.T) {
 	}
 }
 
-func TestActivityTrackerDropsRepeatedActivity(t *testing.T) {
+func TestActivityTrackerKeepsRepeatedActivity(t *testing.T) {
 	tracker := NewActivityTracker("run", "chat", 0)
 	thinking := newActivityEvent("run", "chat", "", map[string]any{"kind": "thinking"}).Payload
 	if keep, _ := tracker.Track("run.activity", 0, thinking); !keep {
 		t.Fatal("first activity dropped")
 	}
-	if keep, _ := tracker.Track("run.activity", 0, thinking); keep {
-		t.Fatal("repeated activity kept")
+	if keep, _ := tracker.Track("run.activity", 0, thinking); !keep {
+		t.Fatal("repeated activity dropped")
 	}
-	// A retry always passes and makes the next activity news again.
+	// Retries and the activities following them also pass.
 	retry := newRetryActivityEvent("run", "chat", "", map[string]any{"attempt": 2, "maxAttempts": 3}).Payload
 	if keep, _ := tracker.Track("run.activity", 0, retry); !keep {
 		t.Fatal("retry dropped")
@@ -193,12 +193,12 @@ func TestAnnouncementHoldsItsScope(t *testing.T) {
 	if _, derived := tracker.Track("reasoning.start", 3000, map[string]any{}); len(derived) != 0 {
 		t.Fatalf("reasoning replaced a held announcement: %#v", derived)
 	}
-	// Waiting for the user and its answer leave the announcement as it is.
+	// Waiting cannot replace the announcement; answering restores the same text.
 	if _, derived := tracker.Track("awaiting.ask", 4000, map[string]any{"mode": "approval"}); len(derived) != 0 {
 		t.Fatalf("awaiting replaced a held announcement: %#v", derived)
 	}
-	if _, derived := tracker.Track("awaiting.answer", 5000, map[string]any{}); len(derived) != 0 {
-		t.Fatalf("answer re-sent the announcement: %#v", derived)
+	if _, derived := tracker.Track("awaiting.answer", 5000, map[string]any{}); len(derived) != 1 || derived[0].Payload["message"] != "Read the config loader." {
+		t.Fatalf("answer did not restore the announcement: %#v", derived)
 	}
 	// A subtask has its own scope.
 	if _, derived := tracker.Track("content.start", 6000, map[string]any{"taskId": "child"}); len(derived) != 1 {
@@ -275,5 +275,17 @@ func TestEventBusResendsAnnouncementBeforeCurrentActivity(t *testing.T) {
 	}
 	if !DetailNone.Allows("run.activity", newActivityEvent("run", "chat", "", map[string]any{"kind": ActivityKindAnnounce, "text": "x"}).Payload) {
 		t.Fatal("none must receive a root announcement")
+	}
+}
+
+func TestActivityTrackerKeepsRepeatedDerivedActivity(t *testing.T) {
+	tracker := NewActivityTracker("run", "chat", 0)
+	for _, eventType := range []string{"reasoning.start", "content.start"} {
+		for i := 0; i < 2; i++ {
+			keep, derived := tracker.Track(eventType, int64(i), map[string]any{})
+			if !keep || len(derived) != 1 {
+				t.Fatalf("%s update %d dropped: %#v", eventType, i, derived)
+			}
+		}
 	}
 }
