@@ -62,7 +62,7 @@ func (s *Service) Execute(ctx context.Context, doc view.Document, name string, p
 		}
 		current, ok := pkg.Views[doc.View.Key].Actions[name]
 		wire, _ := json.Marshal(current)
-		if !ok || string(wire) != string(expected) {
+		if !ok || pkg.Version != doc.View.Version || string(wire) != string(expected) {
 			return ErrStale
 		}
 		return nil

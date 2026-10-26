@@ -42,7 +42,7 @@ func setup(t *testing.T) (*Service, view.Document, *invoker, string) {
 	}
 	os.WriteFile(filepath.Join(dir, "views/orders.html"), []byte("<p>Orders</p>"), 0600)
 	f := &invoker{result: connectorops.Result{Stdout: `{"data":{"applied":true}}`, InvocationID: "call-1"}}
-	return &Service{Sources: connector.Sources{ExternalRoot: root}, Connectors: f, Authorize: func(context.Context, Context, string) error { return nil }}, view.Document{View: view.Reference{Source: "connector", ConnectorID: "crm", Key: "orders"}, Actions: def.Actions}, f, dir
+	return &Service{Sources: connector.Sources{ExternalRoot: root}, Connectors: f, Authorize: func(context.Context, Context, string) error { return nil }}, view.Document{View: view.Reference{Source: "connector", ConnectorID: "crm", Key: "orders", Version: "1.0.0"}, Actions: def.Actions}, f, dir
 }
 func actor() Context {
 	return Context{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-1", Subject: "alice"}

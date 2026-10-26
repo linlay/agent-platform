@@ -48,7 +48,7 @@ func TestViewActionHTTPUsesLiveChatOwnershipAndPublishingRun(t *testing.T) {
 		os.WriteFile(filepath.Join(dir, name), raw, 0600)
 	}
 	os.WriteFile(filepath.Join(dir, "views/card.html"), []byte("<p>Demo</p>"), 0600)
-	ref, err := view.SaveSnapshot(fixture.chats.ChatDir(chatID), view.Document{View: view.Reference{Source: "connector", ConnectorID: "demo", Key: "card", Renderer: "html"}, HTML: "<p>Demo</p>", Actions: definition.Actions})
+	ref, err := view.SaveSnapshot(fixture.chats.ChatDir(chatID), view.Document{View: view.Reference{Source: "connector", ConnectorID: "demo", Key: "card", Renderer: "html", Version: "1.0.0"}, HTML: "<p>Demo</p>", Actions: definition.Actions})
 	if err != nil {
 		t.Fatal(err)
 	}

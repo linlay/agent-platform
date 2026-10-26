@@ -195,7 +195,7 @@ display VIEW 可以在 `view.json` 声明只读查询，让模板自己取数，
   参数缺省或为 null 时整项省略；`flag` 只接受布尔值，false 时省略；参数值只能是字符串、数字或布尔值（数字按原文传递）；`{"param"}` 直接放值的项，值不能以 `-` 开头，防止被当作选项。`opt`/`flag` 必须形如 `-x` 或 `--name`。
 - `mcp` 以 `arguments` 的固定参数加校验后的 params 作为工具参数；params 不能覆盖固定参数（`paramsSchema.properties` 与 `arguments` 重名时加载拒绝，调用时同名参数返回 `view_query_params_invalid`）。
 - 查询声明随模板写入快照并计入 hash，历史快照不会因升级获得新查询。`view_describe` 为每个查询返回 description 与 paramsSchema，不区分 adapter，也不暴露 adapter、operation、args 等执行细节。
-- 查询由包作者声明为只读；Platform 无法证明 CLI 或 MCP 工具没有副作用，安装包即信任包。写操作仍走工具与 HITL。
+- 查询由包作者声明为只读；Platform 无法证明 CLI 或 MCP 工具没有副作用，安装包即信任包。Agent 发起的写操作仍走工具与 HITL；用户在 display VIEW 中的显式写操作走独立的 VIEW action 接口和宿主确认。
 
 结果规则：
 
@@ -276,3 +276,18 @@ Gateway 还需 Run 或 Chat 路由上下文，保留租户、Chat 权限与上�
 旧 `/api/viewport`、`viewportType/viewportKey` 配置、远端 `legacy-viewport` 协议均删除。远端只支持 `views/get`。旧 Markdown `viewport` 块与 `view` JSON 信封均不再触发模板加载，使用 `view key=<connectorId>/<viewKey>` 块；内置 VIEW 只用于 HITL。这是同批硬切，不提供旧事件、配置或快照迁移。
 
 在线 Chat/Archive 回放保留 VIEW 引用。独立 HTML 导出仍不内联 VIEW 模板，不代表离线导出支持。
+
+
+## display VIEW 用户写操作
+
+连接器可在 display VIEW 声明 `actions`，与只读 `queries` 分离。HTML 使用 `viewHost.invoke(name, params)` 请求宿主处理，不能直接选择 URL、命令、路径、凭据或环境。宿主显示声明说明、连接器和完整参数，用户确认后才调用平台；取消不调用 API。iframe 继续为 `sandbox=allow-scripts`，CSP 保留 `connect-src 'none'` 与 `form-action 'none'`。
+
+Action 使用与 Query 相同的结构化 cli/mcp 参数模板，当前不支持 native action。`paramsSchema` 必须为 `type:object` 且 `additionalProperties:false`；cli 可声明 `stdinParam`，将一个已校验对象编码为 JSON stdin，配合固定 `--fields-file -` 等参数，不允许浏览器指定临时文件路径。MCP 仍只能使用声明包的自身组件。声明、Schema 和 stdinParam 随模板冻结进快照，`view_describe` 返回动作的说明和参数契约，不暴露执行细节。
+
+`POST /api/view/invoke`（WS 同路径）请求为 `{chatId,runId,view:{connectorId,key,hash},action,params,requestId}`。响应仍为 `{code,msg,data}`，成功 data 为 `{data,executedAt,invocationId,exitCode}`；CLI 业务错误保留原 JSON 和 exitCode，由模板识别 rejected/partial/unknown/applied，不将非零退出伪装成成功。非 JSON 输出按 `invocation_outcome_unknown` 处理。
+
+平台仅接受在线 Chat，校验当前查看者的 Chat 所有权、Run 属于该 Chat、快照身份以及当前 Agent 的有效和源码挂载。写入前及 connectorops 启动前复核当前安装包版本和动作声明；解除挂载、撤销或改变动作后旧快照不能继续写入。授权是当前用户的显式操作，不继承发布 Run 的自动审批等级，不创建模型 Run。连接器凭据仍只由 connectorops 在服务端注入。
+
+WebClient 为同一 Chat/Run/VIEW hash、动作和规范化参数在 sessionStorage 复用请求 ID；它是防止当前浏览器会话意外重发的辅助层，不是业务去重。服务端复用 connectorops 持久化 claim/result 收据，claim 在派发前落盘，包含用户、Chat、Run、Agent、VIEW、动作、参数和时间审计。stdin 同样进入参数摘要；既有无 stdin 收据的摘要保持兼容。未完成 claim（含进程崩溃、断线或超时）不重放，参数变化使用同一 ID 返回冲突。不能保证 Jira 远端 exactly-once，也不能根据相同参数推断不同浏览器的两次请求是否为同一业务操作。
+
+错误包括 `view_action_denied`、`view_action_stale`、`view_action_unavailable`、`view_action_params_invalid`、`view_action_run_not_found`，以及 connectorops 的安装/授权/收据错误。模板应保留输入，未知结果先回读核实，禁止自动重发；写成功后的回读失败须单独提示。平台不承诺多个动作之间的事务。

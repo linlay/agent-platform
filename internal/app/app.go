@@ -461,8 +461,19 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Chats:             chatStore,
 		ViewQueries:       &viewquery.Service{Operations: controlHandler.ViewQueryOperations(), Connectors: &connectorops.Service{Auth: connectorAuth, Sources: cfg.Paths.ConnectorSources()}, Sources: cfg.Paths.ConnectorSources()},
 		ViewActions: &viewaction.Service{Sources: cfg.Paths.ConnectorSources(), Connectors: &connectorops.Service{Auth: connectorAuth, Sources: cfg.Paths.ConnectorSources()}, Authorize: func(ctx context.Context, actor viewaction.Context, id string) error {
+			users, err := registry.ConfiguredConnectorUsers(id)
+			if err != nil {
+				return viewaction.ErrDenied
+			}
+			configured := false
+			for _, key := range users {
+				if key == actor.AgentKey {
+					configured = true
+					break
+				}
+			}
 			def, ok := registry.AgentDefinition(actor.AgentKey)
-			if ok {
+			if ok && configured {
 				for _, mount := range def.ConnectorMounts {
 					if mount.ID == id {
 						return nil
