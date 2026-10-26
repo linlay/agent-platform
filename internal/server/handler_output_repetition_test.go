@@ -33,7 +33,7 @@ func TestQueryOutputRepetitionCancelsUpstreamAndExcludesFailedHistory(t *testing
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		fixture.server.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"`+chatID+`","message":"hello"}`)))
+		fixture.server.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"`+chatID+`","message":"hello"}`)))
 	}()
 	select {
 	case <-done:

@@ -9,6 +9,7 @@ import (
 
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
+	agentexecutor "agent-platform/internal/agent/executor"
 	agentkbase "agent-platform/internal/agent/kbase"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/contracts"
@@ -17,6 +18,7 @@ import (
 
 const AgentModeCoder = agentcoder.Mode
 const AgentModeKBase = agentkbase.Mode
+const AgentModeExecutor = agentexecutor.Mode
 const AgentModeProxy = "PROXY"
 const AgentModeChannel = "CHANNEL"
 const removedChatWorkspaceRoot = "@chat"
@@ -76,7 +78,7 @@ func ParsePublicAgentMode(value string) (string, error) {
 		return AgentModeGeneral, nil
 	case agentModeLegacyReact:
 		return "", deprecation.New("mode REACT was removed from configuration and API inputs; use GENERAL")
-	case AgentModeCoder, AgentModeKBase, AgentModeProxy, AgentModeChannel:
+	case AgentModeCoder, AgentModeKBase, AgentModeExecutor, AgentModeProxy, AgentModeChannel:
 		return strings.ToUpper(raw), nil
 	case "PLAN-EXECUTE":
 		return "PLAN_EXECUTE", nil
@@ -89,7 +91,7 @@ func ParsePublicAgentMode(value string) (string, error) {
 	case "TEAM":
 		return "TEAM", nil
 	default:
-		return "", fmt.Errorf("mode must be GENERAL, CODER, KBASE, TEAM, PLAN-EXECUTE, PROXY, or CHANNEL")
+		return "", fmt.Errorf("mode must be GENERAL, CODER, KBASE, TEAM, EXECUTOR, PLAN-EXECUTE, PROXY, or CHANNEL")
 	}
 }
 

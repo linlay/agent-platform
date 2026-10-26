@@ -197,7 +197,7 @@ func TestReplayHistoryRunLifecycleCompatibility(t *testing.T) {
 			if tc.completed {
 				completed["run-1"] = testEpochMillis(30)
 			}
-			detail, err := replayChatHistory(summary, lines, nil, t.TempDir(), started, completed, map[string]string{"run-1": tc.reason})
+			detail, err := replayChatHistory(summary, lines, nil, t.TempDir(), started, completed, map[string]string{"run-1": tc.reason}, nil)
 			after, marshalErr := json.Marshal(lines)
 			if marshalErr != nil {
 				t.Fatal(marshalErr)

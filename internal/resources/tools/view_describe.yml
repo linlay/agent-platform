@@ -1,0 +1,21 @@
+name: view_describe
+i18n:
+  en:
+    label: "View Details"
+  zh-CN:
+    label: "视图详情"
+description: |
+  Describe one display view from the view catalog before writing its view block.
+  Returns the input schema the block body must match, the user actions the view offers, and the block template in usage.
+  Details returned earlier in this Chat stay valid for the rest of the Chat; do not describe the same view again.
+clientVisible: true
+readOnly: true
+inputSchema:
+  type: object
+  properties:
+    key:
+      type: string
+      description: "Required. The view key from the catalog, <connectorId>/<viewKey>."
+  required:
+    - key
+  additionalProperties: false

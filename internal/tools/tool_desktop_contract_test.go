@@ -103,8 +103,9 @@ func TestDesktopActionContractMatchesDesktopSource(t *testing.T) {
 		t.Fatal("Desktop action definitions are empty")
 	}
 	excluded := map[string]bool{"desktop.agent.update": true, "desktop.skill.update": true}
+	pageOnlyMethods := map[string]bool{}
 	for _, action := range desktopWebappPageOnlyActions {
-		excluded[action] = true
+		pageOnlyMethods[action] = true
 	}
 	owned := map[string]bool{}
 	for _, action := range desktopActionsOwnedByWebControl {
@@ -124,6 +125,9 @@ func TestDesktopActionContractMatchesDesktopSource(t *testing.T) {
 			t.Fatalf("duplicate Desktop action: %s", action)
 		}
 		seen[action] = true
+		if pageOnlyMethods[action] {
+			t.Fatalf("WebApp page-only method is exposed as a Desktop action: %s", action)
+		}
 		if !excluded[action] {
 			want = append(want, action)
 		}
@@ -133,16 +137,16 @@ func TestDesktopActionContractMatchesDesktopSource(t *testing.T) {
 			t.Fatalf("obsolete exclusion, Desktop no longer defines %s", action)
 		}
 	}
-	policy, err := os.ReadFile(filepath.Join(root, "src", "main", "modules", "desktop-actions", "webapp-native-actions.ts"))
+	policy, err := os.ReadFile(filepath.Join(root, "src", "main", "modules", "desktop-actions", "webapp-page-methods.ts"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	pageOnlyBlock := regexp.MustCompile(`(?s)export const WEBAPP_PAGE_ONLY_ACTIONS = new Set\(\[(.*?)\]\)`).FindSubmatch(policy)
+	pageOnlyBlock := regexp.MustCompile(`(?s)export const WEBAPP_PAGE_METHODS = new Set\(\[(.*?)\]\)`).FindSubmatch(policy)
 	if len(pageOnlyBlock) != 2 {
 		t.Fatal("cannot locate Desktop page-only policy; update the contract reader")
 	}
-	// The image adapter enforces its page-only guard separately in executeAction.
-	pageOnly := []string{"desktop.assistant.image", "desktop.assistant.image.cancel"}
+	// Main keeps page-only methods outside DESKTOP_ACTION_DEFINITIONS.
+	var pageOnly []string
 	for _, match := range regexp.MustCompile(`"(desktop\.[\w.]+)"`).FindAllSubmatch(pageOnlyBlock[1], -1) {
 		pageOnly = append(pageOnly, string(match[1]))
 	}

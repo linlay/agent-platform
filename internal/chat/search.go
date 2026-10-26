@@ -1,7 +1,6 @@
 package chat
 
 import (
-	agentteam "agent-platform/internal/agent/team"
 	"encoding/json"
 	"errors"
 	"sort"
@@ -185,7 +184,7 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 					continue
 				}
 				role := stringValue(msg["role"])
-				text := searchMessageText(msg)
+				text := searchMessageText(msg, s.hiddenTools)
 				if approval, ok := msg["approval"].(map[string]any); ok {
 					approvalText := strings.TrimSpace(strings.Join([]string{
 						text,
@@ -316,8 +315,8 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 	return hits, nil
 }
 
-func searchMessageText(msg map[string]any) string {
-	if agentteam.IsHiddenTool(stringValue(msg["name"])) {
+func searchMessageText(msg map[string]any, hidden ClientHiddenToolFunc) string {
+	if hidden.hides(stringValue(msg["name"])) {
 		return ""
 	}
 	parts := []string{
@@ -333,7 +332,7 @@ func searchMessageText(msg map[string]any) string {
 				continue
 			}
 			function, _ := call["function"].(map[string]any)
-			if agentteam.IsHiddenTool(stringValue(function["name"])) {
+			if hidden.hides(stringValue(function["name"])) {
 				continue
 			}
 			parts = append(parts,

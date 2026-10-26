@@ -79,6 +79,7 @@ func TestWaitSteerContinuesSameRun(t *testing.T) {
 				}
 			}
 			consume()
+			s.pending = withoutRunActivities(s.pending)
 			if len(s.pending) != 1 {
 				t.Fatalf("missing countdown: %#v", s.pending)
 			}

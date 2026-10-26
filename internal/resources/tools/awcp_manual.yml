@@ -12,7 +12,7 @@ inputSchema:
   properties:
     surfaceId:
       type: string
-      description: "Webpage identity."
+      description: "Page surfaceId."
     section:
       type: string
       description: "Section name."

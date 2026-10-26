@@ -5,8 +5,6 @@ import session "agent-platform/internal/runtime/session"
 var isProxyAgentMode = session.IsProxyAgentMode
 var runtimeAgentEnv = session.RuntimeAgentEnv
 
-var mountedViews = session.MountedViews
-
 var effectiveLocalWorkspaceRoot = session.EffectiveLocalWorkspaceRoot
 
 var validateWorkspaceChatsSeparation = session.ValidateWorkspaceChatsSeparation

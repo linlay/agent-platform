@@ -1,10 +1,12 @@
 package llm
 
 import (
+	"encoding/json"
 	"testing"
 
 	"agent-platform/internal/api"
 	contracts "agent-platform/internal/contracts"
+	"agent-platform/internal/i18n"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/toolinteraction"
 )
@@ -35,6 +37,83 @@ type stubToolLookup map[string]api.ToolDetailResponse
 func (s stubToolLookup) Tool(name string) (api.ToolDetailResponse, bool) {
 	tool, ok := s[name]
 	return tool, ok
+}
+
+func TestNativeToolLabelSurvivesResultAndViewerLocale(t *testing.T) {
+	for _, resultOnly := range []bool{false, true} {
+		translations := map[string]any{"en": map[string]any{"label": "Read File"}, "zh-CN": map[string]any{"label": "读取文件"}}
+		mapper := NewDeltaMapper("run", "chat", contracts.Budget{}, stubToolLookup{
+			"file_read": {Name: "file_read", Label: "file_read", Meta: map[string]any{"toolI18n": translations}},
+		}, nil)
+		dispatcher := stream.NewDispatcher(stream.StreamRequest{RunID: "run", ChatID: "chat"})
+		deltas := []contracts.AgentDelta{}
+		if !resultOnly {
+			deltas = append(deltas, contracts.DeltaToolCall{Index: 0, ID: "call", Name: "file_read", ArgsDelta: "{}"}, contracts.DeltaToolEnd{ToolIDs: []string{"call"}})
+		}
+		deltas = append(deltas, contracts.DeltaToolResult{ToolID: "call", ToolName: "file_read"})
+		seenResult := false
+		for _, delta := range deltas {
+			for _, input := range mapper.Map(delta) {
+				for _, event := range dispatcher.Dispatch(input) {
+					if event.Type != "tool.start" && event.Type != "tool.snapshot" && event.Type != "tool.result" {
+						continue
+					}
+					seenResult = seenResult || event.Type == "tool.result"
+					for locale, label := range map[string]string{"en": "Read File", "zh-CN": "读取文件"} {
+						payload := i18n.LocalizeEventPayload(locale, event.Type, event.Payload)
+						if payload["toolLabel"] != label || payload["toolName"] != "file_read" || payload["toolI18n"] != nil {
+							t.Fatalf("resultOnly=%v %s %s: %#v", resultOnly, event.Type, locale, payload)
+						}
+					}
+				}
+			}
+		}
+		if !seenResult {
+			t.Fatal("missing result event")
+		}
+	}
+}
+
+func TestMCPToolLabelSurvivesEventLifecycle(t *testing.T) {
+	const name = "mcp_a514db115d430976_list_tables"
+	for _, label := range []string{"list_tables", "列出可访问的表"} {
+		t.Run(label, func(t *testing.T) {
+			mapper := NewDeltaMapper("run", "chat", contracts.Budget{}, stubToolLookup{
+				name: {Name: name, Label: label, Meta: map[string]any{"sourceType": "mcp", "mcpToolName": "list_tables"}},
+			}, nil)
+			dispatcher := stream.NewDispatcher(stream.StreamRequest{RunID: "run", ChatID: "chat"})
+			seen := map[string]bool{}
+			for _, delta := range []contracts.AgentDelta{
+				contracts.DeltaToolCall{Index: 0, ID: "call", Name: name, ArgsDelta: "{}"},
+				contracts.DeltaToolEnd{ToolIDs: []string{"call"}},
+				contracts.DeltaToolResult{ToolID: "call", ToolName: name},
+			} {
+				for _, input := range mapper.Map(delta) {
+					for _, event := range dispatcher.Dispatch(input) {
+						if event.Type != "tool.start" && event.Type != "tool.snapshot" && event.Type != "tool.result" {
+							continue
+						}
+						// Exercise the same JSON encoding used for persistence and transport.
+						data, err := json.Marshal(stream.EventData{Seq: event.Seq, Type: event.Type, Timestamp: event.Timestamp, Payload: event.Payload})
+						if err != nil {
+							t.Fatal(err)
+						}
+						var payload map[string]any
+						if err := json.Unmarshal(data, &payload); err != nil {
+							t.Fatal(err)
+						}
+						if payload["toolName"] != name || payload["toolLabel"] != label || payload["toolId"] != "call" {
+							t.Fatalf("%s: %s", event.Type, data)
+						}
+						seen[event.Type] = true
+					}
+				}
+			}
+			if len(seen) != 3 {
+				t.Fatalf("missing lifecycle events: %v", seen)
+			}
+		})
+	}
 }
 
 func TestDeltaMapper_QuestionAwaitAskEmitsAfterToolEnd(t *testing.T) {
@@ -252,18 +331,7 @@ func TestDeltaMapper_DebugLLMChat(t *testing.T) {
 func TestDeltaMapper_RunActivity(t *testing.T) {
 	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{}, nil, nil)
 
-	inputs := mapper.Map(contracts.DeltaRunActivity{
-		TaskID:  "task_1",
-		ChatID:  "chat_1",
-		Phase:   "model_call",
-		Status:  "retrying",
-		Message: "retrying",
-		Retry: map[string]any{
-			"attempt":     2,
-			"maxAttempts": 4,
-			"reason":      "model_stream_idle_timeout",
-		},
-	})
+	inputs := mapper.Map(contracts.DeltaRunActivity{TaskID: "task_1", ChatID: "chat_1", Kind: contracts.ActivityThinking})
 	if len(inputs) != 1 {
 		t.Fatalf("expected one mapped input, got %#v", inputs)
 	}
@@ -271,11 +339,35 @@ func TestDeltaMapper_RunActivity(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InputRunActivity, got %#v", inputs[0])
 	}
-	if activity.TaskID != "task_1" || activity.Status != "retrying" || activity.Message != "retrying" {
+	if activity.TaskID != "task_1" || activity.Activity["kind"] != "thinking" {
 		t.Fatalf("unexpected run activity %#v", activity)
 	}
-	if activity.Retry["attempt"] != 2 || activity.Retry["maxAttempts"] != 4 {
-		t.Fatalf("expected cloned retry payload, got %#v", activity.Retry)
+
+	inputs = mapper.Map(contracts.DeltaRunActivity{ChatID: "chat_1", Kind: contracts.ActivityToolRun, ToolID: "call_1", ToolName: "web_fetch"})
+	activity = inputs[0].(stream.InputRunActivity)
+	if activity.Activity["kind"] != "tool_run" || activity.Activity["toolId"] != "call_1" || activity.Activity["toolName"] != "web_fetch" {
+		t.Fatalf("unexpected tool activity %#v", activity)
+	}
+	if got := mapper.Map(contracts.DeltaRunActivity{Kind: "unknown"}); len(got) != 0 {
+		t.Fatalf("unknown activity kind mapped to %#v", got)
+	}
+}
+
+func TestDeltaMapper_AnnouncingToolActivity(t *testing.T) {
+	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{}, stubToolLookup{
+		"action_announce": {Name: "action_announce", Meta: map[string]any{"activityAnnounce": "message"}},
+	}, nil)
+	inputs := mapper.Map(contracts.DeltaRunActivity{ChatID: "chat_1", Kind: contracts.ActivityToolRun, ToolID: "call_1", ToolName: "action_announce",
+		ToolArgs: map[string]any{"message": "  Read the loader,\n then  check defaults.  "}})
+	activity := inputs[0].(stream.InputRunActivity)
+	if activity.Activity["kind"] != contracts.ActivityAnnounce || activity.Activity["text"] != "Read the loader, then check defaults." {
+		t.Fatalf("unexpected announcement %#v", activity.Activity)
+	}
+	if activity.Activity["toolLabel"] != nil {
+		t.Fatalf("announcement must not carry a tool label: %#v", activity.Activity)
+	}
+	if got := mapper.Map(contracts.DeltaRunActivity{Kind: contracts.ActivityToolRun, ToolName: "action_announce", ToolArgs: map[string]any{"message": " "}}); len(got) != 0 {
+		t.Fatalf("blank announcement mapped to %#v", got)
 	}
 }
 

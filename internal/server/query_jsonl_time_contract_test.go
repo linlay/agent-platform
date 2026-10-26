@@ -30,7 +30,7 @@ func TestQueryRejectsInvalidPersistedTimeOverHTTPAndWS(t *testing.T) {
 
 	body := []byte(`{"chatId":"` + chatID + `","agentKey":"mock-agent","message":"next message"}`)
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body)))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewReader(body)))
 	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "time_contract_violation") {
 		t.Fatalf("expected HTTP 422 time_contract_violation, status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -69,7 +69,7 @@ func TestQueryRejectsPersistedMessageMissingTsOverHTTPAndWS(t *testing.T) {
 
 	body := []byte(`{"chatId":"` + chatID + `","agentKey":"mock-agent","message":"next message"}`)
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body)))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewReader(body)))
 	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "time_contract_violation") {
 		t.Fatalf("expected HTTP 422 time_contract_violation, status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -90,7 +90,7 @@ func TestQueryRejectsPersistedMessageMissingTsOverHTTPAndWS(t *testing.T) {
 
 func TestRegisteredRunPersistsAuthoritativeStartAndActiveDetailOmitsCompletion(t *testing.T) {
 	fixture := newTestFixture(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"chat-active-run-lifecycle","agentKey":"mock-agent","runId":"run-active-lifecycle","message":"hello"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"chat-active-run-lifecycle","agentKey":"mock-agent","runId":"run-active-lifecycle","message":"hello"}`))
 	prepared, err := prepareQueryForTest(fixture.server, req)
 	if err != nil {
 		t.Fatalf("prepare query: %v", err)

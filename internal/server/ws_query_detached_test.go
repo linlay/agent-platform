@@ -116,7 +116,7 @@ func TestDetachedQueryStartsRunWithoutOccupyingTheStreamSlot(t *testing.T) {
 		t.Fatalf("side detached: %#v", f)
 	}
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"chatId":"detached-http","agentKey":"mock-agent","message":"http","detached":true}`)))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(`{"chatId":"detached-http","agentKey":"mock-agent","message":"http","detached":true}`)))
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "detached_ws_required") {
 		t.Fatalf("HTTP detached: %d %s", rec.Code, rec.Body.String())
 	}

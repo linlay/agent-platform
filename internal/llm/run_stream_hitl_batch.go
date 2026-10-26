@@ -73,6 +73,9 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 	if len(invocations) == 0 {
 		return false
 	}
+	if s.failUnattendedApproval(invocations...) {
+		return true
+	}
 
 	s.approvalAsked += len(invocations)
 	awaitingID := buildHITLBatchAwaitingID(s.session.RunID, s.step)

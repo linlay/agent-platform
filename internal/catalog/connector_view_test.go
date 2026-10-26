@@ -14,7 +14,7 @@ func TestPureViewMountDoesNotGrantExecution(t *testing.T) {
 	dir := filepath.Join(cfg.Paths.ConnectorsCenterDir, "forms")
 	for path, data := range map[string]string{
 		"connector.json":  `{"id":"forms","name":"Forms","version":"1.0.0","type":"view","authMode":"self"}`,
-		"view.json":       `{"views":{"card":{"renderer":"html","usage":["display"],"entry":"views/card.html"}}}`,
+		"view.json":       `{"views":{"card":{"description":"Show a card.","renderer":"html","usage":["display"],"inputSchema":{"type":"object"},"entry":"views/card.html"}}}`,
 		"views/card.html": "<p>card</p>",
 		"bin/unlisted":    "not an execution capability",
 	} {

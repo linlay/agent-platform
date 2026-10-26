@@ -3,7 +3,7 @@
 ## 配置归属
 
 - `configs/agent-settings.yml`：全局及 mode 预置、创建默认值、Workspace 规则文件、顶层 ACP bridges。
-- `configs/agent-prompt.yml`：`shared`（runtime/skill/reference/tool-appendix/plan-execute/automation/btw/planning-mode）、`coder`、`kbase` 提示词。注入时机不变。`shared.skill.instructions-prompt`（技能适用性判断与 SKILL.md 读取规则的唯一来源）、`shared.reference.protocol-prompt`（`[References]` 引用协议）和 `shared.reference.advanced-protocol-prompt`（开启 advanced-user-prompt 时在前者之上追加的 XML 包装协议）没有源码兜底：缺失或为空时对应段落不追加，分发正文见 `configs/agent-prompt.example.yml`。规划、BTW、PLAN-EXECUTE 的指令文本同样只来自本文件：缺失时规划与 BTW 不带指令，PLAN-EXECUTE 模板只保留任务与请求数据；技能目录、披露和工具附录标题仅保留极简标签作为兜底。`shared.automation.user-prompt-template` 包装由 Automation（定时或手动触发）启动的 Run 的任务正文，按可信触发来源而非请求 `role` 判定，只进入该条 user 消息，不进入 system prompt、system-init cache key 或 fingerprint；占位符为 `{{message}}`、`{{automation_id}}`，缺失或为空时不包装并保留原有 `[automation request]` 前缀。KBASE 提示词由 `kbase.system-prompt`、`kbase.workspace-prompt` 按此顺序拼接，两项都没有源码兜底。`kbase.editing-prompt` 已删除，出现即拒绝加载；旧部署应删除该键，并按需将通用文件修改要求合并到 `kbase.workspace-prompt`。`editingMode` 不再选择独立的 KBASE stage 或 cache key；模板变量 `{{editing_mode}}` 已删除，配置出现即拒绝加载。`kbase.capability-prompt` 已删除，出现即拒绝加载：kbase_* 工具的检索规则只由工具说明与 `kbase-control` Skill 提供，挂载 `builtin.kbase-control` 不再向 system prompt 追加规则；仅固定绑定库在 system prompt 追加 boundLibraryId，本次引用元数据进入用户引用块。
+- `configs/agent-prompt.yml`：`shared`（runtime/skill/view/announce/reference/tool-appendix/plan-execute/automation/btw/planning-mode）、`coder`、`kbase` 提示词。注入时机不变。`shared.skill.instructions-prompt`（技能适用性判断与 SKILL.md 读取规则的唯一来源）、`shared.reference.protocol-prompt`（`[References]` 引用协议）和 `shared.reference.advanced-protocol-prompt`（开启 advanced-user-prompt 时在前者之上追加的 XML 包装协议）没有源码兜底：缺失或为空时对应段落不追加，分发正文见 `configs/agent-prompt.example.yml`。规划、BTW、PLAN-EXECUTE 的指令文本同样只来自本文件：缺失时规划与 BTW 不带指令，PLAN-EXECUTE 模板只保留任务与请求数据；技能目录、披露和工具附录标题仅保留极简标签作为兜底。`shared.automation.user-prompt-template` 包装由 Automation（定时或手动触发）启动的 Run 的任务正文，按可信触发来源而非请求 `role` 判定，只进入该条 user 消息，不进入 system prompt、system-init cache key 或 fingerprint；占位符为 `{{message}}`、`{{automation_id}}`，缺失或为空时不包装并保留原有 `[automation request]` 前缀。KBASE 提示词由 `kbase.system-prompt`、`kbase.workspace-prompt` 按此顺序拼接，两项都没有源码兜底。`kbase.editing-prompt` 已删除，出现即拒绝加载；旧部署应删除该键，并按需将通用文件修改要求合并到 `kbase.workspace-prompt`。`editingMode` 不再选择独立的 KBASE stage 或 cache key；模板变量 `{{editing_mode}}` 已删除，配置出现即拒绝加载。`kbase.capability-prompt` 已删除，出现即拒绝加载：kbase_* 工具的检索规则只由工具说明与 `kbase-control` Skill 提供，挂载 `builtin.kbase-control` 不再向 system prompt 追加规则；仅固定绑定库在 system prompt 追加 boundLibraryId，本次引用元数据进入用户引用块。
 - `configs/tools.yml`：访问策略、Bash/FileTools/run-env，以及顶层 vision-recognize/web-fetch/image-generate。AI profile 的 system-prompt 随 profile 保存。
 - `configs/runtime.yml`：平台运行设置、`kbx.embedding`、`memory`。memx 继续由 memory.worker 配置，不新增 memx 节。
 
@@ -11,9 +11,27 @@
 
 ## Agent 设置
 
-agent-settings 顶层 preset-tools/preset-connectors 与 general/coder/kbase 各自的同名数组相加，按名称去重并保留首次出现顺序。mode 省略或 [] 仅表示无增量，不清除全局项。预置仍只作用于 native GENERAL/CODER/KBASE，不写入 Agent YAML。创建、编辑、展示、装配和连接器删除保护使用相同有效预置；已有显式声明不被删除。
+agent-settings 顶层 preset-tools/preset-connectors 与 general/coder/kbase/team/executor 各自的同名数组相加，按名称去重并保留首次出现顺序。mode 省略或 [] 仅表示无增量，不清除全局项，因此全局列表只放所有 Native Agent（含无人值守的 EXECUTOR）都需要的能力；需要人回应或服务对话界面的 `ask_user_question`、`artifact_publish` 以及 `builtin.web-control`、`builtin.task-control` 在分发示例中列在 general/coder/kbase/team 各段，四种 mode 的有效预置与调整前相同，executor 段默认只有 `result_submit`。预置只作用于 native GENERAL/CODER/KBASE/TEAM/EXECUTOR，不写入 Agent YAML。创建、编辑、展示、装配和连接器删除保护使用相同有效预置（删除保护统计所有 mode 段的连接器）；已有显式声明不被删除。
 
 分发示例通过 `coder.preset-tools` 为普通 CODER 提供 `regex`，CODER mode profile 的缺省工具列表不再内置该工具。
+
+### 过程展示默认值
+
+`agent-settings.yml` 每个 mode 的 `interaction-config.default-detail` 定义已有和新建 Agent 的默认过程展示，不属于仅创建时使用的 `default-agent`。支持 general/coder/kbase/team/executor/plan-execute/proxy/channel，取值为 `summary`、`full` 或 `none`；未设置兜底 summary。分发示例为 coder/team/plan-execute 配置 full，general 配置 none，其他模式配置 summary，代码不按 mode 硬编码这些档位。
+
+```yaml
+coder:
+  interaction-config:
+    default-detail: full
+```
+
+个别 Agent 在 `agent.yml` 中通过 `interactionConfig.defaultDetail: summary`、`full` 或 `none` 覆盖。删除字段恢复继承；显式 null、空字符串和其他值均拒绝。有效值在目录加载时合并，使用端 `/api/agent.interactionConfig.defaultDetail` 返回最终值，管理端 definition 保留源声明，不把继承值写回源文件。修改 agent-settings.yml 后需重启，Agent 源配置沿用目录重载流程。
+
+`shared.announce.instructions-prompt` 是公示规则，没有源码兜底：仅当本 stage 有效工具中存在声明 `activityAnnounce` 的工具时追加为独立 system prompt 段（位于 stage 提示之后、技能目录之前），`{{announce_tool_name}}` 渲染为该工具名；规则与 detail 档位无关，档位只影响下发，不进入 prompt。缺失或为空时不追加。
+
+顶层 `announce-hold-seconds`（默认 60，0 关闭，须为非负整数）是一条公示（`action_announce`）至少压住其他进度活动的秒数，见 [细节等级与 run.activity](API与协议.md#细节等级与-runactivity)。
+
+query/attach/chat 不传 detail 时跟随实际 owner Agent；显式 HTTP URL 参数或 WS 帧顶层 detail 只覆盖本次下发。默认值不改变模型执行、权限、原始 query 和完整落盘。Proxy 上游继续请求 full；Desktop broker 不改写 detail，窗口跟随 Agent，页面按下发元数据的 effectiveDetail 展示。
 
 ### planning-mode 工具排除
 
@@ -21,6 +39,8 @@ agent-settings 顶层 `planning-mode` 对原生 GENERAL、CODER、KBASE 统一�
 
 - `exclude-tools`：规划 Run 不可用的工具。规划 Run 的工具 = Agent 有效工具 − 该列表，再由 Platform 追加 `finalize_planning`。
 - `execute-exclude-tools`：由已确认计划启动的执行 Run 不可用的工具，缺省为 `ask_user_question`、`ask_user_form`。执行 Run 的工具 = Agent 有效工具 − 该列表，`finalize_planning` 由 Platform 去掉。
+
+`planning-mode.exclude-tools` 默认还排除 `result_submit`，规划 Run 不能交卷。
 
 独立表单工具 `ask_user_form` 默认不在 preset-tools，需 Agent 显式声明；`planning-mode.exclude-tools` 默认也排除它，规划交互使用已挂载的 `ask_user_question`。两个列表显式配置时按既有覆盖规则生效，升级部署应同步检查实际配置。
 

@@ -23,7 +23,7 @@ func TestBrowserFilesUploadWireAcceptedByDesktopDecoder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "src", "main", "modules", "browser-use", "chrome-file-transfer.ts")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "src", "main", "support", "browser-files", "transfer.ts")); err != nil {
 		if !explicit && os.IsNotExist(err) {
 			t.Skip("Desktop checkout absent; set DESKTOP_SOURCE to require browser file wire compatibility")
 		}
@@ -52,7 +52,7 @@ func TestBrowserFilesUploadWireAcceptedByDesktopDecoder(t *testing.T) {
 	const script = `
 const fs = require('node:fs'), path = require('node:path'), Module = require('node:module');
 const root = process.argv[1], req = Module.createRequire(path.join(root, 'package.json'));
-const ts = req('typescript'), file = path.join(root, 'src/main/modules/browser-use/chrome-file-transfer.ts');
+const ts = req('typescript'), file = path.join(root, 'src/main/support/browser-files/transfer.ts');
 const mod = new Module(file); mod.paths = Module._nodeModulePaths(path.dirname(file));
 mod._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, file);
 const decoded = mod.exports.decodeBrowserUploadFiles(JSON.parse(fs.readFileSync(0, 'utf8')));

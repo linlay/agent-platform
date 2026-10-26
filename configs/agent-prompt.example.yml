@@ -25,6 +25,26 @@ shared:
     disclosure-header: "Below are the full instructions for the skill you just invoked (supplemental for this turn only; do not ignore):"
     instructions-label: "instructions"
 
+  view:
+    # Configure the protocol introduction and catalog header together.
+    # Empty or missing: no VIEW section is appended. Rendering and snapshot
+    # binding do not depend on it.
+    instructions-prompt: |
+      Views display live data in the user's client. The catalog below lists each view's key and purpose. When view_describe is available, call it with the key before writing a view block to get its input schema and block template; details returned earlier in this Chat stay valid.
+      A view block opens with exactly ```view key=<key>, followed by one JSON body matching the view's input schema and a closing ``` line; both fence lines start at the beginning of a line. The view fetches current data itself from that input, so do not fetch the same data with a tool first or copy data into the body.
+    catalog-header: "Available views:"
+
+  announce:
+    # Appended when the stage's tools include an announce tool (activityAnnounce).
+    # Placeholder: {{announce_tool_name}}. Empty or missing: not appended.
+    instructions-prompt: |
+      Progress announcements:
+      The user often cannot see your tool calls or reasoning. Before you act, always tell them clearly what you are about to do by calling {{announce_tool_name}} with one concrete sentence. Never start calling tools silently, and do not narrate next steps in reply text instead.
+      1. In every turn that needs tools, make {{announce_tool_name}} the first tool call of the first response, in the same response as the tool calls it describes.
+      2. Announce again when you start a new phase, change direction, or finish a group of related steps.
+      3. Name the concrete action and what it acts on, such as which files you will read or what you will search for; a vague "working on it" is not an announcement.
+      4. Skip the announcement only when you answer directly without calling any other tool.
+
   reference:
     # Empty or missing: the reference protocol section is not appended.
     protocol-prompt: |

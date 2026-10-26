@@ -215,3 +215,22 @@ func TestModePresetsAssemblyAndSourceEditing(t *testing.T) {
 		t.Fatal("mode preset connector deletion was allowed")
 	}
 }
+
+func TestExecutorModeTakesPresetsAndIsNeverAProject(t *testing.T) {
+	mode, err := ParsePublicAgentMode("executor")
+	if err != nil || mode != AgentModeExecutor {
+		t.Fatalf("mode=%q err=%v", mode, err)
+	}
+	d := AgentDefinition{Engine: AgentEngineNative, Mode: AgentModeExecutor}
+	d.applyPresetTools([]string{"datetime", "result_submit"})
+	if !reflect.DeepEqual(d.Tools, []string{"datetime", "result_submit"}) {
+		t.Fatalf("tools=%v", d.Tools)
+	}
+	if !reflect.DeepEqual(mergePresetConnectors(d, []string{"builtin.httpx"}), []string{"builtin.httpx"}) {
+		t.Fatal("executor did not take preset connectors")
+	}
+	err = ValidateProjectWorkspace(map[string]any{"mode": "EXECUTOR", "runtimeConfig": map[string]any{"workspaceRoot": t.TempDir()}})
+	if err == nil {
+		t.Fatal("executor accepted as a project")
+	}
+}

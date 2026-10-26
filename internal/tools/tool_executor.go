@@ -279,6 +279,8 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 		return t.invokePlanGetTasks(execCtx)
 	case PlanUpdateTaskToolName:
 		return t.invokePlanUpdateTask(args, execCtx)
+	case ActionAnnounceToolName:
+		return invokeActionAnnounce(args), nil
 	case FinalizePlanningToolName:
 		return t.invokePlanningWrite(toolName, args, execCtx)
 	case "regex":

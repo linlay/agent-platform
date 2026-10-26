@@ -1061,6 +1061,21 @@ func (s *llmRunStream) beginToolInvocation(invocation *preparedToolInvocation) {
 	}
 }
 
+// toolRunActivity describes a tool whose arguments are complete. It is
+// published once per model turn, when the turn's tool calls end.
+func (s *llmRunStream) toolRunActivity(invocation *preparedToolInvocation) DeltaRunActivity {
+	return DeltaRunActivity{
+		TaskID: s.modelActivityTaskID(), ChatID: s.session.ChatID, Kind: ActivityToolRun,
+		ToolID: invocation.toolID, ToolName: invocation.toolName, ToolArgs: invocation.args,
+	}
+}
+
+// isAnnounceTool reports a tool whose activity announces the next steps.
+func (s *llmRunStream) isAnnounceTool(toolName string) bool {
+	def, found := s.lookupToolDefinition(toolName)
+	return found && ToolActivityAnnounce(def.Meta) != ""
+}
+
 func (s *llmRunStream) finishToolInvocation(invocation *preparedToolInvocation) {
 	if s.runControl != nil {
 		s.runControl.ClearExpectedSubmit(invocation.toolID)
@@ -1656,6 +1671,7 @@ func (s *llmRunStream) appendToolResultMessageOrdered(invocation *preparedToolIn
 		Name:       invocation.toolName,
 		Content:    content,
 	})
+	s.observeResultSubmit(invocation, result)
 	if s.lastTrace != nil {
 		s.lastTrace.appendToolResult(invocation, content, result)
 	}

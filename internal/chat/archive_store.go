@@ -17,9 +17,10 @@ import (
 )
 
 type ArchiveStore struct {
-	root string
-	mu   sync.Mutex
-	db   *sql.DB
+	root        string
+	mu          sync.Mutex
+	db          *sql.DB
+	hiddenTools ClientHiddenToolFunc
 }
 
 // NewArchiveStoreAtStartup is the only archive-store constructor allowed to
@@ -390,7 +391,7 @@ func (s *ArchiveStore) LoadArchived(chatID string) (*ArchivedChat, error) {
 	for _, run := range archived.Runs {
 		owners[run.RunID] = replayRunOwner{AgentKey: run.AgentKey, Mode: run.AgentMode}
 	}
-	archived.Detail, err = replayChatHistory(summary, lines, rawMessages, s.ChatDir(chatID), runStartedAt, runCompletedAt, runFinishReasons, owners)
+	archived.Detail, err = replayChatHistory(summary, lines, rawMessages, s.ChatDir(chatID), runStartedAt, runCompletedAt, runFinishReasons, s.hiddenTools, owners)
 	if err != nil {
 		return nil, err
 	}

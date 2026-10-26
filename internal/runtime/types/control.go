@@ -27,6 +27,8 @@ type RunHandle struct {
 	LastSeq   int64
 	Status    string
 	Detached  bool
+	// Detail is the delivery level frozen for the Run.
+	Detail stream.DetailLevel
 }
 
 type Subscription struct {

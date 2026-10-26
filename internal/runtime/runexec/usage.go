@@ -190,6 +190,15 @@ func UsageDataMap(usage chat.UsageData) map[string]any {
 	return UsageDataMapWithOptions(usage, false)
 }
 
+// TerminalUsageDataMap is the usage a Run terminal event reports. Both call
+// counts are always present, so a summary viewer reads 0 rather than absence.
+func TerminalUsageDataMap(usage chat.UsageData) map[string]any {
+	out := UsageDataMap(usage)
+	out["llmChatCompletionCount"] = usage.LlmChatCompletionCount
+	out["toolCallCount"] = usage.ToolCallCount
+	return out
+}
+
 func UsageDataMapForSnapshot(usage chat.UsageData) map[string]any {
 	return UsageDataMapWithOptions(usage, true)
 }

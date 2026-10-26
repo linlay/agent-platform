@@ -73,7 +73,7 @@ func TestChannelImportQueryUsesServerModeInboundChannel(t *testing.T) {
 			"stream":false,
 			"includeFullText":true
 		}`)
-		req, err := http.NewRequest(http.MethodPost, server.URL+"/api/query", body)
+		req, err := http.NewRequest(http.MethodPost, server.URL+"/api/query?detail=full", body)
 		if err != nil {
 			queryDone <- struct {
 				status int
@@ -192,7 +192,7 @@ func TestChannelImportServerModeRequiresConnectedPeer(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"hello"}`)
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", body))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
 	}

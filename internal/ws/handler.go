@@ -185,6 +185,11 @@ func (h *Handler) routeRequest(ctx context.Context, conn *Conn, req RequestFrame
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	if message := req.detailError(); message != "" {
+		conn.SendError(req.ID, "invalid_detail", 400, message, nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
 	route(ctx, conn, req)
 }
 

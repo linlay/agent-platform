@@ -47,11 +47,12 @@ func runtimeAgentAssemblyDiagnosticCode(err error) string {
 }
 
 type runtimeAgentAssembler struct {
-	modePresets      map[string]config.AgentPresets
-	presetTools      []string
-	presetConnectors []string
-	previousAgents   map[string]AgentDefinition
-	previousAdmin    map[string]AdminAgent
+	modeDefaultDetails map[string]string
+	modePresets        map[string]config.AgentPresets
+	presetTools        []string
+	presetConnectors   []string
+	previousAgents     map[string]AgentDefinition
+	previousAdmin      map[string]AdminAgent
 	// refreshedAgents contains only sources fully validated and published (or
 	// verified unchanged) by the latest Agent load. Failures retain the last
 	// published definition and remain visible as unsynchronized source updates.

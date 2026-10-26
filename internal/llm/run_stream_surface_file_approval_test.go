@@ -51,6 +51,7 @@ func testSurfaceFileInputAccessApproval(t *testing.T, toolName string, toolArgs 
 			if err := stream.invokeActiveToolCall(); err != nil {
 				t.Fatal(err)
 			}
+			stream.pending = withoutRunActivities(stream.pending)
 			if decision == "" {
 				if len(executor.invocations) != 0 || len(stream.pending) != 1 {
 					t.Fatalf("tool executed before read approval: calls=%#v pending=%#v", executor.invocations, stream.pending)

@@ -105,6 +105,30 @@ func TestConflictingConnectorDoesNotBlockUnrelatedRoutes(t *testing.T) {
 	if err := ValidateConnectorPackages(packages); err == nil {
 		t.Fatal("imports must still reject conflicting source keys")
 	}
+	candidate := packages[len(packages)-1]
+	if err := ValidateConnectorImportPackages(packages); err != nil {
+		t.Fatalf("unrelated installed conflict blocked candidate %s: %v", candidate.ID, err)
+	}
+	// alpha.extra collides with the healthy alpha package's extra route.
+	if err := ValidateConnectorImportPackages([]connector.Package{packages[0], packages[1]}); err == nil {
+		t.Fatal("candidate conflict with healthy installed route was accepted")
+	}
+}
+
+func TestConnectorImportIsolatesInvalidInstalledMCPComponents(t *testing.T) {
+	sources := connector.Sources{ExternalRoot: t.TempDir()}
+	writeIsolationConnector(t, sources.ExternalRoot, "broken", "none", `{"mcpServers":{"main":{"type":"streamableHttp","url":"invalid-url"}}}`)
+	writeIsolationConnector(t, sources.ExternalRoot, "healthy", "none", `{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp"}}}`)
+	packages, err := sources.LoadAll()
+	if err != nil || len(packages) != 2 {
+		t.Fatalf("load fixtures: %v %v", packages, err)
+	}
+	if err := ValidateConnectorImportPackages(packages); err != nil {
+		t.Fatalf("installed MCP error blocked healthy import: %v", err)
+	}
+	if err := ValidateConnectorImportPackages([]connector.Package{packages[1], packages[0]}); err == nil {
+		t.Fatal("invalid candidate MCP component was accepted")
+	}
 }
 
 func TestAgentRegistryKeepsFrozenPathsWhenSourceIsInvalid(t *testing.T) {

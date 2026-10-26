@@ -348,7 +348,8 @@ func (e *LLMAgentEngine) buildCurrentMessagesForRequest(req api.QueryRequest, se
 		AutomationID:                 querymessages.AutomationIDFromChatSource(req.ChatSource),
 		AutomationUserPromptTemplate: e.cfg.Prompts.Automation.UserPromptTemplate,
 
-		Scene: req.Scene,
+		Scene:     req.Scene,
+		TaskInput: session.ResultContract.TaskInput(),
 	})
 }
 

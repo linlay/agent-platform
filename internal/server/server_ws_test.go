@@ -578,7 +578,7 @@ func TestWebSocketPushesChatUnreadAfterRunCompletion(t *testing.T) {
 	waitForPushFrameType(t, conn, "connected")
 
 	reqBody := bytes.NewBufferString(`{"chatId":"chat_ws_unread","runId":"loyw3v2s","agentKey":"mock-agent","message":"hello unread"}`)
-	resp, err := http.Post(server.URL+"/api/query", "application/json", reqBody)
+	resp, err := http.Post(server.URL+"/api/query?detail=full", "application/json", reqBody)
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -1551,9 +1551,10 @@ func TestWebSocketQueryDebugVisibilityFollowsLLMChatRecord(t *testing.T) {
 			defer conn.Close()
 
 			if err := conn.WriteJSON(ws.RequestFrame{
-				Frame: ws.FrameRequest,
-				Type:  "/api/query",
-				ID:    "req_query_debug",
+				Frame:  ws.FrameRequest,
+				Type:   "/api/query",
+				Detail: "full",
+				ID:     "req_query_debug",
 				Payload: marshalPayload(map[string]any{
 					"message": "websocket debug",
 				}),
@@ -1609,9 +1610,10 @@ func TestWebSocketQueryToolPayloadAlwaysVisible(t *testing.T) {
 	defer conn.Close()
 
 	if err := conn.WriteJSON(ws.RequestFrame{
-		Frame: ws.FrameRequest,
-		Type:  "/api/query",
-		ID:    "req_query_payload",
+		Frame:  ws.FrameRequest,
+		Type:   "/api/query",
+		Detail: "full",
+		ID:     "req_query_payload",
 		Payload: marshalPayload(map[string]any{
 			"message": "websocket tool payload",
 		}),
@@ -1854,7 +1856,7 @@ func startAwaitingPushQuestionFlow(t *testing.T, configure func(*config.Config))
 	}
 
 	chatID := "chat_ws_awaiting"
-	resp, err := http.Post(server.URL+"/api/query", "application/json", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"please confirm first"}`))
+	resp, err := http.Post(server.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"please confirm first"}`))
 	if err != nil {
 		conn.Close()
 		server.Close()

@@ -68,7 +68,7 @@ func TestWebControlMountIsIndependentAndCombinesWithDesktop(t *testing.T) {
 		t.Fatal(err)
 	}
 	def, ok := r.AgentDefinition("web")
-	if !ok || len(def.ConnectorNativeTools) != 21 || len(def.ConnectorSkills) != 1 || containsString(def.Tools, "bash") || containsString(def.Tools, "file_read") {
+	if !ok || len(def.ConnectorNativeTools) != 22 || len(def.ConnectorSkills) != 1 || containsString(def.Tools, "bash") || containsString(def.Tools, "file_read") {
 		t.Fatalf("web-control mount: %+v", def)
 	}
 	// Page control alone grants no Desktop shell action.
@@ -79,7 +79,7 @@ func TestWebControlMountIsIndependentAndCombinesWithDesktop(t *testing.T) {
 		t.Fatal("wrong web-control skill path")
 	}
 	both, ok := r.AgentDefinition("both")
-	if !ok || len(both.ConnectorNativeTools) != 32 || len(both.ConnectorSkills) != 2 || !containsString(both.Tools, "desktop_shell") || !containsString(both.Tools, "surface_list") {
+	if !ok || len(both.ConnectorNativeTools) != 33 || len(both.ConnectorSkills) != 2 || !containsString(both.Tools, "desktop_shell") || !containsString(both.Tools, "surface_list") {
 		t.Fatalf("combined mount: %+v", both)
 	}
 	if _, err := r.PrepareAgentConnector("web", "builtin.platform-control", true); err != nil {

@@ -44,7 +44,7 @@ func TestLiveWaitBlankSteerContinuesSameRun(t *testing.T) {
 	response := httptest.NewRecorder()
 	go func() {
 		defer close(done)
-		fixture.server.ServeHTTP(response, httptest.NewRequest("POST", "/api/query", strings.NewReader(`{"agentKey":"mock-agent","chatId":"live-wait-chat","runId":"live-wait-run","message":"wait"}`)))
+		fixture.server.ServeHTTP(response, httptest.NewRequest("POST", "/api/query?detail=full", strings.NewReader(`{"agentKey":"mock-agent","chatId":"live-wait-chat","runId":"live-wait-run","message":"wait"}`)))
 	}()
 	select {
 	case <-ready:

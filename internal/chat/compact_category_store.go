@@ -61,7 +61,11 @@ func compactMessageAtoms(m map[string]any) []compactAtom {
 		}
 	}
 	for _, call := range anyMessageSlice(m["tool_calls"]) {
-		add("tool", call)
+		// Stored calls carry a UI identity that provider messages do not. Match
+		// the actual call (including its arguments), without mutating the source.
+		identity := cloneMessageMap(call)
+		delete(identity, "_toolId")
+		add("tool", identity)
 	}
 	return atoms
 }

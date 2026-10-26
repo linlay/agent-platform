@@ -11,7 +11,7 @@ inputSchema:
   properties:
     surfaceId:
       type: string
-      description: "Required. Webpage identity."
+      description: "Required. Page surfaceId."
     selector:
       type: string
       description: "CSS selector; mutually exclusive with ref."

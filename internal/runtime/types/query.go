@@ -6,6 +6,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
+	"agent-platform/internal/stream"
 )
 
 // Caller is the authenticated runtime identity supplied by a transport or an
@@ -67,8 +68,14 @@ type QueryCommand struct {
 	Origin *queryinput.Origin
 	// AccessGrant audits how a chat_start Run obtained its access level.
 	AccessGrant map[string]any `json:"-"`
+	// ResultContract is set only by the /api/execute entry; no transport
+	// decodes it.
+	ResultContract *contracts.ResultContract `json:"-"`
 	// PlanRunID links a Run started by approving a plan to its planning Run.
-	PlanRunID       string `json:"-"`
+	PlanRunID string `json:"-"`
+	// Detail is the delivery level the /api/query caller asked for; empty
+	// takes the Agent default. Admission freezes it for the whole Run.
+	Detail          stream.DetailLevel `json:"-"`
 	Identity        *contracts.AuthIdentity
 	Caller          Caller
 	Locale          string

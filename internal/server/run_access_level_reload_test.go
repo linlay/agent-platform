@@ -17,7 +17,7 @@ func TestActiveChatReloadKeepsUpdatedAccessLevel(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{notifications: ws.NewHub()})
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"chat-access-reload","agentKey":"mock-agent","message":"hello","accessLevel":"default"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"chat-access-reload","agentKey":"mock-agent","message":"hello","accessLevel":"default"}`))
 	prepared, err := prepareQueryForTest(fixture.server, req)
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func TestActiveChatReloadKeepsUpdatedAccessLevel(t *testing.T) {
 			var body []byte
 			if reload == 0 {
 				rec := httptest.NewRecorder()
-				fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+prepared.Req.ChatID+"&includeRawMessages=false", nil))
+				fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+prepared.Req.ChatID+"&includeRawMessages=false", nil))
 				if rec.Code != http.StatusOK {
 					t.Fatalf("reload status=%d body=%s", rec.Code, rec.Body.String())
 				}

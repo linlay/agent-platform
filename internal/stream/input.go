@@ -1,6 +1,8 @@
 package stream
 
 import (
+	"encoding/json"
+
 	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/modelcontent"
 	"agent-platform/internal/view"
@@ -27,7 +29,15 @@ type ContentDelta struct {
 
 	AgentKey     string
 	Presentation string
+	// BindView freezes Markdown view blocks with the producing actor's mounts.
+	// Without it, view blocks stay plain text for clients.
+	BindView ContentViewBinder
 }
+
+// ContentViewBinder resolves one Markdown view block and validates its body
+// as the view input. A returned Reference with a non-nil error is the resolved
+// template whose body failed.
+type ContentViewBinder func(ref view.Reference, body json.RawMessage) (view.Reference, error)
 
 func (ContentDelta) streamInputTag() {}
 
@@ -87,6 +97,7 @@ type ToolResult struct {
 	ToolLabel       string
 	ToolDescription string
 	Result          any
+	ToolI18n        map[string]any
 	// ModelOutput is set only when the text returned to the model differs from
 	// Result, so persisted history can replay what the model actually saw.
 	ModelOutput  *string
@@ -95,8 +106,8 @@ type ToolResult struct {
 	ExitCode     int
 	FileChange   map[string]any
 	InternalOnly bool
-	// Target identifies the tool a gateway call reached; with it, ToolLabel is
-	// published so clients show the target instead of the gateway.
+	// Target identifies the tool a gateway call reached. Its ToolLabel describes
+	// the target instead of the gateway and must not use gateway translations.
 	Target map[string]any
 }
 
@@ -110,7 +121,7 @@ func (StageMarker) streamInputTag() {}
 
 // ModelTurnCommit and ModelTurnDiscard are platform-internal transaction
 // controls. Commit has no SSE representation. Discard is converted into
-// failed block end events plus an informational run.activity event.
+// failed block end events, plus a run.activity retry event when retrying.
 type ModelTurnCommit struct {
 	ResponseID         string
 	EncryptedReasoning []modelcontent.ReasoningPart
@@ -446,17 +457,13 @@ type UsageSnapshotTool struct {
 
 func (InputUsageSnapshot) streamInputTag() {}
 
+// InputRunActivity carries a progress point that public events do not show.
+// Activity holds the message template (kind plus its parameters); the
+// viewer's locale renders it at the output boundary.
 type InputRunActivity struct {
-	TaskID      string
-	ChatID      string
-	Phase       string
-	Status      string
-	Backend     string
-	Key         string
-	Message     string
-	Retry       map[string]any
-	Recovery    map[string]any
-	Degradation map[string]any
+	TaskID   string
+	ChatID   string
+	Activity map[string]any
 }
 
 func (InputRunActivity) streamInputTag() {}

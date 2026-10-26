@@ -227,6 +227,8 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/compact", s.wsCompact)
 	handler.RegisterRoute("/api/file", s.wsAgentFile)
 	handler.RegisterRoute("/api/view", s.wsView)
+	handler.RegisterRoute("/api/view/query", s.wsViewQuery)
+	handler.RegisterRoute("/api/view/invoke", s.wsViewInvoke)
 	handler.RegisterRoute("/api/project/git", s.wsProjectGit)
 	handler.RegisterRoute("/api/project/git/branches", s.wsProjectGitBranches)
 	handler.RegisterRoute("/api/resource", s.wsResource)
@@ -440,6 +442,8 @@ func (s *Server) wsChat(ctx context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	response.Display = s.chatDisplay(response.AgentKey, chatReadDetail(response, req.DetailLevel()))
+	response.Events = response.Display.EffectiveDetail.FilterEvents(response.Events)
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }

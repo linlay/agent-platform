@@ -209,7 +209,7 @@ func TestImageSteerHTTPAndWSFreezePersistAndContinue(t *testing.T) {
 				if !bytes.Contains(encoded, []byte(`"references"`)) {
 					t.Fatal("replay missing references")
 				}
-				next, err := http.Post(server.URL+"/api/query", "application/json", strings.NewReader(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"continue"}`))
+				next, err := http.Post(server.URL+"/api/query?detail=full", "application/json", strings.NewReader(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"continue"}`))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -238,7 +238,7 @@ func TestAttachmentOnlyQueryRejectedHTTPAndWS(t *testing.T) {
 		payload := api.QueryRequest{AgentKey: "mock-agent", Message: " \n\t", References: []api.Reference{{Type: "file", URL: name}}}
 		encoded, _ := json.Marshal(payload)
 		rec := httptest.NewRecorder()
-		fixture.server.ServeHTTP(rec, httptest.NewRequest("POST", "/api/query", bytes.NewReader(encoded)))
+		fixture.server.ServeHTTP(rec, httptest.NewRequest("POST", "/api/query?detail=full", bytes.NewReader(encoded)))
 		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "message is required") {
 			t.Fatalf("HTTP query: %d %s", rec.Code, rec.Body.String())
 		}

@@ -20,9 +20,29 @@ var nativeConnectorTools = map[string][]string{
 	WebControlConnectorID: {
 		"workpanel_state", "workpanel_open", "workpanel_close",
 		"surface_browser", "surface_list", "surface_state", "surface_open", "surface_observe", "surface_navigate", "surface_activate", "surface_close",
-		"surface_screenshot", "surface_click", "surface_element", "surface_scroll", "surface_dialog", "surface_upload", "surface_downloads", "surface_login",
+		"surface_screenshot", "surface_click", "surface_element", "surface_scroll", "surface_dialog", "surface_upload", "surface_downloads", "surface_login", "surface_viewport",
 		"awcp_manual", "awcp_invoke",
 	},
+}
+
+// nativeViewOperations lists the Platform read operations each native
+// connector's views may declare as queries. Operations run as the viewer, not
+// as an Agent, so only read-only, deployment-level listings belong here.
+var nativeViewOperations = map[string][]string{
+	TaskControlConnectorID:     {"automation.list"},
+	PlatformControlConnectorID: {"catalog.list"},
+}
+
+// NativeViewOperationOwner returns the native connector that owns operation.
+func NativeViewOperationOwner(operation string) (string, bool) {
+	for id, operations := range nativeViewOperations {
+		for _, name := range operations {
+			if name == operation {
+				return id, true
+			}
+		}
+	}
+	return "", false
 }
 
 // IsNative reports whether id is a native connector compiled into Platform.

@@ -7,7 +7,7 @@ import (
 )
 
 func TestWebClientTargetFromHTTPRequestUsesSurfaceAndAuthenticatedBoundary(t *testing.T) {
-	request := httptest.NewRequest("POST", "/api/query", nil)
+	request := httptest.NewRequest("POST", "/api/query?detail=full", nil)
 	request.Header.Set(webClientSurfaceIDHeader, " surface-1 ")
 	request = request.WithContext(WithPrincipal(context.Background(), &Principal{
 		Subject: "user-1",
@@ -24,7 +24,7 @@ func TestWebClientTargetFromHTTPRequestUsesSurfaceAndAuthenticatedBoundary(t *te
 }
 
 func TestWebClientTargetFromHTTPRequestRequiresSurface(t *testing.T) {
-	request := httptest.NewRequest("POST", "/api/query", nil)
+	request := httptest.NewRequest("POST", "/api/query?detail=full", nil)
 	request = request.WithContext(WithPrincipal(context.Background(), &Principal{
 		Subject: "user-1",
 		Claims:  map[string]any{"deviceId": "device-1"},
@@ -35,7 +35,7 @@ func TestWebClientTargetFromHTTPRequestRequiresSurface(t *testing.T) {
 }
 
 func TestWebClientTargetFromHTTPRequestRequiresDeviceBoundary(t *testing.T) {
-	request := httptest.NewRequest("POST", "/api/query", nil)
+	request := httptest.NewRequest("POST", "/api/query?detail=full", nil)
 	request.Header.Set(webClientSurfaceIDHeader, "surface-1")
 	request = request.WithContext(WithPrincipal(context.Background(), &Principal{Subject: "user-1"}))
 	if target := webClientTargetFromHTTPRequest(request); !target.IsZero() {
@@ -44,7 +44,7 @@ func TestWebClientTargetFromHTTPRequestRequiresDeviceBoundary(t *testing.T) {
 }
 
 func TestWebClientTargetFromHTTPRequestUsesDeviceHeaderWithoutClaim(t *testing.T) {
-	request := httptest.NewRequest("POST", "/api/query", nil)
+	request := httptest.NewRequest("POST", "/api/query?detail=full", nil)
 	request.Header.Set(webClientDeviceIDHeader, " device-browser ")
 	request.Header.Set(webClientSurfaceIDHeader, "surface-browser")
 
@@ -55,7 +55,7 @@ func TestWebClientTargetFromHTTPRequestUsesDeviceHeaderWithoutClaim(t *testing.T
 }
 
 func TestWebClientTargetFromHTTPRequestPrefersAuthenticatedDeviceClaim(t *testing.T) {
-	request := httptest.NewRequest("POST", "/api/query", nil)
+	request := httptest.NewRequest("POST", "/api/query?detail=full", nil)
 	request.Header.Set(webClientDeviceIDHeader, "device-header")
 	request.Header.Set(webClientSurfaceIDHeader, "surface-1")
 	request = request.WithContext(WithPrincipal(context.Background(), &Principal{

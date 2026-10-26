@@ -93,7 +93,7 @@ func (s *Server) validateCreateModel(definition map[string]any) error {
 	if err != nil {
 		return err
 	}
-	if engine == catalog.AgentEngineACP || (mode != catalog.AgentModeGeneral && mode != catalog.AgentModeCoder && mode != catalog.AgentModeKBase) {
+	if engine == catalog.AgentEngineACP || (mode != catalog.AgentModeGeneral && mode != catalog.AgentModeCoder && mode != catalog.AgentModeKBase && mode != catalog.AgentModeExecutor) {
 		return nil
 	}
 	modelConfig, _ := definition["modelConfig"].(map[string]any)

@@ -28,7 +28,7 @@ func libraryReviewDefinition(d *kbases.Definition) string {
 }
 
 func init() {
-	argumentFields["kbase_library_query.list"] = map[string]string{"limit": "n", "offset": "n"}
+	argumentFields["kbase_library_query.list"] = map[string]string{"limit": "n", "offset": "i"}
 	for _, action := range []string{"get", "status"} {
 		argumentFields["kbase_library_query."+action] = map[string]string{"libraryId": "s!"}
 	}

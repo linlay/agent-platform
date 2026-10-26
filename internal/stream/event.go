@@ -434,7 +434,7 @@ func eventPayloadKeyOrder(eventType string) []string {
 	case "usage.snapshot":
 		return []string{"runId", "chatId", "taskId", "model", "contextWindow", "usage"}
 	case "run.activity":
-		return []string{"runId", "chatId", "taskId", "phase", "status", "backend", "key", "message", "retry", "recovery", "degradation"}
+		return []string{"runId", "chatId", "taskId", "message", "retry"}
 	case "memory.write", "memory.read", "memory.search", "memory.update",
 		"memory.forget", "memory.timeline", "memory.promote", "memory.consolidate":
 		return []string{"runId", "chatId", "data"}
@@ -458,8 +458,10 @@ func eventPayloadKeyOrder(eventType string) []string {
 		return []string{"contentId", "delta"}
 	case "content.end":
 		return []string{"contentId"}
+	case "content.view":
+		return []string{"contentId", "runId", "taskId", "index", "view", "viewError"}
 	case "content.snapshot":
-		return []string{"contentId", "runId", "text", "taskId"}
+		return []string{"contentId", "runId", "text", "taskId", "views"}
 	case "tool.start":
 		return []string{"toolId", "runId", "taskId", "toolName", "toolLabel", "toolDescription"}
 	case "tool.args":

@@ -276,6 +276,8 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 			return r.invokeMCPSearch(args, execCtx), nil
 		case MCPCallToolName:
 			return r.invokeMCPCall(callCtx, args, execCtx), nil
+		case ViewDescribeToolName:
+			return r.invokeViewDescribe(args, execCtx), nil
 		}
 		if handler := r.namedHandler(def.Name); handler != nil {
 			return handler.Invoke(callCtx, def.Name, args, execCtx)

@@ -4,6 +4,7 @@ i18n:
     label: "Run Sandbox Command"
   zh-CN:
     label: "执行沙箱命令"
+activityArgs: [description]
 description: Execute a command inside the sandbox container. Runtime routes to this internal implementation when the agent declares runtimeConfig.environmentId. Uses the same run-authored script and opaque-entry policy as Host Bash, resolving executable identities and verifying mapped script bytes inside the actual container. Failed resolution is conservatively reviewed; host files do not prove container /tmp contents. Optionally include a short Chinese description explaining the command purpose.
 inputSchema:
   type: object

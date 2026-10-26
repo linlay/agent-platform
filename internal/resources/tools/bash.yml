@@ -4,6 +4,7 @@ i18n:
     label: "Run Command"
   zh-CN:
     label: "执行命令"
+activityArgs: [description]
 description: |
   Run allowlisted host shell commands. Windows runs through PowerShell by default; Unix/macOS run through bash/sh.
   Use bash for running commands, tests, builds, package managers, git, and other terminal operations. When file_write/file_edit are available, create or edit files with those tools first, then use bash only to run them.

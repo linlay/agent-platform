@@ -51,7 +51,7 @@ func TestHTTPQueryStreamClosesDuringRootContextShutdown(t *testing.T) {
 	httpServer := newLoopbackServerWithBaseContext(t, fixture.server, rootCtx)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"shutdown me"}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"shutdown me"}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestProxyQueryCancelsUpstreamRequestDuringRootContextShutdown(t *testing.T)
 	httpServer := newLoopbackServerWithBaseContext(t, fixture.server, rootCtx)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"proxy me"}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"proxy me"}`))
 	if err != nil {
 		t.Fatalf("post proxy query: %v", err)
 	}

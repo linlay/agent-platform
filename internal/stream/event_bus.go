@@ -72,6 +72,8 @@ func (o *Observer) Done() <-chan struct{} {
 
 type RunEventBus struct {
 	activeWaits           map[string]EventData
+	activities            map[string]EventData
+	announces             map[string]EventData
 	mu                    sync.RWMutex
 	events                []EventData
 	frozen                bool
@@ -123,13 +125,37 @@ func (b *RunEventBus) Publish(event EventData) {
 		b.activeWaits[key] = event
 	case "tool.result":
 		delete(b.activeWaits, key)
+	case "run.activity":
+		if !IsProgressActivity(event.Type, event.Payload) {
+			break
+		}
+		// A clear is kept too: on attach it follows a resent announcement.
+		if b.activities == nil {
+			b.activities = map[string]EventData{}
+		}
+		b.activities[event.String("taskId")] = event
+		if IsAnnounceActivity(event.Type, event.Payload) {
+			if b.announces == nil {
+				b.announces = map[string]EventData{}
+			}
+			b.announces[event.String("taskId")] = event
+		}
+	case "task.complete", "task.cancel", "task.error":
+		delete(b.activities, event.String("taskId"))
+		delete(b.announces, event.String("taskId"))
 	case "run.complete", "run.cancel", "run.error":
 		b.activeWaits = nil
+		b.activities = nil
+		b.announces = nil
 	}
-	b.events = append(b.events, event)
-	b.latestSeq = event.Seq
-	if len(b.events) == 1 || b.oldestSeq == 0 {
-		b.oldestSeq = event.Seq
+	// A Seq 0 event is a live projection: it reaches current observers but is
+	// not part of the replay log.
+	if event.Seq > 0 {
+		b.events = append(b.events, event)
+		b.latestSeq = event.Seq
+		if len(b.events) == 1 || b.oldestSeq == 0 {
+			b.oldestSeq = event.Seq
+		}
 	}
 	if b.maxEvents > 0 && len(b.events) > b.maxEvents {
 		b.replayTruncated = true
@@ -235,6 +261,21 @@ func (b *RunEventBus) Subscribe(afterSeq int64) (*Observer, error) {
 		snapshot.Payload = clonePayload(wait.Payload)
 		snapshot.Payload["attachSnapshot"] = true
 		replay = append(replay, snapshot)
+	}
+	// The current activity of each scope may predate afterSeq; resend it so
+	// a reattached viewer shows what the Run is doing now. The scope's last
+	// announcement goes first: a viewer that receives only announcements
+	// and clears (detail none) ends on it or its clear, any other ends on
+	// the current activity.
+	for scope, activity := range b.activities {
+		announce, announced := b.announces[scope]
+		if announced && !IsAnnounceActivity(activity.Type, activity.Payload) {
+			replay = append(replay, activitySnapshot(announce))
+		}
+		if activity.String("message") == "" && !announced {
+			continue
+		}
+		replay = append(replay, activitySnapshot(activity))
 	}
 	bufferSize := len(replay) + defaultObserverBuffer
 	if bufferSize < defaultObserverBuffer {
@@ -415,4 +456,11 @@ func (b *RunEventBus) Snapshot() []EventData {
 		}
 	}
 	return result
+}
+
+func activitySnapshot(activity EventData) EventData {
+	snapshot := activity
+	snapshot.Seq = 0
+	snapshot.Payload = clonePayload(activity.Payload)
+	return snapshot
 }

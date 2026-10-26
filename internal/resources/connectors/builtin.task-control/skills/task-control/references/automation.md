@@ -6,9 +6,9 @@ Read [workflow](automation-workflow.md) for natural-language time and execution 
 
 ## Read and preview
 
-- list: `{limit?,offset?}`. limit is an integer 1–100, default 20. Follow nextOffset while hasMore.
+- list: `{limit?,offset?}`. limit is an integer 1–100, default 20. offset is a non-negative integer, default 0. Follow nextOffset while hasMore.
 - get: `{id}` returns automation and baseRevision. Read before every change or trigger.
-- executions: `{id,limit?,offset?}` returns execution summaries and total. History may be unavailable without preventing task management or execution.
+- executions: `{id,limit?,offset?}` returns execution summaries and total, using the same limit/offset rules as list. History may be unavailable without preventing task management or execution.
 - execution: `{executionId}` returns full instructions and result for one execution.
 - validate: complete create arguments below, without saving or approval. Returns valid, normalized automation and up to three calculated schedule times. These are schedule previews, not execution guarantees; paused tasks do not run automatically.
 

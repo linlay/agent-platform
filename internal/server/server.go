@@ -1,6 +1,8 @@
 package server
 
 import (
+	"agent-platform/internal/viewaction"
+	"agent-platform/internal/viewquery"
 	"bufio"
 	"context"
 	"fmt"
@@ -66,6 +68,7 @@ type QueryRuntime interface {
 	GetRunStatus(string) (contracts.RunSnapshot, error)
 
 	ExecuteQueryWithHooks(context.Context, runtimetypes.QueryCommand, runtimetypes.QueryHooks) (runtimetypes.QueryResult, error)
+	Execute(context.Context, runtimetypes.ExecuteCommand) (runtimetypes.ExecuteResult, error)
 	StartQuery(context.Context, runtimetypes.QueryCommand) (runtimetypes.RunHandle, error)
 	AttachRun(context.Context, runtimetypes.RunRef, int64) (*runtimetypes.Subscription, error)
 	Submit(context.Context, runtimetypes.SubmitCommand) (runtimetypes.SubmitResult, error)
@@ -79,6 +82,8 @@ type Dependencies struct {
 	BackgroundContext      context.Context
 	Config                 config.Config
 	Chats                  chat.Store
+	ViewQueries            *viewquery.Service
+	ViewActions            *viewaction.Service
 	Archives               *chat.ArchiveStore
 	Archiver               *chat.Archiver
 	Memory                 *memory.Store

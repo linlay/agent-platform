@@ -80,6 +80,7 @@ func (s *Server) wsQueryForLane(ctx context.Context, conn *ws.Conn, req ws.Reque
 	if principal := PrincipalFromContext(ctx); principal != nil {
 		command.Caller.Subject = strings.TrimSpace(principal.Subject)
 	}
+	command.Detail = req.DetailLevel()
 	handle, err := s.deps.Runtime.StartQuery(ctx, command)
 	if err != nil {
 		s.sendWSQueryStartError(conn, req.ID, err)
@@ -106,7 +107,8 @@ func (s *Server) wsQueryForLane(ctx context.Context, conn *ws.Conn, req ws.Reque
 	}
 	conn.AttachStreamCleanup(req.ID, subscription.Close)
 	forwarding = true
-	conn.StartEventForward(req.ID, subscription.Events, subscription.Close)
+	display := s.chatDisplay(handle.AgentKey, handle.Detail)
+	conn.StartEventForward(req.ID, subscription.Events, subscription.Close, display.EffectiveDetail, display.DefaultDetail)
 }
 
 // wsQueryDetachedRequested peeks the flag before stream admission: a detached
@@ -157,6 +159,7 @@ func (s *Server) wsQueryDetached(ctx context.Context, conn *ws.Conn, req ws.Requ
 	if principal := PrincipalFromContext(ctx); principal != nil {
 		command.Caller.Subject = strings.TrimSpace(principal.Subject)
 	}
+	command.Detail = req.DetailLevel()
 	handle, err := s.deps.Runtime.StartQuery(ctx, command)
 	if err != nil {
 		s.sendWSQueryStartError(conn, req.ID, err)
@@ -241,7 +244,8 @@ func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	if !conn.IsDesktopBTW() && !conn.IsDesktopExplain() {
 		bindRunWebClientTarget(s.deps.Runs, payload.RunID, conn.WebClientTarget())
 	}
-	conn.StartStreamForward(req.ID, observer)
+	display := s.chatDisplay(status.AgentKey, status.Detail)
+	conn.StartStreamForward(req.ID, observer, display.EffectiveDetail, display.DefaultDetail)
 }
 
 func (s *Server) wsDetach(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {

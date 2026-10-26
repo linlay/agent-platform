@@ -4,7 +4,7 @@ i18n:
     label: "Page State"
   zh-CN:
     label: "网页状态"
-description: "Read the state of one webpage. Read the web-control skill before use."
+description: "Read the state of one page. Read the web-control skill before use."
 clientVisible: true
 readOnly: true
 inputSchema:
@@ -12,5 +12,5 @@ inputSchema:
   properties:
     surfaceId:
       type: string
-      description: "Webpage identity."
+      description: "Page surfaceId."
   additionalProperties: false

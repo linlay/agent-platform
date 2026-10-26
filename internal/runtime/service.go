@@ -26,6 +26,7 @@ type Backend interface {
 
 	StartQuery(context.Context, runtimetypes.QueryCommand) (runtimetypes.RunHandle, error)
 	ExecuteQuery(context.Context, runtimetypes.QueryCommand, runtimetypes.QueryHooks) (runtimetypes.QueryResult, error)
+	Execute(context.Context, runtimetypes.ExecuteCommand) (runtimetypes.ExecuteResult, error)
 	PrepareRunStart(context.Context, contracts.RunStartRequest) (contracts.RunStartPlan, error)
 	StartRun(context.Context, contracts.RunStartRequest) (contracts.RunSnapshot, error)
 	RunStatus(string) (contracts.RunSnapshot, error)
@@ -140,6 +141,15 @@ func (s *Service) ExecuteQueryWithHooks(ctx context.Context, cmd runtimetypes.Qu
 		return runtimetypes.QueryResult{}, err
 	}
 	return backend.ExecuteQuery(ctx, cmd, hooks)
+}
+
+// Execute runs one /api/execute call and waits for its accepted result.
+func (s *Service) Execute(ctx context.Context, cmd runtimetypes.ExecuteCommand) (runtimetypes.ExecuteResult, error) {
+	backend, err := s.current()
+	if err != nil {
+		return runtimetypes.ExecuteResult{}, err
+	}
+	return backend.Execute(ctx, cmd)
 }
 
 func (s *Service) PrepareRunStart(ctx context.Context, request contracts.RunStartRequest) (contracts.RunStartPlan, error) {

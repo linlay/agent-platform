@@ -1,0 +1,487 @@
+{
+  "views": {
+    "agents": {
+      "title": "Agents",
+      "description": "List public Agents, including TEAM Agents.",
+      "renderer": "html",
+      "usage": [
+        "display"
+      ],
+      "entry": "views/agents.html",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "all",
+              "valid",
+              "invalid"
+            ],
+            "description": "Initial status filter; default all."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size; default 20."
+          }
+        }
+      },
+      "queries": {
+        "list": {
+          "description": "List agents.",
+          "adapter": "native",
+          "operation": "catalog.list",
+          "paramsSchema": {
+            "type": "object",
+            "required": [
+              "resourceType"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "resourceType": {
+                "enum": [
+                  "agent"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "all",
+                  "valid",
+                  "invalid"
+                ]
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "cursor": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "assets": [
+        "views/list.css",
+        "views/list.js"
+      ]
+    },
+    "connectors": {
+      "title": "Connectors",
+      "description": "List installed connectors and their components.",
+      "renderer": "html",
+      "usage": [
+        "display"
+      ],
+      "entry": "views/connectors.html",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "all",
+              "valid",
+              "invalid"
+            ],
+            "description": "Initial status filter; default all."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size; default 20."
+          }
+        }
+      },
+      "queries": {
+        "list": {
+          "description": "List connectors.",
+          "adapter": "native",
+          "operation": "catalog.list",
+          "paramsSchema": {
+            "type": "object",
+            "required": [
+              "resourceType"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "resourceType": {
+                "enum": [
+                  "connector"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "all",
+                  "valid",
+                  "invalid"
+                ]
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "cursor": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "assets": [
+        "views/list.css",
+        "views/list.js"
+      ]
+    },
+    "providers": {
+      "title": "Providers",
+      "description": "List locally configured model providers.",
+      "renderer": "html",
+      "usage": [
+        "display"
+      ],
+      "entry": "views/providers.html",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "all",
+              "valid",
+              "invalid"
+            ],
+            "description": "Initial status filter; default all."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size; default 20."
+          }
+        }
+      },
+      "queries": {
+        "list": {
+          "description": "List providers.",
+          "adapter": "native",
+          "operation": "catalog.list",
+          "paramsSchema": {
+            "type": "object",
+            "required": [
+              "resourceType"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "resourceType": {
+                "enum": [
+                  "provider"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "all",
+                  "valid",
+                  "invalid"
+                ]
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "cursor": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "assets": [
+        "views/list.css",
+        "views/list.js"
+      ]
+    },
+    "models": {
+      "title": "Models",
+      "description": "List locally loaded models.",
+      "renderer": "html",
+      "usage": [
+        "display"
+      ],
+      "entry": "views/models.html",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "all",
+              "valid",
+              "invalid"
+            ],
+            "description": "Initial status filter; default all."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size; default 20."
+          }
+        }
+      },
+      "queries": {
+        "list": {
+          "description": "List models.",
+          "adapter": "native",
+          "operation": "catalog.list",
+          "paramsSchema": {
+            "type": "object",
+            "required": [
+              "resourceType"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "resourceType": {
+                "enum": [
+                  "model"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "all",
+                  "valid",
+                  "invalid"
+                ]
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "cursor": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "assets": [
+        "views/list.css",
+        "views/list.js"
+      ]
+    },
+    "skills": {
+      "title": "Skills",
+      "description": "List Skill-center members.",
+      "renderer": "html",
+      "usage": [
+        "display"
+      ],
+      "entry": "views/skills.html",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "all",
+              "valid",
+              "invalid"
+            ],
+            "description": "Initial status filter; default all."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size; default 20."
+          }
+        }
+      },
+      "queries": {
+        "list": {
+          "description": "List skills.",
+          "adapter": "native",
+          "operation": "catalog.list",
+          "paramsSchema": {
+            "type": "object",
+            "required": [
+              "resourceType"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "resourceType": {
+                "enum": [
+                  "skill"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "all",
+                  "valid",
+                  "invalid"
+                ]
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "cursor": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "assets": [
+        "views/list.css",
+        "views/list.js"
+      ]
+    },
+    "tools": {
+      "title": "Standalone tools",
+      "description": "List standalone tools.",
+      "renderer": "html",
+      "usage": [
+        "display"
+      ],
+      "entry": "views/tools.html",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "all",
+              "valid",
+              "invalid"
+            ],
+            "description": "Initial status filter; default all."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size; default 20."
+          }
+        }
+      },
+      "queries": {
+        "list": {
+          "description": "List standalone tools.",
+          "adapter": "native",
+          "operation": "catalog.list",
+          "paramsSchema": {
+            "type": "object",
+            "required": [
+              "resourceType"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "resourceType": {
+                "enum": [
+                  "tool"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "all",
+                  "valid",
+                  "invalid"
+                ]
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "cursor": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "assets": [
+        "views/list.css",
+        "views/list.js"
+      ]
+    },
+    "mcp": {
+      "title": "MCP components",
+      "description": "List locally declared MCP components.",
+      "renderer": "html",
+      "usage": [
+        "display"
+      ],
+      "entry": "views/mcp.html",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "all",
+              "valid",
+              "invalid"
+            ],
+            "description": "Initial status filter; default all."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size; default 20."
+          }
+        }
+      },
+      "queries": {
+        "list": {
+          "description": "List mcp components.",
+          "adapter": "native",
+          "operation": "catalog.list",
+          "paramsSchema": {
+            "type": "object",
+            "required": [
+              "resourceType"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "resourceType": {
+                "enum": [
+                  "mcp"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "all",
+                  "valid",
+                  "invalid"
+                ]
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "cursor": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "assets": [
+        "views/list.css",
+        "views/list.js"
+      ]
+    }
+  }
+}

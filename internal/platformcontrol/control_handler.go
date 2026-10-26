@@ -172,6 +172,9 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		if plan.Change.IsProject {
 			form["isProject"] = true
 		}
+		if plan.DetachedAgentKeys != nil {
+			form["detachedAgentKeys"] = plan.DetachedAgentKeys
+		}
 		if plan.KnowledgeBinding != nil {
 			form["knowledgeBinding"] = plan.KnowledgeBinding
 		}
@@ -371,16 +374,28 @@ func (h *ToolHandler) catalogQuery(ctx context.Context, action string, p map[str
 			return
 		}
 		items = append(items, map[string]any{"resourceKey": key, "resourceType": t.ResourceType, "valid": valid, "diagnostics": diagnostics})
+		if t.ResourceType == "skill" && valid {
+			if skill, ok := h.registry.SkillDefinition(key); ok {
+				item := items[len(items)-1]
+				item["name"], item["description"] = skill.Name, skill.Description
+			}
+		}
 	}
 	switch t.ResourceType {
 	case "tool":
 		for _, v := range h.registry.Tools("") {
 			add(v.Name, true, nil)
+			if status != "invalid" {
+				items[len(items)-1]["description"] = v.Description
+			}
 		}
 	case "model":
 		if h.models != nil {
 			for _, v := range h.models.List() {
 				add(v.Key, true, nil)
+				if status != "invalid" {
+					items[len(items)-1]["definition"] = publicControlModel(v)
+				}
 			}
 		}
 	case "provider":

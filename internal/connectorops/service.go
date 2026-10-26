@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -14,6 +13,7 @@ import (
 
 	"agent-platform/internal/connector"
 	"agent-platform/internal/connectorauth"
+	"agent-platform/internal/hostenv"
 	"agent-platform/internal/mcp"
 )
 
@@ -30,11 +30,13 @@ type Scope struct {
 	IdempotencyNamespace string
 	Execution            []Permission
 	Check                func() error
+	Audit                map[string]any
 }
 type Request struct {
 	ConnectorID        string         `json:"connectorId"`
 	Adapter            string         `json:"adapter"`
 	Args               []string       `json:"args,omitempty"`
+	Stdin              string         `json:"stdin,omitempty"`
 	Component          string         `json:"component,omitempty"`
 	ToolName           string         `json:"toolName,omitempty"`
 	Arguments          map[string]any `json:"arguments,omitempty"`
@@ -113,7 +115,7 @@ func validateRequest(req Request) error {
 			}
 		}
 	case "mcp":
-		if req.Args != nil || req.Component == "" || len(req.Component) > 256 || req.ToolName == "" || len(req.ToolName) > 256 || req.Arguments == nil {
+		if req.Stdin != "" || req.Args != nil || req.Component == "" || len(req.Component) > 256 || req.ToolName == "" || len(req.ToolName) > 256 || req.Arguments == nil {
 			return failure("invalid_arguments", 400)
 		}
 	default:
@@ -179,14 +181,9 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 		// A transient or malformed status is not an authentication rejection.
 		return result, failure("connector_unavailable", 503)
 	}
-	// Keep the package stable through dispatch, including cross-process imports.
-	if !pkg.Builtin {
-		release, lockErr := connector.AcquireOperation(s.Sources.ExternalRoot, req.ConnectorID)
-		if lockErr != nil {
-			return result, failure("connector_busy", 409)
-		}
-		defer release()
-	}
+	// Business calls do not exclude each other or source mutations, like an
+	// Agent's own CLI calls: the program runs from a leased installation, and a
+	// package changed meanwhile is caught by the revision check below.
 	pkg, err = s.Sources.Load(req.ConnectorID)
 	if err != nil {
 		return result, failure("connector_unavailable", 503)
@@ -224,7 +221,7 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 		}()
 	}
 	if req.Adapter == "cli" {
-		result, err = callCLI(ctx, pkg, req.Args, revision)
+		result, err = callCLI(ctx, auth, pkg, req.Args, revision, req.Stdin)
 	} else {
 		result.MCP, err = callMCP(ctx, pkg, req.Component, req.ToolName, req.Arguments)
 	}
@@ -291,21 +288,14 @@ func credentialFailure(err error) error {
 }
 
 // revision is the credential revision reported with the result. A token account
-// read for this execution must be that same revision.
-func callCLI(ctx context.Context, pkg connector.Package, args []string, revision string) (Result, error) {
+// read for this execution must be that same revision. The base environment is
+// the one Host Bash and the connector lifecycle use; only this connector's
+// credentials are added.
+func callCLI(ctx context.Context, auth *connectorauth.Manager, pkg connector.Package, args []string, revision string, stdin ...string) (Result, error) {
 	var result Result
-	env := []string{}
-	for _, name := range []string{"PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL"} {
-		if value, ok := os.LookupEnv(name); ok {
-			env = append(env, name+"="+value)
-		}
-	}
-	values, err := pkg.CLIConfigEnvironment()
+	env, err := auth.ExecutionEnvironment(pkg)
 	if err != nil {
 		return result, failure("connector_unavailable", 503)
-	}
-	for k, v := range values {
-		env = append(env, k+"="+v)
 	}
 	binding, err := connectorauth.CLIEnvironment(pkg)
 	if err != nil {
@@ -319,16 +309,20 @@ func callCLI(ctx context.Context, pkg connector.Package, args []string, revision
 		return result, failure("connector_auth_expired", 401)
 	}
 	for k, v := range credentials {
-		env = append(env, k+"="+v)
+		env = hostenv.Set(env, k, v)
 	}
-	cmd, err := connectorauth.ExecutionCommand(ctx, pkg, args, env)
+	cmd, release, err := connectorauth.ExecutionCommand(ctx, pkg, args, env)
 	if errors.Is(err, connectorauth.ErrPreparationRequired) {
 		return result, failure("connector_preparation_required", 409)
 	}
 	if err != nil {
 		return result, failure("connector_cli_unavailable", 503)
 	}
+	defer release()
 	var out, diagnostic boundedBuffer
+	if len(stdin) > 0 {
+		cmd.Stdin = strings.NewReader(stdin[0])
+	}
 	cmd.Stdout = &out
 	cmd.Stderr = &diagnostic
 	cmd.WaitDelay = time.Second

@@ -118,35 +118,42 @@ func TestDesktopControlPresentationAndHostOwnedActions(t *testing.T) {
 	}
 }
 
-// The paired Desktop checkout must exempt every reviewed action, or default
-// mode would prompt twice. Market mutation must remain Desktop-owned.
+// Desktop asks the built-in Agent Platform entry only for actions whose
+// confirmation is "always". Every action Platform reviews must therefore not be
+// "always", or default mode would prompt twice; market mutation stays
+// Desktop-owned and must be "always".
 func TestDesktopControlReviewsMatchDesktopExemptions(t *testing.T) {
 	root := os.Getenv("DESKTOP_SOURCE")
 	explicit := root != ""
 	if !explicit {
 		root = filepath.Join("..", "..", "..", "zenmind-desktop")
 	}
-	source, err := os.ReadFile(filepath.Join(root, "src", "main", "modules", "desktop-actions", "action-contracts.ts"))
+	source, err := os.ReadFile(filepath.Join(root, "src", "shared", "desktop-actions.ts"))
 	if !explicit && os.IsNotExist(err) {
 		t.Skip("Desktop checkout absent")
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	block := regexp.MustCompile(`(?s)AGENT_PLATFORM_CONFIRMATION_EXEMPT_ACTIONS = new Set\(\[(.*?)\]\)`).FindSubmatch(source)
-	if len(block) != 2 {
-		t.Fatal("Desktop exemption list not found")
+	confirmation := map[string]string{}
+	entry := regexp.MustCompile(`\{\s*name:\s*"desktop\.([\w.]+)"[^\n]*`)
+	tier := regexp.MustCompile(`confirmation:\s*"(none|external|always)"`)
+	for _, m := range entry.FindAllSubmatch(source, -1) {
+		value := "none"
+		if found := tier.FindSubmatch(m[0]); found != nil {
+			value = string(found[1])
+		}
+		confirmation[string(m[1])] = value
 	}
-	exempt := map[string]bool{}
-	for _, m := range regexp.MustCompile(`"desktop\.([\w.]+)"`).FindAllSubmatch(block[1], -1) {
-		exempt[string(m[1])] = true
+	if len(confirmation) == 0 {
+		t.Fatal("Desktop action definitions not found")
 	}
 	for _, a := range connector.ControlActions() {
-		if desktopControlReviewAction(a.Tool, a.Action) && !exempt[a.Action] {
+		if desktopControlReviewAction(a.Tool, a.Action) && confirmation[a.Action] == "always" {
 			t.Errorf("double confirmation for %s", a.Action)
 		}
-		if a.Tool == "desktop_market" && !a.ReadOnly && a.Action != "market.refresh" && a.Action != "market.openItem" && exempt[a.Action] {
-			t.Errorf("market resource management bypasses Desktop: %s", a.Action)
+		if a.Tool == "desktop_market" && !a.ReadOnly && a.Action != "market.refresh" && a.Action != "market.openItem" && confirmation[a.Action] != "always" {
+			t.Errorf("market resource management bypasses Desktop: %s (%q)", a.Action, confirmation[a.Action])
 		}
 	}
 }

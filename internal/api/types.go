@@ -1338,13 +1338,19 @@ type MarkChatReadResponse struct {
 	UpdatedCount     int           `json:"updatedCount"`
 }
 
+type EventDisplay struct {
+	DefaultDetail   stream.DetailLevel `json:"defaultDetail"`
+	EffectiveDetail stream.DetailLevel `json:"effectiveDetail"`
+}
+
 type ChatDetailResponse struct {
-	CanContinue bool   `json:"canContinue"`
-	Pinned      bool   `json:"pinned"`
-	ChatID      string `json:"chatId"`
-	ChatName    string `json:"chatName"`
-	AgentKey    string `json:"agentKey,omitempty"`
-	Mode        string `json:"mode,omitempty"`
+	Display     EventDisplay `json:"display"`
+	CanContinue bool         `json:"canContinue"`
+	Pinned      bool         `json:"pinned"`
+	ChatID      string       `json:"chatId"`
+	ChatName    string       `json:"chatName"`
+	AgentKey    string       `json:"agentKey,omitempty"`
+	Mode        string       `json:"mode,omitempty"`
 
 	CreatedAt      int64               `json:"createdAt"`
 	UpdatedAt      int64               `json:"updatedAt"`
@@ -1432,6 +1438,8 @@ type ActiveRunInfo struct {
 	EditingMode        bool   `json:"editingMode"`
 	AccessLevel        string `json:"accessLevel"`
 	AccessLevelVersion int64  `json:"accessLevelVersion"`
+	// Detail is the delivery level fixed when the Run started.
+	Detail stream.DetailLevel `json:"detail"`
 }
 
 type FeedbackRequest struct {

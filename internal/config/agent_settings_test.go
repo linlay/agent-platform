@@ -327,3 +327,109 @@ func TestShippedExamplesDeclarePlanningModeDefaults(t *testing.T) {
 		t.Fatalf("expected shared and CODER planning prompts in the example")
 	}
 }
+
+func TestViewPromptsLoadAndRequireBothKeys(t *testing.T) {
+	var c Config
+	body := "shared:\n  view:\n    instructions-prompt: |\n      view rules\n    catalog-header: Views:\n"
+	if err := c.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", body)); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(c.Prompts.View.InstructionsPrompt) != "view rules" || c.Prompts.View.CatalogHeader != "Views:" {
+		t.Fatalf("view prompts: %#v", c.Prompts.View)
+	}
+	for _, body := range []string{
+		"shared:\n  view:\n    catalog-header: Views:\n",
+		"shared:\n  view:\n    instructions-prompt: rules\n",
+		"shared:\n  view:\n    instructions-prompt: rules\n    catalog-header: Views:\n    label: x\n",
+	} {
+		var cfg Config
+		if err := cfg.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", body)); err == nil {
+			t.Fatalf("accepted %q", body)
+		}
+	}
+}
+
+func TestAnnouncePromptLoads(t *testing.T) {
+	var c Config
+	body := "shared:\n  announce:\n    instructions-prompt: |\n      announce rules\n"
+	if err := c.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", body)); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(c.Prompts.Announce.InstructionsPrompt) != "announce rules" {
+		t.Fatalf("announce prompt: %#v", c.Prompts.Announce)
+	}
+	var cfg Config
+	if err := cfg.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", "shared:\n  announce:\n    label: x\n")); err == nil {
+		t.Fatal("accepted unknown announce key")
+	}
+	var shipped Config
+	if err := shipped.applyAgentPromptFile(ProjectFile("configs/agent-prompt.example.yml")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(shipped.Prompts.Announce.InstructionsPrompt, "{{announce_tool_name}}") {
+		t.Fatalf("example announce prompt: %q", shipped.Prompts.Announce.InstructionsPrompt)
+	}
+}
+
+func TestShippedAgentPromptExampleConfiguresViewProtocol(t *testing.T) {
+	var c Config
+	if err := c.applyAgentPromptFile(ProjectFile("configs/agent-prompt.example.yml")); err != nil {
+		t.Fatal(err)
+	}
+	// The model only learns the fence header from this prompt; without it the
+	// blocks it writes carry no key and every view fails to bind.
+	if !strings.Contains(c.Prompts.View.InstructionsPrompt, "```view key=<key>,") || strings.Contains(c.Prompts.View.InstructionsPrompt, "query=") || !strings.Contains(c.Prompts.View.InstructionsPrompt, "view_describe") || strings.TrimSpace(c.Prompts.View.CatalogHeader) == "" {
+		t.Fatalf("example view prompts: %#v", c.Prompts.View)
+	}
+}
+
+func TestExecutorSettingsAndPresetConnectorsOfEveryMode(t *testing.T) {
+	path := configFixture(t, "agent-settings.yml", `preset-tools:
+  - datetime
+general:
+  preset-tools:
+    - ask_user_question
+  preset-connectors:
+    - builtin.task-control
+team:
+  preset-connectors:
+    - builtin.web-control
+executor:
+  preset-tools:
+    - result_submit
+  default-agent:
+    modelKey: exec-model
+  workspace-agents:
+    file: RULES.md
+`)
+	var cfg Config
+	if err := cfg.applyAgentSettingsFile(path); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.PresetsForMode("EXECUTOR"); !reflect.DeepEqual(got.Tools, []string{"datetime", "result_submit"}) || len(got.Connectors) != 0 {
+		t.Fatalf("executor presets took other modes' entries: %#v", got)
+	}
+	if cfg.ExecutorSettings.DefaultAgent.ModelKey != "exec-model" || cfg.WorkspaceAgentsForMode("EXECUTOR").File != "RULES.md" {
+		t.Fatalf("executor settings: %#v", cfg.ExecutorSettings)
+	}
+	// Mode-level connectors count as preset references for every mode, TEAM included.
+	if got := cfg.AllPresetConnectors(); !reflect.DeepEqual(got, []string{"builtin.task-control", "builtin.web-control"}) {
+		t.Fatalf("preset connectors = %v", got)
+	}
+}
+
+func TestShippedAgentSettingsPresetViewDescribeForGeneralAndCoder(t *testing.T) {
+	var cfg Config
+	if err := cfg.applyAgentSettingsFile(ProjectFile("configs/agent-settings.example.yml")); err != nil {
+		t.Fatal(err)
+	}
+	for mode, want := range map[string]bool{"GENERAL": true, "CODER": true, "KBASE": false, "TEAM": false, "EXECUTOR": false} {
+		has := false
+		for _, tool := range cfg.PresetsForMode(mode).Tools {
+			has = has || tool == "view_describe"
+		}
+		if has != want {
+			t.Fatalf("%s view_describe preset = %v", mode, has)
+		}
+	}
+}

@@ -82,7 +82,7 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/skill-candidates` | query: `agentKey` | skill candidate 列表 |
 | GET | `/api/model-options` | 无 | 聊天运行时可选模型与思考深度 |
 
-`/api/agents` 的 `scope` 可取 `nav`、`copilot`、`invoke`、`internal`、`all`，省略时为 `all`；`includeChats` 为 `0..50`，省略时不附带 chat。可选 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `GENERAL`、`CODER`、`KBASE`、`TEAM`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）；`REACT` 仅在历史 Chat/Run 数据读取时兼容，作为筛选输入返回 400。`PLAN_EXECUTE`、`ONESHOT`、ACP 别名和未知值均返回 400。响应的 `mode` 统一返回 `GENERAL`，并附带 `engine`（`native` / `acp`，PROXY 与 CHANNEL 不返回）。`mode` 与 `scope` 为 AND，筛选普通 agent catalog 自身的 `mode`，不改变 `includeChats` 按 agentKey 获取 chat 的规则。
+`/api/agents` 的 `scope` 可取 `nav`、`copilot`、`invoke`、`internal`、`all`，省略时为 `all`；`includeChats` 为 `0..50`，省略时不附带 chat。可选 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `GENERAL`、`CODER`、`KBASE`、`TEAM`、`EXECUTOR`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）；`REACT` 仅在历史 Chat/Run 数据读取时兼容，作为筛选输入返回 400。`PLAN_EXECUTE`、`ONESHOT`、ACP 别名和未知值均返回 400。响应的 `mode` 统一返回 `GENERAL`，并附带 `engine`（`native` / `acp`，PROXY 与 CHANNEL 不返回）。`mode` 与 `scope` 为 AND，筛选普通 agent catalog 自身的 `mode`，不改变 `includeChats` 按 agentKey 获取 chat 的规则。
 
 `hasWorkspace` 是可选布尔筛选，作用于 Agent catalog 本身：`true` 只返回配置了具体项目目录的 Agent，`false` 只返回没有的 Agent（未配置 Workspace 或使用 `@root`），省略时不筛选；与 `scope`、`mode` 为 AND 关系。TEAM 按自身 Workspace 配置参与筛选。取值规则与 `chatsPinned` 相同。
 
@@ -138,7 +138,7 @@ Agent 创建的请求级 `isProject:true` 要求 `definition.runtimeConfig.works
 | GET/PUT | `/api/admin/agents/connectors` | GET: query `agentKey`；PUT: `{agentKey,connectorId,enabled}` | 完整配置、预置、声明和已生效挂载状态；预置切换返回 403 |
 | GET | `/api/connectors/icon` | query: `id`；可选缓存标识 `v` | 显式配置或默认规则选中的 SVG/PNG 图片；沿用服务鉴权，支持 ETag/304，缺失返回 404 |
 | GET/PUT | `/api/admin/connectors/detail` | GET: `id/file`；PUT: `id/file/content/baseSha256` | 读取或原子保存连接器定义，旧 MCP Registry 管理接口已移除 |
-| DELETE | `/api/admin/connectors/detail?id=<id>` | 外部连接器 id | 删除未被 Agent 引用的安装包，返回 `{id,deleted:true}`；内置包 403、仍被引用 409（`data.error.agentKeys`）、不存在 404；保留授权与 CLI 状态，重载失败回滚 |
+| DELETE | `/api/admin/connectors/detail?id=<id>` | 外部连接器 id | 无活动运行占用时自动移除 Agent 源码挂载并删除包、授权与 CLI 状态，返回 `{id,deleted:true}`；内置包 403、运行占用 409 `connector_in_use`（`data.error.agentKeys`）、预置引用 409 `preset_connector_readonly`、挂载修改冲突 409 `connector_detach_conflict`、不存在 404；重载失败回滚，提交后清理失败可重试 |
 | POST | `/api/admin/connectors/import` | multipart `file` ZIP、可选 `overwrite` | 原子安装或覆盖外部连接器 |
 | POST | `/api/admin/connectors/import-mcp` | JSON `mcpUrl`、可选 `authMode`（mcp/none，缺省 mcp） | 按主机名创建 HTTP MCP 连接器，重名不覆盖；见[安装与授权](连接器安装与授权.md#mcp-地址导入) |
 | GET/POST/DELETE | `/api/admin/connectors/auth?id=<id>` | 连接器 id | 查询状态、发起登录、退出登录 |
@@ -236,7 +236,7 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 | GET | `/api/chats` | query: `lastRunId`、`agentKey`、`mode`、`pinned`、`hasWorkspace`、`limit` | chat 摘要列表 |
 | GET | `/api/chats/order` | 无 | 当前 `sortMode`、完整有序 `pinnedChats`、兼容投影 `pinnedOrder` 与可选 `updatedAt` |
 | PUT | `/api/chats/order` | body: `set_mode`、`move` 或 `set_pinned` operation | 更新后的 `sortMode`、`pinnedOrder` 与 `updatedAt` |
-| GET | `/api/chat` | query: `chatId`、`includeRawMessages` | chat 详情，默认含 events |
+| GET | `/api/chat` | query: `chatId`、`includeRawMessages`、`detail` | chat 详情，默认含 events；`detail` 见 [细节等级](#细节等级与-runactivity) |
 | POST | `/api/chats/search` | body: `query`、`agentKey`、`limit` | 全局 chat 搜索结果 |
 | POST | `/api/read` | body: `chatId` | 标记已读结果 |
 | POST | `/api/feedback` | body: `chatId`、`runId`、`messageId`、`rating`、`reason` | feedback 写入结果 |
@@ -256,7 +256,7 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 
 `/api/chats` 和 `/api/chat` 的历史发现、owner 和回放不要求当前 Agent 配置有效；Agent 详情的 404 不代表 Chat 不存在。客户端应独立加载历史与当前执行配置，保留 Chat 自身的认证、缺失及损坏错误，不能通过历史读取恢复无效 Agent 的 query 能力。详见 [历史读取与当前 Agent 可用性](会话存储与回放.md#历史读取与当前-agent-可用性)。
 
-`/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `GENERAL`、`CODER`、`KBASE`、`TEAM`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）。通用类型的筛选输入只接受 `GENERAL`，传入 `REACT` 返回 400；`GENERAL` 同时匹配历史保存的 `REACT` 和新的 `GENERAL` chat。可选布尔 `hasWorkspace` 按 chat 所属 Agent 当前是否配置了具体项目目录筛选（未配置 Workspace 或使用 `@root` 都视为没有）：`true` 只返回项目型 Agent 的 chat；`false` 排除它们，同时保留 Agent 已不在 catalog 中的 chat。它与 `mode`、`pinned` 为 AND 关系，并在 `limit` 截断之前生效。HTTP 只接受单个 `true` 或 `false` 字符串，WebSocket 使用同名 JSON boolean，其他值返回 400；旧 `agentType` 参数或 payload 返回 400，调用方应改用 `hasWorkspace`。`pinned=true` 按置顶 ID 直接读取；`pinned=false` 且实例排序为 `recent` 时，`limit` 在读取阶段生效，只为返回的 chat 计算完整摘要。旧别名和未知值均返回 400。筛选与 agentKey、lastRunId 为 AND 关系，TEAM Chat 也遵循这些筛选。显式 agentKey 只返回该根 Agent 的 Chat。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时必须在全部筛选和当前实例级排序后截断，不能先取最近记录再局部重排。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset 或分页游标。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。
+`/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `GENERAL`、`CODER`、`KBASE`、`TEAM`、`EXECUTOR`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）。通用类型的筛选输入只接受 `GENERAL`，传入 `REACT` 返回 400；`GENERAL` 同时匹配历史保存的 `REACT` 和新的 `GENERAL` chat。可选布尔 `hasWorkspace` 按 chat 所属 Agent 当前是否配置了具体项目目录筛选（未配置 Workspace 或使用 `@root` 都视为没有）：`true` 只返回项目型 Agent 的 chat；`false` 排除它们，同时保留 Agent 已不在 catalog 中的 chat。它与 `mode`、`pinned` 为 AND 关系，并在 `limit` 截断之前生效。HTTP 只接受单个 `true` 或 `false` 字符串，WebSocket 使用同名 JSON boolean，其他值返回 400；旧 `agentType` 参数或 payload 返回 400，调用方应改用 `hasWorkspace`。`pinned=true` 按置顶 ID 直接读取；`pinned=false` 且实例排序为 `recent` 时，`limit` 在读取阶段生效，只为返回的 chat 计算完整摘要。旧别名和未知值均返回 400。筛选与 agentKey、lastRunId 为 AND 关系，TEAM Chat 也遵循这些筛选。显式 agentKey 只返回该根 Agent 的 Chat。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时必须在全部筛选和当前实例级排序后截断，不能先取最近记录再局部重排。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset 或分页游标。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。
 
 `/api/chats` 的可选 `pinned` 与其他筛选按 AND 组合：`true` 只取置顶组，`false` 只取未置顶组，省略则取全部且置顶组在前。HTTP 只接受单个 `true` / `false`，WebSocket 只接受 JSON boolean；非法值返回 400。筛选和各组排序均在 `limit` 截断之前完成。例如 `mode=GENERAL&pinned=false&limit=8` 返回最多 8 条未置顶的匹配记录，不会让置顶项占用这 8 个位置。获取完整跨 mode 置顶组使用 `/api/chats?pinned=true`，不传 `mode` 或 `limit`。
 
@@ -279,7 +279,7 @@ PUT/WS mutation 继续返回轻量 `sortMode/pinnedOrder/updatedAt`，不附带 
 HTTP 与 WebSocket 使用相同字段和错误语义；WebSocket 空 payload 相当于 GET。成功 mutation 仅修改展示偏好，不修改 Chat `updatedAt`、owner、内容或已读状态；成功修改后广播 `chats.order.changed {updatedAt}`，客户端重读列表对账。归档或删除清理对应置顶 ID，并沿用既有 lifecycle Push；恢复归档不恢复置顶。
 
 
-Chat 列表摘要、`/api/agents?includeChats` 中的摘要和 `/api/chat` 详情顶层固定返回 `pinned` boolean。chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/agents?includeChats` 及 archive detail 中的共享 `runs[]` 均返回每次 run 的可选 `mode`。普通 agent 持久化规范 API mode（例如 `GENERAL`、`CODER`、`KBASE`、`TEAM`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`）；TEAM Agent 保存 `TEAM`。历史 chat/run 不根据当前 catalog 回填或转换，原始 mode 仅用于历史读取，不能作为当前筛选或运行输入；唯一的例外是改名前保存的 `REACT`：存储行与 JSONL 保持原值不改写，响应中统一以 `GENERAL` 返回，并可被 `mode=GENERAL` 筛选命中；TEAM Chat 按同样的 mode 规则筛选。
+Chat 列表摘要、`/api/agents?includeChats` 中的摘要和 `/api/chat` 详情顶层固定返回 `pinned` boolean。chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/agents?includeChats` 及 archive detail 中的共享 `runs[]` 均返回每次 run 的可选 `mode`。普通 agent 持久化规范 API mode（例如 `GENERAL`、`CODER`、`KBASE`、`TEAM`、`EXECUTOR`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`）；TEAM Agent 保存 `TEAM`。历史 chat/run 不根据当前 catalog 回填或转换，原始 mode 仅用于历史读取，不能作为当前筛选或运行输入；唯一的例外是改名前保存的 `REACT`：存储行与 JSONL 保持原值不改写，响应中统一以 `GENERAL` 返回，并可被 `mode=GENERAL` 筛选命中；TEAM Chat 按同样的 mode 规则筛选。
 
 `/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 摘要，以及 `/api/chat` 详情顶层在新数据中可包含 `source`，表示 chat 首次创建来源。当前只记录 query 与 automation 两类：`query` / `query:<user>` 表示由 query 创建，`automation:<automationId>` 表示由 automation 创建。旧数据为空、上传创建或派生创建时省略。channel 远程用户调用本机智能体仍属于 query source；gateway 可在受信 channel 请求中传 `sourceUser`，否则服务端会从形如 `channel#single#user1#...` 的 chatId 中取远端用户段作为 `query:<user>`。`sourceChannel` 是 gateway/channel 路由标签，不承载 query / automation 语义。
 
@@ -371,8 +371,9 @@ Automation 只配置 `agentKey`，TEAM 也按普通 Agent 准入执行。
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| POST | `/api/query` | body: `lane`（默认 `main`，可选 `btw`）、`sideId`（旁路分支续问）、`message`、`agentKey`、`chatId`、`runId`、`requestId`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
-| GET | `/api/attach` | query: `runId`、根 `agentKey`、`lastSeq` | 按公开 owner 续接 run 的 SSE stream |
+| POST | `/api/execute` | body（JSON 或 multipart 的 `request` 字段）: `agentKey`、`message`、`outputSchema`、`input`、`requestId`、`accessLevel`；multipart 其余字段为输入文件 | 等待 Run 结束，返回 `result_submit` 的 `{chatId,status,output|reason}`；契约见 [智能体执行接口](智能体执行接口.md) |
+| POST | `/api/query` | query: `detail`；body: `lane`（默认 `main`，可选 `btw`）、`sideId`（旁路分支续问）、`message`、`agentKey`、`chatId`、`runId`、`requestId`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
+| GET | `/api/attach` | query: `runId`、根 `agentKey`、`lastSeq` | 按公开 owner 续接 run 的 SSE stream，档位为 Run 受理时冻结的 `detail`，不接受 `detail` 参数 |
 | POST | `/api/submit` | body: 根 `agentKey`、`runId`、`awaitingId`，以及 `params`（question/approval 的数组）或 `param`（planning/form 的单个对象），二选一 | HITL submit ack |
 | POST | `/api/steer` | body: 根 `agentKey`、`runId`、`message`、`requestId`、`chatId`、`steerId`、`references` | steer ack |
 | POST | `/api/interrupt` | body: 根 `agentKey`、`runId`、`message`、`requestId`、`chatId` | interrupt ack |
@@ -545,7 +546,43 @@ Native Query 的 SSE、`stream:false` 和进程内阻塞调用共用同一执行
 
 TEAM 总控的普通工具与 reasoning 沿普通 Agent 事件链路；内部 `agent_delegate` 不展示工具卡。成员输出继续使用现有 `task.*` 与 task-scoped `content.*`：成员事件带 `taskId`，携带成员 `agentKey`、`presentation:"task"`，并在 `actor` 中标记 `type:"agent"`。一项和多项委派使用相同终止规则，成员正文不会成为根回答；最终非流式 `content`、run summary 与 `AssistantText` 只取总控生成的唯一 Team 最终正文。
 
-`run.activity` 是运行中的非终止状态事件，用于展示当前 run 正在等待、运行、重试或完成某个活动阶段。基础字段为 `runId`、`chatId`、`phase`、`status`；可选字段包括 `taskId`、`backend`、`key`、`message`，以及按场景嵌套的 `retry` / `recovery` / `degradation` 对象。当前 native 模型调用使用 `phase:"model_call"`，可恢复重试使用 `status:"retrying"` 且把 `attempt`、`maxAttempts`、`reason`、`timeoutSeconds`、`elapsedMs` 放入 `retry`。重试的 `retry.error` 保留公共结构化错误（错误码、消息及诊断），供客户端明确展示重试原因。普通重试还携带 `retry.delayMs`（本次计划等待毫秒数）与 `retry.retryAt`（最早重试时间，epoch ms），顶层 `runSeq` 标识模型轮次；`attempt` 包含首次请求，客户端重试序号展示为 `attempt-1` / `maxAttempts-1`。等待前先发出事件，message 明确说明序号及等待秒数；等待支持取消。`run.activity` 不表示 run 失败；`run.error` 仍是终止事件，发出后不应再出现 content / reasoning / tool 等业务事件，后面只允许传输层 `[DONE]`。`run.activity` 只用于 live / attach，默认不进入 `/api/chat` 历史回放。
+#### 细节等级与 run.activity
+
+`/api/query` 与 `/api/chat` 接受细节等级 `detail`：HTTP 用 URL 参数（`?detail=full`），WS 用请求帧顶层字段（与 `type`、`id` 并列，见[帧类型](#帧类型)），不放进 query 请求体，因此不进入 JSONL 原始 query。显式取值为 `summary`、`full` 或 `none`，其他值返回 400 `invalid_detail`；WS 其他路由携带 `detail` 同样拒绝。
+
+档位属于 Run：`/api/query` 受理时冻结（请求显式值 > 实际准入 Agent 的 `interactionConfig.defaultDetail` > summary，Agent 默认值来自 Agent 显式配置 > agent-settings.yml 对应 mode 配置），整个 Run 期间所有观察者收到同一档事件。没有调用方连接的 Run（`chat_start`、Automation、`/api/execute`）取 Agent 默认值；批准计划后启动的执行 Run 沿用规划 Run 的档位；TEAM 子任务与 steer 不改变档位。档位只在进程内保存，不落盘（Platform 重启本就取消未完成 Run）。
+
+- `/api/attach` 不接受 `detail`：HTTP 带该参数（含空值）返回 400 `detail_not_allowed`，WS attach 帧带 `detail` 返回协议错误；续接一律按 Run 冻结的档位。
+- `/api/chat`：Chat 有进行中的 Run 时，整个响应（含之前已结束 Run 的历史事件）按该 Run 的档位过滤，请求的 `detail` 忽略；没有进行中的 Run 时按请求档位读取，省略时按 Chat owner Agent 默认值。`activeRun.detail` 返回 Run 的档位。
+
+`/api/chat` 返回 `display: {defaultDetail,effectiveDetail}`，前者为 Agent 有效默认值，后者为实际下发档位。流式 `run.start` 在下发时附加相同 display（不修改共享事件或落盘）；HTTP SSE 另提供 `X-Agent-Default-Detail` 和 `X-Event-Detail` 响应头。Agent 不存在时兜底 summary，不阻止历史读取。页面按 `effectiveDetail`（实际下发档位）展示。Desktop broker 不改写 `detail`：窗口请求省略时跟随 Agent，只有需要读取工具事件的 Desktop 主进程 Run（图片工作台）在自己的 query 上显式请求 full。
+
+落盘始终完整，细节等级只决定下发哪些事件：
+
+| 事件 | none | summary | full |
+|---|---|---|---|
+| `request.query/steer/submit`、`chat.start` | ✓ | ✓ | ✓ |
+| `run.start/complete/cancel/error` | ✓ | ✓ | ✓ |
+| `task.start/complete/cancel/error` | ✓ | ✓ | ✓ |
+| `content.*`（含 `content.view`、`content.snapshot`） | ✓ | ✓ | ✓ |
+| `planning.*`、`plan.create/update`、`artifact.publish`、`source.publish` | ✓ | ✓ | ✓ |
+| `awaiting.ask/answer` | ✓ | ✓ | ✓ |
+| 公示与清除 `run.activity`（`kind` 为 `announce` 或 `idle`） | ✓ | ✓ | ✓ |
+| 其他进度 `run.activity` | — | ✓ | ✓ |
+| 重试 `run.activity`（带 `retry`） | — | — | ✓ |
+| `reasoning.*`、`tool.*`、`usage.snapshot`、`context.compact.*`、`debug.llmChat`、`memory.*` 及其他类型 | — | — | ✓ |
+
+summary 与 none 都是白名单，新增事件类型默认不进入。none 与 summary 下发相同的事件，只是进度活动只保留模型的公示和输出开始时的清除，思考、工具、等待等自动进度不下发。full 是全集；客户端的详细视图忽略进度活动，因为细节事件本身已经展示了进度。summary 不下发 `usage.snapshot`，用量读取 `run.complete/cancel/error` 的 `usage.run` 与 `usage.chat`：其中 `toolCallCount`、`llmChatCompletionCount` 固定输出（含 0），另有 `promptTokens`、`completionTokens`、`completionTokensDetails.reasoningTokens`、`estimatedCost` 等；full 仍实时下发 `usage.snapshot`。`/api/chat` 只按等级过滤 `events`，`runs[].usage` 与顶层 `usage` 不受影响。Proxy 上游查询固定请求 `full`，由本地按查看者等级过滤；gateway 与 Desktop 透传客户端的 `detail`，省略时跟随 Agent。
+
+`run.activity` 用一句话说明 Run（或带 `taskId` 的子任务）现在在做什么。字段只有 `runId`、`chatId`、可选 `taskId`、`message`，进度活动另带 `kind`（`thinking`、`reasoning`、`tool_run`、`announce`、`subtask`、`awaiting`、`compacting`、`idle`），重试时另带 `retry`；`message` 按查看者语言渲染（HTTP 用请求语言、WS 用连接当前语言）。同一 `(runId, taskId)` 新的一条替换旧的一条；`message` 为空（`kind:"idle"`）表示该 scope 当前没有活动（用户正在看正文或计划），客户端隐藏活动行；`task.complete/cancel/error` 清除该子任务的活动，Run 终止事件清除全部。
+
+- 进度活动（summary 与 full 都有，summary 视图展示；none 只有公示与清除）：模型请求开始时为“正在思考”；`reasoning.start` 时为“正在”加该段的 `reasoningLabel`（英文为 `reasoningLabel…`），不读取推理正文；`content.start` 与 `planning.start` 发出 `message` 为空的活动以清空活动行，正文本身就是进度；每个模型回合在参数完整后（`tool.end` 时、审批之前）至多发一条工具活动，覆盖审批等待和整批执行，`tool.start` 与执行开始不再单独发：本回合有公示工具（`action_announce`）时为公示，否则为第一个工具的“工具 label：说明”，说明取工具定义 `activityArgs` 中第一个非空参数，没有则为“正在调用「工具 label」”；`task.start` 在父级显示“正在委派子任务「taskName」”；`awaiting.ask` 按 mode 显示“等待你审批 / 回答 / 填写表单 / 确认计划”，`awaiting.answer` 后恢复等待前的那条活动；`context.compact.start` 为“正在整理上下文”。相同文案仍下发，由客户端决定是否刷新展示；`clientVisible:false` 工具不产生活动，公示除外：公示是模型写给用户的话，不是工具本身的展示。
+- 公示（`kind:"announce"`）：`message` 是模型用用户语言写的一句话（下一步要做什么），原样展示、不翻译。公示发出后，该 scope 的其他活动至少被压住 `agent-settings.yml` 的 `announce-hold-seconds`（默认 60 秒，0 关闭）：期间思考、工具、等待、子任务委派、整理上下文等活动都不生成；新公示立即替换并重新计时，`idle`（开始输出正文或计划）与 Run 终止立即结束压住。到时不主动清除，下一条活动到来时才替换，所以长步骤会一直显示公示。压住在服务端完成，各档与各客户端看到同一结果；Proxy 对上游的公示同样生效。
+- none 下公示显示到下一条公示、开始输出正文或计划（`idle`）或 Run 终止，中间的其他活动不下发。attach 时服务端对每个 scope 先补发最后一条公示（若当前活动不是它），再补发当前活动（含空 `message` 的清除）：none 停在公示或清除，summary 停在当前活动。
+- 进度活动不占公共序号：`seq` 为 0，不进入 attach 回放日志、不落盘；attach 时服务端为每个仍在活动的 scope 补发当前那一条（同样 `seq` 为 0）。因此 full 的公共 `seq` 保持连续（忽略 `seq` 为 0 的事件）；summary 因过滤会出现跳号，客户端不能把跳号当作丢事件。
+- 重试活动（仅 full）：模型请求可恢复重试时发出，`retry` 含 `runSeq`（模型轮次）、`attempt`（含首次请求）、`maxAttempts`、`reason`、`error`（公共结构化错误）、`timeoutSeconds`、`elapsedMs`，普通重试另带 `delayMs` 与 `retryAt`（epoch ms），客户端显示序号为 `attempt-1` / `maxAttempts-1`；等待前先发出，等待支持取消。summary 与 none 看不到重试，重试耗尽后各档都收到终止 `run.error`。
+
+`run.activity` 不表示 run 失败；`run.error` 仍是终止事件，发出后不应再出现 content / reasoning / tool 等业务事件，后面只允许传输层 `[DONE]`。
 
 native LLM loop 以平台内部的 model turn commit 作为唯一接受边界。provider 合法终止、流式块完整收尾、tool call 完成 materialize 且通过平台接纳检查后才 commit；该控制信号不进入 SSE / WebSocket。`usage`、`contextWindow`、provider `finish_reason` 和 tool result 都不是完成标记，其中 `usage` / `contextWindow` 是可选元数据，缺失不会阻止正常 turn 提交。
 
@@ -570,7 +607,7 @@ commit 前遇到 EOF、非法流帧、连接中断或可重试的 provider strea
 
 `reasoning.end`、`content.end`、`tool.end` 统一约定：正常结束保持原结构，不发送 `status` 或 `error`；异常增加 `status:"failed"` 与同源公共错误对象。失败段停止计时并保留内容，重试使用新 ID。一个未提交 attempt 内已经正常关闭的段也可能收到失败结束修正，因为段结束不等于 model turn commit；重复失败通知幂等，后到 snapshot/delta 不得覆盖失败状态。已提交轮次和已执行工具不受影响，`tool.end` 只表示参数流结束，不替代执行结果 `tool.result`。
 
-失败结束事件另外携带原始 `startedAt`（epoch ms）、`runId/taskId`、节点展示元数据以及 `text` 或 `arguments`，作为独立 JSONL event 展示记录，实时与历史回放一致；不产生 assistant/tool messages，不进入模型上下文或成功回答摘要。`run.activity` 仍可携带 `retry` 显示重试进度，但不再发送 `recovery.action:discard_incomplete_model_turn` 或控制节点删除。重试耗尽时在输出段结束之后发送 `run.error`。
+失败结束事件另外携带原始 `startedAt`（epoch ms）、`runId/taskId`、节点展示元数据以及 `text` 或 `arguments`，作为独立 JSONL event 展示记录，实时与历史回放一致；不产生 assistant/tool messages，不进入模型上下文或成功回答摘要。重试进度只通过带 `retry` 的 `run.activity` 显示，不控制节点删除；不重试的丢弃只发失败结束事件。重试耗尽时在输出段结束之后发送 `run.error`。
 
 model turn 与后续 tool batch 是两个独立事务边界：turn commit 后完整 tool call 保留，工具执行失败写正常失败 tool result。工具已经开始执行或可能产生副作用时，不通过回滚 turn 自动重试。异常诊断复用常开的 `llm_model_attempt_error`，不改变 Trace 文件结构。
 
@@ -737,14 +774,15 @@ Memory 已替换为纯 Markdown 文件管理，只提供 HTTP `/api/memory/file`
 | GET | `/api/project/tree` | query: `agentKey`、`path`、`limit`、`cursor` | CODER/KBASE Workspace 单层目录树，目录优先稳定排序 |
 | GET | `/api/project/changes` | query: `agentKey`、`chatId`、可选 `runId/limit/cursor` | 当前 Chat 的 Run 文件历史列表 |
 | GET | `/api/project/diff` | query: `agentKey`、`chatId`、`runId`、`path`、可选 `encoding` | 单个 Run 快照的原始/当前文本 |
-| GET | `/api/view` | query: `source,key`；connector 另需 `chatId,connectorId`，可选 `usage,hash` | 统一返回 `{view,html?,qlc?,entry?,assets?}`；未知内置 key 或 native 文档返回 404 |
+| GET | `/api/view` | query: `source,key`；connector 另需 `chatId,connectorId,hash`，可选 `usage` | 统一返回 `{view,html?,qlc?,entry?,assets?}`；connector 缺 hash 返回 400 `view_snapshot_required`；未知内置 key 或 native 文档返回 404 |
+| POST | `/api/view/query` | body: `chatId,runId,view:{connectorId,key,hash},query,params` | `{data,executedAt}`；只执行快照声明的只读查询（native/cli/mcp），按查看者授权，`runId` 须属于该 Chat |
 | GET | `/api/resource` | query: `file`、`chatId`、`t`、`download` | ChatScope 或普通 Agent Workspace/冻结临时根资源字节；绝对路径必须传 `chatId` |
 | GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tools/results/<toolId>.json` 完整工具结果；`t` 为可选 resource ticket |
 | POST | `/api/upload` | multipart: `requestId`、`chatId`、`name`、`file` | upload ticket；文件保存为 `<chatId>/<name>` |
 | POST | `/api/document/commit` | body: 来源判别联合、`mode`、`expectedRevision`、MIME 与文本/二进制 payload | 覆盖原文档或生成新 Artifact 的身份、类型与 revision |
 | POST | `/api/resource/image/commit` | body: `operation=resource.image.commit`、`profile`、`agentKey`、`chatId`、`resourceId`、`relativePath`、`mode`、`expectedRevision`、`mimeType`、`dataBase64` | 覆盖原 Artifact 或生成新 Artifact 的身份与 revision |
 
-`/api/view` 统一 builtin 与 connector 来源。前者只读取内嵌 HTML，后者沿用 Chat 鉴权与 VIEW 快照；source 必填。旧 `/api/viewport` 已删除。
+`/api/view` 统一 builtin 与 connector 来源。前者只读取内嵌 HTML，后者沿用 Chat 鉴权，只读取事件已发布 hash 的 Chat 快照，不按当前挂载现场解析；source 必填。旧 `/api/viewport` 已删除。
 
 `/api/upload` 的 `chatId` 与 `name` 均可省略。无 `chatId` 时平台会先分配会话；同时无 `name` 时，该会话以 `<default>` 标记为尚未正式命名。仅完成上传、尚未接受首条正式 query 的占位会话仍可通过 `chatId` 继续使用，但不进入 `/api/chats` 历史列表。上传文件保持既有契约，落入 `<chatId>/<name>`，公开 `url` 为不带 `chatId` 的 `<name>`。首条正式 query 在会话尚无历史 run 时会用 message 生成 `chatName`，并广播 `chat.renamed`；已命名或已有历史的会话不会被覆盖。
 
@@ -850,6 +888,12 @@ WebSocket 存活配置与 SSE heartbeat 完全独立。服务端默认每 30 秒
   "id": "req-1",
   "payload": {}
 }
+```
+
+`/api/query`、`/api/chat` 的请求帧可在顶层携带 `detail`（显式 `summary`、`full` 或 `none`，省略跟随 Agent），它是下发选项而非 payload；attach 帧不接受，规则见[细节等级](#细节等级与-runactivity)：
+
+```json
+{"frame":"request","type":"/api/query","id":"req-2","detail":"full","payload":{"message":"hello"}}
 ```
 
 Desktop Action 反向请求直接使用具体 Action 名作为 `type`，可信上下文位于帧顶层，payload 只包含该 Action 参数：
@@ -1011,7 +1055,8 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/interrupt` | `InterruptRequest` | `response` |
 | `/api/compact` | `requestId`、`chatId`、`trigger`、`level` | `response`；活动 native root Run 时等待最终 completed/failed/skipped |
 | `/api/file` | `agentKey`、`path`、可选 `encoding`、可选 `response=json` | `response`；data 为 agent workspace 文件 metadata，文本文件包含 `content` |
-| `/api/view` | `source,key`；connector 另带 `chatId,connectorId,usage,hash` | `response`；来源与错误语义同 HTTP |
+| `/api/view` | `source,key`；connector 另带 `chatId,connectorId,hash`，可选 `usage` | `response`；来源与错误语义同 HTTP |
+| `/api/view/query` | `chatId,runId,view:{connectorId,key,hash},query,params` | `response`；data 为 `{data,executedAt}`，错误语义同 HTTP |
 | `/api/resource` | `file`、`pushURL` | `response` |
 | `/api/upload` | gateway upload metadata | `response` |
 
@@ -1153,7 +1198,11 @@ open 成功后先返回 `terminal.opened`，再返回可选 replay output，之�
 
 ## VIEW 连接器 API
 
-HTTP GET 和 WS `/api/view` 接受 `chatId/connectorId/key/hash?/usage?`，返回带快照引用的 HTML/QLC 文档和声明资源。工具结果与表单事件新增 `view/viewError`，业务结果与提交协议不变。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。
+HTTP GET 和 WS `/api/view` 对 connector 接受 `chatId/connectorId/key/hash/usage?`，hash 必填，返回 Chat 快照中的 HTML/QLC 文档和声明资源。工具结果与表单事件携带 `view/viewError`，业务结果与提交协议不变。
+
+助手正文中的 Markdown VIEW 块由 Run 在块闭合时绑定：`content.view` 携带 `{contentId,runId,taskId?,index,view?,viewError?}`，`index` 为该 content 内已闭合 VIEW 块的序号；`content.snapshot` 以 `views:[{index,view?,viewError?}]` 汇总并持久化到 assistant message，冷回放的 `content.snapshot` 原样返回。原文不改写，绑定不进入模型上下文。`viewError` 取 `invalid_view`、`view_not_found`、`view_unavailable` 或 `view_data_invalid`。
+
+`POST /api/view/query`（WS 同名）执行 VIEW 快照声明的只读查询：请求 `{chatId,runId,view:{connectorId,key,hash},query,params}`，响应 `{data,executedAt}`（executedAt 为 Unix 毫秒）。查询来源为登记的原生操作或声明包自身的 CLI/MCP，三者结果形状一致；按查看者的 Chat 权限授权，不经过工具准入，不复查挂载；连接器失败保留 `connector_*` 错误码且不返回 401/403；`runId` 必须属于该 Chat，其根 agentKey 进入查询上下文。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md#view-查询)。
 
 技能候选的 `icon` 使用 `/api/skills/icon?id=...`，读取技能中心图标，不因 Agent 改变。缺图省略 `icon`；HTTP/WS 共享字段，图片校验与 ETag 缓存保留。旧带 `agentKey` 的图标请求仍按 Agent 运行副本解析，不影响新全局目录。
 

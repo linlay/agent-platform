@@ -1100,3 +1100,47 @@ func TestSystemEnvironmentShowsRuntimeRelativeLocalPaths(t *testing.T) {
 		t.Fatalf("expected absolute paths without a runtime root, got:\n%s", got)
 	}
 }
+
+func TestBuildSystemPromptPlacesViewCatalogAfterSkills(t *testing.T) {
+	sections := buildSystemPromptSections(QuerySession{
+		AgentKey:           "demo",
+		Mode:               "GENERAL",
+		SkillCatalogPrompt: "SKILLS",
+		ViewCatalogPrompt:  "VIEWS",
+	}, api.QueryRequest{}, PromptBuildOptions{})
+	order := map[string]int{}
+	for index, section := range sections {
+		order[section.ID] = index
+	}
+	skills, hasSkills := order["skill-catalog"]
+	views, hasViews := order["view-catalog"]
+	if !hasSkills || !hasViews || skills+1 != views || sections[views].Content != "VIEWS" {
+		t.Fatalf("section order: %#v", order)
+	}
+}
+
+func TestBuildSystemPromptAddsAnnounceRulesOnlyWithAnnounceTool(t *testing.T) {
+	announce := api.ToolDetailResponse{Name: "action_announce", Meta: map[string]any{"activityAnnounce": "message"}}
+	plain := api.ToolDetailResponse{Name: "file_read"}
+	session := QuerySession{AgentKey: "demo", Mode: "GENERAL"}
+	session.PromptAppend.Announce.InstructionsPrompt = "Call {{announce_tool_name}} first."
+	find := func(defs []api.ToolDetailResponse) (systemPromptSection, bool) {
+		for _, section := range buildSystemPromptSections(session, api.QueryRequest{}, PromptBuildOptions{ToolDefinitions: defs}) {
+			if section.ID == "tool-announce" {
+				return section, true
+			}
+		}
+		return systemPromptSection{}, false
+	}
+	section, ok := find([]api.ToolDetailResponse{plain, announce})
+	if !ok || section.Content != "Call action_announce first." {
+		t.Fatalf("announce section = %#v, %v", section, ok)
+	}
+	if _, ok := find([]api.ToolDetailResponse{plain}); ok {
+		t.Fatal("announce rules added without an announce tool")
+	}
+	session.PromptAppend.Announce.InstructionsPrompt = ""
+	if _, ok := find([]api.ToolDetailResponse{announce}); ok {
+		t.Fatal("announce rules added without a configured prompt")
+	}
+}

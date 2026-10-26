@@ -19,9 +19,11 @@ func WriteBuiltin(dir, name, version string) error {
 	if !IsNative(id) {
 		return fmt.Errorf("unknown builtin connector %q", name)
 	}
-	// Remove obsolete bundled skills when refreshing an older verified cache.
-	if err := os.RemoveAll(filepath.Join(dir, "skills")); err != nil {
-		return err
+	// Remove obsolete bundled skills and views when refreshing an older verified cache.
+	for _, name := range []string{"skills", "views", "view.json"} {
+		if err := os.RemoveAll(filepath.Join(dir, name)); err != nil {
+			return err
+		}
 	}
 	return writeBuiltinResources(dir, id, path.Join("connectors", id), version)
 }

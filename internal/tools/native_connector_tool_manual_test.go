@@ -65,6 +65,7 @@ var nativeToolManualChapters = map[string]nativeToolManualChapter{
 	"surface_upload":       {file: "references/surface.md", marker: "- `surface_upload`:"},
 	"surface_downloads":    {file: "references/surface.md", marker: "- `surface_downloads`:"},
 	"surface_login":        {file: "references/surface.md", marker: "- `surface_login`:"},
+	"surface_viewport":     {file: "references/surface.md", marker: "- `surface_viewport`:"},
 	"awcp_manual":          {file: "references/awcp.md", marker: "## Read The Directory"},
 	"awcp_invoke":          {file: "references/awcp.md", marker: "## Invoke The Selected Action"},
 }

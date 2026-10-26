@@ -126,16 +126,17 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 		Origin:             prepared.Req.Origin,
 		AccessGrant:        prepared.Req.AccessGrant,
 		PlanRunID:          prepared.Req.PlanRunID,
+		AnnounceHold:       s.deps.Config.AnnounceHold(),
 	})
 	if s.deps.Tools != nil {
 		for _, toolDef := range s.deps.Tools.Definitions() {
-			if cv, ok := toolDef.Meta["clientVisible"].(bool); ok && !cv {
+			if toolDef.ClientHidden() {
 				assembler.RegisterHiddenTools(toolDef.Name, toolDef.Key)
 			}
 		}
 	}
 	for _, toolDef := range prepared.Session.ModeToolDefinitions {
-		if cv, ok := toolDef.Meta["clientVisible"].(bool); ok && !cv {
+		if toolDef.ClientHidden() {
 			assembler.RegisterHiddenTools(toolDef.Name, toolDef.Key)
 		}
 	}
@@ -678,6 +679,11 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 			return preparedQuery{}, fmt.Errorf("embedded Team tool %q is unavailable", agentbuiltin.TeamToolDelegate)
 		}
 		if err := ConfigureTeamCoordinatorSession(&session, *admission.TeamSnapshot, baseTool); err != nil {
+			return preparedQuery{}, err
+		}
+	}
+	if req.ResultContract != nil {
+		if err := s.configureResultContractSession(&session, req.ResultContract); err != nil {
 			return preparedQuery{}, err
 		}
 	}

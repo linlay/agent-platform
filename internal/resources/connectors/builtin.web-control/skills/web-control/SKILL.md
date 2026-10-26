@@ -12,7 +12,7 @@ The tools are grouped by what they act on:
 | --- | --- | --- | --- |
 | Task browser | `surface_browser` | The ordinary Chat task's execution environment, before page work | [Surface tools](references/surface.md) |
 | WorkPanel | `workpanel_state`, `workpanel_open`, `workpanel_close` | The current Chat's panel and what is open in it | [WorkPanel](references/workpanel.md) |
-| Surface | `surface_open`, `surface_list`, `surface_state`, `surface_observe`, `surface_navigate`, `surface_activate`, `surface_close`, `surface_screenshot`, `surface_click`, `surface_element`, `surface_scroll`, `surface_dialog`, `surface_upload`, `surface_downloads`, `surface_login` | One live webpage in the WorkPanel or connected Chrome | [Surface tools](references/surface.md) |
+| Surface | `surface_open`, `surface_list`, `surface_state`, `surface_observe`, `surface_navigate`, `surface_activate`, `surface_close`, `surface_screenshot`, `surface_click`, `surface_element`, `surface_scroll`, `surface_dialog`, `surface_upload`, `surface_downloads`, `surface_login`, `surface_viewport` | One authorized page or WorkPanel tab in the WorkPanel or connected Chrome | [Surface tools](references/surface.md) |
 | AWCP | `awcp_manual`, `awcp_invoke` | The business interface a website publishes | [AWCP](references/awcp.md) |
 
 Use the installed tool definitions and these bundled references as the version-matched contract. Read the relevant reference before first using that operation, then reuse it instead of rereading the whole skill before each call. For page operations on Chrome or WorkPanel, start with [Browser workflows](references/chrome-workflows.md); consult [Surface tools](references/surface.md) for exact fields and limits. Do not install or run an external browser CLI to implement these workflows.
@@ -29,13 +29,22 @@ Website/WebApp Copilot already has a captured application grant: use that applic
 
 ## Two identities
 
-- **url** is what you pass to `workpanel_open` or `surface_open`. Only file previews use it with `workpanel_close`; webpages are closed by surfaceId.
+- **url** is what you pass to `workpanel_open` or `surface_open`. It is never a tab identity; close one tab with its surfaceId.
   - A webpage starts with `http://` or `https://`.
   - A file preview starts with `@workspace/` (bound project) or `@chat/` (current Chat, including a published artifact url) and must be inside the root it names.
   - Nothing else is accepted: no bare paths, no host names without a scheme, no absolute paths, no `file://`.
-- **surfaceId** identifies one live webpage. `workpanel_open` and `surface_open` return it; `surface_list` rediscovers it. Every webpage is one independent surface. A url is not a page identity: the page keeps its surfaceId while it navigates.
+- **surfaceId** identifies one authorized page or WorkPanel tab. `workpanel_open` and `surface_open` return it; `workpanel_state` reports tab identities and `surface_list` rediscovers live pages. A url is not a page identity: the page keeps its surfaceId while it navigates or reloads. A non-page WorkPanel tab uses a `workpanel-item:` identity and only accepts activation or closing.
 
-A file preview has no surfaceId. It cannot be scripted, clicked or read through AWCP; reopen it with `workpanel_open` to activate and reload it.
+`capabilities` says what a tab accepts, and Desktop enforces it:
+
+| Tab | Capabilities |
+| --- | --- |
+| WorkPanel webpage | state, navigate, reload, screenshot, semantic observation, typed input, AWCP, saved login and viewport |
+| Authorized Chrome webpage | state, navigate, reload, screenshot, semantic observation, typed input, AWCP and saved login; viewport emulation is unsupported |
+| HTML file preview | state, reload, screenshot, semantic observation, typed input and viewport. No navigation, network methods, AWCP or saved logins |
+| Any other tab (PDF, image, Markdown and other previews, Desktop and WebClient pages) | activate and close only |
+
+Capability names returned by Desktop describe its internal boundary and do not expose script or raw-CDP tools. `activate` and `close` are listed only where the tab allows them. A tool outside a tab's capabilities fails with `capability_denied` and does not run.
 
 ## Choosing a file preview
 
@@ -49,8 +58,12 @@ Read [WorkPanel](references/workpanel.md) for file metadata, access and recovery
 - `surface_open` opens an HTTP(S) webpage in the browser this Run is bound to: the authorized Chrome workspace, or the right WorkPanel for a WorkPanel Run. Read the returned `provider`. For Chrome, Desktop reuses its live connection or establishes one on the first tool call using authorization the user chose to remember. With remembering enabled, a new Chrome Chat may continue the same authorized live workspace; this does not copy the previous Run's lease. Do not require another manual connection before trying the authorized task. Connection settings remain private to Desktop; the tool cannot choose a browser profile, endpoint or arbitrary existing tabs. When Chrome is not connected yet, the call waits (up to five minutes) while the host asks the user to connect from this Chat's browser control, then continues the same call; do not ask the user to send another message. If it still returns `browser_connection_required`, report it and stop. The accepted Run keeps its backend and workspace binding. Neither opening tool proves the page finished loading.
 - Open only addresses supplied by the user, returned by a trusted tool, already present in this conversation, or served by a host-visible service started for this task. A service that only listens inside a container is not host-visible unless its port is exposed. Do not invent public, LAN, tracking, authentication or side-effecting addresses.
 - Preview files with `@workspace/...` or `@chat/...`. Do not start a temporary HTTP server to preview a file.
-- List webpages with `surface_list`, select the intended surfaceId, and close it with `surface_close`. A surfaceId already returned by `workpanel_open` may be reused while that page is still live. Never identify a page to close by URL alone. Close file previews with `workpanel_close` using their recorded Workspace path; file previews have no surfaceId.
+- Close one tab, page or not, with `surface_close` and its surfaceId from `workpanel_open`, `workpanel_state` or `surface_list`. Never identify a tab to close by URL or file name.
 - `workpanel_close` with `all: true` closes the whole panel; use it only when the user asked for that.
+
+## Checking an HTML file you produced
+
+To verify interaction or layout of an HTML file in the Chat or the project, choose WorkPanel for this Run and open it with `workpanel_open` (`@chat/...` or `@workspace/...`) and use the returned surfaceId: read it with `surface_observe`, operate it with `surface_click` and `surface_element`, and check another screen size with `surface_viewport`, then `reset` it. A `null` surfaceId means the preview is still registering; read `workpanel_state` again. Do not launch a separate browser for a file the WorkPanel can show. Without a Desktop WorkPanel, a separate browser must use a temporary profile outside the Chat directory and be closed, and its profile deleted, when the check ends.
 
 Read [WorkPanel](references/workpanel.md) for file preview limits and WorkPanel failure codes.
 

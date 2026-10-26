@@ -4,15 +4,14 @@ i18n:
     label: "Close WorkPanel"
   zh-CN:
     label: "工作面板关闭"
-description: "Close a file preview or the whole WorkPanel. Read the web-control skill before use."
+description: "Close the whole WorkPanel. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object
   properties:
-    url:
-      type: string
-      description: "File preview path."
     all:
       type: boolean
-      description: "Close the whole WorkPanel."
+      description: "Required. Must be true; closes the whole WorkPanel."
+  required:
+    - all
   additionalProperties: false

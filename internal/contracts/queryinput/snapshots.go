@@ -41,3 +41,10 @@ type ToolDefinition struct {
 	OutputSchema  map[string]any `json:"outputSchema,omitempty"`
 	Meta          map[string]any `json:"meta,omitempty"`
 }
+
+// ClientHidden reports a tool declared clientVisible=false. Its tool.* events
+// never reach clients, live or replayed; the tool itself runs normally.
+func (d ToolDefinition) ClientHidden() bool {
+	visible, ok := d.Meta["clientVisible"].(bool)
+	return ok && !visible
+}

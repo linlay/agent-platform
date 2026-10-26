@@ -1,0 +1,32 @@
+name: surface_viewport
+i18n:
+  en:
+    label: "Set Page Viewport"
+  zh-CN:
+    label: "网页视口"
+description: "Emulate or reset a WorkPanel page viewport; unsupported in Chrome. Read the web-control skill before use."
+clientVisible: true
+inputSchema:
+  type: object
+  properties:
+    surfaceId:
+      type: string
+      description: "Required. Page identity."
+    width:
+      type: integer
+      description: "Viewport width in CSS pixels."
+    height:
+      type: integer
+      description: "Viewport height in CSS pixels."
+    deviceScaleFactor:
+      type: number
+      description: "Device pixel ratio."
+    mobile:
+      type: boolean
+      description: "Emulate a mobile device."
+    reset:
+      type: boolean
+      description: "Restore the panel viewport."
+  required:
+    - surfaceId
+  additionalProperties: false

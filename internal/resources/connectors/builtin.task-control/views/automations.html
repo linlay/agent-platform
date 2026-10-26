@@ -1,0 +1,139 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+:root { --fg: #1f2328; --muted: #656d76; --line: rgba(127,127,127,.22); --ok: #1a7f37; --off: #8c959f; --bad: #cf222e; --chip: rgba(127,127,127,.12); color-scheme: light; }
+:root[data-color-scheme="dark"] { --fg: #e6edf3; --muted: #8d96a0; --ok: #3fb950; --off: #6e7681; --bad: #f85149; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 4px 2px 8px; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; color: var(--fg); background: transparent; }
+header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+h1 { font-size: 14px; margin: 0; font-weight: 600; }
+.count { color: var(--muted); }
+.spacer { flex: 1; }
+label { color: var(--muted); display: inline-flex; gap: 4px; align-items: center; }
+button { font: inherit; color: inherit; background: var(--chip); border: 1px solid var(--line); border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+.name { font-weight: 600; }
+.sub { color: var(--muted); font-size: 12px; }
+code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--chip); border-radius: 4px; padding: 0 4px; }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; background: var(--off); }
+.on .dot { background: var(--ok); }
+.failed { color: var(--bad); }
+.empty, .error { color: var(--muted); padding: 16px 8px; text-align: center; }
+.error { color: var(--bad); }
+footer { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 8px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1 data-i18n="title"></h1><span class="count" id="count"></span>
+  <span class="spacer"></span>
+  <label><input type="checkbox" id="enabledOnly"><span data-i18n="enabledOnly"></span></label>
+  <button id="refresh" data-i18n="refresh"></button>
+</header>
+<div id="body"></div>
+<footer id="pager" hidden>
+  <span id="range"></span>
+  <button id="prev" data-i18n="prev"></button>
+  <button id="next" data-i18n="next"></button>
+</footer>
+<script>
+(() => {
+  'use strict';
+  const text = {
+    en: { title: 'Automations', enabledOnly: 'Enabled only', refresh: 'Refresh', prev: 'Previous', next: 'Next', name: 'Name', agent: 'Agent', schedule: 'Schedule', next_run: 'Next run', last: 'Last execution', enabled: 'Enabled', disabled: 'Disabled', none: 'No automations', loading: 'Loading…', unavailable: 'Live data cannot be queried here.', total: '{n} total', remaining: '{n} runs left', range: '{from}–{to} of {total}' },
+    zh: { title: '自动化', enabledOnly: '仅显示已启用', refresh: '刷新', prev: '上一页', next: '下一页', name: '名称', agent: '智能体', schedule: '计划', next_run: '下次执行', last: '最近执行', enabled: '已启用', disabled: '已停用', none: '暂无自动化', loading: '加载中…', unavailable: '此处无法查询实时数据。', total: '共 {n} 个', remaining: '剩余 {n} 次', range: '第 {from}–{to} 个，共 {total} 个' },
+  };
+  let dict = text.zh;
+  const t = (key, values) => (dict[key] || key).replace(/\{(\w+)\}/g, (_, name) => values?.[name] ?? '');
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, className, content) => { const node = document.createElement(tag); if (className) node.className = className; if (content !== undefined) node.textContent = content; return node; };
+  let data = null, params = { limit: 20, offset: 0 }, queryable = false, busy = false, input = null, failure = null;
+
+  function applyText() { document.querySelectorAll('[data-i18n]').forEach((node) => { node.textContent = t(node.dataset.i18n); }); }
+
+  function render() {
+    const items = (data?.items || []).filter((item) => !$('enabledOnly').checked || item.enabled);
+    $('count').textContent = data ? t('total', { n: data.total ?? data.items?.length ?? 0 }) : '';
+    const body = $('body');
+    body.replaceChildren();
+    $('refresh').disabled = busy || !queryable;
+    if (failure) body.append(el('div', 'error', String(failure?.message || failure)));
+    if (!data) { $('pager').hidden = true; if (!failure) body.append(el('div', 'empty', t(queryable ? 'loading' : 'unavailable'))); return; }
+    if (!items.length) { body.append(el('div', 'empty', t('none'))); }
+    else {
+      const table = el('table');
+      const head = el('tr');
+      ['name', 'agent', 'schedule', 'next_run', 'last'].forEach((key) => head.append(el('th', '', t(key))));
+      table.append(el('thead')); table.tHead.append(head);
+      const rows = el('tbody');
+      for (const item of items) {
+        const row = el('tr');
+        const name = el('td');
+        const title = el('div', 'name ' + (item.enabled ? 'on' : ''));
+        title.append(el('span', 'dot'), document.createTextNode(item.name || item.id));
+        name.append(title);
+        if (item.description) name.append(el('div', 'sub', item.description));
+        name.append(el('div', 'sub', item.enabled ? t('enabled') : t('disabled')));
+        const schedule = el('td');
+        schedule.append(el('code', '', item.cron || ''));
+        if (item.zoneId) schedule.append(el('div', 'sub', item.zoneId));
+        if (item.remainingRuns != null) schedule.append(el('div', 'sub', t('remaining', { n: item.remainingRuns })));
+        const last = el('td');
+        const execution = item.lastExecution;
+        if (execution) {
+          last.append(el('div', execution.status === 'failed' ? 'failed' : '', [execution.status, execution.finishReason].filter(Boolean).join(' · ')));
+          last.append(el('div', 'sub', execution.startedTime || ''));
+          if (execution.resultPreview) last.append(el('div', 'sub', execution.resultPreview));
+        } else last.append(el('span', 'sub', '—'));
+        row.append(name, el('td', '', item.agentKey || '—'), schedule, el('td', '', item.nextFireTime || '—'), last);
+        rows.append(row);
+      }
+      table.append(rows);
+      body.append(table);
+    }
+    const total = data.total ?? data.items.length;
+    const from = params.offset || 0;
+    $('pager').hidden = !queryable || total <= (data.items.length || 0) && from === 0;
+    $('range').textContent = t('range', { from: total ? from + 1 : 0, to: from + data.items.length, total });
+    $('prev').disabled = busy || from === 0;
+    $('next').disabled = busy || !data.hasMore;
+  }
+
+
+  async function load(next) {
+    if (!queryable || busy) return;
+    busy = true; render();
+    try {
+      const { data: result } = await viewHost.query('list', next);
+      params = next; data = result; failure = null;
+    } catch (error) { failure = error; }
+    busy = false; render();
+  }
+
+  // The block body is the view input; the first page is queried here.
+  viewHost.onData((payload, _view, context) => {
+    dict = String(context?.locale || navigator.language).toLowerCase().startsWith('zh') ? text.zh : text.en;
+    applyText();
+    const key = JSON.stringify(payload ?? null), nextQueryable = Boolean(context?.queryable);
+    if (key === input && nextQueryable === queryable) { render(); return; } // locale/theme refresh only
+    input = key; queryable = nextQueryable;
+    const value = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+    data = null; failure = null; params = { limit: value.limit || 20, offset: 0 };
+    render();
+    load(params);
+  });
+  $('enabledOnly').addEventListener('change', render);
+  $('refresh').addEventListener('click', () => load({ ...params }));
+  $('prev').addEventListener('click', () => load({ ...params, offset: Math.max(0, (params.offset || 0) - (params.limit || 20)) }));
+  $('next').addEventListener('click', () => load({ ...params, offset: (params.offset || 0) + (params.limit || 20) }));
+  applyText();
+  render();
+})();
+</script>
+</body>
+</html>

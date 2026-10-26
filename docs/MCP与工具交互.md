@@ -67,7 +67,9 @@ SDK 负责 session ID、协议头、JSON/SSE、初始化通知和标准关闭；
 
 工具定义可选声明 `outputSchema`。没有 `outputSchema` 的 MCP 或 Desktop action result 按不透明 JSON 透传；平台不会根据 `createdAt`、`timestamp`、`iso` 等字段名猜测时间语义。
 
-本地 `plan_add_tasks`、`plan_get_tasks`、`plan_update_task` 使用有序、单活动任务状态机。新 task 固定为 `init` 且不会自动启动；只允许最前面的非终态 task 由 `init` 进入 `in_progress` 或直接进入 `completed/failed/canceled`，且只有当前活动 task 可由 `in_progress` 进入任一终态。相同状态更新幂等，终态重试通过追加新 task 表达。非法更新不改变内存或 snapshot，工具结果分别使用稳定错误码 `plan_task_predecessor_incomplete`、`plan_task_not_current`、`invalid_plan_task_transition`，并在 structured result 中返回未变化的 plan 和状态诊断。 Plan 状态转移错误额外提供 `message` 与 `recovery`，明确本次更新未生效、当前/阻塞任务及纠正方向；应直接使用返回快照纠正调用，必要时再调用 `plan_get_tasks`，不要原样重试或为解除阻塞将任务标为完成。`plan_update_task` 成功时向模型返回与 Structured 相同的 JSON 快照（`planId`、`plan`、有活动项时的 `currentTaskId`），不再只返回 `OK`；`plan_add_tasks` 的新增任务文本返回保持不变。
+本地 `plan_add_tasks`、`plan_get_tasks`、`plan_update_task` 使用有序、单活动任务状态机。新 task 固定为 `init` 且不会自动启动；只允许最前面的非终态 task 由 `init` 进入 `in_progress` 或直接进入 `completed/failed/canceled`，且只有当前活动 task 可由 `in_progress` 进入任一终态。相同状态更新幂等，终态重试通过追加新 task 表达。非法更新不改变内存或 snapshot，工具结果分别使用稳定错误码 `plan_task_predecessor_incomplete`、`plan_task_not_current`、`invalid_plan_task_transition`，并在 structured result 中返回未变化的 plan 和状态诊断。
+
+`action_announce` 只有一个必填参数 `message`（一句话，最多 120 字符），用于告诉用户接下来要做什么；它不改任务状态、不等待用户，执行时只校验长度并返回 `announced`。它是 `clientVisible:false` 工具，tool.* 事件不下发、历史不显示工具卡片；公示本身在参数完整时作为进度活动发出（不落盘，见 [细节等级与 run.activity](API与协议.md#细节等级与-runactivity)）。分发示例把它放在 general/coder/kbase/team 段的 preset-tools，executor 段不放；planning 不排除它。模型应在每个需要工具的回合先公示，与它描述的工具调用放在同一回合并排在最前，进入新阶段、改变方向或完成一组相关操作时再公示，只有不调用其他工具直接回答时跳过；公示要具体说明要做什么、作用于什么，并用它代替在正文里叙述下一步。使用规则同时由 `agent-prompt.yml` 的 `shared.announce.instructions-prompt` 写入 system prompt（见 [Agent 配置合并](Agent配置合并.md)）。 Plan 状态转移错误额外提供 `message` 与 `recovery`，明确本次更新未生效、当前/阻塞任务及纠正方向；应直接使用返回快照纠正调用，必要时再调用 `plan_get_tasks`，不要原样重试或为解除阻塞将任务标为完成。`plan_update_task` 成功时向模型返回与 Structured 相同的 JSON 快照（`planId`、`plan`、有活动项时的 `currentTaskId`），不再只返回 `OK`；`plan_add_tasks` 的新增任务文本返回保持不变。
 
 ## 图片生成与产物发布 URL
 
@@ -102,11 +104,25 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 | --- | --- |
 | `workpanel_state` | `desktop.workpanel.getState` |
 | `workpanel_open`（`http(s)://`） | `desktop.workpanel.openWeb`；`reload: true` 时随后发送 `desktop.workpanel.refreshWeb` |
-| `workpanel_open`（`@workspace/`、`@chat/`） | `desktop.workpanel.openLocalFile`，参数 `{root, path, title?, artifactId?}`：`root` 为 `workspace` 或 `chat`，`path` 是相对该根的路径；`artifactId` 仅在该 Chat 文件是已发布产物时由 Platform 从 manifest 取同路径的最新一项填入，Desktop 以它作为产物身份，编辑保存按该身份校验，不得自行构造。`@chat/` 只校验位于当前 Chat 目录内且为普通文件，不要求存在项目 Workspace；Desktop 对 HTML 与图片使用原生隔离预览，其他类型以 WebClient 资源预览页打开，`workpanel_state` / `workpanel_close` 对两类 Tab 都按 `@chat/<相对路径>` 识别。`@runtime/` 不再接受 |
-| `workpanel_close`（文件 `url`） | 先 `desktop.workpanel.getState` 严格匹配已记录的 Workspace 路径，再 `desktop.workpanel.closeTab`；网页使用 `surface_close` |
-| `workpanel_close`（`all: true`） | `desktop.workpanel.closeWorkpanel` |
+| `workpanel_open`（`@workspace/`、`@chat/`） | `desktop.workpanel.openLocalFile`，参数 `{root, path, title?, artifactId?}`：`root` 为 `workspace` 或 `chat`，`path` 是相对该根的路径；`artifactId` 仅在该 Chat 文件是已发布产物时由 Platform 从 manifest 取同路径的最新一项填入，Desktop 以它作为产物身份，编辑保存按该身份校验，不得自行构造。`@chat/` 只校验位于当前 Chat 目录内且为普通文件，不要求存在项目 Workspace；Desktop 对 HTML 与图片使用原生隔离预览，其他类型以 WebClient 资源预览页打开，`workpanel_state` 对两类 Tab 都按 `@chat/<相对路径>` 记录 url。结果带回该 Tab 的 `surfaceId` 与 `capabilities`；HTML 预览的页面 surface 尚未注册时，Platform 最多 8 秒内重读 `getState` 等待。`@runtime/` 不再接受 |
+| `workpanel_close`（`all: true`） | `desktop.workpanel.closeWorkpanel`；不再接受文件 `url`，单个 Tab 用 `surface_close` |
+| `surface_activate` / `surface_close`（`workpanel-item:` 前缀的 surfaceId） | `desktop.workpanel.activateTab` / `desktop.workpanel.closeTab`，`tabId` 取前缀后的条目 ID；其他 surface 工具对该类 surfaceId 在发送前返回 `capability_denied` |
 
-条目 ID 只在 Platform 内部使用，工具结果中的工作区被投影为 `{kind,url,title,active,...}` 条目列表。`desktop.workpanel.openTab`（通用描述符）和 `desktop.workpanel.activateTab` 没有对应的模型工具。
+条目 ID 只以 surfaceId 的形式出现，工具结果中的工作区被投影为 `{kind,url,title,active,surfaceId,capabilities,...}` 条目列表。`desktop.workpanel.openTab`（通用描述符）没有对应的模型工具。
+
+### Tab surfaceId 与能力
+
+WorkPanel 的每个 Tab 都有一个 surfaceId，Desktop 在 `getState`、`openLocalFile`、`openWeb` 结果的条目上标注 `surfaceId` 与 `capabilities`：
+
+| Tab | surfaceId | capabilities |
+| --- | --- | --- |
+| 网页 | CDP 页面 surfaceId | activate、close、state、navigate、reload、screenshot、script、input、cdp、awcp、login、viewport |
+| HTML 文件预览（`@workspace/` 本地预览与 `@chat/` 原生预览） | CDP 页面 surfaceId | activate、close、state、reload、screenshot、script、input、cdp、viewport |
+| 其他 Tab（PDF、图片、Markdown 等预览，Desktop 与 WebClient 页面） | `workpanel-item:<条目 ID>` | activate、close |
+
+不可关闭的 Tab 不列 close。能力清单只是说明，强制由 Desktop Main 执行：HTML 预览只有在 guest 的 session 属于该 Chat 的 HTML 预览句柄时才被视为可控页面（`workPanelContainerContent`），其他本地 URL 仍不可控；网关对 HTML 预览拒绝 `Page.navigate`、`Surface.open`、`Surface.goBack`、`Network.*`，AWCP 返回 `capability_denied`，`surface_login` 因非 HTTPS 来源被拒。`workpanel-item:` surfaceId 不在 CDP 注册表中，Platform 只把 activate/close 路由到条目动作，平台自身页面因此不能被脚本、点击或截图。
+
+`surface_viewport` 映射为 Desktop 宿主命令 `Surface.setViewport`，参数 `{width,height,deviceScaleFactor?,mobile?}` 或 `{reset:true}`，由 `webContents.enableDeviceEmulation` / `disableDeviceEmulation` 实现，不占用调试会话，网页与 HTML 预览均可用。
 
 客户端侧各动作的精确参数如下：
 
@@ -127,9 +143,9 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 
 相对路径按本次执行 Workspace 解析；没有 Workspace 时返回 `workspace_unavailable`，不回退到 Platform 进程目录。也支持 `@workspace`、`@chat`、`@temp` 等通用路径别名，以及经授权的绝对路径；Container 执行路径使用现有映射解析为 Host 路径。文件读取复用 AccessPolicy 和文件预审批，越权读取进入 HITL，批准后继续执行；canonical 路径校验与临时根逃逸阻断仍生效。
 
-`paramsFile` 必须是 UTF-8 编码的单个 JSON 对象，拒绝目录、设备等非普通文件、空内容、`null`、数组、JSON 后的额外内容及非法 JSON；`expressionFile` 必须是非空 UTF-8 文本。读取上限复用 `configs/tools.yml -> file-tools.max-read-bytes`（默认 1 MiB），超限报错，不截断。路径、读取、JSON 或大小校验失败时均不向 Desktop 发送请求。
+`paramsFile` 必须是 UTF-8 编码的单个 JSON 对象，拒绝目录、设备等非普通文件、空内容、`null`、数组、JSON 后的额外内容及非法 JSON。读取上限复用 `configs/tools.yml -> file-tools.max-read-bytes`（默认 1 MiB），超限报错，不截断。路径、读取、JSON 或大小校验失败时均不向 Desktop 发送请求。
 
-Platform 读取后保留原始 JSON 类型并发送 `params`，不再将字符串布尔值静默转换；`paramsFile`、`expressionFile` 路径不进入 `desktop.cdp.call` payload。Desktop CDP 协议和页面目标授权保持现有契约。
+Platform 读取后保留原始 JSON 类型并发送 `params`，不再将字符串布尔值静默转换；`paramsFile` 路径不进入 `desktop.awcp.invoke` payload。Desktop CDP 协议和页面目标授权保持现有契约。
 
 ## Desktop 反向 Provider
 
@@ -297,6 +313,8 @@ Chrome 与 WorkPanel 提供相同的 AWCP 业务能力与语义观察、引用�
 
 ## 工具展示多语言
 
+MCP 工具的 `toolName` 保留 Agent 实例隔离后的唯一路由名。`tool.start`、`tool.snapshot` 和 `tool.result` 返回非空 `toolLabel`：优先使用有效 MCP 工具定义的标签（远端 `title`、`annotations.title`，或连接器配置的 `label` 覆盖），缺省或空白时使用原始 MCP 工具名，例如 `list_tables`。默认标签在生成哈希路由名之前冻结，不影响模型调用名或远端 `tools/call` 的名称；新事件保存该标签用于回放，旧事件不迁移。
+
 工具 YAML 不再接受顶层 `label`，显示名称仅在 `i18n` 中声明。工具 YAML 支持可选顶层 `i18n`，语言复用 Platform 的 `en` / `zh-CN` 及其归一化规则。每个语言对象只接受字符串 `label`、`description`；空白字段按缺省处理，不支持的语言、重复归一化语言或非法字段在加载时拒绝。
 
 ```yaml
@@ -311,11 +329,26 @@ i18n:
 
 `i18n.description` 是受支持的可选界面说明，但 Platform 内嵌的全部工具（含 builtin.platform-control / builtin.web-control 的 native 工具）仅配置翻译名称，不配置翻译描述。内嵌工具原始 description、输入与输出 Schema 中的 description 均使用英文。dbx/httpx 是 CLI 连接器，不新增独立模型工具，仍通过 Bash 调用。
 
+### 工具活动说明 activityArgs
+
+工具 YAML 可选顶层 `activityArgs`：按顺序列出输入 Schema 中的字符串参数名。每个模型回合参数完整后（审批之前），该回合第一个工具的 `run.activity` 显示“工具 label：取值”，同批其他工具不再各自切换，取值为列表中第一个非空参数；都为空或未配置时显示“正在调用「工具 label」”。取值压成单行并截断到 60 字符，http(s) URL 只保留主机与路径（去掉 query 与 fragment），绝对路径只显示文件名。列表中的名字必须是 `inputSchema.properties` 下 `type: string` 的参数，否则加载失败。只列面向用户的说明或目标参数，不列命令原文、正文或凭据；MCP 与连接器工具不配置时只显示 label。
+
+```yaml
+name: file_write
+activityArgs: [description, filePath]
+```
+
+`activityAnnounce` 与 `activityArgs` 互斥，取一个字符串参数名：该工具本身就是向用户公示下一步，参数值作为 `kind:"announce"` 的活动原样显示（压成单行，不加 label、不按 60 字符截断），同一回合中优先于第一个工具显示，并按 `announce-hold-seconds` 压住后续活动。内嵌的 `action_announce` 声明 `activityAnnounce: message`。
+
+内嵌配置：`bash`/`bash_sandbox`/`wait` 用 `description`，`file_write`/`file_edit` 用 `description, filePath`，`file_read` 用 `filePath`，`file_glob`/`file_grep` 用 `pattern`，`web_fetch`/`surface_navigate` 用 `url`，`kbase_search` 用 `query`，`kbase_read` 用 `path`。规则见 [细节等级与 run.activity](API与协议.md#细节等级与-runactivity)。
+
 展示名称仅使用当前语言的 i18n.label，缺失时回退到工具 name，不能回退到上一次显示的其他语言名称。界面描述优先使用当前语言的 i18n.description，缺失时回退原始英文 description。API 的 label/toolLabel 是解析结果，不是源码中的重复配置。模型协议只从原始定义构造 name、description、parameters/input_schema 等协议字段，不发送 label、翻译表或界面翻译后的 description。工具名称、action、参数、权限与执行逻辑不受界面语言影响。
 
-工具元数据内部使用 `meta.toolI18n` 携带翻译。Native 调用在 tool.start / tool.snapshot 保存冻结的 `toolI18n` 展示快照，以支持多个客户端和历史读取；它不进入模型上下文。HTTP/WS 目录响应、SSE/WS 工具事件、Chat/Archive 回放和会话导出在输出边界按查看者语言解析，并移除内部翻译表，不修改共享定义或原始事件。英文请求同样进行工具展示解析。
+工具元数据内部使用 `meta.toolI18n` 携带翻译。Native 调用在 tool.start / tool.snapshot / tool.result 保存冻结的 `toolI18n` 展示快照，以支持多个客户端和历史读取；它不进入模型上下文。HTTP/WS 目录响应、SSE/WS 工具事件、Chat/Archive 回放和会话导出在输出边界按查看者语言解析，并移除内部翻译表，不修改共享定义或原始事件。英文请求同样进行工具展示解析。
 
-旧 JSONL 不迁移。旧工具事件可从当前 Platform 内置定义补齐展示翻译；已有冻结快照优先，不用全局目录猜测旧 Agent-local/MCP 工具的同名定义，无法解析时保留原始显示名。Desktop 在连接握手时设置当前全局语言，语言切换后通过 `/api/locale` 更新已连接通道；普通 WS 响应与后续流事件统一按连接语言解析。业务 payload 不携带 locale，展示语言不按请求或 Run 冻结，也不因语言变化重建观察订阅。Native 模型提示词的语言在 Run 开始时冻结，与工具展示语言独立；详见 [Agent 配置合并](Agent配置合并.md#runtime-context-语言与模板)。Bash 的动态参数 description 是原始调用内容，不自动翻译。
+普通工具的结果优先沿用本次调用开始时冻结的展示信息；没有开始快照时使用结果自带的翻译。MCP gateway 的结果保留 target 工具标签，不套用 gateway 翻译。结果事件仅解析外层展示字段，result 正文保持原样。
+
+旧 JSONL 不迁移。历史结果缺少翻译且标签为空或等于工具名时，读取出口从同一调用的 start/snapshot 补齐翻译；不覆盖显式展示标签或 MCP target，同名调用无法唯一匹配时不猜测。旧工具事件可从当前 Platform 内置定义补齐展示翻译；已有冻结快照优先，不用全局目录猜测旧 Agent-local/MCP 工具的同名定义，无法解析时保留原始显示名。Desktop 在连接握手时设置当前全局语言，语言切换后通过 `/api/locale` 更新已连接通道；普通 WS 响应与后续流事件统一按连接语言解析。业务 payload 不携带 locale，展示语言不按请求或 Run 冻结，也不因语言变化重建观察订阅。Native 模型提示词的语言在 Run 开始时冻结，与工具展示语言独立；详见 [Agent 配置合并](Agent配置合并.md#runtime-context-语言与模板)。Bash 的动态参数 description 是原始调用内容，不自动翻译。
 
 ## 内置工具布尔参数兼容
 
@@ -330,6 +363,7 @@ i18n:
 | file_read / file_edit | addLineNumbers / replaceAll |
 | file_grep / regex | caseInsensitive、lineNumbers、multiline / caseInsensitive |
 | workpanel_open / workpanel_close | reload / all |
+| surface_viewport | mobile、reset |
 | surface_navigate / surface_screenshot / surface_observe | ignoreCache / fullPage / viewportOnly |
 | ask_user_question | questions[].allowFreeText、questions[].options[].recommended |
 | chat_query / chat_manage | 各 action 声明的 archived、pinned |

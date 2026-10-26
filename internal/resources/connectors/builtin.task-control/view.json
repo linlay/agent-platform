@@ -1,0 +1,33 @@
+{
+  "views": {
+    "automations": {
+      "title": "Automations",
+      "description": "List automations with schedules, status and recent execution.",
+      "renderer": "html",
+      "usage": ["display"],
+      "entry": "views/automations.html",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Page size; default 20."}
+        }
+      },
+      "queries": {
+        "list": {
+          "description": "List automations.",
+          "adapter": "native",
+          "operation": "automation.list",
+          "paramsSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+              "offset": {"type": "integer", "minimum": 0}
+            }
+          }
+        }
+      }
+    }
+  }
+}

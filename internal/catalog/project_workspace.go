@@ -10,6 +10,11 @@ import (
 // ValidateProjectWorkspace checks a caller's project intent without persisting
 // it. Ordinary Agent definitions may still use @root or a filesystem root.
 func ValidateProjectWorkspace(definition map[string]any) error {
+	// An executor is created from agent management. It may still configure a
+	// Workspace there; it is just never a project.
+	if DefinitionRuntimeMode(definition) == AgentModeExecutor {
+		return fmt.Errorf("EXECUTOR agents cannot be created as projects; create them without isProject")
+	}
 	root, ok := mapNode(definition["runtimeConfig"])["workspaceRoot"].(string)
 	if !ok || strings.TrimSpace(root) == "" {
 		return fmt.Errorf("runtimeConfig.workspaceRoot is required as a non-empty string when isProject:true")

@@ -83,7 +83,7 @@ func TestQueryContinuesWithUnavailableContextAgents(t *testing.T) {
 			requests := make(chan string, 1)
 			fixture := newContextCandidatesFixture(t, tc.refs, &calls, requests)
 			rec := httptest.NewRecorder()
-			fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"agentKey":"mock-agent","message":"hello","stream":false}`)))
+			fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(`{"agentKey":"mock-agent","message":"hello","stream":false}`)))
 			var response api.ApiResponse[api.QueryResponse]
 			if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 				t.Fatal(err)
@@ -112,7 +112,7 @@ func TestQueryContinuesWithUnavailableContextAgents(t *testing.T) {
 			for _, key := range []string{"missing-candidate", "invalid-candidate"} {
 				// Direct query admission remains strict, even after the parent succeeded.
 				rejected := httptest.NewRecorder()
-				fixture.server.ServeHTTP(rejected, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"agentKey":"`+key+`","message":"must reject","stream":false}`)))
+				fixture.server.ServeHTTP(rejected, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(`{"agentKey":"`+key+`","message":"must reject","stream":false}`)))
 				if rejected.Code == http.StatusOK || calls.Load() != 1 {
 					t.Fatalf("unavailable target reached model: %d %s", rejected.Code, rejected.Body.String())
 				}

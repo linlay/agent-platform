@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	agentcontract "agent-platform/internal/agent"
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/agent/planmode"
 	"agent-platform/internal/api"
@@ -85,7 +86,9 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 	appendSection("runtime-plan-tasks", "Runtime Context: Current Plan Tasks", "runtime.plan_tasks", buildPlanTaskContextSection(session, toolNames, options.Stage))
 	appendSection("stage-instructions", "Stage Instructions Prompt", "stage.instructions", stageInstructionsPrompt)
 	appendSection("stage-system", "Stage System Prompt", "stage.system", stageSystemPrompt)
+	appendSection("tool-announce", "Progress Announcements", "tools.announce", buildAnnounceSection(options.ToolDefinitions, appendConfig))
 	appendSection("skill-catalog", "Skill Catalog Prompt", "skills.catalog", strings.TrimSpace(session.SkillCatalogPrompt))
+	appendSection("view-catalog", "View Catalog Prompt", "views.catalog", strings.TrimSpace(session.ViewCatalogPrompt))
 	appendSection("tool-appendix", "Tool Appendix", "tools.appendix", buildToolAppendix(options.ToolDefinitions, appendConfig, options.IncludeAfterCallHints))
 
 	return sections
@@ -260,6 +263,7 @@ func effectivePromptAppendConfig(config PromptAppendConfig) PromptAppendConfig {
 	defaults.Skill.InstructionsPrompt = strings.TrimSpace(config.Skill.InstructionsPrompt)
 	defaults.Reference.ProtocolPrompt = strings.TrimSpace(config.Reference.ProtocolPrompt)
 	defaults.Reference.AdvancedProtocolPrompt = strings.TrimSpace(config.Reference.AdvancedProtocolPrompt)
+	defaults.Announce.InstructionsPrompt = strings.TrimSpace(config.Announce.InstructionsPrompt)
 	if strings.TrimSpace(config.Skill.CatalogHeader) != "" {
 		defaults.Skill.CatalogHeader = strings.TrimSpace(config.Skill.CatalogHeader)
 	}
@@ -561,6 +565,29 @@ func firstNonBlank(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// buildAnnounceSection renders the announcement rules when the stage has a
+// tool whose activityAnnounce turns its call into the Run's progress line.
+func buildAnnounceSection(definitions []api.ToolDetailResponse, appendConfig PromptAppendConfig) string {
+	prompt := strings.TrimSpace(appendConfig.Announce.InstructionsPrompt)
+	if prompt == "" {
+		return ""
+	}
+	names := make([]string, 0, 1)
+	for _, tool := range definitions {
+		if ToolActivityAnnounce(tool.Meta) == "" {
+			continue
+		}
+		if name := normalizePromptToolName(tool); name != "" {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	sort.Strings(names)
+	return agentcontract.RenderPromptTemplate(prompt, map[string]string{"announce_tool_name": names[0]})
 }
 
 func buildToolAppendix(definitions []api.ToolDetailResponse, appendConfig PromptAppendConfig, includeAfterCallHints bool) string {

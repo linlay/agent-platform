@@ -411,18 +411,24 @@ type UsageSnapshotTool struct {
 
 func (DeltaUsageSnapshot) agentDeltaTag() {}
 
+// DeltaRunActivity reports a progress point the stream cannot derive from
+// public events: a model call starting, or a tool starting to execute.
 type DeltaRunActivity struct {
-	TaskID      string
-	ChatID      string
-	Phase       string
-	Status      string
-	Backend     string
-	Key         string
-	Message     string
-	Retry       map[string]any
-	Recovery    map[string]any
-	Degradation map[string]any
+	TaskID string
+	ChatID string
+	// Kind is ActivityThinking or ActivityToolRun. A tool that declares
+	// activityAnnounce publishes ActivityAnnounce instead.
+	Kind     string
+	ToolID   string
+	ToolName string
+	ToolArgs map[string]any
 }
+
+const (
+	ActivityThinking = "thinking"
+	ActivityToolRun  = "tool_run"
+	ActivityAnnounce = "announce"
+)
 
 func (DeltaRunActivity) agentDeltaTag() {}
 

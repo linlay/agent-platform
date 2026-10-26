@@ -49,6 +49,7 @@
 
 ## 调度与自动化
 
+- [智能体执行接口](智能体执行接口.md)：`/api/execute`、`result_submit` 与 EXECUTOR 模板，把 Agent 作为工作流节点调用。
 - [子智能体调度](子智能体调度.md)：子 Agent、Team 与独立 run 工具。
 - [原生等待工具](原生等待工具.md)：时间和事件等待、唤醒与恢复。
 - [自动化](自动化.md)：调度、触发权限、执行历史和 Platform Control 管理工具。

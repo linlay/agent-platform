@@ -69,6 +69,15 @@ func (n *SseEventNormalizer) shouldDrop(event StreamEvent) bool {
 	return false
 }
 
+// IsHiddenTool reports a tool whose tool.* events are suppressed; activities
+// about it must stay hidden as well.
+func (n *SseEventNormalizer) IsHiddenTool(toolID string, toolName string) bool {
+	if strings.HasPrefix(toolName, "_hidden_") || n.isHiddenToolName(toolName) {
+		return true
+	}
+	return toolID != "" && n.hiddenToolIDs[toolID]
+}
+
 func (n *SseEventNormalizer) isHiddenToolName(name string) bool {
 	return n.hiddenToolNames[strings.ToLower(strings.TrimSpace(name))]
 }

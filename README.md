@@ -39,7 +39,7 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 - `POST /api/submit`
 - `POST /api/steer`
 - `POST /api/interrupt`
-- `GET /api/view?chatId=...&connectorId=...&key=...[&hash=...]`（[VIEW 连接器](docs/VIEW连接器.md)）
+- `GET /api/view?source=connector&chatId=...&connectorId=...&key=...&hash=...`（[VIEW 连接器](docs/VIEW连接器.md)）
 - `GET /api/viewport?viewportKey=...`（旧协议兼容）
 - `GET /api/resource?file=...`
 - `POST /api/upload`
@@ -70,7 +70,7 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 
 - `code = 0` 表示成功，失败时 `code` 使用 HTTP 状态码数值。
 - `GET /api/chat` 默认返回 `events`，`includeRawMessages=true` 时追加 `rawMessages`。
-- `GET /api/viewport` 仅提供平台内置审批模板；外部自定义模板使用 [VIEW 连接器](docs/VIEW连接器.md) 与 `/api/view`，不再读取旧本地目录或远端 viewport registry。
+- 旧 `GET /api/viewport` 已删除；内置与连接器模板统一使用 [VIEW 连接器](docs/VIEW连接器.md) 与 `/api/view`，不再读取旧本地目录或远端 viewport registry。
 - `GET /api/attach` 与 `POST /api/submit` / `steer` / `interrupt` 统一按根 Run 的 `agentKey` 校验，TEAM 也使用同一契约。
 - `POST /api/submit` 使用 awaiting 协议：请求体必须包含 `runId`、`awaitingId`，并按 run 类型携带 根 `agentKey`。
 - Chat 默认按更新时间倒序展示，排序偏好由 Platform 保存；支持跨普通、CODER/KBASE 等 mode 的统一置顶，独立保存到 `chat-pinned.json`；未置顶列表在截断前排除置顶项，展示排序不修改内容时间。协议与存储见 [API与协议](./docs/API与协议.md) 和 [会话存储与回放](./docs/会话存储与回放.md)。
@@ -85,7 +85,8 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 - `catalog_manage.import` 支持单个 Skill、Skill 包与 Connector ZIP，复用现有校验和发布事务；分别保存到 `skills-center/<id>` 与 `connectors-center/<id>`，Handler 声明输入文件后独立完成读取与包导入审批，收据随 Run 结束释放。见 [ZIP 包导入](docs/Platform控制工具设计.md#zip-包导入)。
 - `references` 中的 skill 引用 为本次 run 选中的每个 Skill 目录追加 trusted read + readonly roots：完整目录免读路径 HITL，未选中的 skills-center 兄弟目录不随之开放，任何 `accessLevel`、hostAccess 或 approval 都不能写入这些选中目录。Container 仍只读挂载整个 `/skills-center`，mount 可见性不等同于 AccessPolicy 授权。
 - Agent YAML 已配置普通 Skill 与本次 `references` 中的 skill 引用 选中 Skill 的 `scripts/**` 入口，经本 Run 内存凭据（canonical 路径与 SHA-256）及执行前复验匹配后免入口 HITL；凭据不落盘、不跨 Run 继承，外围 Shell 和写入限制保持独立。见 [工具目录权限](docs/工具目录权限.md#技能脚本入口执行凭据)。
-- 专用 mode: KBASE 当前通过 kbaseConfig.libraryId 固定绑定共享库；普通 Native Agent 挂载 builtin.kbase-control 后可按 ID 检索任意可读库，单次 kbase 引用 指定本 Run 必须使用的库。Workspace 与库来源独立，library 配置不授予来源目录文件权限。editingMode 是 GENERAL/CODER/KBASE/TEAM 共用的 Workspace 编辑开关；显式 true/false 一致生效，省略时使用模板默认值（KBASE 只读，其他可编辑），规划 Run 始终只读。Query 落盘时 query 只保存调用方原样输入，平台决定（含 origin 来源）写在行顶层。工具来自有效配置，当前 Chat 目录按通用权限可读写，来源索引由库 watcher 异步维护。
+- 专用 mode: KBASE 当前通过 kbaseConfig.libraryId 固定绑定共享库；普通 Native Agent 挂载 builtin.kbase-control 后可按 ID 检索任意可读库，单次 kbase 引用 指定本 Run 必须使用的库。Workspace 与库来源独立，library 配置不授予来源目录文件权限。editingMode 是 GENERAL/CODER/KBASE/TEAM/EXECUTOR 共用的 Workspace 编辑开关；显式 true/false 一致生效，省略时使用模板默认值（KBASE、EXECUTOR 只读，其他可编辑），规划 Run 始终只读。Query 落盘时 query 只保存调用方原样输入，平台决定（含 origin 来源）写在行顶层。工具来自有效配置，当前 Chat 目录按通用权限可读写，来源索引由库 watcher 异步维护。
+- 工作流节点：`POST /api/execute` 把带 `result_submit` 的 Native Agent（默认为 EXECUTOR）当作节点调用，调用方给出任务数据和输出 JSON Schema，等待一次通过校验的提交；审批直接失败，断开即中断。详见 [智能体执行接口](docs/智能体执行接口.md)。
 - `builtin.platform-control` 显式挂载后提供 Catalog、Chat、诊断和七个 Desktop 域工具；Catalog 支持资源能力枚举及 Provider/MCP 组件只读发现，连接器与 MCP 分开表示，列表需跟进 nextCursor；按地址创建 HTTP MCP 后可通过 checkConnector 独立验证协议及工具发现，无需挂载目标连接器到 Agent；配置修改及删除 Chat 必须一次性人工审批。`run_env` 由全局 preset 示例提供，动态值只作用于当前普通 native root Run 的后续命令。详见 [平台控制连接器](docs/Platform控制工具设计.md)。
 
 Native 模型流式正文与推理各自达到 4,000 Unicode 字符后检测持续精确复读，命中会取消请求且不自动重试；详见 [流式复读取消](docs/配置化说明.md#流式复读取消)。
@@ -206,7 +207,7 @@ Desktop 模式下，Platform Control 支持按名称发现 Website/WebApp 并管
 
 Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 `standalone`。Desktop 宿主启动内置 Platform 时固定传入 `desktop`；Platform 不根据端口、父进程、WS `source` 或 YAML 猜测运行形态。七个 `desktop_*` 域工具与网页控制工具（`workpanel_*`、`surface_*`、`awcp_*`）优先使用当前 run 绑定的反向 WebSocket target；Desktop 模式下，无绑定或旧连接在发送前已失效的 run 会补绑当前 `desktop-main`，Standalone 仍只认 run target。两种模式都不调用本地 HTTP bridge，也不重放已经发送的动作。
 
-外部连接器原包安装在 `<AP_RUNTIME_DIR>/connectors-center/<id>`；启动和普通管理命令忽略旧 connectors/connector-state 及旧包根状态，不自动迁移；内置原包由 Platform 随包提供，不可修改或删除。Agent 挂载后，两类包统一组装到 `<AP_RUNTIME_DIR>/ru-connectors/<id>/<contentDigest>`，持久化授权状态保存在凭据目录 `.state/connectors/<id>/`。两类连接器统一由 Agent 的 `connectorConfig.connectors` 挂载；挂载自动增加本 Agent 运行包 bin PATH、导入全部技能元数据并接入 MCP 工具，同时授权运行包内 CLI 的全部子命令和参数，在所有 accessLevel 下免除入口执行审批；匹配的业务 Hook 仍按规则审批，需要凭据时仅支持已验证的直接子进程；技能正文和资源随包复制，从本 Agent 的 `@connectors/<id>/skills/...` 读取，不再重复放进同级 skills 目录；skillId 使用原始技能名，不添加连接器前缀，同一 Agent 内技能重名时返回冲突诊断。包允许 `bin/libs`，连接器技能不能被 `references` 中的 skill 引用 选中。`dbx/httpx` 的清单和完整技能源码位于相邻 `agent-platform-connectors/{dbx,httpx}/connector/`，由各项目与二进制一起打包，Platform 锁定并校验完整包；旧 `registries/mcp-servers` 目录直接忽略，不影响启动；不提供旧目录迁移，连接器按当前格式重新安装，Agent 挂载使用新字段。MCP 的 HTTP/stdio 优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`，并保持后台 tool sync。外部包支持通过 `DELETE /api/admin/connectors/detail?id=<id>` 删除；需先解除 Agent 引用并等待旧运行挂载释放，同步清空该连接器的全部本地授权、CLI 配置与数据和托管安装，重载失败恢复原包和状态；重新导入需重新准备和登录。HTTP MCP 可通过 `POST /api/admin/connectors/import-mcp` 按地址生成配置包，显式支持 MCP OAuth 或无需平台认证，同主机重复导入不覆盖。ZIP 导入后异步 CLI 准备（有 bin 跳过 init）、独立准备状态与登录凭据、MCP OAuth PKCE 与令牌刷新见 [连接器安装与授权](./docs/连接器安装与授权.md)；包结构与旧目录处理见 [连接器](./docs/连接器.md)，协议细节见 [MCP与工具交互](./docs/MCP与工具交互.md)。
+外部连接器原包安装在 `<AP_RUNTIME_DIR>/connectors-center/<id>`；启动和普通管理命令忽略旧 connectors/connector-state 及旧包根状态，不自动迁移；内置原包由 Platform 随包提供，不可修改或删除。Agent 挂载后，两类包统一组装到 `<AP_RUNTIME_DIR>/ru-connectors/<id>/<contentDigest>`，持久化授权状态保存在凭据目录 `.state/connectors/<id>/`。两类连接器统一由 Agent 的 `connectorConfig.connectors` 挂载；挂载自动增加本 Agent 运行包 bin PATH、导入全部技能元数据并接入 MCP 工具，同时授权运行包内 CLI 的全部子命令和参数，在所有 accessLevel 下免除入口执行审批；匹配的业务 Hook 仍按规则审批，需要凭据时仅支持已验证的直接子进程；技能正文和资源随包复制，从本 Agent 的 `@connectors/<id>/skills/...` 读取，不再重复放进同级 skills 目录；skillId 使用原始技能名，不添加连接器前缀，同一 Agent 内技能重名时返回冲突诊断。包允许 `bin/libs`，连接器技能不能被 `references` 中的 skill 引用 选中。`dbx/httpx` 的清单和完整技能源码位于相邻 `agent-platform-connectors/{dbx,httpx}/connector/`，由各项目与二进制一起打包，Platform 锁定并校验完整包；旧 `registries/mcp-servers` 目录直接忽略，不影响启动；不提供旧目录迁移，连接器按当前格式重新安装，Agent 挂载使用新字段。MCP 的 HTTP/stdio 优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`，并保持后台 tool sync。外部包支持通过 `DELETE /api/admin/connectors/detail?id=<id>` 删除；无活动运行占用时自动解除 Agent 源码挂载；有 Run／Terminal 占用则拒绝删除，需用户自行结束后重试，同步清空该连接器的全部本地授权、CLI 配置与数据和托管安装，重载失败恢复原包和状态；重新导入需重新准备和登录。HTTP MCP 可通过 `POST /api/admin/connectors/import-mcp` 按地址生成配置包，显式支持 MCP OAuth 或无需平台认证，同主机重复导入不覆盖。ZIP 导入后异步 CLI 准备（有 bin 跳过 init）、独立准备状态与登录凭据、MCP OAuth PKCE 与令牌刷新见 [连接器安装与授权](./docs/连接器安装与授权.md)；包结构与旧目录处理见 [连接器](./docs/连接器.md)，协议细节见 [MCP与工具交互](./docs/MCP与工具交互.md)。
 
 连接器锁统一存放于 `<AP_RUNTIME_DIR>/.lock/`，按布局初始化、装配、安装、来源操作和版本租约分开管理；`ru-connectors` 保留共享运行包与 `.shared-v1` 标记，不执行旧布局迁移。目录结构与锁路径切换要求见 [Runtime 锁目录](docs/连接器共享包与Desktop迁移.md#runtime-锁目录)。
 
@@ -413,7 +414,7 @@ docker compose logs -f
 ### 常见排查
 
 - 服务无法启动：先检查当前配置文件、鉴权公钥与 JWKS 配置是否完整。
-- 单个连接器配置损坏：启动与热重载记录带连接器 ID 和原因的 warning 并隔离该包/MCP 路由，其他服务继续加载；修正包后自动重载。包读取、保存和导入仍严格校验，详见 [连接器](docs/连接器.md)。
+- 单个连接器配置损坏：启动与热重载记录带连接器 ID 和原因的 warning 并隔离该包/MCP 路由，其他服务继续加载；修正包后自动重载。管理接口保留无效包的 `invalid` 状态及原因；包读取、保存和本次导入目标仍严格校验，其他已安装坏包不阻断 ZIP/MCP 地址导入，详见 [连接器](docs/连接器.md)。
 - Query 无法调用模型：检查 `AP_RUNTIME_REGISTRIES_DIR/providers`、`AP_RUNTIME_REGISTRIES_DIR/models` 是否存在，并确认 provider `apiKey` / `baseUrl` 可用。
 - Automation 看起来没有触发：先确认服务进程本身正在运行；如果是本地 `make run`，日志不会出现在 `docker compose logs` 里。随后检查 stdout 中是否有 `automation orchestrator started`、`[automation] registered ...`、`[automation] dispatch ...`。
 - Query 看起来不像真流式：默认 SSE writer 会逐事件 flush；优先检查代理、浏览器、网关或调用方是否缓冲。

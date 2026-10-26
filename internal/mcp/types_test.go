@@ -6,6 +6,22 @@ import (
 	"testing"
 )
 
+func TestToolDefinitionDisplayLabelFallback(t *testing.T) {
+	for _, tc := range []struct{ label, want string }{
+		{"列出表", "列出表"},
+		{"", "list_tables"},
+		{" \t ", "list_tables"},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			def := (ToolDefinition{Name: "list_tables", Label: tc.label}).ToAPITool("server")
+			def.Name = agentToolName("server", def.Name)
+			if def.Label != tc.want || def.Name == "list_tables" {
+				t.Fatalf("scoped MCP definition: %#v, want label %q", def, tc.want)
+			}
+		})
+	}
+}
+
 func TestToolDefinitionUnmarshalJSONSupportsViewReference(t *testing.T) {
 	var tool ToolDefinition
 	if err := json.Unmarshal([]byte(`{"name":"ask","view": {"key": "confirm_dialog"}}`), &tool); err != nil {

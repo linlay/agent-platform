@@ -20,7 +20,7 @@ func TestHTTPChatMapsIncompleteHistoryToConflict(t *testing.T) {
 	persistIncompleteChatHistory(t, fixture.chats, chatID)
 
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatID, nil))
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected HTTP 409, got %d: %s", rec.Code, rec.Body.String())

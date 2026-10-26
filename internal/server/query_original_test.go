@@ -29,7 +29,7 @@ func TestQueryPersistsOriginalJSONAcrossTransports(t *testing.T) {
 			}
 			if transport == "sse" || transport == "json" {
 				rec := httptest.NewRecorder()
-				fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(raw)))
+				fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(raw)))
 				if rec.Code != http.StatusOK {
 					t.Fatalf("query failed: %d %s", rec.Code, rec.Body.String())
 				}
@@ -103,7 +103,7 @@ func TestQueryPreservesReferencesBeforeNormalization(t *testing.T) {
 	fixture := newTestFixture(t)
 	const raw = `{"message":"read quote","agentKey":"mock-agent","references":[{"type":"selection","id":"quote","text":"quoted text","name":"client name","path":"/client/path","meta":{"clientOnly":true}}]}`
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(raw)))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(raw)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("query failed: %d %s", rec.Code, rec.Body.String())
 	}
@@ -133,7 +133,7 @@ func TestQueryIgnoresRoleInRequestBody(t *testing.T) {
 	fixture := newTestFixture(t)
 	const raw = `{"message":"hi","agentKey":"mock-agent","role":"automation"}`
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(raw)))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(raw)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("role must be ignored, got %d %s", rec.Code, rec.Body.String())
 	}
@@ -148,7 +148,7 @@ func TestQueryIgnoresRoleInRequestBody(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"message":"hi","btwId":"btw_1"}`)))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(`{"message":"hi","btwId":"btw_1"}`)))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("removed btwId stays an unknown field, got %d %s", rec.Code, rec.Body.String())
 	}

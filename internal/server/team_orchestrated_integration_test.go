@@ -82,7 +82,7 @@ func TestOrchestratedTeamDelegationEndToEnd(t *testing.T) {
 		)
 	}, testFixtureOptions{setupRuntime: setupOrchestratedTeamRuntime(t)})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"chat-team-e2e","agentKey":"research","message":"Give me every perspective"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"chat-team-e2e","agentKey":"research","message":"Give me every perspective"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)
@@ -266,7 +266,7 @@ func TestTEAMCanAnswerDirectlyWithoutDelegation(t *testing.T) {
 		writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"Direct TEAM answer"},"finish_reason":"stop"}]}`, `[DONE]`)
 	}, testFixtureOptions{setupRuntime: setupOrchestratedTeamRuntime(t)})
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"direct-team","agentKey":"research","message":"Answer directly"}`)))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"direct-team","agentKey":"research","message":"Answer directly"}`)))
 	if rec.Code != http.StatusOK || calls != 1 || !strings.Contains(rec.Body.String(), "Direct TEAM answer") {
 		t.Fatalf("status=%d calls=%d body=%s", rec.Code, calls, rec.Body.String())
 	}

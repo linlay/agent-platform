@@ -94,10 +94,15 @@ func TestPreparationInstallsIntoPrivatePrefixAndKeepsLastGoodInstallation(t *tes
 		t.Fatal(err)
 	}
 	second, _ := connector.ReadInstallation(sources.InstallRoot(), "demo")
-	// A Run still using the second installation retains it across updates.
-	release, err := connector.RetainInstallation(second.Prefix)
+	// A command still running from the second installation retains it across
+	// updates, without excluding the preparation.
+	pkg, _ = sources.Load("demo")
+	cmd, release, err := ExecutionCommand(ctx, pkg, nil, os.Environ())
 	if err != nil {
 		t.Fatal(err)
+	}
+	if resolved, _ := filepath.EvalSymlinks(second.Executable); cmd.Path != resolved {
+		t.Fatal("command does not run the active installation", cmd.Path, resolved)
 	}
 	if _, err := m.Prepare(ctx, "demo"); err != nil {
 		t.Fatal(err)

@@ -191,6 +191,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			Role:      "assistant",
 			Content:   textContent(event.String("text")),
 			ContentID: event.String("contentId"),
+			Views:     contentViewBindings(event.Value("views")),
 			MsgID:     w.currentMsgID,
 			Ts:        &ts,
 			ActorType: actorType,
@@ -1034,7 +1035,9 @@ func (w *StepWriter) clearCurrentStep() {
 	w.messages = nil
 	w.stepLiveSeq = 0
 	w.pendingAwaiting = nil
-	w.pendingApproval = nil
+	// The producer can record approval before tool.result reaches this writer.
+	// Flushing its assistant call must not discard the notice; the matching
+	// tool-result flush consumes it after persisting the inline audit message.
 	w.pendingUsage = nil
 	// pendingToolUsage survives a discarded model turn: the tool's provider
 	// already billed it, so it is written with the next step instead.

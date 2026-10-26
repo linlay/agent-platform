@@ -154,6 +154,7 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 		IncludeFullText: input.IncludeFullText,
 		AccessLevel:     accessLevel,
 		Model:           input.Model,
+		Detail:          input.Detail,
 	}
 	delete(req.Params, agentbuiltin.PlanApproveContinuationParam)
 	session, buildErr := s.deps.Sessions.BuildQuerySession(ctx, req, *summary, agentDef, sessionbuild.Options{

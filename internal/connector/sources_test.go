@@ -128,8 +128,8 @@ func TestSourcesStillValidatePackageRootsBesideOrderMetadata(t *testing.T) {
 			if !strings.Contains(warnings.String(), "warning: skipping invalid connector") {
 				t.Fatalf("missing warning: %s", warnings.String())
 			}
-			if _, err := sources.loadAllExcept(""); err == nil {
-				t.Fatal("import validation ignored an invalid installed package")
+			if packages, err := sources.loadAllExcept(""); err != nil || len(packages) != 0 {
+				t.Fatalf("invalid installed package blocked import validation: %v %v", packages, err)
 			}
 		})
 	}
@@ -173,6 +173,10 @@ func TestSourcesKeepHealthyPackagesBesideInvalidTokenSchema(t *testing.T) {
 	if err != nil || len(items) != 1 || items[0].ID != "healthy" {
 		t.Fatalf("healthy catalog unavailable: %v %v", items, err)
 	}
+	admin, err := sources.AdminSummaries()
+	if err != nil || len(admin) != 2 || admin[1].ID != "tencent-map" || admin[1].Status != "invalid" || !strings.Contains(admin[1].Error, `unknown field "title_en"`) || admin[1].HasMCP || !admin[1].CanDelete {
+		t.Fatalf("invalid package diagnostic missing or capabilities exposed: %+v %v", admin, err)
+	}
 }
 
 func TestSourcesRootTraversalStillFails(t *testing.T) {
@@ -182,5 +186,8 @@ func TestSourcesRootTraversalStillFails(t *testing.T) {
 	}
 	if _, err := (Sources{ExternalRoot: root}).LoadAll(); err == nil {
 		t.Fatal("source-root traversal error ignored")
+	}
+	if _, err := (Sources{ExternalRoot: root}).loadAllExcept("demo"); err == nil {
+		t.Fatal("import ignored source-root traversal error")
 	}
 }

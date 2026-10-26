@@ -71,7 +71,7 @@ func TestAgentInteractionDetailAndQueryHTTP(t *testing.T) {
 		extra["message"] = "hello"
 		body, _ := json.Marshal(extra)
 		rec := httptest.NewRecorder()
-		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body)))
+		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewReader(body)))
 		if rec.Code != 400 || !strings.Contains(rec.Body.String(), "interaction_disabled") {
 			t.Fatalf("query %#v: %d %s", extra, rec.Code, rec.Body.String())
 		}

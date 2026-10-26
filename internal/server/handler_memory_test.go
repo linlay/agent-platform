@@ -69,7 +69,7 @@ func TestQueryLoadsFileMemoryAndFreezesOwnerUntilNextRun(t *testing.T) {
 	s := &Server{deps: Dependencies{Config: config.Config{Paths: config.PathsConfig{MemoryDir: store.MemoryDir, OwnerDir: store.OwnerDir}, Memory: config.MemoryConfig{Enabled: true, ContextMaxChars: 12000}}, Chats: chats, Memory: store, Registry: queryMemoryRegistry{def: catalog.AgentDefinition{Key: "agent-a", Name: "Agent A", Mode: "GENERAL", ModelKey: "mock-model", MemoryEnabled: false, ContextTags: []string{"owner", "memory-global"}}}}}
 	prepare := func() preparedQuery {
 		t.Helper()
-		req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"hello"}`))
+		req := httptest.NewRequest("POST", "/api/query?detail=full", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"hello"}`))
 		p, err := prepareQueryForTest(s, req)
 		if err != nil {
 			t.Fatal(err)
@@ -127,7 +127,7 @@ func TestQueryMemoryTagsIndependentOfCollection(t *testing.T) {
 					t.Fatal(err)
 				}
 				s := &Server{deps: Dependencies{Config: config.Config{Paths: config.PathsConfig{MemoryDir: store.MemoryDir, OwnerDir: store.OwnerDir}, Memory: config.MemoryConfig{Enabled: true}}, Chats: chats, Memory: store, Registry: queryMemoryRegistry{def: catalog.AgentDefinition{Key: "agent-a", Name: "A", Mode: "GENERAL", ModelKey: "mock-model", MemoryEnabled: enabled, ContextTags: tags}}}}
-				req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"hello"}`))
+				req := httptest.NewRequest("POST", "/api/query?detail=full", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"hello"}`))
 				p, err := prepareQueryForTest(s, req)
 				if err != nil {
 					t.Fatal(err)

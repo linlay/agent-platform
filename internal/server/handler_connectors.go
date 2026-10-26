@@ -112,7 +112,7 @@ func connectorIconURL(item connector.Summary) string {
 
 func (s *Server) handleAdminConnectors(w http.ResponseWriter, _ *http.Request) {
 	sources := s.connectorSources()
-	items, err := sources.Summaries()
+	items, err := sources.AdminSummaries()
 	if err != nil {
 		s.writeAgentHTTPResponse(w, nil, newAgentStatusError(http.StatusServiceUnavailable, "connector_catalog_unavailable", err.Error()))
 		return
@@ -125,20 +125,35 @@ func (s *Server) handleAdminConnectors(w http.ResponseWriter, _ *http.Request) {
 	}
 	type entry struct {
 		connector.Summary
-		Tools       []api.ToolSummary `json:"tools"`
-		MCP         []mcpStatus       `json:"mcp,omitempty"`
-		IconURL     string            `json:"iconUrl,omitempty"`
-		Preparation any               `json:"preparation,omitempty"`
+		Tools             []api.ToolSummary `json:"tools"`
+		MCP               []mcpStatus       `json:"mcp,omitempty"`
+		IconURL           string            `json:"iconUrl,omitempty"`
+		Preparation       any               `json:"preparation,omitempty"`
+		MountedAgentCount *int              `json:"mountedAgentCount,omitempty"`
 	}
 	var mounts []connector.AgentRuntime
 	if provider, ok := s.deps.Registry.(mcp.AgentConnectorSource); ok {
 		mounts = provider.ConnectorRuntimes()
 	}
 	allTools := s.toolSummaries(true)
+	var mountCounts map[string]int
+	if reader, ok := s.deps.Registry.(interface {
+		ConfiguredConnectorMountCounts() (map[string]int, error)
+	}); ok {
+		mountCounts, _ = reader.ConfiguredConnectorMountCounts()
+	}
 	result := make([]entry, 0, len(items))
 	for _, item := range items {
 		value := entry{Summary: item, Tools: []api.ToolSummary{}}
 		value.Manifest = item.Manifest.Localized(responseLocale(w))
+		if mountCounts != nil && !item.Builtin {
+			count := mountCounts[item.ID]
+			value.MountedAgentCount = &count
+		}
+		if item.Status == "invalid" {
+			result = append(result, value)
+			continue
+		}
 		if item.HasCLI && !item.Builtin {
 			prepared, err := s.connectorAuth.PreparationStatus(item.ID)
 			if err != nil {
@@ -150,9 +165,15 @@ func (s *Server) handleAdminConnectors(w http.ResponseWriter, _ *http.Request) {
 		}
 		value.IconURL = connectorIconURL(item)
 		pkg, err := sources.Load(item.ID)
+		if err == nil {
+			err = mcp.ValidateConnectorPackage(pkg)
+		}
 		if err != nil {
-			s.writeAgentHTTPResponse(w, nil, err)
-			return
+			// A concurrent source edit must only invalidate this entry.
+			value.Summary = connector.Summary{Manifest: connector.Manifest{ID: item.ID, Name: item.ID}, Status: "invalid", Error: err.Error(), Builtin: item.Builtin, ReadOnly: item.Builtin, CanDelete: !item.Builtin, Skills: []string{}}
+			value.IconURL, value.Preparation = "", nil
+			result = append(result, value)
+			continue
 		}
 
 		for _, sourceKey := range pkg.ServerKeys() {
@@ -240,7 +261,12 @@ func (s *Server) handleConnectorDefinition(w http.ResponseWriter, r *http.Reques
 		// Do not cancel a login for a package that cannot be deleted. The
 		// authoritative reference check runs again inside the Agent mutation.
 		if connector.ValidID(id) && !connector.IsBuiltin(id) && reader != nil {
-			keys, err := reader.ConnectorUsers(id)
+			editor, ok := reader.(adminsource.ConnectorDeletionEditor)
+			if !ok {
+				s.writeConnectorError(w, errors.New("connector deletion editor is not configured"))
+				return
+			}
+			keys, err := editor.ActiveConnectorUsers(id)
 			if err != nil {
 				s.writeConnectorError(w, err)
 				return

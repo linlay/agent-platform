@@ -52,7 +52,7 @@ func TestReferenceOnlyQueryRequiresMainHistory(t *testing.T) {
 			t.Fatal(err)
 		}
 		rec := httptest.NewRecorder()
-		fixture.server.ServeHTTP(rec, httptest.NewRequest("POST", "/api/query", bytes.NewReader(body)))
+		fixture.server.ServeHTTP(rec, httptest.NewRequest("POST", "/api/query?detail=full", bytes.NewReader(body)))
 		if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"type":"run.complete"`) {
 			t.Fatalf("query failed: %d %s", rec.Code, rec.Body.String())
 		}
@@ -177,7 +177,7 @@ func TestEmptyQueryRequiresFailedOrCanceledLastRun(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := reason != "complete" && reason != "unknown"
-			for _, path := range []string{"/api/chats", "/api/chat?chatId=" + chatID} {
+			for _, path := range []string{"/api/chats", "/api/chat?detail=full&chatId=" + chatID} {
 				rec := httptest.NewRecorder()
 				fixture.server.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
 				if rec.Code != 200 {
@@ -194,7 +194,7 @@ func TestEmptyQueryRequiresFailedOrCanceledLastRun(t *testing.T) {
 
 			if !want {
 				rec := httptest.NewRecorder()
-				fixture.server.ServeHTTP(rec, httptest.NewRequest("POST", "/api/query", strings.NewReader(`{"chatId":"terminal-query","agentKey":"mock-agent"}`)))
+				fixture.server.ServeHTTP(rec, httptest.NewRequest("POST", "/api/query?detail=full", strings.NewReader(`{"chatId":"terminal-query","agentKey":"mock-agent"}`)))
 				if rec.Code != 400 {
 					t.Fatalf("empty HTTP query status=%d: %s", rec.Code, rec.Body.String())
 				}

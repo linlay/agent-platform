@@ -123,9 +123,10 @@ type TeamCoordinatorHistoryReader interface {
 }
 
 type FileStore struct {
-	root string
-	mu   sync.Mutex
-	db   *sql.DB
+	root        string
+	mu          sync.Mutex
+	db          *sql.DB
+	hiddenTools ClientHiddenToolFunc
 }
 
 // NewFileStoreAtStartup is the only chat-store constructor allowed to claim a

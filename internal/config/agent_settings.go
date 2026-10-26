@@ -8,6 +8,10 @@ import (
 	"agent-platform/internal/connector"
 )
 
+// presetModeSections are the agent-settings sections of the native modes that
+// receive mode-level presets and creation defaults.
+var presetModeSections = []string{"general", "coder", "kbase", "team", "executor"}
+
 var retiredAgentFiles = []string{"general-settings.yml", "coder-settings.yml", "kbase-settings.yml", "prompts.yml", "coder-prompts.yml", "kbase-prompts.yml", "ai-tools.yml"}
 
 func configMap(raw any, path string, keys ...string) (map[string]any, error) {
@@ -163,7 +167,7 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 	if err != nil {
 		return err
 	}
-	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "general", "coder", "kbase", "team", "acp-bridges")
+	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "announce-hold-seconds", "general", "coder", "kbase", "team", "executor", "plan-execute", "proxy", "channel", "acp-bridges")
 	if err != nil {
 		return err
 	}
@@ -175,14 +179,54 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 	if c.PlanningMode, err = parsePlanningMode(values, path, c.PlanningMode); err != nil {
 		return err
 	}
+	if raw, exists := values["announce-hold-seconds"]; exists {
+		seconds := -1
+		switch v := raw.(type) {
+		case int:
+			seconds = v
+		case int64:
+			seconds = int(v)
+		case uint64:
+			seconds = int(v)
+		}
+		if seconds < 0 {
+			return fmt.Errorf("%s.announce-hold-seconds must be a non-negative integer", path)
+		}
+		c.AnnounceHoldSeconds = seconds
+	}
+	c.ModeDefaultDetails = map[string]string{}
+	for _, mode := range []string{"general", "coder", "kbase", "team", "executor", "plan-execute", "proxy", "channel"} {
+		raw, exists := values[mode]
+		if !exists {
+			continue
+		}
+		section, err := configMap(raw, path+"."+mode, "preset-tools", "preset-connectors", "default-agent", "workspace-agents", "interaction-config")
+		if mode == "plan-execute" || mode == "proxy" || mode == "channel" {
+			section, err = configMap(raw, path+"."+mode, "interaction-config")
+		}
+		if err != nil {
+			return err
+		}
+		node, err := optionalConfigMap(section, "interaction-config", path+"."+mode, "default-detail")
+		if err != nil {
+			return err
+		}
+		if value, exists := node["default-detail"]; exists {
+			level, ok := value.(string)
+			if !ok || (level != "summary" && level != "full" && level != "none") {
+				return fmt.Errorf("%s.%s.interaction-config.default-detail must be summary, full or none", path, mode)
+			}
+			c.ModeDefaultDetails[mode] = level
+		}
+	}
 	c.ModePresets = map[string]AgentPresets{}
 	c.ACP.SourcePath = path
 	c.ACP.ACPBridges, err = parseCoderACPBridges(values["acp-bridges"], nil)
 	if err != nil {
 		return err
 	}
-	for _, mode := range []string{"general", "coder", "kbase", "team"} {
-		v, err := optionalConfigMap(values, mode, path, "preset-tools", "preset-connectors", "default-agent", "workspace-agents")
+	for _, mode := range presetModeSections {
+		v, err := optionalConfigMap(values, mode, path, "preset-tools", "preset-connectors", "default-agent", "workspace-agents", "interaction-config")
 		if err != nil {
 			return err
 		}
@@ -202,6 +246,8 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 		switch mode {
 		case "team":
 			c.TeamSettings = GeneralSettingsConfig{DefaultAgent: d, WorkspaceAgents: w}
+		case "executor":
+			c.ExecutorSettings = GeneralSettingsConfig{DefaultAgent: d, WorkspaceAgents: w}
 		case "general":
 			c.GeneralSettings = GeneralSettingsConfig{DefaultAgent: d, WorkspaceAgents: w}
 		case "coder":
@@ -256,12 +302,14 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	if err := validatePromptTemplates(v, path); err != nil {
 		return err
 	}
-	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "reference", "tool-appendix", "plan-execute", "automation", "btw", "planning-mode")
+	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "view", "announce", "reference", "tool-appendix", "plan-execute", "automation", "btw", "planning-mode")
 	if err != nil {
 		return err
 	}
 	schemas := map[string][]string{
 		"skill":         {"instructions-prompt", "catalog-header", "disclosure-header", "instructions-label"},
+		"view":          {"instructions-prompt", "catalog-header"},
+		"announce":      {"instructions-prompt"},
 		"reference":     {"protocol-prompt", "advanced-protocol-prompt"},
 		"tool-appendix": {"tool-description-title", "after-call-hint-title"},
 		"plan-execute":  {"task-execution-prompt-template", "plan-user-prompt-template", "summary-system-prompt", "summary-user-prompt-template"},
@@ -279,6 +327,9 @@ func (c *Config) applyAgentPromptFile(path string) error {
 				return err
 			}
 		}
+	}
+	if err := validateViewPrompts(shared, path+".shared.view"); err != nil {
+		return err
 	}
 	coder, err := optionalConfigMap(v, "coder", path, "system-prompt", "planning-prompt")
 	if err != nil {
@@ -301,6 +352,18 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	c.applyPromptsValues(shared)
 	c.applyCoderPromptsValues(coder)
 	c.applyKBasePromptsValues(kbase)
+	return nil
+}
+
+// validateViewPrompts requires the VIEW rules and catalog header together: the
+// header alone would list views without telling the model how to write them.
+func validateViewPrompts(shared map[string]any, path string) error {
+	values, _ := shared["view"].(map[string]any)
+	instructions, _ := values["instructions-prompt"].(string)
+	header, _ := values["catalog-header"].(string)
+	if (strings.TrimSpace(instructions) == "") != (strings.TrimSpace(header) == "") {
+		return fmt.Errorf("%s: instructions-prompt and catalog-header must be configured together", path)
+	}
 	return nil
 }
 

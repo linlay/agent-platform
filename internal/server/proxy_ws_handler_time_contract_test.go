@@ -99,7 +99,7 @@ func TestProxyWebSocketHTTPSSEObserverTerminatesInvalidEventWithLocalTimeContrac
 	}()
 
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{
 		"chatId":"`+chatID+`",
 		"runId":"`+runID+`",
 		"agentKey":"mock-agent",

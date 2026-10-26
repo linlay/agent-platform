@@ -2,9 +2,28 @@ package i18n
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestToolResultLocalizationDoesNotTranslateBusinessOutput(t *testing.T) {
+	result := map[string]any{"code": "not_found", "message": "agent not found", "name": "record", "toolI18n": map[string]any{"zh-CN": map[string]any{"label": "business field"}}}
+	payload := map[string]any{"toolId": "call", "toolName": "file_read", "toolLabel": "file_read", "result": result,
+		"toolI18n": map[string]any{"zh-CN": map[string]any{"label": "读取文件"}}}
+	live := LocalizeEventPayload("zh-CN", "tool.result", payload)
+	replayEvent := cloneMap(payload)
+	replayEvent["type"] = "tool.result"
+	replay := LocalizeValue("zh-CN", replayEvent).(map[string]any)
+	for _, got := range []map[string]any{live, replay} {
+		if got["toolLabel"] != "读取文件" || got["toolI18n"] != nil || !reflect.DeepEqual(got["result"], result) {
+			t.Fatalf("localization changed output: %#v", got)
+		}
+	}
+	if payload["toolLabel"] != "file_read" || payload["toolI18n"] == nil {
+		t.Fatal("source payload mutated")
+	}
+}
 
 func TestToolPresentationPerViewerAndFallback(t *testing.T) {
 	translations, err := ParseToolTranslations(map[string]any{
@@ -15,7 +34,7 @@ func TestToolPresentationPerViewerAndFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	original := map[string]any{"toolId": "call", "toolName": "settings", "toolLabel": "Default", "toolDescription": "Model instructions", "toolI18n": translations, "arguments": "unchanged"}
-	for _, event := range []string{"tool.start", "tool.snapshot"} {
+	for _, event := range []string{"tool.start", "tool.snapshot", "tool.result"} {
 		for _, tc := range []struct{ locale, label, description string }{{"zh-CN", "设置", "界面说明"}, {"en-US", "Settings", "Model instructions"}, {"fr", "Settings", "Model instructions"}} {
 			got := LocalizeEventPayload(tc.locale, event, original)
 			if got["toolLabel"] != tc.label || got["toolDescription"] != tc.description || got["arguments"] != "unchanged" {
