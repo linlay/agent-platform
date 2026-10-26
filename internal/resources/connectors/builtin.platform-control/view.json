@@ -8,26 +8,23 @@
         "display"
       ],
       "entry": "views/agents.html",
-      "dataSchema": {
+      "inputSchema": {
         "type": "object",
-        "required": [
-          "items"
-        ],
+        "additionalProperties": false,
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
+          "status": {
+            "enum": [
+              "all",
+              "valid",
+              "invalid"
+            ],
+            "description": "Initial status filter; default all."
           },
-          "total": {
-            "type": "integer"
-          },
-          "hasMore": {
-            "type": "boolean"
-          },
-          "nextCursor": {
-            "type": "string"
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size; default 20."
           }
         }
       },
@@ -80,26 +77,23 @@
         "display"
       ],
       "entry": "views/connectors.html",
-      "dataSchema": {
+      "inputSchema": {
         "type": "object",
-        "required": [
-          "items"
-        ],
+        "additionalProperties": false,
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
+          "status": {
+            "enum": [
+              "all",
+              "valid",
+              "invalid"
+            ],
+            "description": "Initial status filter; default all."
           },
-          "total": {
-            "type": "integer"
-          },
-          "hasMore": {
-            "type": "boolean"
-          },
-          "nextCursor": {
-            "type": "string"
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size; default 20."
           }
         }
       },
@@ -152,26 +146,23 @@
         "display"
       ],
       "entry": "views/providers.html",
-      "dataSchema": {
+      "inputSchema": {
         "type": "object",
-        "required": [
-          "items"
-        ],
+        "additionalProperties": false,
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
+          "status": {
+            "enum": [
+              "all",
+              "valid",
+              "invalid"
+            ],
+            "description": "Initial status filter; default all."
           },
-          "total": {
-            "type": "integer"
-          },
-          "hasMore": {
-            "type": "boolean"
-          },
-          "nextCursor": {
-            "type": "string"
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size; default 20."
           }
         }
       },
@@ -224,26 +215,23 @@
         "display"
       ],
       "entry": "views/models.html",
-      "dataSchema": {
+      "inputSchema": {
         "type": "object",
-        "required": [
-          "items"
-        ],
+        "additionalProperties": false,
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
+          "status": {
+            "enum": [
+              "all",
+              "valid",
+              "invalid"
+            ],
+            "description": "Initial status filter; default all."
           },
-          "total": {
-            "type": "integer"
-          },
-          "hasMore": {
-            "type": "boolean"
-          },
-          "nextCursor": {
-            "type": "string"
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size; default 20."
           }
         }
       },
@@ -296,26 +284,23 @@
         "display"
       ],
       "entry": "views/skills.html",
-      "dataSchema": {
+      "inputSchema": {
         "type": "object",
-        "required": [
-          "items"
-        ],
+        "additionalProperties": false,
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
+          "status": {
+            "enum": [
+              "all",
+              "valid",
+              "invalid"
+            ],
+            "description": "Initial status filter; default all."
           },
-          "total": {
-            "type": "integer"
-          },
-          "hasMore": {
-            "type": "boolean"
-          },
-          "nextCursor": {
-            "type": "string"
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size; default 20."
           }
         }
       },
@@ -368,26 +353,23 @@
         "display"
       ],
       "entry": "views/tools.html",
-      "dataSchema": {
+      "inputSchema": {
         "type": "object",
-        "required": [
-          "items"
-        ],
+        "additionalProperties": false,
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
+          "status": {
+            "enum": [
+              "all",
+              "valid",
+              "invalid"
+            ],
+            "description": "Initial status filter; default all."
           },
-          "total": {
-            "type": "integer"
-          },
-          "hasMore": {
-            "type": "boolean"
-          },
-          "nextCursor": {
-            "type": "string"
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size; default 20."
           }
         }
       },
@@ -440,26 +422,23 @@
         "display"
       ],
       "entry": "views/mcp.html",
-      "dataSchema": {
+      "inputSchema": {
         "type": "object",
-        "required": [
-          "items"
-        ],
+        "additionalProperties": false,
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
+          "status": {
+            "enum": [
+              "all",
+              "valid",
+              "invalid"
+            ],
+            "description": "Initial status filter; default all."
           },
-          "total": {
-            "type": "integer"
-          },
-          "hasMore": {
-            "type": "boolean"
-          },
-          "nextCursor": {
-            "type": "string"
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size; default 20."
           }
         }
       },

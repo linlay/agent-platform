@@ -26,14 +26,14 @@ func TestViewDescribeDisclosesOnlyFrozenMounts(t *testing.T) {
 	}
 	router := mustNewToolRouter(t, stubBackendToolExecutor{defs: registered}, nil, gatewayTestCatalog{}, nil)
 	execCtx := &ExecutionContext{Session: QuerySession{AgentKey: "agent", ToolNames: []string{ViewDescribeToolName}, ToolSetFrozen: true, ViewMounts: []view.Mount{{ID: "crm", Views: map[string]view.Definition{
-		"orders": {Description: "List orders.", Usage: []string{"display"}, Queries: map[string]view.Query{"list": {Adapter: "cli", Args: []view.QueryArg{{Literal: "orders"}}, ParamsSchema: json.RawMessage(`{"type":"object"}`)}}},
+		"orders": {Description: "List orders.", Usage: []string{"display"}, InputSchema: json.RawMessage(`{"type":"object","properties":{"status":{"type":"string"}}}`), Queries: map[string]view.Query{"list": {Adapter: "cli", Args: []view.QueryArg{{Literal: "orders"}}, ParamsSchema: json.RawMessage(`{"type":"object"}`)}}},
 	}}}}}
 	result := invokeGateway(t, router, ViewDescribeToolName, map[string]any{"key": "crm/orders"}, execCtx)
-	if result.Error != "" || result.Structured["key"] != "crm/orders" || result.Structured["queries"] == nil {
+	if result.Error != "" || result.Structured["key"] != "crm/orders" || result.Structured["inputSchema"] == nil || result.Structured["queries"] != nil {
 		t.Fatalf("describe = %#v", result)
 	}
-	// How a query runs stays private; the model only writes params.
-	if !strings.Contains(result.Output, "```view key=crm/orders query=list") || strings.Contains(result.Output, "cli") || strings.Contains(result.Output, `<`) {
+	// Queries stay private to the template; the model only writes the input.
+	if !strings.Contains(result.Output, "```view key=crm/orders\\n") || strings.Contains(result.Output, "query") || strings.Contains(result.Output, "cli") || strings.Contains(result.Output, `<`) {
 		t.Fatalf("output = %s", result.Output)
 	}
 	if result := invokeGateway(t, router, ViewDescribeToolName, map[string]any{"key": "other/orders"}, execCtx); result.Error != "view_not_found" {

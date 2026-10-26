@@ -26,7 +26,7 @@ var (
 const (
 	MaxDocumentBytes    = 8 << 20
 	MaxDescriptionRunes = 1024
-	MaxDataSchemaBytes  = 4 << 10
+	MaxSchemaBytes      = 4 << 10
 )
 
 // Reference is a configured identity plus server-resolved snapshot metadata.
@@ -129,10 +129,12 @@ type Config struct {
 
 type Definition struct {
 	Title string `json:"title,omitempty"`
-	// Description and DataSchema are the model-facing contract of a display
-	// view; they are listed in the prompt catalog, never sent to the frame.
+	// Description and InputSchema are the model-facing contract of a display
+	// view: the model writes a Markdown block body matching InputSchema, and
+	// the template runs its declared queries itself. Neither is sent to the
+	// frame.
 	Description string          `json:"description,omitempty"`
-	DataSchema  json.RawMessage `json:"dataSchema,omitempty"`
+	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
 	Renderer    string          `json:"renderer"`
 	Usage       []string        `json:"usage"`
 	Entry       string          `json:"entry,omitempty"`
@@ -235,14 +237,17 @@ func validateModelContract(key string, d Definition) error {
 	if utf8.RuneCountInString(description) > MaxDescriptionRunes {
 		return fmt.Errorf("%w: description for %s exceeds %d characters", ErrInvalid, key, MaxDescriptionRunes)
 	}
-	if len(d.DataSchema) == 0 {
+	if !d.Supports("display") {
+		if len(d.InputSchema) != 0 {
+			return fmt.Errorf("%w: inputSchema for %s requires display usage", ErrInvalid, key)
+		}
 		return nil
 	}
-	if !d.Supports("display") {
-		return fmt.Errorf("%w: dataSchema for %s requires display usage", ErrInvalid, key)
+	if len(d.InputSchema) == 0 {
+		return fmt.Errorf("%w: inputSchema is required for display view %s", ErrInvalid, key)
 	}
-	if _, err := compileDataSchema(d.DataSchema); err != nil {
-		return fmt.Errorf("%w: dataSchema for %s: %v", ErrInvalid, key, err)
+	if _, err := compileSchema(d.InputSchema); err != nil {
+		return fmt.Errorf("%w: inputSchema for %s: %v", ErrInvalid, key, err)
 	}
 	return nil
 }

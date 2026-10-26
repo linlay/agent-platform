@@ -13,7 +13,7 @@ import (
 const MaxCatalogBytes = 32 << 10
 
 // RenderCatalog lists the display views of the given mounts for the model,
-// one line per view: key and purpose. Schemas, queries and block syntax are
+// one line per view: key and purpose. The input schema and block syntax are
 // disclosed on demand by Describe, so the catalog stays small as packages add
 // views. All instructions and the header come from agent-prompt.yml. It
 // returns the entries and how many were omitted.
@@ -44,25 +44,24 @@ func RenderCatalog(mounts []Mount) (string, int) {
 }
 
 // Description is everything the model needs to write one display view block.
+// Declared queries are the template's own business and stay undisclosed.
 type Description struct {
 	Key         string                      `json:"key"`
 	Title       string                      `json:"title,omitempty"`
 	Description string                      `json:"description"`
-	DataSchema  json.RawMessage             `json:"dataSchema,omitempty"`
-	Queries     map[string]QueryDescription `json:"queries,omitempty"`
+	InputSchema json.RawMessage             `json:"inputSchema,omitempty"`
 	Actions     map[string]QueryDescription `json:"actions,omitempty"`
 	Usage       []string                    `json:"usage"`
 }
 
-// QueryDescription omits how a query runs; the model only writes params.
+// QueryDescription omits how an action runs; the model only reads its params.
 type QueryDescription struct {
 	Description  string          `json:"description,omitempty"`
 	ParamsSchema json.RawMessage `json:"paramsSchema,omitempty"`
 }
 
 // Describe returns the display view named by key (<connectorId>/<viewKey>)
-// among the given mounts, with block templates for static data and for each
-// declared query.
+// among the given mounts, with its block template.
 func Describe(mounts []Mount, key string) (Description, error) {
 	connectorID, viewKey, ok := strings.Cut(strings.TrimSpace(key), "/")
 	if ok {
@@ -83,7 +82,8 @@ func describe(key string, d Definition) Description {
 		Key:         key,
 		Title:       strings.TrimSpace(d.Title),
 		Description: strings.Join(strings.Fields(d.Description), " "),
-		DataSchema:  compactJSON(d.DataSchema),
+		InputSchema: compactJSON(d.InputSchema),
+		Usage:       []string{"```view key=" + key + "\n{input matching inputSchema}\n```"},
 	}
 	if len(d.Actions) > 0 {
 		out.Actions = make(map[string]QueryDescription)
@@ -91,25 +91,6 @@ func describe(key string, d Definition) Description {
 			out.Actions[name] = QueryDescription{Description: strings.Join(strings.Fields(action.Description), " "), ParamsSchema: compactJSON(action.ParamsSchema)}
 		}
 	}
-	names := make([]string, 0, len(d.Queries))
-	for name := range d.Queries {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	if len(names) > 0 {
-		out.Queries = map[string]QueryDescription{}
-	}
-	for _, name := range names {
-		q := d.Queries[name]
-		out.Queries[name] = QueryDescription{
-			Description:  strings.Join(strings.Fields(q.Description), " "),
-			ParamsSchema: compactJSON(q.ParamsSchema),
-		}
-		// A query keeps the view current and lets the user change conditions,
-		// so its template is listed before the static one.
-		out.Usage = append(out.Usage, "```view key="+key+" query="+name+"\n{params object matching queries."+name+".paramsSchema}\n```")
-	}
-	out.Usage = append(out.Usage, "```view key="+key+"\n{data matching dataSchema}\n```")
 	return out
 }
 

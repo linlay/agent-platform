@@ -61,7 +61,7 @@ func TestViewCatalogPromptInjectionRules(t *testing.T) {
 }
 
 func TestConfigureViewsBindsMarkdownWithFrozenMountsAndSchema(t *testing.T) {
-	dir := writeViewConnector(t, "crm", `{"views":{"orders":{"description":"List orders.","renderer":"html","usage":["display"],"entry":"views/index.html","dataSchema":{"type":"object","required":["items"]}}}}`)
+	dir := writeViewConnector(t, "crm", `{"views":{"orders":{"description":"List orders.","renderer":"html","usage":["display"],"entry":"views/index.html","inputSchema":{"type":"object","required":["items"]}}}}`)
 	def := catalog.AgentDefinition{Key: "demo", Mode: "GENERAL", Engine: catalog.AgentEngineNative, ConnectorMounts: []catalog.ConnectorMount{{ID: "crm", Dir: dir}}}
 	session := contracts.QuerySession{ChatRoot: t.TempDir(), PromptAppend: contracts.PromptAppendConfig{View: contracts.ViewAppendConfig{InstructionsPrompt: "RULES", CatalogHeader: "HEADER"}}}
 	if err := New(Dependencies{}).ConfigureViews(&session, def); err != nil {
@@ -71,18 +71,18 @@ func TestConfigureViewsBindsMarkdownWithFrozenMountsAndSchema(t *testing.T) {
 		t.Fatalf("catalog prompt: %q mounts %d", session.ViewCatalogPrompt, len(session.ViewMounts))
 	}
 	ref := view.Reference{Source: "connector", ConnectorID: "crm", Key: "orders"}
-	bound, err := session.BindMarkdownView(context.Background(), ref, "", json.RawMessage(`{"items":[]}`))
+	bound, err := session.BindMarkdownView(context.Background(), ref, json.RawMessage(`{"items":[]}`))
 	if err != nil || bound.Hash == "" {
 		t.Fatalf("bind: %#v %v", bound, err)
 	}
 	if _, err := view.LoadSnapshot(session.ChatRoot, bound); err != nil {
 		t.Fatalf("snapshot not frozen in Chat: %v", err)
 	}
-	invalid, err := session.BindMarkdownView(context.Background(), ref, "", json.RawMessage(`{}`))
+	invalid, err := session.BindMarkdownView(context.Background(), ref, json.RawMessage(`{}`))
 	if !errors.Is(err, view.ErrDataInvalid) || invalid.Hash != bound.Hash {
 		t.Fatalf("schema failure: %#v %v", invalid, err)
 	}
-	if _, err := session.BindMarkdownView(context.Background(), view.Reference{Source: "connector", ConnectorID: "other", Key: "orders"}, "", json.RawMessage(`{}`)); !errors.Is(err, view.ErrNotFound) {
+	if _, err := session.BindMarkdownView(context.Background(), view.Reference{Source: "connector", ConnectorID: "other", Key: "orders"}, json.RawMessage(`{}`)); !errors.Is(err, view.ErrNotFound) {
 		t.Fatalf("unmounted connector: %v", err)
 	}
 }

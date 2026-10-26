@@ -33,7 +33,7 @@ func setup(t *testing.T) (*Service, view.Document, *invoker, string) {
 	dir := filepath.Join(root, "crm")
 	os.MkdirAll(filepath.Join(dir, "views"), 0700)
 	action := view.Action{Query: view.Query{Adapter: "cli", Args: []view.QueryArg{{Literal: "transition"}, {Param: "key"}, {Literal: "--fields-file"}, {Literal: "-"}}, ParamsSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"key":{"type":"string","pattern":"^[A-Z]+-[1-9][0-9]*$"},"fields":{"type":"object"}},"required":["key","fields"]}`)}, StdinParam: "fields"}
-	def := view.Definition{Description: "Orders", Renderer: "html", Usage: []string{"display"}, Entry: "views/orders.html", Actions: map[string]view.Action{"transition": action}}
+	def := view.Definition{Description: "Orders", Renderer: "html", Usage: []string{"display"}, InputSchema: json.RawMessage(`{"type":"object"}`), Entry: "views/orders.html", Actions: map[string]view.Action{"transition": action}}
 	for name, value := range map[string]any{"connector.json": map[string]any{"id": "crm", "name": "CRM", "version": "1.0.0", "type": "cli", "authMode": "none"}, "cli.json": map[string]any{}, "view.json": view.Config{Views: map[string]view.Definition{"orders": def}}} {
 		raw, _ := json.Marshal(value)
 		if err := os.WriteFile(filepath.Join(dir, name), raw, 0600); err != nil {
@@ -81,7 +81,7 @@ func TestActionRejectsUndeclaredInvalidAndRevokedBeforeDispatch(t *testing.T) {
 		}
 	}
 	s, doc, f, dir := setup(t)
-	os.WriteFile(filepath.Join(dir, "view.json"), []byte(`{"views":{"orders":{"description":"Orders","renderer":"html","usage":["display"],"entry":"views/orders.html"}}}`), 0600)
+	os.WriteFile(filepath.Join(dir, "view.json"), []byte(`{"views":{"orders":{"description":"Orders","renderer":"html","usage":["display"],"inputSchema":{"type":"object"},"entry":"views/orders.html"}}}`), 0600)
 	_, err := s.Execute(context.Background(), doc, "transition", json.RawMessage(`{"key":"DEMO-1","fields":{}}`), "request-001", actor())
 	if !errors.Is(err, ErrStale) || f.calls != 0 {
 		t.Fatal(err, f.calls)

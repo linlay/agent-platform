@@ -32,11 +32,11 @@ crm-views/
 {"views":{
   "edit":{"title":"编辑资料","renderer":"html","usage":["form"],"entry":"views/edit.html"},
   "card":{"title":"资料卡","description":"Show one customer profile card.","renderer":"html","usage":["display"],"entry":"views/card.html","assets":["views/card.js"],
-          "dataSchema":{"type":"object","required":["name"],"properties":{"name":{"type":"string"}}}}
+          "inputSchema":{"type":"object","required":["customerId"],"properties":{"customerId":{"type":"string","description":"Customer ID."}}}}
 }}
 ```
 
-`description` 与 `dataSchema` 是 display VIEW 面向模型的契约：`usage` 含 `display` 时 `description` 必填（≤1024 字符）；`dataSchema` 可选，仅限 display，序列化后 ≤4 KiB 且必须是可编译的 JSON Schema。`description` 进入 prompt 目录，`dataSchema` 由 `view_describe` 按需返回并用于 Markdown 数据校验，两者都不发送给 iframe。
+`description` 与 `inputSchema` 是 display VIEW 面向模型的契约：`usage` 含 `display` 时两者都必填，`description` ≤1024 字符；`inputSchema` 仅限 display，序列化后 ≤4 KiB 且必须是可编译的 JSON Schema。`inputSchema` 描述 Markdown VIEW 块正文，即视图的输入（查询条件、视图配置），不是结果数据；模板拿到输入后自己通过声明的查询取数。字段含义与填写要求写在各字段的 `description` 中，Skill 只补充何时使用哪个视图，不重复格式。`description` 进入 prompt 目录，`inputSchema` 由 `view_describe` 按需返回并用于正文校验，两者都不发送给 iframe。旧字段 `dataSchema` 按未知字段拒绝加载。
 
 `renderer` 接受 `html | qlc`，与 HITL mode 无关。QLC 必须是 JSON 对象；HTML 必须是非空 UTF-8。`usage` 显式声明 `display`、`form` 或两者。入口和资源必须是 `views/` 下的规范 POSIX 路径，禁止绝对路径、回退段、查询串和逃出 views 的符号链接，`views` 本身也不能是链接。只发布显式声明的资源，完整 JSON 文档（含资源 base64）上限 8 MiB。
 
@@ -108,7 +108,7 @@ HTTP：`GET /api/view?source=connector&chatId=<chat>&connectorId=crm-views&key=c
 
 宿主为 display VIEW 注入 `window.viewHost` 适配脚本（不写入快照，随宿主协议演进；内置与外部连接器的 VIEW 使用同一套接口）：
 
-- `viewHost.onData((payload, view, context) => …)` 接收 init/update；`context` 含 `queryable`、`locale`、`colorScheme`，查询块另有 `query:{name,params}` 与首次查询完成时间 `executedAt`（Unix 毫秒），首次查询失败时有 `error`。脚本把 `colorScheme` 写到 `<html data-color-scheme>` 与 `color-scheme`，模板按宿主主题而非系统主题配色。
+- `viewHost.onData((payload, view, context) => …)` 接收 init/update；Markdown 块的 `payload` 是正文（视图输入），工具结果 VIEW 的 `payload` 是工具结果；`context` 含 `queryable`、`actionable`、`locale`、`colorScheme`。宿主不代为执行首次查询，模板按输入自行调用 `viewHost.query`；语言或主题变化会以相同 payload 再次触发 `onData`，模板应据此只重绘、不重复查询。脚本把 `colorScheme` 写到 `<html data-color-scheme>` 与 `color-scheme`，模板按宿主主题而非系统主题配色。
 - `viewHost.query(name, params)` 返回 Promise，成功时为 `{data, executedAt}`：发送 `{type:"view_query",id,query,params}`，宿主只对本 iframe、快照声明的查询调用 `/api/view/query`，回复 `{type:"view_query_result",id,ok,data,executedAt|error}`。同一 iframe 内同名查询以最后一次为准，被取代的请求以 `view_query_superseded` 拒绝（模板可忽略）；不同查询名互不影响。工具结果 VIEW 没有 Run 上下文，不可查询。
 - `viewHost.resize()` 手动上报高度；脚本默认以 ResizeObserver 发送 `{type:"view_resize",height}`。宿主只接受来自该 iframe 的消息，高度由 HTML 内容决定，仅设 48px 下限、不设上限（内容不应按 vh 定高），首次上报前保持 320px；HITL 表单宿主的限高不变。
 
@@ -124,20 +124,19 @@ QLC 当前采用 JSON 展示与 JSON 表单兜底，尚未实现专有 QLC 控�
 
 ## Markdown VIEW 块
 
-助手正文用 info string 指定连接器 VIEW，正文只放数据：
+助手正文用 info string 指定连接器 VIEW，正文只放符合 `inputSchema` 的视图输入，不放查询结果：
 
 ````markdown
 ```view key=crm-views/card
-{"name":"示例"}
+{"customerId":"C-1001"}
 ```
 ````
 
 语法（平台与 WebClient 按同一组 golden 用例 `internal/view/testdata/markdown_cases.json` 校验）：
 
 - 栅栏从行首开始；恰好三个反引号加单词 `view`（不区分大小写），其后为空白或行尾。
-- 属性接受必填的 `key=<connectorId>/<viewKey>` 与可选的 `query=<name>`，顺序不限，各至多一次；ID 均为小写；重复或未知属性（含 `hash=`）均为 `invalid_view`。不带 `/` 的内置 VIEW 不能用于 Markdown。
-- 无 `query` 时正文为数据：一个 JSON 对象或数组，去除首尾空白后 ≤256 KiB；有 `dataSchema` 时按其校验，失败为 `view_data_invalid`。
-- 有 `query` 时正文为该查询的参数对象：查询必须由 VIEW 声明（否则 `invalid_view`），参数必须是 JSON 对象并符合 `paramsSchema`（否则 `view_data_invalid`）。
+- 只识别一个 `key=<connectorId>/<viewKey>`，ID 均为小写；缺少或重复 `key=` 为 `invalid_view`，其他属性（如旧的 `query=`、`hash=`）一律忽略。不带 `/` 的内置 VIEW 不能用于 Markdown。
+- 正文是视图输入：一个 JSON 对象或数组，去除首尾空白后 ≤256 KiB，并按 VIEW 的 `inputSchema` 校验，失败为 `view_data_invalid`。
 - 单独一行、至少同样数量的同种栅栏字符闭合，允许尾随空白。其他代码块（``` 或 ~~~）内的 `view` 栅栏是代码，不是 VIEW；未闭合的块不渲染。
 - `index` 为同一 content 内已闭合 VIEW 块的顺序号，非法块也占号，平台绑定与客户端分段靠它对齐。
 
@@ -147,7 +146,7 @@ WebClient 只用绑定中的 hash 读取快照：块已闭合但绑定未到时�
 
 ## VIEW 查询
 
-display VIEW 可以在 `view.json` 声明只读查询，让模板自己取数，用户在界面上改条件后重新查询。内置与外部连接器的查询共用同一套 Markdown 语法、接口、宿主桥接、结果形状与错误处理，`adapter` 只决定数据来源：
+display VIEW 可以在 `view.json` 声明只读查询，模板按 Markdown 块输入自己取数，用户在界面上改条件后重新查询。查询只供模板使用，不向模型披露。内置与外部连接器的查询共用同一套 Markdown 语法、接口、宿主桥接、结果形状与错误处理，`adapter` 只决定数据来源：
 
 | adapter | 数据来源 | 声明字段 |
 |---|---|---|
@@ -194,7 +193,7 @@ display VIEW 可以在 `view.json` 声明只读查询，让模板自己取数，
 
   参数缺省或为 null 时整项省略；`flag` 只接受布尔值，false 时省略；参数值只能是字符串、数字或布尔值（数字按原文传递）；`{"param"}` 直接放值的项，值不能以 `-` 开头，防止被当作选项。`opt`/`flag` 必须形如 `-x` 或 `--name`。
 - `mcp` 以 `arguments` 的固定参数加校验后的 params 作为工具参数；params 不能覆盖固定参数（`paramsSchema.properties` 与 `arguments` 重名时加载拒绝，调用时同名参数返回 `view_query_params_invalid`）。
-- 查询声明随模板写入快照并计入 hash，历史快照不会因升级获得新查询。`view_describe` 为每个查询返回 description 与 paramsSchema，不区分 adapter，也不暴露 adapter、operation、args 等执行细节。
+- 查询声明随模板写入快照并计入 hash，历史快照不会因升级获得新查询。`view_describe` 不返回查询；查询的 `description` 仅供包作者说明。
 - 查询由包作者声明为只读；Platform 无法证明 CLI 或 MCP 工具没有副作用，安装包即信任包。Agent 发起的写操作仍走工具与 HITL；用户在 display VIEW 中的显式写操作走独立的 VIEW action 接口和宿主确认。
 
 结果规则：
@@ -203,7 +202,7 @@ display VIEW 可以在 `view.json` 声明只读查询，让模板自己取数，
 - `cli`：退出码必须为 0，stdout 去除首尾空白后必须是 JSON（多数 CLI 提供 `--json`/`--format json`），否则为 `view_query_failed`；非 0 退出时错误信息取 stderr 首行。
 - `mcp`：优先使用 `structuredContent`；否则唯一一段文本内容是 JSON 时解析使用；再否则包成 `{"text":"…"}`。工具返回 `isError` 时为 `view_query_failed`，错误信息取文本首行。
 
-模型写 ` ```view key=crm/orders query=list ` 并以参数对象为正文；WebClient 打开时以这些参数执行首次查询，模板通过 `viewHost.query(name, params)` 重新查询。
+模型写 ` ```view key=crm/orders ` 并以符合 `inputSchema` 的输入为正文；模板在 `onData` 中按输入组装参数，通过 `viewHost.query(name, params)` 执行首次及后续查询。
 
 `POST /api/view/query`（WS 同名 route）请求体为 `{chatId, runId, view:{connectorId,key,hash}, query, params}`，严格拒绝未知字段，响应 `{code:0,data:{data,executedAt}}`，`executedAt` 为查询完成时间（Unix 毫秒）。授权与执行规则：
 
@@ -227,7 +226,7 @@ display VIEW 可以在 `view.json` 声明只读查询，让模板自己取数，
 
 ### Prompt 目录
 
-display VIEW 采用渐进式披露：system prompt 只列每个 VIEW 的 key 与用途，Schema、查询和块模板由只读工具 `view_describe` 按需返回。文案通过 `configs/agent-prompt.yml` 的 `shared.view` 配置，源码不提供任何默认文案：
+display VIEW 采用渐进式披露：system prompt 只列每个 VIEW 的 key 与用途，输入 Schema 和块模板由只读工具 `view_describe` 按需返回。文案通过 `configs/agent-prompt.yml` 的 `shared.view` 配置，源码不提供任何默认文案：
 
 ```yaml
 shared:
@@ -245,7 +244,7 @@ Available views:
 - builtin.task-control/automations — List automations with schedules, status and recent execution.
 ```
 
-`view_describe({"key":"builtin.platform-control/agents"})` 返回 `key/title/description/dataSchema/queries/usage`：`queries` 每项只有 description 与 paramsSchema；`usage` 是块模板，有查询时查询模板在前、静态数据模板在后。只查当前执行者冻结挂载中的 display VIEW，其他 key 返回 `view_not_found`。
+`view_describe({"key":"builtin.platform-control/agents"})` 返回 `key/title/description/inputSchema/actions/usage`：`actions` 每项只有 description 与 paramsSchema；`usage` 是唯一的块模板。只查当前执行者冻结挂载中的 display VIEW，其他 key 返回 `view_not_found`。
 
 注入规则：
 
@@ -260,7 +259,7 @@ Available views:
 9. 条目按 `connectorId/viewKey` 字典序，每个 VIEW 一行 `- <connectorId>/<viewKey> — <description>`（description 折叠空白）；整段上限 32 KiB，超出从末尾整条移除并记录 warning。
 10. `view_describe` 是普通只读工具，没有隐式注入：分发配置只在 `agent-settings.yml` 的 general、coder 段 preset，其他 mode 或 Agent 需要时显式声明；`toolConfig.excludeTools` 可排除。没有该工具时目录照常注入，模型只能按目录写块。没有挂载 display VIEW 时调用返回 `view_not_found`。
 11. 不提供 Agent 级覆盖；不需要某个 VIEW 就不挂载对应连接器。
-12. description 与 dataSchema 来自包作者，信任等级同工具描述，不授予工具或权限。
+12. description 与 inputSchema 来自包作者，信任等级同工具描述，不授予工具或权限。
 13. 渲染与绑定不依赖 prompt：未注入时模型写出的 VIEW 块仍按上述规则绑定。
 
 ## 来源统一与硬切边界

@@ -23,7 +23,6 @@ func TestParseMarkdownBlocksSharedCases(t *testing.T) {
 			Blocks []struct {
 				Index int             `json:"index"`
 				Key   string          `json:"key"`
-				Query string          `json:"query"`
 				Data  json.RawMessage `json:"data"`
 				Error string          `json:"error"`
 			} `json:"blocks"`
@@ -44,7 +43,7 @@ func TestParseMarkdownBlocksSharedCases(t *testing.T) {
 				if got.Reference != nil {
 					key = got.Reference.ConnectorID + "/" + got.Reference.Key
 				}
-				if got.Index != want.Index || key != want.Key || got.Query != want.Query || ErrorCode(got.Err) != want.Error {
+				if got.Index != want.Index || key != want.Key || ErrorCode(got.Err) != want.Error {
 					t.Fatalf("block %d = index %d key %q err %v, want %+v", i, got.Index, key, got.Err, want)
 				}
 				if len(want.Data) > 0 && !sameJSON(t, got.Data, want.Data) {
@@ -63,16 +62,13 @@ func TestParseMarkdownBlocksRejectsOversizedBody(t *testing.T) {
 	}
 }
 
-func TestValidateDataUsesDataSchema(t *testing.T) {
-	d := Definition{DataSchema: json.RawMessage(`{"type":"object","required":["items"],"properties":{"items":{"type":"array"}}}`)}
-	if err := ValidateData(d, json.RawMessage(`{"items":[]}`)); err != nil {
+func TestValidateInputUsesInputSchema(t *testing.T) {
+	d := Definition{InputSchema: json.RawMessage(`{"type":"object","required":["jql"],"properties":{"jql":{"type":"string"}}}`)}
+	if err := ValidateInput(d, json.RawMessage(`{"jql":"a"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateData(d, json.RawMessage(`{"items":"no"}`)); !errors.Is(err, ErrDataInvalid) {
+	if err := ValidateInput(d, json.RawMessage(`{"jql":1}`)); !errors.Is(err, ErrDataInvalid) {
 		t.Fatalf("schema violation: %v", err)
-	}
-	if err := ValidateData(Definition{}, json.RawMessage(`[1]`)); err != nil {
-		t.Fatalf("no schema: %v", err)
 	}
 }
 
@@ -85,25 +81,29 @@ func TestDisplayViewModelContractValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := Definition{Renderer: "html", Entry: "views/index.html"}
+	input := json.RawMessage(`{"type":"object"}`)
 	cases := map[string]struct {
 		mutate func(*Definition)
 		ok     bool
 	}{
-		"display needs description": {func(d *Definition) { d.Usage = []string{"display"} }, false},
+		"display needs description": {func(d *Definition) { d.Usage, d.InputSchema = []string{"display"}, input }, false},
+		"display needs inputSchema": {func(d *Definition) { d.Usage, d.Description = []string{"display"}, "Show it." }, false},
 		"form needs none":           {func(d *Definition) { d.Usage = []string{"form"} }, true},
-		"display with description":  {func(d *Definition) { d.Usage, d.Description = []string{"display"}, "Show it." }, true},
+		"display with contract": {func(d *Definition) {
+			d.Usage, d.Description, d.InputSchema = []string{"display"}, "Show it.", input
+		}, true},
 		"description too long": {func(d *Definition) {
-			d.Usage, d.Description = []string{"display"}, strings.Repeat("字", MaxDescriptionRunes+1)
+			d.Usage, d.Description, d.InputSchema = []string{"display"}, strings.Repeat("字", MaxDescriptionRunes+1), input
 		}, false},
 		"schema must compile": {func(d *Definition) {
-			d.Usage, d.Description, d.DataSchema = []string{"display"}, "Show it.", json.RawMessage(`{"type":7}`)
+			d.Usage, d.Description, d.InputSchema = []string{"display"}, "Show it.", json.RawMessage(`{"type":7}`)
 		}, false},
 		"schema size": {func(d *Definition) {
 			d.Usage, d.Description = []string{"display"}, "Show it."
-			d.DataSchema = json.RawMessage(`{"description":"` + strings.Repeat("a", MaxDataSchemaBytes) + `"}`)
+			d.InputSchema = json.RawMessage(`{"description":"` + strings.Repeat("a", MaxSchemaBytes) + `"}`)
 		}, false},
 		"schema requires display": {func(d *Definition) {
-			d.Usage, d.DataSchema = []string{"form"}, json.RawMessage(`{"type":"object"}`)
+			d.Usage, d.InputSchema = []string{"form"}, input
 		}, false},
 	}
 	for name, tc := range cases {
@@ -118,7 +118,7 @@ func TestDisplayViewModelContractValidation(t *testing.T) {
 
 func TestRenderCatalogListsDisplayViewsDeterministically(t *testing.T) {
 	mounts := []Mount{
-		{ID: "zeta", Views: map[string]Definition{"card": {Title: "Card", Description: "Show\n a card.", Usage: []string{"display"}, DataSchema: json.RawMessage("{\n \"type\": \"object\"\n}")}}},
+		{ID: "zeta", Views: map[string]Definition{"card": {Title: "Card", Description: "Show\n a card.", Usage: []string{"display"}, InputSchema: json.RawMessage("{\n \"type\": \"object\"\n}")}}},
 		{ID: "alpha", Views: map[string]Definition{
 			"edit": {Description: "Edit.", Usage: []string{"form"}},
 			"list": {Description: "List rows.", Usage: []string{"display", "form"}},
@@ -153,7 +153,7 @@ func sameJSON(t *testing.T, a, b json.RawMessage) bool {
 
 func TestDescribeDisclosesOneMountedDisplayView(t *testing.T) {
 	mounts := []Mount{{ID: "crm", Views: map[string]Definition{
-		"orders": {Title: "Orders", Description: "List\n orders.", Usage: []string{"display"}, DataSchema: json.RawMessage("{\n \"type\": \"object\"\n}"),
+		"orders": {Title: "Orders", Description: "List\n orders.", Usage: []string{"display"}, InputSchema: json.RawMessage("{\n \"type\": \"object\"\n}"),
 			Queries: map[string]Query{"list": {Description: "List.", Adapter: "native", Operation: "crm.list", ParamsSchema: json.RawMessage(`{"type": "object"}`)}}},
 		"edit": {Description: "Edit.", Usage: []string{"form"}},
 	}}}
@@ -162,12 +162,12 @@ func TestDescribeDisclosesOneMountedDisplayView(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := json.Marshal(got)
-	want := `{"key":"crm/orders","title":"Orders","description":"List orders.","dataSchema":{"type":"object"},"queries":{"list":{"description":"List.","paramsSchema":{"type":"object"}}},` +
-		`"usage":["` + "```view key=crm/orders query=list\\n{params object matching queries.list.paramsSchema}\\n```" + `","` + "```view key=crm/orders\\n{data matching dataSchema}\\n```" + `"]}`
+	want := `{"key":"crm/orders","title":"Orders","description":"List orders.","inputSchema":{"type":"object"},` +
+		`"usage":["` + "```view key=crm/orders\\n{input matching inputSchema}\\n```" + `"]}`
 	if string(data) != want {
 		t.Fatalf("describe = %s", data)
 	}
-	// Adapters and operations stay private; form views and other mounts are not found.
+	// Queries stay private to the template; form views and other mounts are not found.
 	for _, key := range []string{"crm/edit", "crm/missing", "other/orders", "orders", ""} {
 		if _, err := Describe(mounts, key); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("%q: %v", key, err)

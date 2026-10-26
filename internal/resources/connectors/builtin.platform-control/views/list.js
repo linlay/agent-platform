@@ -2,8 +2,8 @@
 (() => {
   'use strict';
   const text = {
-    en: { agents: 'Agents', connectors: 'Connectors', all: 'All', valid: 'Valid', invalid: 'Invalid', refresh: 'Refresh', prev: 'Previous', next: 'Next', key: 'Key', name: 'Name', mode: 'Mode', status: 'Status', capabilities: 'Components', none: 'Nothing to show', loading: 'Loading…', total: '{n} total', invocable: 'invocable', builtin: 'built-in', editable: 'editable' },
-    zh: { agents: '智能体', connectors: '连接器', all: '全部', valid: '有效', invalid: '无效', refresh: '刷新', prev: '上一页', next: '下一页', key: 'Key', name: '名称', mode: '类型', status: '状态', capabilities: '组件', none: '没有可显示的内容', loading: '加载中…', total: '共 {n} 个', invocable: '可调用', builtin: '内置', editable: '可编辑' },
+    en: { agents: 'Agents', connectors: 'Connectors', all: 'All', valid: 'Valid', invalid: 'Invalid', refresh: 'Refresh', prev: 'Previous', next: 'Next', key: 'Key', name: 'Name', mode: 'Mode', status: 'Status', capabilities: 'Components', none: 'Nothing to show', loading: 'Loading…', unavailable: 'Live data cannot be queried here.', total: '{n} total', invocable: 'invocable', builtin: 'built-in', editable: 'editable' },
+    zh: { agents: '智能体', connectors: '连接器', all: '全部', valid: '有效', invalid: '无效', refresh: '刷新', prev: '上一页', next: '下一页', key: 'Key', name: '名称', mode: '类型', status: '状态', capabilities: '组件', none: '没有可显示的内容', loading: '加载中…', unavailable: '此处无法查询实时数据。', total: '共 {n} 个', invocable: '可调用', builtin: '内置', editable: '可编辑' },
   };
   const columns = {"agent": [["key", "resourceKey"], ["name", "name"], ["mode", "mode"]], "connector": [["key", "resourceKey"], ["capabilities", "components"]], "provider": [["key", "resourceKey"], ["protocols", "protocols"], ["modelCount", "modelCount"], ["defaultModel", "defaultModel"], ["credentials", "credentialConfigured"]], "model": [["key", "resourceKey"], ["name", "name"], ["provider", "provider"], ["modelType", "type"], ["modelId", "modelId"], ["protocol", "protocol"], ["contextWindow", "contextWindow"]], "skill": [["key", "resourceKey"], ["name", "name"], ["description", "description"]], "tool": [["key", "resourceKey"], ["description", "description"]], "mcp": [["key", "resourceKey"], ["connector", "connectorId"], ["transport", "transport"], ["enabled", "enabled"]]};
   Object.assign(text.en, {"agentTitle": "Agents", "connectorTitle": "Connectors", "providerTitle": "Providers", "modelTitle": "Models", "skillTitle": "Skills", "toolTitle": "Standalone tools", "mcpTitle": "MCP components", "agentNotice": "Public Agents, including TEAM Agents.", "connectorNotice": "Installed connectors and their declared components.", "providerNotice": "Local configuration only. Configured credentials do not confirm remote availability.", "modelNotice": "Loaded model definitions; remote availability has not been checked.", "skillNotice": "Skill-center members; excludes Agent-local and connector-owned Skills.", "toolNotice": "Standalone tool catalog; connector tools belong to their connectors.", "mcpNotice": "Local connector declarations, including disabled components; remote availability has not been checked.", "protocols": "Protocols", "modelCount": "Models", "defaultModel": "Default model", "credentials": "Credentials configured", "yes": "Yes", "no": "No", "provider": "Provider", "modelType": "Type", "modelId": "Model ID", "protocol": "Protocol", "contextWindow": "Context window", "description": "Description", "connector": "Connector", "transport": "Transport", "enabled": "Enabled"});
@@ -14,7 +14,7 @@
   const $ = (id) => document.getElementById(id);
   const el = (tag, className, content) => { const node = document.createElement(tag); if (className) node.className = className; if (content !== undefined) node.textContent = content; return node; };
   // cursors[i] is the cursor that loaded page i; page 0 has none.
-  let data = null, params = { resourceType, status: 'all', limit: 20 }, cursors = [''], queryable = false, busy = false;
+  let data = null, params = { resourceType, status: 'all', limit: 20 }, cursors = [''], queryable = false, busy = false, input = null, failure = null;
 
   function applyText() { document.querySelectorAll('[data-i18n]').forEach((node) => { node.textContent = t(node.dataset.i18n); }); }
 
@@ -34,7 +34,8 @@
     $('pager').hidden = true;
     const body = $('body');
     body.replaceChildren();
-    if (!data) { body.append(el('div', 'empty', t('loading'))); return; }
+    if (failure) { body.append(el('div', 'error', String(failure?.message || failure))); }
+    if (!data) { if (!failure) body.append(el('div', 'empty', t(queryable ? 'loading' : 'unavailable'))); return; }
     const items = data.items || [];
     if (!items.length) body.append(el('div', 'empty', t('none')));
     else {
@@ -75,9 +76,6 @@
     $('next').disabled = busy || !data.hasMore;
   }
 
-  function showError(error) {
-    $('body').replaceChildren(el('div', 'error', String(error?.message || error)));
-  }
 
   async function load(next, nextCursors) {
     if (!queryable || busy) return;
@@ -87,24 +85,23 @@
     if (cursor) request.cursor = cursor; else delete request.cursor;
     try {
       const { data: result } = await viewHost.query('list', request);
-      params = next; cursors = nextCursors; data = result;
-    } catch (error) { busy = false; render(); showError(error); return; }
+      params = next; cursors = nextCursors; data = result; failure = null;
+    } catch (error) { failure = error; }
     busy = false; render();
   }
 
+  // The block body is the view input; the first page is queried here.
   viewHost.onData((payload, _view, context) => {
     dict = String(context?.locale || navigator.language).toLowerCase().startsWith('zh') ? text.zh : text.en;
     applyText();
-    queryable = Boolean(context?.queryable);
-    const queryParams = context?.query?.params;
-    if (queryParams) {
-      const { cursor, ...rest } = queryParams;
-      params = { status: 'all', limit: 20, ...rest, resourceType };
-      cursors = [cursor || ''];
-    }
-    if (context?.error) { data = { items: [] }; render(); showError(context.error); return; }
-    data = payload && Array.isArray(payload.items) ? payload : { items: [] };
+    const key = JSON.stringify(payload ?? null), nextQueryable = Boolean(context?.queryable);
+    if (key === input && nextQueryable === queryable) { render(); return; } // locale/theme refresh only
+    input = key; queryable = nextQueryable;
+    const value = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+    data = null; failure = null;
+    params = { resourceType, status: value.status || 'all', limit: value.limit || 20 }; cursors = [''];
     render();
+    load(params, cursors);
   });
   $('status').addEventListener('change', () => load({ ...params, status: $('status').value }, ['']));
   $('refresh').addEventListener('click', () => load({ ...params }, cursors));

@@ -27,7 +27,7 @@ func writeViewQueryPackage(t *testing.T, root string, files map[string]any) {
 
 func ordersView(query map[string]any) map[string]any {
 	return map[string]any{"views": map[string]any{"orders": map[string]any{
-		"description": "Orders.", "renderer": "html", "usage": []string{"display"}, "entry": "views/orders.html",
+		"description": "Orders.", "renderer": "html", "usage": []string{"display"}, "inputSchema": map[string]any{"type": "object"}, "entry": "views/orders.html",
 		"queries": map[string]any{"list": query},
 	}}}
 }

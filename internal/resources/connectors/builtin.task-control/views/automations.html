@@ -45,14 +45,14 @@ footer { display: flex; justify-content: flex-end; align-items: center; gap: 8px
 (() => {
   'use strict';
   const text = {
-    en: { title: 'Automations', enabledOnly: 'Enabled only', refresh: 'Refresh', prev: 'Previous', next: 'Next', name: 'Name', agent: 'Agent', schedule: 'Schedule', next_run: 'Next run', last: 'Last execution', enabled: 'Enabled', disabled: 'Disabled', none: 'No automations', loading: 'Loading…', total: '{n} total', remaining: '{n} runs left', range: '{from}–{to} of {total}' },
-    zh: { title: '自动化', enabledOnly: '仅显示已启用', refresh: '刷新', prev: '上一页', next: '下一页', name: '名称', agent: '智能体', schedule: '计划', next_run: '下次执行', last: '最近执行', enabled: '已启用', disabled: '已停用', none: '暂无自动化', loading: '加载中…', total: '共 {n} 个', remaining: '剩余 {n} 次', range: '第 {from}–{to} 个，共 {total} 个' },
+    en: { title: 'Automations', enabledOnly: 'Enabled only', refresh: 'Refresh', prev: 'Previous', next: 'Next', name: 'Name', agent: 'Agent', schedule: 'Schedule', next_run: 'Next run', last: 'Last execution', enabled: 'Enabled', disabled: 'Disabled', none: 'No automations', loading: 'Loading…', unavailable: 'Live data cannot be queried here.', total: '{n} total', remaining: '{n} runs left', range: '{from}–{to} of {total}' },
+    zh: { title: '自动化', enabledOnly: '仅显示已启用', refresh: '刷新', prev: '上一页', next: '下一页', name: '名称', agent: '智能体', schedule: '计划', next_run: '下次执行', last: '最近执行', enabled: '已启用', disabled: '已停用', none: '暂无自动化', loading: '加载中…', unavailable: '此处无法查询实时数据。', total: '共 {n} 个', remaining: '剩余 {n} 次', range: '第 {from}–{to} 个，共 {total} 个' },
   };
   let dict = text.zh;
   const t = (key, values) => (dict[key] || key).replace(/\{(\w+)\}/g, (_, name) => values?.[name] ?? '');
   const $ = (id) => document.getElementById(id);
   const el = (tag, className, content) => { const node = document.createElement(tag); if (className) node.className = className; if (content !== undefined) node.textContent = content; return node; };
-  let data = null, params = { limit: 20, offset: 0 }, queryable = false, busy = false;
+  let data = null, params = { limit: 20, offset: 0 }, queryable = false, busy = false, input = null, failure = null;
 
   function applyText() { document.querySelectorAll('[data-i18n]').forEach((node) => { node.textContent = t(node.dataset.i18n); }); }
 
@@ -61,7 +61,9 @@ footer { display: flex; justify-content: flex-end; align-items: center; gap: 8px
     $('count').textContent = data ? t('total', { n: data.total ?? data.items?.length ?? 0 }) : '';
     const body = $('body');
     body.replaceChildren();
-    if (!data) { body.append(el('div', 'empty', t('loading'))); return; }
+    $('refresh').disabled = busy || !queryable;
+    if (failure) body.append(el('div', 'error', String(failure?.message || failure)));
+    if (!data) { $('pager').hidden = true; if (!failure) body.append(el('div', 'empty', t(queryable ? 'loading' : 'unavailable'))); return; }
     if (!items.length) { body.append(el('div', 'empty', t('none'))); }
     else {
       const table = el('table');
@@ -100,32 +102,30 @@ footer { display: flex; justify-content: flex-end; align-items: center; gap: 8px
     $('range').textContent = t('range', { from: total ? from + 1 : 0, to: from + data.items.length, total });
     $('prev').disabled = busy || from === 0;
     $('next').disabled = busy || !data.hasMore;
-    $('refresh').disabled = busy || !queryable;
   }
 
-  function showError(error) {
-    $('body').replaceChildren(el('div', 'error', String(error?.message || error)));
-  }
 
   async function load(next) {
     if (!queryable || busy) return;
     busy = true; render();
     try {
       const { data: result } = await viewHost.query('list', next);
-      params = next; data = result;
-    } catch (error) { busy = false; render(); showError(error); return; }
+      params = next; data = result; failure = null;
+    } catch (error) { failure = error; }
     busy = false; render();
   }
 
+  // The block body is the view input; the first page is queried here.
   viewHost.onData((payload, _view, context) => {
     dict = String(context?.locale || navigator.language).toLowerCase().startsWith('zh') ? text.zh : text.en;
     applyText();
-    queryable = Boolean(context?.queryable);
-    if (context?.query?.params) params = { limit: 20, offset: 0, ...context.query.params };
-    if (context?.error) { data = { items: [] }; render(); showError(context.error); return; }
-    data = payload && Array.isArray(payload.items) ? payload : { items: [] };
-    if (!context?.query && Number.isInteger(payload?.nextOffset)) params.offset = Math.max(0, payload.nextOffset - payload.items.length);
+    const key = JSON.stringify(payload ?? null), nextQueryable = Boolean(context?.queryable);
+    if (key === input && nextQueryable === queryable) { render(); return; } // locale/theme refresh only
+    input = key; queryable = nextQueryable;
+    const value = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+    data = null; failure = null; params = { limit: value.limit || 20, offset: 0 };
     render();
+    load(params);
   });
   $('enabledOnly').addEventListener('change', render);
   $('refresh').addEventListener('click', () => load({ ...params }));

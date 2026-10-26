@@ -23,7 +23,7 @@ func TestViewHTTPMountedScopeAndSnapshotAfterUnmount(t *testing.T) {
 		dir := filepath.Join(cfg.Paths.EffectiveConnectorsCenterDir(), "forms")
 		for name, content := range map[string]string{
 			"connector.json":   `{"id":"forms","name":"Forms","version":"1.0.0","type":"view","authMode":"self"}`,
-			"view.json":        `{"views":{"edit":{"description":"Edit a form.","renderer":"html","entry":"views/index.html","usage":["form","display"]}}}`,
+			"view.json":        `{"views":{"edit":{"description":"Edit a form.","renderer":"html","entry":"views/index.html","usage":["form","display"],"inputSchema":{"type":"object"}}}}`,
 			"views/index.html": "<p>original</p>",
 		} {
 			p := filepath.Join(dir, name)

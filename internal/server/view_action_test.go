@@ -42,7 +42,7 @@ func TestViewActionHTTPUsesLiveChatOwnershipAndPublishingRun(t *testing.T) {
 	dir := filepath.Join(root, "demo")
 	os.MkdirAll(filepath.Join(dir, "views"), 0700)
 	action := view.Action{Query: view.Query{Adapter: "cli", Args: []view.QueryArg{{Literal: "write"}, {Param: "key"}}, ParamsSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"key":{"type":"string"}},"required":["key"]}`)}}
-	definition := view.Definition{Description: "Demo", Renderer: "html", Usage: []string{"display"}, Entry: "views/card.html", Actions: map[string]view.Action{"update": action}}
+	definition := view.Definition{Description: "Demo", Renderer: "html", Usage: []string{"display"}, InputSchema: json.RawMessage(`{"type":"object"}`), Entry: "views/card.html", Actions: map[string]view.Action{"update": action}}
 	for name, value := range map[string]any{"connector.json": map[string]any{"id": "demo", "name": "Demo", "type": "cli", "version": "1.0.0", "authMode": "none"}, "cli.json": map[string]any{}, "view.json": view.Config{Views: map[string]view.Definition{"card": definition}}} {
 		raw, _ := json.Marshal(value)
 		os.WriteFile(filepath.Join(dir, name), raw, 0600)

@@ -97,7 +97,7 @@ func validateQueries(key string, d Definition) error {
 			return fmt.Errorf("%w: query %s of %s: %v", ErrInvalid, name, key, err)
 		}
 		if len(q.ParamsSchema) > 0 {
-			if _, err := compileDataSchema(q.ParamsSchema); err != nil {
+			if _, err := compileSchema(q.ParamsSchema); err != nil {
 				return fmt.Errorf("%w: paramsSchema of query %s of %s: %v", ErrInvalid, name, key, err)
 			}
 		}

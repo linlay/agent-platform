@@ -99,8 +99,8 @@ func ContentViewBinderFor(ctx context.Context, session *QuerySession) stream.Con
 		ctx = context.Background()
 	}
 	bind := session.BindMarkdownView
-	return func(ref view.Reference, query string, body json.RawMessage) (view.Reference, error) {
-		return bind(ctx, ref, query, body)
+	return func(ref view.Reference, body json.RawMessage) (view.Reference, error) {
+		return bind(ctx, ref, body)
 	}
 }
 
@@ -333,10 +333,10 @@ type QuerySession struct {
 	// It is installed by the session producer, never supplied by query clients.
 	ResolveView func(context.Context, view.Reference, string) (view.Reference, error) `json:"-"`
 	// BindMarkdownView freezes a display view written in assistant Markdown and
-	// validates its body against the view's dataSchema.
-	BindMarkdownView     func(context.Context, view.Reference, string, json.RawMessage) (view.Reference, error) `json:"-"`
-	SharedConnectorsRoot string                                                                                 `json:"-"`
-	NativeConnectorTools map[string]string                                                                      `json:"-"` // Trusted platform capability bindings, never model input.
+	// validates its body against the view's inputSchema.
+	BindMarkdownView     func(context.Context, view.Reference, json.RawMessage) (view.Reference, error) `json:"-"`
+	SharedConnectorsRoot string                                                                         `json:"-"`
+	NativeConnectorTools map[string]string                                                              `json:"-"` // Trusted platform capability bindings, never model input.
 	SharedSkillsRoot     string
 	SkillDirs            map[string]string
 	ConnectorDirs        map[string]string `json:"-"` // Frozen mounted connector runtime paths.

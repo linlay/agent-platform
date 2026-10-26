@@ -6,7 +6,7 @@ i18n:
     label: "视图详情"
 description: |
   Describe one display view from the view catalog before writing its view block.
-  Returns the data schema, the declared queries with their params schemas, and block templates in usage.
+  Returns the input schema the block body must match, the user actions the view offers, and the block template in usage.
   Details returned earlier in this Chat stay valid for the rest of the Chat; do not describe the same view again.
 clientVisible: true
 readOnly: true

@@ -39,7 +39,7 @@ func TestMarkdownViewBlocksBindFrozenSnapshotsAndReplay(t *testing.T) {
 		dir := filepath.Join(cfg.Paths.EffectiveConnectorsCenterDir(), "crm")
 		for name, content := range map[string]string{
 			"connector.json":    `{"id":"crm","name":"CRM","version":"1.0.0","type":"view","authMode":"self"}`,
-			"view.json":         `{"views":{"orders":{"description":"List orders.","renderer":"html","usage":["display"],"entry":"views/orders.html","dataSchema":{"type":"object","properties":{"items":{"type":"array"}}}}}}`,
+			"view.json":         `{"views":{"orders":{"description":"List orders.","renderer":"html","usage":["display"],"entry":"views/orders.html","inputSchema":{"type":"object","properties":{"items":{"type":"array"}}}}}}`,
 			"views/orders.html": "<p>orders v1</p>",
 		} {
 			path := filepath.Join(dir, name)

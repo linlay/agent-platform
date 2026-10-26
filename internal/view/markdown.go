@@ -10,8 +10,8 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// ErrDataInvalid reports a Markdown view body that is not usable data. The
-// template itself may still be valid.
+// ErrDataInvalid reports a Markdown view body that is not a usable view input.
+// The template itself may still be valid.
 var ErrDataInvalid = errors.New("invalid view data")
 
 // MaxMarkdownDataBytes bounds one Markdown view body. The prompt rules in
@@ -24,10 +24,9 @@ const MaxMarkdownDataBytes = 256 << 10
 type MarkdownBlock struct {
 	Index     int
 	Reference *Reference
-	// Query names a declared view query; Data then holds its params object.
-	Query string
-	Data  json.RawMessage
-	Err   error
+	// Data is the view input; the template runs its declared queries itself.
+	Data json.RawMessage
+	Err  error
 }
 
 // ParseMarkdownBlocks scans Markdown for top-level ```view fences.
@@ -36,8 +35,9 @@ type MarkdownBlock struct {
 //   - fences start at column 0; ``` or ~~~ runs of three or more open a fence;
 //   - a view fence is exactly three backticks followed by the word "view"
 //     (case-insensitive) and then whitespace or end of line;
-//   - its info string accepts key=<connectorId>/<viewKey> and optionally
-//     query=<name>, each at most once; with query the body is a params object;
+//   - its info string needs exactly one key=<connectorId>/<viewKey>; every
+//     other attribute is ignored;
+//   - its body is one JSON object or array, the view input;
 //   - a fence closes on a line with only the same character repeated at least
 //     as many times, optionally followed by spaces or tabs;
 //   - view fences inside other fences are code, not views;
@@ -67,9 +67,9 @@ func ParseMarkdownBlocks(text string, final bool) []MarkdownBlock {
 		}
 		if attrs, isView := viewInfo(char, width, info); isView {
 			block := MarkdownBlock{Index: len(blocks)}
-			block.Reference, block.Query, block.Err = parseViewAttributes(attrs)
+			block.Reference, block.Err = parseViewAttributes(attrs)
 			if block.Err == nil {
-				block.Data, block.Err = parseMarkdownData(strings.Join(lines[i+1:end], "\n"), block.Query != "")
+				block.Data, block.Err = parseMarkdownData(strings.Join(lines[i+1:end], "\n"))
 			}
 			blocks = append(blocks, block)
 		}
@@ -117,43 +117,40 @@ func viewInfo(char byte, width int, info string) (string, bool) {
 	return rest, true
 }
 
-func parseViewAttributes(attrs string) (*Reference, string, error) {
-	values := map[string]string{}
+func parseViewAttributes(attrs string) (*Reference, error) {
+	var key string
+	seen := false
 	for _, field := range strings.Fields(attrs) {
-		name, value, ok := strings.Cut(field, "=")
-		if _, seen := values[name]; !ok || seen || (name != "key" && name != "query") {
-			return nil, "", fmt.Errorf("%w: view block accepts key=<connectorId>/<viewKey> and query=<name>", ErrInvalid)
+		value, ok := strings.CutPrefix(field, "key=")
+		if !ok {
+			continue
 		}
-		values[name] = value
+		if seen {
+			return nil, fmt.Errorf("%w: view block accepts one key=<connectorId>/<viewKey>", ErrInvalid)
+		}
+		key, seen = value, true
 	}
-	connectorID, viewKey, ok := strings.Cut(values["key"], "/")
+	connectorID, viewKey, ok := strings.Cut(key, "/")
 	if !ok || !idPattern.MatchString(connectorID) || !idPattern.MatchString(viewKey) {
-		return nil, "", fmt.Errorf("%w: view block key must be <connectorId>/<viewKey>", ErrInvalid)
+		return nil, fmt.Errorf("%w: view block key must be <connectorId>/<viewKey>", ErrInvalid)
 	}
-	query, hasQuery := values["query"]
-	if hasQuery && !idPattern.MatchString(query) {
-		return nil, "", fmt.Errorf("%w: view block query name", ErrInvalid)
-	}
-	return &Reference{Source: "connector", ConnectorID: connectorID, Key: viewKey}, query, nil
+	return &Reference{Source: "connector", ConnectorID: connectorID, Key: viewKey}, nil
 }
 
-func parseMarkdownData(body string, params bool) (json.RawMessage, error) {
+func parseMarkdownData(body string) (json.RawMessage, error) {
 	data := bytes.TrimSpace([]byte(body))
 	if len(data) > MaxMarkdownDataBytes {
 		return nil, fmt.Errorf("%w: body exceeds %d bytes", ErrDataInvalid, MaxMarkdownDataBytes)
 	}
-	if len(data) == 0 || (data[0] != '{' && (params || data[0] != '[')) || !json.Valid(data) {
-		if params {
-			return nil, fmt.Errorf("%w: query body must be one JSON object", ErrDataInvalid)
-		}
+	if len(data) == 0 || (data[0] != '{' && data[0] != '[') || !json.Valid(data) {
 		return nil, fmt.Errorf("%w: body must be one JSON object or array", ErrDataInvalid)
 	}
 	return json.RawMessage(data), nil
 }
 
-func compileDataSchema(raw json.RawMessage) (*jsonschema.Resolved, error) {
-	if len(raw) > MaxDataSchemaBytes {
-		return nil, fmt.Errorf("exceeds %d bytes", MaxDataSchemaBytes)
+func compileSchema(raw json.RawMessage) (*jsonschema.Resolved, error) {
+	if len(raw) > MaxSchemaBytes {
+		return nil, fmt.Errorf("exceeds %d bytes", MaxSchemaBytes)
 	}
 	var schema jsonschema.Schema
 	if err := json.Unmarshal(raw, &schema); err != nil {
@@ -162,9 +159,10 @@ func compileDataSchema(raw json.RawMessage) (*jsonschema.Resolved, error) {
 	return schema.Resolve(nil)
 }
 
-// ValidateData checks a Markdown view body against the definition's schema.
-func ValidateData(d Definition, data json.RawMessage) error {
-	return validateAgainst(d.DataSchema, data)
+// ValidateInput checks a Markdown view body against the definition's
+// inputSchema.
+func ValidateInput(d Definition, data json.RawMessage) error {
+	return validateAgainst(d.InputSchema, data)
 }
 
 // ValidateQuery checks that the definition declares the query and that params
@@ -185,7 +183,7 @@ func validateAgainst(schema json.RawMessage, data json.RawMessage) error {
 	if len(schema) == 0 {
 		return nil
 	}
-	resolved, err := compileDataSchema(schema)
+	resolved, err := compileSchema(schema)
 	if err != nil {
 		return fmt.Errorf("%w: schema", ErrInvalid)
 	}

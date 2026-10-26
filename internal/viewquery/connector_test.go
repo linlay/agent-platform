@@ -139,7 +139,7 @@ func TestExternalMCPViewQueryRunsThroughConnectorExecution(t *testing.T) {
 		"connector.json": map[string]any{"id": "crm", "name": "CRM", "version": "1.0.0", "type": "mcp", "authMode": "none"},
 		"mcp.json":       map[string]any{"mcpServers": map[string]any{"crmapi": map[string]any{"type": "streamableHttp", "url": server.URL}}},
 		"view.json": map[string]any{"views": map[string]any{"orders": map[string]any{
-			"description": "Orders.", "renderer": "html", "usage": []string{"display"}, "entry": "views/orders.html",
+			"description": "Orders.", "renderer": "html", "usage": []string{"display"}, "inputSchema": map[string]any{"type": "object"}, "entry": "views/orders.html",
 			"queries": map[string]any{"list": map[string]any{"adapter": "mcp", "component": "crmapi", "toolName": "list_orders",
 				"arguments":    map[string]any{"source": "view"},
 				"paramsSchema": map[string]any{"type": "object", "properties": map[string]any{"status": map[string]any{"type": "string"}}}}},
