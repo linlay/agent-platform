@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"agent-platform/internal/connector"
@@ -157,13 +158,40 @@ func TestExternalMCPViewQueryRunsThroughConnectorExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc := view.Document{View: view.Reference{Source: "connector", ConnectorID: "crm", Key: "orders"}, Queries: pkg.Views["orders"].Queries}
-	service := &Service{Connectors: &connectorops.Service{Auth: connectorauth.New(context.Background(), sources, nil), Sources: sources}}
-	result, err := service.Execute(context.Background(), doc, "list", json.RawMessage(`{"status":"open"}`), Context{ChatID: "chat"})
-	if err != nil {
+	doc := view.Document{View: view.Reference{Source: "connector", ConnectorID: "crm", Key: "orders", Version: "1.0.0"}, Queries: pkg.Views["orders"].Queries}
+	service := &Service{Connectors: &connectorops.Service{Auth: connectorauth.New(context.Background(), sources, nil), Sources: sources}, Sources: sources}
+	// Several views refreshing at once all run.
+	var wg sync.WaitGroup
+	results := make(chan error, 4)
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			result, err := service.Execute(context.Background(), doc, "list", json.RawMessage(`{"status":"open"}`), Context{ChatID: "chat"})
+			if err == nil && string(result.Data) != `{"items":[],"source":"view","status":"open"}` {
+				err = errors.New("data " + string(result.Data))
+			}
+			results <- err
+		}()
+	}
+	wg.Wait()
+	close(results)
+	for err := range results {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Another connector version no longer honors the snapshot's queries.
+	files["connector.json"] = map[string]any{"id": "crm", "name": "CRM", "version": "1.1.0", "type": "mcp", "authMode": "none"}
+	raw, _ := json.Marshal(files["connector.json"])
+	if err := os.WriteFile(filepath.Join(dir, "connector.json"), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if string(result.Data) != `{"items":[],"source":"view","status":"open"}` {
-		t.Fatalf("data %s", result.Data)
+	if _, err := service.Execute(context.Background(), doc, "list", nil, Context{ChatID: "chat"}); !errors.Is(err, ErrVersionOutdated) {
+		t.Fatal("outdated snapshot queried", err)
+	}
+	doc.View.Version = "1.1.0"
+	if _, err := service.Execute(context.Background(), doc, "list", nil, Context{ChatID: "chat"}); err != nil {
+		t.Fatal(err)
 	}
 }

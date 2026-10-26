@@ -138,6 +138,7 @@ func TestViewQueryConnectorFailuresKeepCodeWithoutAuthStatus(t *testing.T) {
 		{&connectorops.Error{Code: "connector_auth_required", Status: http.StatusUnauthorized}, http.StatusConflict, "connector_auth_required"},
 		{&connectorops.Error{Code: "connector_execution_not_allowed", Status: http.StatusForbidden}, http.StatusConflict, "connector_execution_not_allowed"},
 		{fmt.Errorf("wrapped: %w", &connectorops.Error{Code: "invocation_timeout", Status: http.StatusGatewayTimeout}), http.StatusGatewayTimeout, "invocation_timeout"},
+		{viewquery.ErrVersionOutdated, http.StatusConflict, "view_version_outdated"},
 	} {
 		status, code, _ := viewQueryStatus(tc.err)
 		if status != tc.status || code != tc.code {

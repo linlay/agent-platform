@@ -181,14 +181,9 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 		// A transient or malformed status is not an authentication rejection.
 		return result, failure("connector_unavailable", 503)
 	}
-	// Keep the package stable through dispatch, including cross-process imports.
-	if !pkg.Builtin {
-		release, lockErr := connector.AcquireOperation(s.Sources.ExternalRoot, req.ConnectorID)
-		if lockErr != nil {
-			return result, failure("connector_busy", 409)
-		}
-		defer release()
-	}
+	// Business calls do not exclude each other or source mutations, like an
+	// Agent's own CLI calls: the program runs from a leased installation, and a
+	// package changed meanwhile is caught by the revision check below.
 	pkg, err = s.Sources.Load(req.ConnectorID)
 	if err != nil {
 		return result, failure("connector_unavailable", 503)
@@ -316,13 +311,14 @@ func callCLI(ctx context.Context, auth *connectorauth.Manager, pkg connector.Pac
 	for k, v := range credentials {
 		env = hostenv.Set(env, k, v)
 	}
-	cmd, err := connectorauth.ExecutionCommand(ctx, pkg, args, env)
+	cmd, release, err := connectorauth.ExecutionCommand(ctx, pkg, args, env)
 	if errors.Is(err, connectorauth.ErrPreparationRequired) {
 		return result, failure("connector_preparation_required", 409)
 	}
 	if err != nil {
 		return result, failure("connector_cli_unavailable", 503)
 	}
+	defer release()
 	var out, diagnostic boundedBuffer
 	if len(stdin) > 0 {
 		cmd.Stdin = strings.NewReader(stdin[0])

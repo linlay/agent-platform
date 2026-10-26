@@ -459,7 +459,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		BackgroundContext: backgroundCtx,
 		Config:            cfg,
 		Chats:             chatStore,
-		ViewQueries:       &viewquery.Service{Operations: controlHandler.ViewQueryOperations(), Connectors: &connectorops.Service{Auth: connectorAuth, Sources: cfg.Paths.ConnectorSources()}},
+		ViewQueries:       &viewquery.Service{Operations: controlHandler.ViewQueryOperations(), Connectors: &connectorops.Service{Auth: connectorAuth, Sources: cfg.Paths.ConnectorSources()}, Sources: cfg.Paths.ConnectorSources()},
 		ViewActions: &viewaction.Service{Sources: cfg.Paths.ConnectorSources(), Connectors: &connectorops.Service{Auth: connectorAuth, Sources: cfg.Paths.ConnectorSources()}, Authorize: func(ctx context.Context, actor viewaction.Context, id string) error {
 			def, ok := registry.AgentDefinition(actor.AgentKey)
 			if ok {

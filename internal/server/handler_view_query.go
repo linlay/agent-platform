@@ -91,6 +91,8 @@ func viewQueryStatus(err error) (int, string, string) {
 		return http.StatusBadRequest, "view_query_params_invalid", err.Error()
 	case errors.Is(err, viewquery.ErrFailed):
 		return http.StatusUnprocessableEntity, "view_query_failed", strings.TrimPrefix(err.Error(), viewquery.ErrFailed.Error()+": ")
+	case errors.Is(err, viewquery.ErrVersionOutdated):
+		return http.StatusConflict, "view_version_outdated", "connector version updated"
 	case errors.Is(err, viewquery.ErrUnavailable):
 		return http.StatusServiceUnavailable, "view_query_unavailable", "view query unavailable"
 	}

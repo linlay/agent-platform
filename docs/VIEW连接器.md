@@ -209,11 +209,11 @@ display VIEW 可以在 `view.json` 声明只读查询，让模板自己取数，
 
 1. 查询是**查看者**的操作，等同用户打开管理页：沿用 Chat 资源鉴权，不经过工具准入，不检查 Agent 挂载、根 Run、阶段或审批，也不构造 Run 执行上下文。VIEW 块只能在产生它的执行者挂载了该连接器时绑定，因此查询时不再复查挂载；之后解除挂载不影响已绑定 VIEW 的查询。
 2. 只执行快照中声明的查询，参数先按 `paramsSchema` 校验。`native` 再复用对应工具的参数校验与读取逻辑；`catalog.list` 支持 agent、connector、provider、model、skill、tool、mcp，各独立 VIEW 的 Schema 将 `resourceType` 限定为单个值，翻页、刷新和状态筛选不能切换资源类型。provider/model 的 valid 仅表示本地配置已加载，MCP 仅展示连接器本地组件声明，均不代表远端可用性；provider 仅返回允许公开的摘要，不包含凭据或端点。
-3. `cli`/`mcp` 经 `connectorops` 的直接执行入口运行，授权范围只含声明连接器的该 adapter；沿用其安装、配置、授权与准备检查、凭据注入、30 秒超时与 1 MiB 输出上限。执行使用**当前安装**的连接器：快照只冻结查询声明，不保存历史连接器，连接器升级后不兼容或被删除时查询直接失败。
+3. `cli`/`mcp` 经 `connectorops` 的直接执行入口运行，授权范围只含声明连接器的该 adapter；沿用其安装、配置、授权与准备检查、凭据注入、30 秒超时与 1 MiB 输出上限。快照记录绑定时执行者挂载的连接器 `version`（`connector.json` 声明，计入 hash，客户端不能指定）；查询时当前连接器版本一致才执行，否则返回 409 `view_version_outdated`，模板照常显示、只是不能刷新数据。版本一致时使用当前连接器与当前生效的 CLI 安装，只改技能等内容而未改版本号的包照常可查；连接器被删除时查询失败。查询之间、查询与 Agent 调用之间不互斥，执行期间只对所用 CLI 安装目录持有共享租约，期间重新准备不会回收它；包内容在派发前按 revision 复核。
 4. `runId` 必须属于该 Chat，平台解析出该 Run 的根 `agentKey` 并随查询上下文传给操作。当前操作只记录不裁剪；需要按智能体范围裁剪的操作可基于它扩展。
 5. 只服务在线 Chat；归档 Chat 的 VIEW 仍可显示，但查询返回 404。BTW/Explain 侧链的 Run 不在主 Chat 查询行中，查询返回 `view_query_run_not_found`。
 6. Platform 不对查询限流；用户取消请求时停止执行。结果 ≤1 MiB。
-7. 错误：400 `invalid_view` / `view_query_params_invalid`、403 `view_access_denied`、404 `view_not_found` / `view_query_run_not_found`、422 `view_query_failed`（`data.error.message` 为操作错误）、503 `view_query_unavailable`。连接器执行失败保留 `connectorops` 的错误码，供模板提示用户：
+7. 错误：400 `invalid_view` / `view_query_params_invalid`、403 `view_access_denied`、404 `view_not_found` / `view_query_run_not_found`、409 `view_version_outdated`（连接器版本已更新）、422 `view_query_failed`（`data.error.message` 为操作错误）、503 `view_query_unavailable`。连接器执行失败保留 `connectorops` 的错误码，供模板提示用户：
 
    | 错误码 | 含义 | 建议提示 |
    |---|---|---|

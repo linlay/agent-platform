@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -70,35 +71,53 @@ func TestInvokeMCPReusesExistingConnectorCredentials(t *testing.T) {
 	if err != nil || len(result.MCP) == 0 || calls.Load() != 1 {
 		t.Fatal(result, err, calls.Load())
 	}
+	// Business calls run beside each other and beside a source operation,
+	// like an Agent's own calls; they never report the connector busy.
 	release, err := connector.AcquireOperation(sources.ExternalRoot, "demo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, busyErr := service.Invoke(context.Background(), scope, req)
+	var wg sync.WaitGroup
+	errs := make(chan error, 4)
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := service.Invoke(context.Background(), scope, req)
+			errs <- err
+		}()
+	}
+	wg.Wait()
 	release()
-	if busyErr == nil || busyErr.Error() != "connector_busy" || calls.Load() != 1 {
-		t.Fatal("package mutation lock bypassed", busyErr)
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal("concurrent business call failed", err)
+		}
+	}
+	if calls.Load() != 5 {
+		t.Fatal("concurrent business calls lost", calls.Load())
 	}
 	scope.Subject = "bob"
-	if _, err = service.Invoke(context.Background(), scope, req); err != nil || calls.Load() != 2 {
+	if _, err = service.Invoke(context.Background(), scope, req); err != nil || calls.Load() != 6 {
 		t.Fatal("application subject must not select connector credentials", err)
 	}
 	scope.Subject = "alice"
 	req.ToolName = "undeclared"
-	if _, err = service.Invoke(context.Background(), scope, req); err == nil || calls.Load() != 2 {
+	if _, err = service.Invoke(context.Background(), scope, req); err == nil || calls.Load() != 6 {
 		t.Fatal("invalid input executed", err)
 	}
 	if err := manager.Logout(context.Background(), "demo"); err != nil {
 		t.Fatal(err)
 	}
 	req.ToolName = "read"
-	if _, err = service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_configuration_required" || calls.Load() != 2 {
+	if _, err = service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_configuration_required" || calls.Load() != 6 {
 		t.Fatal("logout not shared", err)
 	}
 	if _, err := manager.Disconnect(context.Background(), "demo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_configuration_required" || calls.Load() != 2 {
+	if _, err := service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_configuration_required" || calls.Load() != 6 {
 		t.Fatal("Connector bypassed disconnected connection", err)
 	}
 	if _, err := os.Stat(filepath.Join(sources.StateRoot, "users")); !os.IsNotExist(err) {

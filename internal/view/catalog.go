@@ -50,6 +50,7 @@ type Description struct {
 	Description string                      `json:"description"`
 	DataSchema  json.RawMessage             `json:"dataSchema,omitempty"`
 	Queries     map[string]QueryDescription `json:"queries,omitempty"`
+	Actions     map[string]QueryDescription `json:"actions,omitempty"`
 	Usage       []string                    `json:"usage"`
 }
 
@@ -83,6 +84,12 @@ func describe(key string, d Definition) Description {
 		Title:       strings.TrimSpace(d.Title),
 		Description: strings.Join(strings.Fields(d.Description), " "),
 		DataSchema:  compactJSON(d.DataSchema),
+	}
+	if len(d.Actions) > 0 {
+		out.Actions = make(map[string]QueryDescription)
+		for name, action := range d.Actions {
+			out.Actions[name] = QueryDescription{Description: strings.Join(strings.Fields(action.Description), " "), ParamsSchema: compactJSON(action.ParamsSchema)}
+		}
 	}
 	names := make([]string, 0, len(d.Queries))
 	for name := range d.Queries {

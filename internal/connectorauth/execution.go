@@ -15,36 +15,73 @@ import (
 
 // ExecutionCommand resolves the installed connector command, never a caller path.
 // It does not prepare/install software or inherit the lifecycle's ambient secrets.
-func ExecutionCommand(ctx context.Context, pkg connector.Package, args, env []string) (*exec.Cmd, error) {
+// The caller holds the returned release until the command exits: it keeps the
+// installation from collection when a preparation activates a newer one.
+func ExecutionCommand(ctx context.Context, pkg connector.Package, args, env []string) (*exec.Cmd, func(), error) {
 	env = builtins.EnsureBinInEnv(env)
 	settings, err := cliSettingsFor(pkg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if settings.Command == "" {
-		return nil, fmt.Errorf("connector CLI declares no managed executable")
+		return nil, nil, fmt.Errorf("connector CLI declares no managed executable")
 	}
 	var entry string
+	release := func() {}
 	if pkg.Builtin {
 		// Builtin packages are verified bundles that are never prepared.
 		if entry, err = hostenv.LookPath(settings.Command, hostenv.Set(env, "PATH", pkg.BinDir)); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	} else {
-		installation, err := connector.ReadInstallation(pkg.InstallRoot, pkg.ID)
+		var installation connector.Installation
+		installation, release, err = retainActiveInstallation(pkg)
 		if err != nil {
-			return nil, ErrPreparationRequired
+			return nil, nil, err
 		}
 		if bin := installation.Bin(); bin != "" {
 			env = connector.WithPath(env, []string{bin})
 		}
-		// Run exactly the executable preparation verified, not a PATH lookup.
-		if err := installation.VerifyExecutable(); err != nil {
-			return nil, preparationRequiredError{err}
-		}
 		entry = installation.Executable
 	}
-	entry, err = filepath.EvalSymlinks(entry)
+	cmd, err := resolvedCommand(ctx, pkg, entry, args, env)
+	if err != nil {
+		release()
+		return nil, nil, err
+	}
+	return cmd, release, nil
+}
+
+// retainActiveInstallation leases the active installation and then verifies
+// exactly the executable preparation pinned, not a PATH lookup. Collection may
+// remove an installation a newer preparation just replaced between the read and
+// the lease, so the read is retried once.
+func retainActiveInstallation(pkg connector.Package) (connector.Installation, func(), error) {
+	var last error
+	for attempt := 0; attempt < 2; attempt++ {
+		installation, err := connector.ReadInstallation(pkg.InstallRoot, pkg.ID)
+		if err != nil {
+			return installation, nil, ErrPreparationRequired
+		}
+		release := func() {}
+		if installation.Prefix != "" {
+			if release, err = connector.RetainInstallation(installation.Prefix); err != nil {
+				last = err
+				continue
+			}
+		}
+		if err := installation.VerifyExecutable(); err != nil {
+			release()
+			last = preparationRequiredError{err}
+			continue
+		}
+		return installation, release, nil
+	}
+	return connector.Installation{}, nil, last
+}
+
+func resolvedCommand(ctx context.Context, pkg connector.Package, entry string, args, env []string) (*exec.Cmd, error) {
+	entry, err := filepath.EvalSymlinks(entry)
 	if err != nil {
 		return nil, err
 	}

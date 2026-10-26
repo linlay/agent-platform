@@ -33,6 +33,9 @@ var (
 	ErrUnavailable = errors.New("view query unavailable")
 	// ErrFailed wraps an operation's own failure; its message is user-safe.
 	ErrFailed = errors.New("view query failed")
+	// ErrVersionOutdated reports a connector whose version differs from the one
+	// the snapshot declared its queries against.
+	ErrVersionOutdated = errors.New("view connector version outdated")
 )
 
 // Context identifies the viewer and the Run whose content published the view.
@@ -61,12 +64,14 @@ type ConnectorInvoker interface {
 type Service struct {
 	Operations map[string]Operation
 	Connectors ConnectorInvoker
-	Now        func() time.Time
+	// Sources reads the current connector version for CLI and MCP queries.
+	Sources connector.Sources
+	Now     func() time.Time
 }
 
 // Execute runs a query declared by a frozen snapshot document. CLI and MCP
-// queries run against the currently installed connector: the snapshot freezes
-// the declaration, not the connector.
+// queries run against the current connector only while it still has the
+// version the snapshot recorded; edits that keep the version stay compatible.
 func (s *Service) Execute(ctx context.Context, doc view.Document, name string, params json.RawMessage, qc Context) (Result, error) {
 	if s == nil {
 		return Result{}, ErrUnavailable
@@ -145,11 +150,16 @@ func (s *Service) connector(ctx context.Context, doc view.Document, query view.Q
 	if qc.ChatID != "" {
 		subject += ":" + qc.ChatID
 	}
-	// The grant covers exactly the declaring connector and this adapter.
+	current := func() error { return s.currentVersion(doc.View) }
+	if err := current(); err != nil {
+		return nil, err
+	}
+	// The grant covers exactly the declaring connector and this adapter, and
+	// lapses if the connector changes version during the call.
 	scope := connectorops.Scope{
 		Subject:   subject,
 		Execution: []connectorops.Permission{{ConnectorID: req.ConnectorID, Adapter: req.Adapter}},
-		Check:     func() error { return nil },
+		Check:     current,
 	}
 	result, err := s.Connectors.Invoke(ctx, scope, req)
 	if err != nil {
@@ -159,6 +169,16 @@ func (s *Service) connector(ctx context.Context, doc view.Document, query view.Q
 		return cliOutput(result)
 	}
 	return mcpOutput(result.MCP)
+}
+
+// currentVersion leaves a connector that cannot be loaded to the invocation,
+// which reports it as unavailable.
+func (s *Service) currentVersion(ref view.Reference) error {
+	pkg, err := s.Sources.Load(ref.ConnectorID)
+	if err == nil && pkg.Version != ref.Version {
+		return ErrVersionOutdated
+	}
+	return nil
 }
 
 func (s *Service) now() time.Time {
