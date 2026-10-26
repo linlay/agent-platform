@@ -174,7 +174,7 @@ func TestSourcesKeepHealthyPackagesBesideInvalidTokenSchema(t *testing.T) {
 		t.Fatalf("healthy catalog unavailable: %v %v", items, err)
 	}
 	admin, err := sources.AdminSummaries()
-	if err != nil || len(admin) != 2 || admin[1].ID != "tencent-map" || admin[1].Status != "invalid" || !strings.Contains(admin[1].Error, `unknown field "title_en"`) || admin[1].HasMCP || admin[1].CanDelete {
+	if err != nil || len(admin) != 2 || admin[1].ID != "tencent-map" || admin[1].Status != "invalid" || !strings.Contains(admin[1].Error, `unknown field "title_en"`) || admin[1].HasMCP || !admin[1].CanDelete {
 		t.Fatalf("invalid package diagnostic missing or capabilities exposed: %+v %v", admin, err)
 	}
 }

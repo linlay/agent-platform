@@ -170,7 +170,7 @@ func (s *Server) handleAdminConnectors(w http.ResponseWriter, _ *http.Request) {
 		}
 		if err != nil {
 			// A concurrent source edit must only invalidate this entry.
-			value.Summary = connector.Summary{Manifest: connector.Manifest{ID: item.ID, Name: item.ID}, Status: "invalid", Error: err.Error(), Builtin: item.Builtin, ReadOnly: item.Builtin, Skills: []string{}}
+			value.Summary = connector.Summary{Manifest: connector.Manifest{ID: item.ID, Name: item.ID}, Status: "invalid", Error: err.Error(), Builtin: item.Builtin, ReadOnly: item.Builtin, CanDelete: !item.Builtin, Skills: []string{}}
 			value.IconURL, value.Preparation = "", nil
 			result = append(result, value)
 			continue

@@ -54,7 +54,7 @@ func (s Sources) summaries(includeInvalid bool) ([]Summary, error) {
 	packages, err := s.loadAll("", func(id string, err error) {
 		if includeInvalid {
 			builtin := IsBuiltin(id)
-			result = append(result, Summary{Manifest: Manifest{ID: id, Name: id}, Status: "invalid", Error: err.Error(), Builtin: builtin, ReadOnly: builtin, Skills: []string{}})
+			result = append(result, Summary{Manifest: Manifest{ID: id, Name: id}, Status: "invalid", Error: err.Error(), Builtin: builtin, ReadOnly: builtin, CanDelete: !builtin, Skills: []string{}})
 		}
 	})
 	if err != nil {

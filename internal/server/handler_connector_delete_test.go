@@ -446,3 +446,53 @@ func TestConnectorDeleteCatalogControlSharesDetachAndBusyPolicy(t *testing.T) {
 		t.Fatalf("private state retained: %v", err)
 	}
 }
+
+// A malformed view must remain diagnosable and removable from the admin catalog.
+func TestConnectorDeleteWithInvalidView(t *testing.T) {
+	f := agentConnectorsFixture(t)
+	sources := f.server.connectorSources()
+	const id = "invalid-view"
+	writeMCPConnectorForTest(t, sources.ExternalRoot, id)
+	if err := os.WriteFile(filepath.Join(sources.ExternalRoot, id, "view.json"), []byte(`{"views":`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/connectors", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("catalog failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Data struct {
+			Connectors []struct {
+				ID        string `json:"id"`
+				Status    string `json:"status"`
+				Error     string `json:"error"`
+				CanDelete bool   `json:"canDelete"`
+				ReadOnly  bool   `json:"readOnly"`
+			} `json:"connectors"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range response.Data.Connectors {
+		if item.ID != id {
+			continue
+		}
+		found = true
+		if item.Status != "invalid" || item.Error == "" || !item.CanDelete || item.ReadOnly {
+			t.Fatalf("invalid external package must remain deletable: %+v", item)
+		}
+	}
+	if !found {
+		t.Fatal("invalid package missing from catalog")
+	}
+	rec = deleteConnectorRequest(f.server, id)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"deleted":true`) {
+		t.Fatalf("delete invalid package failed: %d %s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(sources.ExternalRoot, id)); !os.IsNotExist(err) {
+		t.Fatalf("invalid package retained: %v", err)
+	}
+}
