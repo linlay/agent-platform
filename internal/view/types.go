@@ -140,7 +140,8 @@ type Definition struct {
 	Remote      *Remote         `json:"remote,omitempty"`
 	// Queries are read operations the rendered view may run through the host.
 	// They are frozen into the snapshot with the template.
-	Queries map[string]Query `json:"queries,omitempty"`
+	Queries map[string]Query  `json:"queries,omitempty"`
+	Actions map[string]Action `json:"actions,omitempty"`
 }
 
 // Remote fetches only a template by key; no conversation/tool/form data is sent.
@@ -180,6 +181,9 @@ func ValidateDefinitions(root string, definitions map[string]Definition) error {
 			seen[usage] = true
 		}
 		if err := validateModelContract(key, d); err != nil {
+			return err
+		}
+		if err := validateActions(key, d); err != nil {
 			return err
 		}
 		if err := validateQueries(key, d); err != nil {
@@ -281,12 +285,13 @@ type Asset struct {
 }
 
 type Document struct {
-	View    Reference        `json:"view"`
-	Entry   string           `json:"entry,omitempty"`
-	HTML    string           `json:"html,omitempty"`
-	QLC     map[string]any   `json:"qlc,omitempty"`
-	Assets  []Asset          `json:"assets,omitempty"`
-	Queries map[string]Query `json:"queries,omitempty"`
+	View    Reference         `json:"view"`
+	Entry   string            `json:"entry,omitempty"`
+	HTML    string            `json:"html,omitempty"`
+	QLC     map[string]any    `json:"qlc,omitempty"`
+	Assets  []Asset           `json:"assets,omitempty"`
+	Queries map[string]Query  `json:"queries,omitempty"`
+	Actions map[string]Action `json:"actions,omitempty"`
 }
 
 func (r Reference) ConfigMap() map[string]any {

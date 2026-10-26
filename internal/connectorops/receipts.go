@@ -13,8 +13,9 @@ import (
 var idempotencyKeyPattern = regexp.MustCompile(`^[a-zA-Z0-9._:-]{8,128}$`)
 
 type receipt struct {
-	Digest string  `json:"digest"`
-	Result *Result `json:"result,omitempty"`
+	Digest string         `json:"digest"`
+	Result *Result        `json:"result,omitempty"`
+	Audit  map[string]any `json:"audit,omitempty"`
 }
 
 func digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
@@ -30,12 +31,13 @@ func beginWrite(root string, scope Scope, req Request) (string, *Result, error) 
 	// when clients migrate transport contracts. This is not an application identity.
 	key := digest([]byte(scope.Subject + "\x00" + scope.IdempotencyNamespace + "\x00" + req.ConnectorID + "\x00" + "execution-v2" + "\x00" + req.IdempotencyKey))
 	args, _ := json.Marshal(struct {
+		Stdin     string `json:"Stdin,omitempty"`
 		Adapter   string
 		Args      []string
 		Component string
 		ToolName  string
 		Arguments map[string]any
-	}{req.Adapter, req.Args, req.Component, req.ToolName, req.Arguments})
+	}{req.Stdin, req.Adapter, req.Args, req.Component, req.ToolName, req.Arguments})
 	fingerprint := digest(args)
 	dir := filepath.Join(root, req.ConnectorID, "invocations")
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -65,7 +67,7 @@ func beginWrite(root string, scope Scope, req Request) (string, *Result, error) 
 		return "", nil, failure("receipt_unavailable", 503)
 	}
 	defer f.Close()
-	data, _ := json.Marshal(receipt{Digest: fingerprint})
+	data, _ := json.Marshal(receipt{Digest: fingerprint, Audit: scope.Audit})
 	if _, err = f.Write(data); err == nil {
 		err = f.Sync()
 	}
@@ -76,12 +78,13 @@ func beginWrite(root string, scope Scope, req Request) (string, *Result, error) 
 }
 func finishWrite(file string, req Request, result Result) error {
 	args, _ := json.Marshal(struct {
+		Stdin     string `json:"Stdin,omitempty"`
 		Adapter   string
 		Args      []string
 		Component string
 		ToolName  string
 		Arguments map[string]any
-	}{req.Adapter, req.Args, req.Component, req.ToolName, req.Arguments})
+	}{req.Stdin, req.Adapter, req.Args, req.Component, req.ToolName, req.Arguments})
 	data, err := json.Marshal(receipt{Digest: digest(args), Result: &result})
 	if err != nil || len(data) > MaxJSONBytes {
 		return failure("invocation_outcome_unknown", 409)

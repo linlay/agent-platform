@@ -228,6 +228,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/file", s.wsAgentFile)
 	handler.RegisterRoute("/api/view", s.wsView)
 	handler.RegisterRoute("/api/view/query", s.wsViewQuery)
+	handler.RegisterRoute("/api/view/invoke", s.wsViewInvoke)
 	handler.RegisterRoute("/api/project/git", s.wsProjectGit)
 	handler.RegisterRoute("/api/project/git/branches", s.wsProjectGitBranches)
 	handler.RegisterRoute("/api/resource", s.wsResource)

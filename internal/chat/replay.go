@@ -45,7 +45,7 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 	if err != nil {
 		return Detail{}, err
 	}
-	detail, err := replayChatHistory(*sum, lines, rawMessages, s.ChatDir(chatID), runStartedAt, runCompletedAt, runFinishReasons, owners)
+	detail, err := replayChatHistory(*sum, lines, rawMessages, s.ChatDir(chatID), runStartedAt, runCompletedAt, runFinishReasons, s.hiddenTools, owners)
 	if err != nil {
 		return Detail{}, err
 	}

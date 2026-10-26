@@ -30,11 +30,13 @@ type Scope struct {
 	IdempotencyNamespace string
 	Execution            []Permission
 	Check                func() error
+	Audit                map[string]any
 }
 type Request struct {
 	ConnectorID        string         `json:"connectorId"`
 	Adapter            string         `json:"adapter"`
 	Args               []string       `json:"args,omitempty"`
+	Stdin              string         `json:"stdin,omitempty"`
 	Component          string         `json:"component,omitempty"`
 	ToolName           string         `json:"toolName,omitempty"`
 	Arguments          map[string]any `json:"arguments,omitempty"`
@@ -113,7 +115,7 @@ func validateRequest(req Request) error {
 			}
 		}
 	case "mcp":
-		if req.Args != nil || req.Component == "" || len(req.Component) > 256 || req.ToolName == "" || len(req.ToolName) > 256 || req.Arguments == nil {
+		if req.Stdin != "" || req.Args != nil || req.Component == "" || len(req.Component) > 256 || req.ToolName == "" || len(req.ToolName) > 256 || req.Arguments == nil {
 			return failure("invalid_arguments", 400)
 		}
 	default:
@@ -224,7 +226,7 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 		}()
 	}
 	if req.Adapter == "cli" {
-		result, err = callCLI(ctx, auth, pkg, req.Args, revision)
+		result, err = callCLI(ctx, auth, pkg, req.Args, revision, req.Stdin)
 	} else {
 		result.MCP, err = callMCP(ctx, pkg, req.Component, req.ToolName, req.Arguments)
 	}
@@ -294,7 +296,7 @@ func credentialFailure(err error) error {
 // read for this execution must be that same revision. The base environment is
 // the one Host Bash and the connector lifecycle use; only this connector's
 // credentials are added.
-func callCLI(ctx context.Context, auth *connectorauth.Manager, pkg connector.Package, args []string, revision string) (Result, error) {
+func callCLI(ctx context.Context, auth *connectorauth.Manager, pkg connector.Package, args []string, revision string, stdin ...string) (Result, error) {
 	var result Result
 	env, err := auth.ExecutionEnvironment(pkg)
 	if err != nil {
@@ -322,6 +324,9 @@ func callCLI(ctx context.Context, auth *connectorauth.Manager, pkg connector.Pac
 		return result, failure("connector_cli_unavailable", 503)
 	}
 	var out, diagnostic boundedBuffer
+	if len(stdin) > 0 {
+		cmd.Stdin = strings.NewReader(stdin[0])
+	}
 	cmd.Stdout = &out
 	cmd.Stderr = &diagnostic
 	cmd.WaitDelay = time.Second

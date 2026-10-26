@@ -567,7 +567,14 @@ func (p Package) AuthorizationBrowser() string {
 // use only this package's own CLI or MCP components.
 func validateViewQueries(id string, pkg Package, views map[string]view.Definition) error {
 	for key, definition := range views {
+		operations := make(map[string]view.Query)
 		for name, query := range definition.Queries {
+			operations["query:"+name] = query
+		}
+		for name, action := range definition.Actions {
+			operations["action:"+name] = action.Query
+		}
+		for name, query := range operations {
 			switch query.Adapter {
 			case "native":
 				if owner, ok := NativeViewOperationOwner(query.Operation); !ok || owner != id {

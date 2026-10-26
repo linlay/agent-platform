@@ -50,6 +50,7 @@ func (s *Service) Resolve(ctx context.Context, mounts []Mount, ref Reference, us
 		doc := Document{View: Reference{Source: "connector", ConnectorID: mount.ID, Key: ref.Key, Version: mount.Version, Renderer: d.Renderer}, Entry: d.Entry}
 		if usage == "display" {
 			doc.Queries = d.Queries
+			doc.Actions = d.Actions
 		}
 		if d.Remote != nil {
 			data, err := s.fetch(ctx, mount.ID, ref.Key, d.Renderer, *d.Remote)

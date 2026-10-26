@@ -3,7 +3,6 @@ package chat
 import (
 	"strings"
 
-	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
@@ -88,9 +87,6 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID string, 
 				}
 				callID, _ := tcMap["id"].(string)
 				fnName, _ := fn["name"].(string)
-				if agentteam.IsHiddenTool(fnName) {
-					continue
-				}
 				fnArgs, _ := fn["arguments"].(string)
 				toolID, _ := tcMap["_toolId"].(string)
 
@@ -120,9 +116,6 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID string, 
 			return nil, nil
 		}
 		if boolFromAny(msg["_internalOnly"]) {
-			return nil, nil
-		}
-		if agentteam.IsHiddenTool(stringFromAny(msg["name"])) {
 			return nil, nil
 		}
 		text := extractTextFromContent(msg["content"])

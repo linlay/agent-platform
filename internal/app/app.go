@@ -61,6 +61,7 @@ import (
 	"agent-platform/internal/terminal"
 	"agent-platform/internal/toolinteraction"
 	"agent-platform/internal/tools"
+	"agent-platform/internal/viewaction"
 	"agent-platform/internal/viewquery"
 	"agent-platform/internal/ws"
 
@@ -241,6 +242,13 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if err != nil {
 		return nil, fmt.Errorf("initialize tool router: %w", err)
 	}
+	// History replay hides the same clientVisible=false tools as the live stream.
+	clientHiddenTools := func(name string) bool {
+		def, ok := toolExecutor.Tool(name)
+		return ok && def.ClientHidden()
+	}
+	chatStore.SetClientHiddenTools(clientHiddenTools)
+	archiveStore.SetClientHiddenTools(clientHiddenTools)
 
 	registryStartedAt := time.Now()
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
@@ -448,10 +456,21 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			return def.Workspace.ProjectDir(), ok && def.MemoryConfig.Enabled && def.Engine == catalog.AgentEngineNative && def.ProxyConfig == nil && def.Mode != "CHANNEL"
 		}).WithArchives(archiveStore)
 	srv, err = server.New(server.Dependencies{
-		BackgroundContext:      backgroundCtx,
-		Config:                 cfg,
-		Chats:                  chatStore,
-		ViewQueries:            &viewquery.Service{Operations: controlHandler.ViewQueryOperations(), Connectors: &connectorops.Service{Auth: connectorAuth, Sources: cfg.Paths.ConnectorSources()}},
+		BackgroundContext: backgroundCtx,
+		Config:            cfg,
+		Chats:             chatStore,
+		ViewQueries:       &viewquery.Service{Operations: controlHandler.ViewQueryOperations(), Connectors: &connectorops.Service{Auth: connectorAuth, Sources: cfg.Paths.ConnectorSources()}},
+		ViewActions: &viewaction.Service{Sources: cfg.Paths.ConnectorSources(), Connectors: &connectorops.Service{Auth: connectorAuth, Sources: cfg.Paths.ConnectorSources()}, Authorize: func(ctx context.Context, actor viewaction.Context, id string) error {
+			def, ok := registry.AgentDefinition(actor.AgentKey)
+			if ok {
+				for _, mount := range def.ConnectorMounts {
+					if mount.ID == id {
+						return nil
+					}
+				}
+			}
+			return viewaction.ErrDenied
+		}},
 		Archives:               archiveStore,
 		Archiver:               archiver,
 		Memory:                 memoryStore,

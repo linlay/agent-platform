@@ -130,13 +130,13 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 	})
 	if s.deps.Tools != nil {
 		for _, toolDef := range s.deps.Tools.Definitions() {
-			if cv, ok := toolDef.Meta["clientVisible"].(bool); ok && !cv {
+			if toolDef.ClientHidden() {
 				assembler.RegisterHiddenTools(toolDef.Name, toolDef.Key)
 			}
 		}
 	}
 	for _, toolDef := range prepared.Session.ModeToolDefinitions {
-		if cv, ok := toolDef.Meta["clientVisible"].(bool); ok && !cv {
+		if toolDef.ClientHidden() {
 			assembler.RegisterHiddenTools(toolDef.Name, toolDef.Key)
 		}
 	}

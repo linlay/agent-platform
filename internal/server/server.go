@@ -1,6 +1,7 @@
 package server
 
 import (
+	"agent-platform/internal/viewaction"
 	"agent-platform/internal/viewquery"
 	"bufio"
 	"context"
@@ -82,6 +83,7 @@ type Dependencies struct {
 	Config                 config.Config
 	Chats                  chat.Store
 	ViewQueries            *viewquery.Service
+	ViewActions            *viewaction.Service
 	Archives               *chat.ArchiveStore
 	Archiver               *chat.Archiver
 	Memory                 *memory.Store
