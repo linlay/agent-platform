@@ -98,6 +98,15 @@ func TestExecutionWrappersAndLookalikes(t *testing.T) {
 			t.Fatalf("%s: %+v", command, got)
 		}
 	}
+	// Bare env only prints the environment, like printenv; unknown options stay uncertain.
+	for _, command := range []string{"env | grep -i jira", "env -u HOME", "env -i"} {
+		if got := ReviewBashCommand(cfg, ctx.Session, command, "", nil, ctx); got.RequiresApproval() {
+			t.Fatalf("bare env required approval: %s: %+v", command, got)
+		}
+	}
+	if got := ReviewBashCommand(cfg, ctx.Session, "env --bogus", "", nil, ctx); !strings.Contains(got.RuleKey, "complex") {
+		t.Fatalf("unknown env option resolved: %+v", got)
+	}
 	fake := filepath.Join(filepath.Dir(p), "ls")
 	if err := os.WriteFile(fake, []byte("custom executable"), 0700); err != nil {
 		t.Fatal(err)
