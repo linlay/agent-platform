@@ -1,10 +1,10 @@
 name: surface_scroll
 i18n:
   en:
-    label: "Scroll Chrome Page"
+    label: "Scroll Webpage"
   zh-CN:
-    label: "滚动 Chrome 网页"
-description: "Scroll a connected Chrome webpage by a bounded amount. Read the web-control skill before use."
+    label: "滚动网页"
+description: "Scroll a webpage by a bounded amount. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object

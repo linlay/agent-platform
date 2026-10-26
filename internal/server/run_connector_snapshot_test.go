@@ -43,7 +43,7 @@ func testRunConnectorSnapshotRetainsVersion(t *testing.T, name string) {
 	}
 	skill, tool := "platform-control", "desktop_shell"
 	if name == "web-control" {
-		skill, tool = "web-control", "surface_cdp"
+		skill, tool = "web-control", "surface_click"
 	}
 	changed := filepath.Join(cfg.Paths.BuiltinConnectorsDir, "builtin."+name, "skills", skill, "references", "version.md")
 	os.WriteFile(changed, []byte("new version"), 0600)

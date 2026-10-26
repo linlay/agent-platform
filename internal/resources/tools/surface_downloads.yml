@@ -1,10 +1,10 @@
 name: surface_downloads
 i18n:
   en:
-    label: "Save Chrome Downloads"
+    label: "Save Page Downloads"
   zh-CN:
-    label: "保存 Chrome 下载文件"
-description: "List Chrome page downloads or persist a selected download to the current Chat. Read the web-control skill before use."
+    label: "保存网页下载文件"
+description: "List webpage downloads or persist a selected download to the current Chat. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object

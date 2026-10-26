@@ -1612,8 +1612,8 @@ func TestWebControlToolSchemasAreStaticClosedObjects(t *testing.T) {
 			}
 		}
 	}
-	if found != 22 {
-		t.Fatalf("web-control tool definitions = %d, want 22", found)
+	if found != 21 {
+		t.Fatalf("web-control tool definitions = %d, want 21", found)
 	}
 }
 
@@ -1661,30 +1661,6 @@ func TestDesktopAwcpManualRejectsInvalidClientEnvelope(t *testing.T) {
 	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{"method": desktopAwcpGetManualMethod}, desktopActionTestExecutionContext())
 	if err != nil || result.Error != "desktop_cdp_invalid_client_response" || result.ExitCode != -1 {
 		t.Fatalf("invalid AWCP manual result=%#v err=%v", result, err)
-	}
-}
-
-func TestSurfaceCDPMethodEnumOnlyListsMethodsWithoutDedicatedTool(t *testing.T) {
-	want := make([]string, 0, len(webControlRawCDPMethods))
-	for method := range webControlRawCDPMethods {
-		want = append(want, method)
-	}
-	sort.Strings(want)
-
-	got := sortedToolPropertyEnum(t, "surface_cdp", "method")
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("surface_cdp method enum mismatch\nwant: %#v\n got: %#v", want, got)
-	}
-	// One entry per operation: methods served by a dedicated tool, AWCP and the
-	// loopback gateway endpoints are not reachable through the raw tool.
-	for _, excluded := range []string{
-		"Surface.list", "Surface.getCurrent", "Surface.getState", "Surface.open", "Surface.close", "Surface.goBack",
-		"Page.navigate", "Page.reload", "Page.bringToFront", "Page.captureScreenshot", "Runtime.evaluate", "Input.click",
-		"AWCP.getManual", "AWCP.invoke", "/json/version", "/json", "/json/list",
-	} {
-		if enumContainsString(got, excluded) {
-			t.Fatalf("surface_cdp method enum must not include %q", excluded)
-		}
 	}
 }
 

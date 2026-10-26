@@ -1,10 +1,10 @@
 name: surface_upload
 i18n:
   en:
-    label: "Upload Chat Files to Chrome"
+    label: "Upload Chat Files to Page"
   zh-CN:
-    label: "向 Chrome 网页上传会话文件"
-description: "Upload existing files from the current Chat to an observed Chrome file input or chooser. Read the web-control skill before use."
+    label: "向网页上传会话文件"
+description: "Upload existing files from the current Chat to an observed file input or file chooser. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object

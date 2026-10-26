@@ -259,3 +259,85 @@ func TestBrowserUseUsesNativeMountRunAllowlistAndReadOnlyPolicy(t *testing.T) {
 		})
 	}
 }
+
+func TestBrowserConnectionRequiredWaitsForUserConnectionThenRunsOnce(t *testing.T) {
+	openCalls, polls := 0, 0
+	executor, execCtx, invoker := webControlTestRuntime(t, func(request ClientRequest) map[string]any {
+		switch request.Payload["method"] {
+		case "Surface.openChrome":
+			openCalls++
+			if openCalls == 1 {
+				return map[string]any{"ok": false, "error": map[string]any{"code": "browser_connection_required", "message": "Connect Chrome to this Chat."}}
+			}
+			return map[string]any{"ok": true, "result": map[string]any{"surfaceId": "chrome:1", "provider": "chrome"}}
+		case "Browser.awaitConnection":
+			polls++
+			if polls == 1 {
+				return map[string]any{"ok": true, "result": map[string]any{"status": "pending"}}
+			}
+			return map[string]any{"ok": true, "result": map[string]any{"status": "connected"}}
+		}
+		return map[string]any{"ok": false, "error": map[string]any{"code": "unexpected"}}
+	})
+	result, err := executor.Invoke(context.Background(), "surface_open", map[string]any{"url": "https://example.com/"}, execCtx)
+	if err != nil || result.ExitCode != 0 || openCalls != 2 || polls != 2 {
+		t.Fatalf("result=%#v err=%v open=%d polls=%d", result, err, openCalls, polls)
+	}
+	for _, request := range invoker.requests {
+		if request.Payload["method"] != "Browser.awaitConnection" {
+			continue
+		}
+		if params, _ := request.Payload["params"].(map[string]any); params["timeoutMs"] != float64(webControlConnectionPollMs) && params["timeoutMs"] != webControlConnectionPollMs {
+			t.Fatalf("poll params=%#v", params)
+		}
+	}
+}
+
+func TestBrowserConnectionRequiredDoesNotRetryWhenDesktopRefusesToWait(t *testing.T) {
+	openCalls := 0
+	executor, execCtx, _ := webControlTestRuntime(t, func(request ClientRequest) map[string]any {
+		if request.Payload["method"] == "Browser.awaitConnection" {
+			return map[string]any{"ok": true, "result": map[string]any{"status": "unavailable", "reason": "backend_mismatch"}}
+		}
+		openCalls++
+		return map[string]any{"ok": false, "error": map[string]any{"code": "browser_connection_required", "message": "Select Chrome first."}}
+	})
+	result, err := executor.Invoke(context.Background(), "surface_open", map[string]any{"url": "https://example.com/"}, execCtx)
+	if err != nil || result.Error != "browser_connection_required" || openCalls != 1 {
+		t.Fatalf("result=%#v err=%v open=%d", result, err, openCalls)
+	}
+}
+
+func TestBrowserConnectionWaitStopsWithTheRun(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	openCalls := 0
+	executor, execCtx, _ := webControlTestRuntime(t, func(request ClientRequest) map[string]any {
+		if request.Payload["method"] == "Browser.awaitConnection" {
+			cancel()
+			return map[string]any{"ok": true, "result": map[string]any{"status": "pending"}}
+		}
+		openCalls++
+		return map[string]any{"ok": false, "error": map[string]any{"code": "browser_connection_required", "message": "Connect Chrome."}}
+	})
+	result, err := executor.Invoke(ctx, "surface_open", map[string]any{"url": "https://example.com/"}, execCtx)
+	if err != nil || result.Error != "browser_connection_required" || openCalls != 1 {
+		t.Fatalf("result=%#v err=%v open=%d", result, err, openCalls)
+	}
+}
+
+func TestSurfaceOpenFollowsAWorkPanelRun(t *testing.T) {
+	executor, execCtx, invoker := webControlTestRuntime(t, func(request ClientRequest) map[string]any {
+		if request.Payload["method"] == "Surface.openChrome" {
+			return map[string]any{"ok": false, "error": map[string]any{"code": "browser_backend_mismatch", "message": "This task uses the WorkPanel browser."}}
+		}
+		return map[string]any{"ok": true, "result": map[string]any{"surfaceId": "page:workpanel-1"}}
+	})
+	result, err := executor.Invoke(context.Background(), "surface_open", map[string]any{"url": "https://example.com/"}, execCtx)
+	if err != nil || result.ExitCode != 0 || len(invoker.requests) != 2 {
+		t.Fatalf("result=%#v err=%v requests=%#v", result, err, invoker.requests)
+	}
+	second := invoker.requests[1]
+	if second.Type != "desktop.workpanel.openWeb" || second.Payload["url"] != "https://example.com/" {
+		t.Fatalf("WorkPanel open request = %#v", second)
+	}
+}

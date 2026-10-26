@@ -19,8 +19,8 @@ var nativeConnectorTools = map[string][]string{
 	PlatformControlConnectorID: {"catalog_query", "catalog_manage", "kbase_library_query", "kbase_library_manage", "platform_inspect", "desktop_shell", "desktop_settings", "desktop_site", "desktop_webapp", "desktop_service", "desktop_market"},
 	WebControlConnectorID: {
 		"workpanel_state", "workpanel_open", "workpanel_close",
-		"surface_list", "surface_state", "surface_open", "surface_observe", "surface_navigate", "surface_activate", "surface_close",
-		"surface_screenshot", "surface_evaluate", "surface_click", "surface_element", "surface_scroll", "surface_dialog", "surface_upload", "surface_downloads", "surface_login", "surface_cdp",
+		"surface_browser", "surface_list", "surface_state", "surface_open", "surface_observe", "surface_navigate", "surface_activate", "surface_close",
+		"surface_screenshot", "surface_click", "surface_element", "surface_scroll", "surface_dialog", "surface_upload", "surface_downloads", "surface_login",
 		"awcp_manual", "awcp_invoke",
 	},
 }

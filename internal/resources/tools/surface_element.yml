@@ -43,7 +43,7 @@ inputSchema:
       items:
         type: string
         maxLength: 4096
-      description: "Chrome select values; mutually exclusive with value."
+      description: "Values for a multiple select; mutually exclusive with value."
     key:
       type: string
       enum:
@@ -63,7 +63,7 @@ inputSchema:
         - Delete
         - Space
         - ControlOrMeta+A
-      description: "Required for the Chrome press action."
+      description: "Required for the press action."
   required:
     - surfaceId
     - action

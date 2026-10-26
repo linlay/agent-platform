@@ -4,7 +4,7 @@ i18n:
     label: "List Pages"
   zh-CN:
     label: "网页列表"
-description: "List the live webpages this Run may control. Read the web-control skill before use."
+description: "List this Run's live webpages. Ordinary Chats must choose with surface_browser first. Read the web-control skill before use."
 clientVisible: true
 readOnly: true
 inputSchema:

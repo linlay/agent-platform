@@ -1,10 +1,10 @@
 name: surface_open
 i18n:
   en:
-    label: "Open Chrome Page"
+    label: "Open Webpage"
   zh-CN:
-    label: "打开 Chrome 网页"
-description: "Open a webpage in Chrome already connected to the current Chat. Read the web-control skill before use."
+    label: "打开网页"
+description: "Open an HTTP(S) webpage. Ordinary Chats must choose with surface_browser first. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object

@@ -510,11 +510,7 @@ func TestSurfaceToolsMapToOneRequestEach(t *testing.T) {
 		{tool: "surface_navigate", args: map[string]any{"surfaceId": "page:1", "action": "back"}, method: "Surface.goBack", surfaceID: "page:1"},
 		{tool: "surface_activate", args: map[string]any{"surfaceId": "page:1"}, method: "Page.bringToFront", surfaceID: "page:1"},
 		{tool: "surface_close", args: map[string]any{"surfaceId": "page:1"}, method: "Surface.close", surfaceID: "page:1"},
-		{tool: "surface_evaluate", args: map[string]any{"surfaceId": "page:1", "expression": "document.title"}, method: "Runtime.evaluate", surfaceID: "page:1", params: map[string]any{"expression": "document.title", "returnByValue": true, "awaitPromise": true}},
-		{tool: "surface_evaluate", args: map[string]any{"surfaceId": "page:1", "expression": "1", "awaitPromise": false}, method: "Runtime.evaluate", surfaceID: "page:1", params: map[string]any{"expression": "1", "returnByValue": true, "awaitPromise": false}},
-		{tool: "surface_cdp", args: map[string]any{"surfaceId": "page:1", "method": "DOM.querySelector", "params": map[string]any{"nodeId": 1.0, "selector": "#a"}}, method: "DOM.querySelector", surfaceID: "page:1", params: map[string]any{"nodeId": 1.0, "selector": "#a"}},
-		{tool: "surface_cdp", args: map[string]any{"surfaceId": "page:1", "method": "Network.enable"}, method: "Network.enable", surfaceID: "page:1"},
-		{tool: "surface_element", args: map[string]any{"surfaceId": "page:1", "selector": "#name", "action": "fill", "value": "Ada"}, actionType: "desktop.web.interactElement", params: map[string]any{"surfaceId": "page:1", "selector": "#name", "action": "fill", "value": "Ada"}},
+		{tool: "surface_element", args: map[string]any{"surfaceId": "page:1", "selector": "#name", "action": "fill", "value": "Ada"}, method: "Surface.interact", surfaceID: "page:1", params: map[string]any{"selector": "#name", "action": "fill", "value": "Ada"}},
 		{tool: "surface_login", args: map[string]any{"surfaceId": "page:1", "action": "list"}, actionType: "desktop.credentials.list", params: map[string]any{"surfaceId": "page:1"}},
 		{tool: "surface_login", args: map[string]any{"surfaceId": "page:1", "action": "fill"}, actionType: "desktop.credentials.fill", params: map[string]any{"surfaceId": "page:1"}},
 		{tool: "surface_login", args: map[string]any{"surfaceId": "page:1", "action": "fill", "accountId": "acct-1", "submit": false}, actionType: "desktop.credentials.fill", params: map[string]any{"surfaceId": "page:1", "accountId": "acct-1", "submit": false}},
@@ -574,9 +570,6 @@ func TestSurfaceToolsRejectInvalidInputBeforeSending(t *testing.T) {
 		{"surface_close", map[string]any{"surfaceId": "  "}},
 		{"surface_close", map[string]any{"surfaceId": "page:1", "url": "https://example.com/"}},
 		{"surface_screenshot", map[string]any{"surfaceId": "page:1", "format": "jpeg"}},
-		{"surface_evaluate", map[string]any{"surfaceId": "page:1"}},
-		{"surface_evaluate", map[string]any{"surfaceId": "page:1", "expression": "1", "expressionFile": "a.js"}},
-		{"surface_evaluate", map[string]any{"surfaceId": "page:1", "expression": "  "}},
 		{"surface_click", map[string]any{"surfaceId": "page:1"}},
 		{"surface_click", map[string]any{"surfaceId": "page:1", "selector": "#a", "x": 1.0, "y": 2.0}},
 		{"surface_click", map[string]any{"surfaceId": "page:1", "x": 1.0}},
@@ -591,12 +584,6 @@ func TestSurfaceToolsRejectInvalidInputBeforeSending(t *testing.T) {
 		{"surface_login", map[string]any{"surfaceId": "page:1", "action": "fill", "submit": "true"}},
 		{"surface_login", map[string]any{"surfaceId": "page:1", "action": "fill", "origin": "https://example.com"}},
 		{"surface_login", map[string]any{"surfaceId": "page:1", "action": "fill", "password": "x"}},
-		{"surface_cdp", map[string]any{"surfaceId": "page:1", "method": "Runtime.evaluate", "params": map[string]any{"expression": "1"}}},
-		{"surface_cdp", map[string]any{"surfaceId": "page:1", "method": "Surface.close"}},
-		{"surface_cdp", map[string]any{"surfaceId": "page:1", "method": "AWCP.invoke"}},
-		{"surface_cdp", map[string]any{"method": "DOM.getDocument"}},
-		{"surface_cdp", map[string]any{"surfaceId": "page:1", "method": "DOM.getDocument", "requestId": "forged"}},
-		{"surface_cdp", map[string]any{"surfaceId": "page:1", "method": "DOM.getDocument", "params": map[string]any{}, "paramsFile": "p.json"}},
 	} {
 		result, err := executor.Invoke(context.Background(), tc.tool, tc.args, execCtx)
 		if err != nil || result.Error != "invalid_args" || result.ExitCode != -1 {
@@ -605,35 +592,6 @@ func TestSurfaceToolsRejectInvalidInputBeforeSending(t *testing.T) {
 	}
 	if len(invoker.requests) != 0 {
 		t.Fatalf("rejected input reached the client: %#v", invoker.requests)
-	}
-}
-
-func TestSurfaceEvaluateReadsExpressionFileUnderReadPolicy(t *testing.T) {
-	executor, execCtx, invoker := webControlTestRuntime(t, nil)
-	root := execCtx.Session.WorkspaceRoot
-	mustWriteFile(t, filepath.Join(root, "script.js"), "(() => document.title)()")
-	mustWriteFile(t, filepath.Join(root, "empty.js"), "  \n")
-	result, err := executor.Invoke(context.Background(), "surface_evaluate", map[string]any{"surfaceId": "page:1", "expressionFile": "script.js"}, execCtx)
-	if err != nil || result.ExitCode != 0 || len(invoker.requests) != 1 {
-		t.Fatalf("expressionFile: %#v %v", result, err)
-	}
-	params := invoker.requests[0].Payload["params"].(map[string]any)
-	if params["expression"] != "(() => document.title)()" {
-		t.Fatalf("expression: %#v", params)
-	}
-	if _, leaked := invoker.requests[0].Payload["expressionFile"]; leaked {
-		t.Fatal("expressionFile leaked to the client")
-	}
-
-	result, err = executor.Invoke(context.Background(), "surface_evaluate", map[string]any{"surfaceId": "page:1", "expressionFile": "empty.js"}, execCtx)
-	if err != nil || result.Error != "surface_evaluate_expression_file_invalid" {
-		t.Fatalf("empty file: %#v %v", result, err)
-	}
-	outside := filepath.Join(t.TempDir(), "outside.js")
-	mustWriteFile(t, outside, "1")
-	result, err = executor.Invoke(context.Background(), "surface_evaluate", map[string]any{"surfaceId": "page:1", "expressionFile": outside}, execCtx)
-	if err != nil || result.Error != "surface_evaluate_expression_file_approval_required" || len(invoker.requests) != 1 {
-		t.Fatalf("outside file must require read approval: %#v %v", result, err)
 	}
 }
 
@@ -729,7 +687,7 @@ func TestAwcpToolsReportValidationInTheirOwnFieldNames(t *testing.T) {
 func TestWebControlToolSetMatchesConnectorRegistry(t *testing.T) {
 	executor, execCtx, _ := webControlTestRuntime(t, nil)
 	tools := (connector.Package{Manifest: connector.Manifest{ID: connector.WebControlConnectorID, Type: "native"}}).NativeTools()
-	if len(tools) != 22 {
+	if len(tools) != 21 {
 		t.Fatalf("web-control tools: %v", tools)
 	}
 	defs, err := LoadEmbeddedToolDefinitions()
@@ -750,31 +708,6 @@ func TestWebControlToolSetMatchesConnectorRegistry(t *testing.T) {
 		if err != nil || result.Error != "invalid_args" {
 			t.Errorf("%s dispatch: %#v %v", tool, result, err)
 		}
-	}
-}
-
-func TestSurfaceElementReportsNestedFailures(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		evaluation map[string]any
-		wantError  string
-	}{
-		{"missing element", map[string]any{"result": map[string]any{"type": "object", "value": map[string]any{"ok": false, "error": "element_not_found"}}}, "surface_element_failed"},
-		{"script exception", map[string]any{"exceptionDetails": map[string]any{"text": "Invalid selector"}}, "desktop_cdp_evaluation_failed"},
-		{"success", map[string]any{"result": map[string]any{"type": "object", "value": map[string]any{"ok": true}}}, ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			executor, execCtx, invoker := webControlTestRuntime(t, func(ClientRequest) map[string]any {
-				return map[string]any{"ok": true, "result": tc.evaluation}
-			})
-			result, err := executor.Invoke(context.Background(), "surface_element", map[string]any{"surfaceId": "page:1", "selector": "#name", "action": "focus"}, execCtx)
-			if err != nil || result.Error != tc.wantError || (result.ExitCode != 0) != (tc.wantError != "") || len(invoker.requests) != 1 {
-				t.Fatalf("result: %#v err: %v requests: %d", result, err, len(invoker.requests))
-			}
-			if tc.name == "missing element" && !strings.Contains(result.Output, "element_not_found") {
-				t.Fatalf("lost business error: %s", result.Output)
-			}
-		})
 	}
 }
 

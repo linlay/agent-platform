@@ -25,7 +25,7 @@ inputSchema:
       description: "Optional element count limit."
     viewportOnly:
       type: boolean
-      description: "Chrome only. Observe content in the current viewport."
+      description: "Observe only content in the current viewport."
   required:
     - surfaceId
   additionalProperties: false

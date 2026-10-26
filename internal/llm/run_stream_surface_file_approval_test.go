@@ -11,20 +11,14 @@ import (
 )
 
 // File inputs of the web-control tools follow the standard read approval:
-// surface_cdp.paramsFile and surface_evaluate.expressionFile.
+// awcp_invoke.paramsFile. Scripts and raw CDP are not web-control tools.
 func TestSurfaceFileInputAccessApproval(t *testing.T) {
 	for _, tool := range []struct {
 		name string
 		args func(path string) map[string]any
 	}{
-		{"surface_cdp", func(path string) map[string]any {
-			return map[string]any{"surfaceId": "page:1", "method": "DOM.getDocument", "paramsFile": path}
-		}},
 		{"awcp_invoke", func(path string) map[string]any {
 			return map[string]any{"surfaceId": "page:1", "paramsFile": path}
-		}},
-		{"surface_evaluate", func(path string) map[string]any {
-			return map[string]any{"surfaceId": "page:1", "expressionFile": path}
 		}},
 	} {
 		for _, decision := range []string{"", "approve", "approve_rule_run", "reject"} {
@@ -98,17 +92,10 @@ func TestSurfaceFileInputSkipsUnnecessaryReadApproval(t *testing.T) {
 		tool string
 		args map[string]any
 	}{
-		{"inline", config.RuntimeModeDesktop, "surface_cdp", map[string]any{"method": "Runtime.evaluate", "params": map[string]any{"expression": "document.title"}}},
-		{"no params", config.RuntimeModeDesktop, "surface_cdp", map[string]any{"method": "Target.getTargets"}},
-		{"conflict", config.RuntimeModeDesktop, "surface_cdp", map[string]any{"method": "Runtime.evaluate", "paramsFile": path, "params": nil}},
-		{"empty path", config.RuntimeModeDesktop, "surface_cdp", map[string]any{"method": "Runtime.evaluate", "paramsFile": " "}},
-		{"invalid path type", config.RuntimeModeDesktop, "surface_cdp", map[string]any{"method": "Runtime.evaluate", "paramsFile": 1}},
-		{"missing method", config.RuntimeModeDesktop, "surface_cdp", map[string]any{"paramsFile": path}},
-		{"standalone", config.RuntimeModeStandalone, "surface_cdp", map[string]any{"method": "Runtime.evaluate", "paramsFile": path}},
-		{"inline expression", config.RuntimeModeDesktop, "surface_evaluate", map[string]any{"surfaceId": "page:1", "expression": "document.title"}},
-		{"expression conflict", config.RuntimeModeDesktop, "surface_evaluate", map[string]any{"surfaceId": "page:1", "expression": "1", "expressionFile": path}},
-		{"empty expression path", config.RuntimeModeDesktop, "surface_evaluate", map[string]any{"surfaceId": "page:1", "expressionFile": " "}},
-		{"standalone expression", config.RuntimeModeStandalone, "surface_evaluate", map[string]any{"surfaceId": "page:1", "expressionFile": path}},
+		{"inline", config.RuntimeModeDesktop, "awcp_invoke", map[string]any{"surfaceId": "page:1", "revision": "r1", "action": "a", "args": map[string]any{}}},
+		{"empty path", config.RuntimeModeDesktop, "awcp_invoke", map[string]any{"surfaceId": "page:1", "paramsFile": " "}},
+		{"removed raw CDP tool", config.RuntimeModeDesktop, "surface_cdp", map[string]any{"method": "Runtime.evaluate", "paramsFile": path}},
+		{"removed script tool", config.RuntimeModeDesktop, "surface_evaluate", map[string]any{"surfaceId": "page:1", "expressionFile": path}},
 		// The removed tool no longer plans a file read.
 		{"removed tool", config.RuntimeModeDesktop, "desktop_cdp", map[string]any{"method": "Runtime.evaluate", "paramsFile": path}},
 	} {

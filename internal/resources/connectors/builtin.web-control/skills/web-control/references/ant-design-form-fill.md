@@ -1,87 +1,38 @@
 # Ant Design 表单填写
 
-This script-based reference applies only to WorkPanel pages that support `surface_evaluate`, after the skill's AWCP checks. It does not apply to Chrome: use `surface_observe` and reference actions there, and open custom dropdowns before observing and clicking an option. Do not use evaluate or raw CDP to recover missing Chrome option data.
+Ant Design and other React-controlled widgets often ignore a value written straight into the DOM. Use AWCP first when the site publishes it; otherwise operate them with the typed surface tools, the same way on Chrome and WorkPanel. There is no script or raw CDP route.
 
-一句话：Ant Design/React 表单不要只写 `el.value = text`，优先用原生 value setter 后派发冒泡的 `input` 和 `change` 事件，让 React 表单状态同步。
+一句话：输入框用 `fill`（或需要逐键触发联想时用 `type`），下拉、日期、级联等自定义组件先点击展开、读返回的观察、再点击选项，每一步都以返回的观察核对状态。
 
 ## When To Use
 
-- The form filling workflow detected Ant Design or React-controlled inputs.
-- 用户说输入框、下拉框或自动完成组件点击后消失、失焦、被清空。
-- 普通 `surface_cdp` 的 `Input.insertText`、鼠标点击、键盘输入不稳定。
-- DOM 里的值变了，但 Ant Design Form 校验、提交值或页面状态没有同步。
+- The page shows Ant Design classes (`ant-select`, `ant-picker`, `ant-cascader`, `ant-form-item`) or other custom widgets in the observation.
+- 输入框、下拉框或自动完成组件点击后消失、失焦或被清空。
+- DOM 里的值变了，但表单校验、提交值或页面状态没有同步。
 
-## Stack Detection
+## Text inputs
 
-Before using this reference, inspect the current page for Ant Design/React signals:
+1. `surface_observe`, then `surface_element` with the input's `ref`, `action: "fill"` and the full `value`. Fill replaces the value with real editing input, so React state updates.
+2. For an AutoComplete or search box that reacts to keystrokes, use `action: "type"` (at most 2000 characters) instead, then read the returned observation for suggestions.
+3. Confirm the value in the returned observation; a form-item validation message appears as nearby text or the element's `validationMessage`/`invalid` state.
 
-```js
-(() => ({
-  hasAntClasses: !!document.querySelector('[class*="ant-"], .ant-form, .ant-input, .ant-select'),
-  hasReactRoot: !!document.querySelector('#root, [data-reactroot]'),
-  hasReactFiber: !!document.querySelector('[class*="ant-"], input, textarea') &&
-    Object.keys(document.querySelector('[class*="ant-"], input, textarea') || {})
-      .some(key => key.startsWith('__reactFiber$') || key.startsWith('__reactProps$')),
-  scripts: Array.from(document.scripts).map(s => s.src).filter(Boolean).slice(0, 20)
-}))()
-```
+## Select, Cascader and TreeSelect
 
-Use this reference when Ant Design classes or React-controlled field markers are present.
+1. Click the visible selector (`surface_click` with its ref). The dropdown renders in a popup at the end of the document; read it from the returned observation.
+2. If the option list is long or virtualized, `type` part of the label into the focused search input, or `surface_scroll`/`press` `ArrowDown` and read the new viewport observation. Do not guess an option that is not observed.
+3. Click the option ref from the newest observation. For multiple mode, repeat for each option, then `press` `Escape` to close the popup.
+4. Verify the selected tag or text in the returned observation.
 
-## Pattern
+## DatePicker and TimePicker
 
-Use `surface_evaluate` after identifying the target field by stable selectors such as `id`, `name`, label text, or the nearest `.ant-form-item`.
+1. Click the picker input, then `type` the date in the format the placeholder shows (for example `2026-10-23`) and `press` `Enter`.
+2. If the picker rejects typed input, click the panel cells from the returned observation instead.
+3. Verify the displayed value; a cleared field means the format was rejected.
 
-```js
-(() => {
-  const el = document.querySelector('#start_addr');
-  if (!el) return { ok: false, reason: 'field not found' };
+## Checkbox, Radio and Switch
 
-  const setter = Object.getOwnPropertyDescriptor(
-    window.HTMLInputElement.prototype,
-    'value'
-  ).set;
+Use `surface_element` with `action: "check"` or `"uncheck"` on the observed control. It sends no input when the state already matches; a radio cannot be unchecked, so check the other option instead.
 
-  setter.call(el, '陆家嘴');
-  el.dispatchEvent(new Event('input', { bubbles: true }));
-  el.dispatchEvent(new Event('change', { bubbles: true }));
+## Submit
 
-  return { ok: true, value: el.value };
-})()
-```
-
-For `textarea`, use `window.HTMLTextAreaElement.prototype`. For plain inputs, avoid assigning `el.value = text` unless it is only for visual inspection.
-
-## Two Field Example
-
-```js
-(() => {
-  const setReactInputValue = (selector, value) => {
-    const el = document.querySelector(selector);
-    if (!el) return { selector, ok: false, reason: 'not found' };
-
-    const proto = el instanceof HTMLTextAreaElement
-      ? window.HTMLTextAreaElement.prototype
-      : window.HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-    if (!setter) return { selector, ok: false, reason: 'setter not found' };
-
-    setter.call(el, value);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    el.dispatchEvent(new Event('blur', { bubbles: true }));
-    return { selector, ok: true, value: el.value };
-  };
-
-  return [
-    setReactInputValue('#start_addr', '陆家嘴'),
-    setReactInputValue('#end_addr', '静安寺')
-  ];
-})()
-```
-
-## Notes
-
-- Always verify after filling by reading DOM values with a read-only script. Do not use a screenshot to verify a fill.
-- If the field is an Ant Design `Select`, `Cascader`, `DatePicker`, or `AutoComplete`, first inspect whether the real input is hidden and whether value state is controlled by a popup option; prefer selecting the real option if it is stable.
-- Do not submit the form unless the user explicitly confirmed submission.
+Click the submit button only when the user's task authorizes submission, then read the returned observation for success messages, validation errors or a changed URL. Never resubmit after an unknown outcome; read state first.

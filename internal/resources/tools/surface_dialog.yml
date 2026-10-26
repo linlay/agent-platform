@@ -1,10 +1,10 @@
 name: surface_dialog
 i18n:
   en:
-    label: "Handle Chrome Dialog"
+    label: "Handle Page Dialog"
   zh-CN:
-    label: "处理 Chrome 网页弹窗"
-description: "Accept or dismiss an observed native webpage dialog in Chrome. Read the web-control skill before use."
+    label: "处理网页弹窗"
+description: "Accept or dismiss an observed native webpage dialog. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object

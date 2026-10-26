@@ -24,7 +24,7 @@ inputSchema:
       description: "Destination address."
     ignoreCache:
       type: boolean
-      description: "WorkPanel only. Bypass the cache when reloading."
+      description: "Bypass the cache when reloading. WorkPanel pages only; Chrome reloads normally."
   required:
     - surfaceId
     - action

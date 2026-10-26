@@ -1,0 +1,21 @@
+name: surface_browser
+i18n:
+  en:
+    label: "Choose Task Browser"
+  zh-CN:
+    label: "选择任务浏览器"
+description: "Required before Chat webpage tools: choose the user's browser intent or ask once when unclear. Read the web-control skill before use."
+clientVisible: true
+readOnly: true
+inputSchema:
+  type: object
+  properties:
+    browser:
+      type: string
+      enum:
+        - chrome
+        - workpanel
+      description: "Required. The browser requested by the user, or chosen in their answer to a clarification."
+  required:
+    - browser
+  additionalProperties: false

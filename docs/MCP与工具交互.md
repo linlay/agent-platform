@@ -147,19 +147,7 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 
 ## 网页控制工具的文件参数
 
-`surface_cdp` 可直接传入 `params` 对象，也可通过 `paramsFile` 读取参数文件。两者互斥（包括显式传入 `params: null`）；都省略时保持无参数调用。
-
-```json
-{
-  "surfaceId": "实际 surfaceId",
-  "method": "DOM.querySelector",
-  "paramsFile": "params.json"
-}
-```
-
-`params.json` 只保存 `params` 内容，不包含外层 `method`、`surfaceId` 等请求字段。
-
-`surface_evaluate` 的 `expression` 与 `expressionFile` 互斥；`expressionFile` 指向一个 UTF-8 JavaScript 文件，内容整体作为表达式，用于内联放不下的大脚本。
+`awcp_invoke` 可直接传入 `revision/action/args`，也可通过 `paramsFile` 读取只含这三个字段的 UTF-8 JSON 文件，两者互斥。网页控制不再提供模型脚本（`surface_evaluate`）与原始 CDP（`surface_cdp`）工具，WorkPanel 与 Chrome 使用同一组类型化页面操作。
 
 相对路径按本次执行 Workspace 解析；没有 Workspace 时返回 `workspace_unavailable`，不回退到 Platform 进程目录。也支持 `@workspace`、`@chat`、`@temp` 等通用路径别名，以及经授权的绝对路径；Container 执行路径使用现有映射解析为 Host 路径。文件读取复用 AccessPolicy 和文件预审批，越权读取进入 HITL，批准后继续执行；canonical 路径校验与临时根逃逸阻断仍生效。
 
@@ -271,7 +259,7 @@ Desktop 拥有按方法的参数预检和目标授权；Platform 不复制 Chrom
 
 Desktop 校验 selector 与 x/y 互斥、数值/布尔类型及有界超时；模型不构造按下/释放事件、不写参数文件。Desktop 执行唯一定位、滚动和命中检查、真实左键单击、可选的后置条件观察。`waitFor` 完全可省略，此时只证明输入完成。等待超时、取消、导航和输入结果不确定分别保留动作阶段，不自动重放点击。Windows/macOS 均使用 Chromium CSS 视口坐标，不做宿主 DPI 换算。
 
-旧定位方式使用标准 CSS `selector` 或数字 `x/y`；语义引用方式另可传整数 `timeoutMs`，范围 100–10000、默认 3000，旧模型工具参数范围保持不变。可选 `waitFor` 支持 visible/hidden（selector）、value（selector 与字符串 value）、checked（selector 与布尔 checked）、url（仅字符串 value）条件。Desktop 的执行结果区分 `action.outcome` 与 `conditionMatched`。工具结果外层成功只证明协议成功，不能代替页面/业务成功。WorkPanel 底层输入事件仍可经 `surface_cdp` 发送，但正常点击不再拆为多次模型调用。Desktop 与 Platform 需配套更新；旧 Desktop 拒绝新方法时明确报告版本能力缺失，不把它当成点击失败后重试。
+旧定位方式使用标准 CSS `selector` 或数字 `x/y`；语义引用方式另可传整数 `timeoutMs`，范围 100–10000、默认 3000，旧模型工具参数范围保持不变。可选 `waitFor` 支持 visible/hidden（selector）、value（selector 与字符串 value）、checked（selector 与布尔 checked）、url（仅字符串 value）条件。Desktop 的执行结果区分 `action.outcome` 与 `conditionMatched`。工具结果外层成功只证明协议成功，不能代替页面/业务成功。WorkPanel 与 Chrome 的点击、交互和滚动结果都附带跟随观察。Desktop 与 Platform 需配套更新；旧 Desktop 拒绝新方法时明确报告版本能力缺失，不把它当成点击失败后重试。
 
 ## Desktop Action 错误诊断
 
@@ -297,7 +285,7 @@ Chrome mutation 结果保留原动作 outcome，并默认附带新的 nested obs
 
 surface_upload 仅读取当前 Chat 已存在的公开文件引用，经 canonical AccessPolicy 与 os.Root 再次限制在 Chat 内；最多 8 文件，单个与合计均 4 MiB，私下转换为 Surface.uploadFiles 的 files[{name,mimeType,data}]，模型与日志不持有 data。上传总量受 Desktop 单帧 8 MiB 限制，不扩大通用 WebSocket 上限。surface_downloads 的 list/save 分别映射 Surface.getDownloads/Surface.readDownload；save 利用既有 64 MiB 分块 collector，验证单文件 4 MiB 上限、size 与 SHA-256，600 权限、临时文件 fsync 后原子不覆盖发布到当前 Chat，再把字节替换为 referenceName/url/size/sha 元数据。Chat 内工具私有收据绑定页面和 downloadId，重复相同内容幂等，已有不同内容返回冲突；worker 只暂存最多 8 条/合计 16 MiB，列表可额外携带一条明确的 file_transfer_limit 拒绝回执，不算第九个保留文件，断连前应保存，不扫描用户 Downloads。文件桥接 request/response/stream 的 monitor 预览省略字节。
 
-Chrome 提供 AWCP 业务能力与语义观察、引用操作、页面生命周期、截图、受控按键/多选/滚动、原生网页弹窗和文件传递；`surface_evaluate` 与 raw `surface_cdp` 仍不可用。AWCP 沿用同一手册、章节和 invoke 信封，不增加动态工具或模型脚本入口。普通 Chat 必须传入精确 `surfaceId` 并通过原 canonical Run 门禁，再由 Desktop 按冻结的 backend 路由；Chrome 的宿主失败、取消或页面拒绝不能回退到 WorkPanel。业务优先使用匹配的 AWCP 章节；协议缺失、有效目录没有匹配动作或任务明确允许标准界面操作时，才使用相应标准工具，未知写入结果不能转成点击重放。引用是标准操作的主要定位方式；具有当前页面证据的 CSS/坐标兼容入口仍可达，不绕过页面/Run 身份校验。WorkPanel 保留既有 Chat 归属和脚本/选择器能力；Website/WebApp Copilot 的所属应用 Run grant 不变。Chrome 发现与操作仅限当前 Run 的获授权工作区，后台页面不因隐藏失效，工作区之外的标签、文件预览和任意应用不能借此访问。`awcp_manual` / `awcp_invoke` 仅在已有应用 grant 内可以省略 `surfaceId` 沿用该应用活动页，不改变页面桥权限。截图仍经当前 Chat 的 `referenceName` 与 `vision_recognize` 链路，不把 MCP 图片直接当成主模型多模态结果。Platform 二进制、内嵌工具及技能与 Desktop 必须配套发布，新工具在新 Run 生效，不修改部署配置或已安装的运行包缓存。
+Chrome 与 WorkPanel 提供相同的 AWCP 业务能力与语义观察、引用操作、页面生命周期、截图、受控按键/多选/滚动、原生网页弹窗和文件传递；两者都不提供模型脚本或原始 CDP。AWCP 沿用同一手册、章节和 invoke 信封，不增加动态工具或模型脚本入口。普通 Chat 必须传入精确 `surfaceId` 并通过原 canonical Run 门禁，再由 Desktop 按冻结的 backend 路由；Chrome 的宿主失败、取消或页面拒绝不能回退到 WorkPanel。业务优先使用匹配的 AWCP 章节；协议缺失、有效目录没有匹配动作或任务明确允许标准界面操作时，才使用相应标准工具，未知写入结果不能转成点击重放。引用是标准操作的主要定位方式；具有当前页面证据的 CSS/坐标兼容入口仍可达，不绕过页面/Run 身份校验。WorkPanel 保留既有 Chat 归属和选择器能力；Website/WebApp Copilot 的所属应用 Run grant 不变。Chrome 发现与操作仅限当前 Run 的获授权工作区，后台页面不因隐藏失效，工作区之外的标签、文件预览和任意应用不能借此访问。`awcp_manual` / `awcp_invoke` 仅在已有应用 grant 内可以省略 `surfaceId` 沿用该应用活动页，不改变页面桥权限。截图仍经当前 Chat 的 `referenceName` 与 `vision_recognize` 链路，不把 MCP 图片直接当成主模型多模态结果。Platform 二进制、内嵌工具及技能与 Desktop 必须配套发布，新工具在新 Run 生效，不修改部署配置或已安装的运行包缓存。
 
 ### Desktop 确认期限与取消
 
@@ -366,7 +354,7 @@ i18n:
 | file_read / file_edit | addLineNumbers / replaceAll |
 | file_grep / regex | caseInsensitive、lineNumbers、multiline / caseInsensitive |
 | workpanel_open / workpanel_close | reload / all |
-| surface_navigate / surface_screenshot / surface_evaluate | ignoreCache / fullPage / awaitPromise |
+| surface_navigate / surface_screenshot / surface_observe | ignoreCache / fullPage / viewportOnly |
 | ask_user_question | questions[].allowFreeText、questions[].options[].recommended |
 | chat_query / chat_manage | 各 action 声明的 archived、pinned |
 | desktop_site / site.setPinned | args.pinned |
