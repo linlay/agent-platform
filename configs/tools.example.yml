@@ -164,21 +164,12 @@ vision-recognize:
       system-prompt: |
         Extract visible text, tables, labels, handwriting, and layout.
 
-web-search:
-  # Configure the referenced provider and set enabled: true to enable web_search.
-  # Credentials and baseUrl belong in runtime/registries/providers/<key>.yml.
-  enabled: false
-  provider-key: deepseek
-  timeout: 60
-  max-response-bytes: 10485760
-
 web-fetch:
   enabled: true
   default-profile: general
   preapproved-hosts: []
   profiles:
     general:
-      backend: direct
       model-key:
       timeout: 60
       fetch-timeout: 60
@@ -189,16 +180,6 @@ web-fetch:
       max-output-tokens: 4000
       system-prompt: |
         You extract and summarize fetched web content according to the user's prompt.
-
-    deepseek:
-      backend: deepseek
-      provider-key: deepseek
-      # Return Markdown for the calling Agent; no separate summary model.
-      # max-markdown-chars limits the model preview; long originals can be read from resultRef.
-      fetch-timeout: 60
-      max-url-length: 8192
-      max-response-bytes: 10485760
-      max-markdown-chars: 100000
 
 image-generate:
   enabled: true

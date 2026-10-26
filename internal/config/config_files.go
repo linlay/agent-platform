@@ -482,7 +482,7 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 	if _, exists := values["speech"]; exists {
 		return fmt.Errorf("%s: speech is not implemented", path)
 	}
-	if _, err := configMap(values, path, "access-policy", "bash", "sandbox-bash", "file-tools", "run-env", "mcp", "platform-control", "vision-recognize", "web-search", "web-fetch", "image-generate", "speech-generate"); err != nil {
+	if _, err := configMap(values, path, "access-policy", "bash", "sandbox-bash", "file-tools", "run-env", "mcp", "platform-control", "vision-recognize", "web-fetch", "image-generate", "speech-generate"); err != nil {
 		return err
 	}
 	if err := c.applyAIToolsValues(values); err != nil {
@@ -875,13 +875,6 @@ func (c *Config) applyVisionRecognizeValues(values map[string]any) {
 	c.VisionRecognize.Profiles = parsed
 }
 
-func (c *Config) applyWebSearchValues(values map[string]any) {
-	c.WebSearch.Enabled = boolValue(anyValue(values["enabled"], c.WebSearch.Enabled), c.WebSearch.Enabled)
-	c.WebSearch.ProviderKey = stringValue(anyValue(values["provider-key"], c.WebSearch.ProviderKey), c.WebSearch.ProviderKey)
-	c.WebSearch.Timeout = intValue(anyValue(values["timeout"], c.WebSearch.Timeout), c.WebSearch.Timeout)
-	c.WebSearch.MaxResponseBytes = intValue(anyValue(values["max-response-bytes"], c.WebSearch.MaxResponseBytes), c.WebSearch.MaxResponseBytes)
-}
-
 func (c *Config) applyWebFetchValues(values map[string]any) {
 	c.WebFetch.Enabled = boolValue(anyValue(values["enabled"], c.WebFetch.Enabled), c.WebFetch.Enabled)
 	c.WebFetch.DefaultProfile = stringValue(anyValue(values["default-profile"], c.WebFetch.DefaultProfile), c.WebFetch.DefaultProfile)
@@ -941,9 +934,6 @@ func (c *Config) applyAIToolsValues(values map[string]any) error {
 	}
 	if visionRecognize, ok := values["vision-recognize"].(map[string]any); ok && len(visionRecognize) > 0 {
 		c.applyVisionRecognizeValues(visionRecognize)
-	}
-	if webSearch, ok := values["web-search"].(map[string]any); ok && len(webSearch) > 0 {
-		c.applyWebSearchValues(webSearch)
 	}
 	if webFetch, ok := values["web-fetch"].(map[string]any); ok && len(webFetch) > 0 {
 		c.applyWebFetchValues(webFetch)
@@ -1007,8 +997,6 @@ func parseWebFetchProfileConfig(raw any, fallback WebFetchProfileConfig) WebFetc
 	if len(values) == 0 {
 		return fallback
 	}
-	fallback.Backend = stringValue(anyValue(values["backend"], fallback.Backend), fallback.Backend)
-	fallback.ProviderKey = stringValue(anyValue(values["provider-key"], fallback.ProviderKey), fallback.ProviderKey)
 	fallback.ModelKey = stringValue(anyValue(values["model-key"], fallback.ModelKey), fallback.ModelKey)
 	fallback.Timeout = intValue(anyValue(values["timeout"], fallback.Timeout), fallback.Timeout)
 	fallback.FetchTimeout = intValue(anyValue(values["fetch-timeout"], fallback.FetchTimeout), fallback.FetchTimeout)

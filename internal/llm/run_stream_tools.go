@@ -389,7 +389,7 @@ func (s *llmRunStream) isConcurrentToolInvocation(invocation *preparedToolInvoca
 		return s != nil && s.execCtx != nil &&
 			!s.session.AgentHasRuntimeSandbox &&
 			!s.execCtx.Session.AgentHasRuntimeSandbox
-	case "datetime", "regex", "file_read", "file_grep", "file_glob", "web_fetch", "web_search":
+	case "datetime", "regex", "file_read", "file_grep", "file_glob", "web_fetch":
 		return true
 	default:
 		return false

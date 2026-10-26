@@ -17,7 +17,6 @@ var builtinReadOnlyTools = map[string]struct{}{
 	"file_grep":              {},
 	"file_glob":              {},
 	"web_fetch":              {},
-	"web_search":             {},
 	"vision_recognize":       {},
 	"session_search":         {},
 	"_session_search_":       {},
