@@ -507,6 +507,11 @@ func (s *Service) PrepareQueryAdmissionRequest(
 		return queryAdmission{}, err
 	}
 	req.References = preparedReferences
+	if req.Primary {
+		if err := s.checkPrimaryChatQuery(req, existingSummary, agentKey); err != nil {
+			return queryAdmission{}, err
+		}
+	}
 
 	req.ChatID = chatID
 	req.AgentKey = agentKey
@@ -630,6 +635,11 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 	if !created {
 		summary, chatNamePromoted, err = s.deps.Chats.PromotePendingChatName(chatID, req.Message)
 		if err != nil {
+			return preparedQuery{}, err
+		}
+	}
+	if req.Primary {
+		if err := s.deps.PrimaryChats.PublishPrimaryChat(agentKey, chatID); err != nil {
 			return preparedQuery{}, err
 		}
 	}

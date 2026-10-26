@@ -95,6 +95,7 @@ Chat 默认由 `AP_RUNTIME_CHATS_DIR` 控制，主要包含：
 
 - `chats.db`：chat 摘要索引。
 - `chat-order.json` / `chat-pinned.json`：Platform 管理的实例级 recent/manual 展示排序，缺省 recent（更新时间倒序），以及独立跨 mode 置顶顺序，不修改 Chat 内容时间或数据库 schema。
+- `chat-primary.json`：每个 Agent 的主要聊天指针（agentKey → chatId），其他 active Chat 为历史聊天；仅由创建 Chat 的 query `primary:true` 或 `PUT /api/chats/primary` 切换，当前主要聊天有活动 Run 时 409 拒绝，Automation/chat_start/execute 等入口不切换，见 [API 与协议](docs/API与协议.md#主要聊天)。
 - `<chatId>.jsonl`：运行事件、StepLine、system init 与 raw messages。
 - JSONL query 行的 `query` 只保存调用方原样输入（HTTP/WS 请求体、chat_start 参数、子任务条目、Automation 配置的 query），平台不往里加字段；平台决定与平台算出的有效值写在行顶层（requestId、agentKey、lane、origin、accessGrant、planRunId、accessLevel、hidden、planningMode、editingMode、model、references，任务行另有 taskId/taskName/taskToolId/taskAgentKey），缺省值写入时存下、读取时不重算，无输入的行不写 query；请求字段名大小写变体拒绝。`origin` 由平台判定（user/agent/automation）；HTTP/WS 请求及 Automation API/YAML query 中的 `role` 均接收、保留但不参与执行；`agent.yml` 的描述字段 `role` 继续保留；读取不分新旧布局，旧记录缺少的顶层决定视为未设置，显示字段从 query 读取。btw/explain 分支分别存于 `<chatId>/.btw/`、`.explain/`，协议用 `sideId`。详见 [API 与协议](docs/API与协议.md)。
 - `<chatId>/<uploaded-or-generated-file>`：上传与图片生成资源；工具返回内部绝对 `path` 和相对于当前 Chat 的稳定 `url`（不含 `chatId`），用户可见内容只使用 `url`。

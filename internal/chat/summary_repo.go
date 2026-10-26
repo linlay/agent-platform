@@ -97,6 +97,7 @@ func (s *FileStore) Summary(chatID string) (*Summary, error) {
 	summary, err := s.loadSummary(chatID)
 	if err == nil && summary != nil {
 		summary.Pinned = containsChatID(s.readChatPinnedForListLocked().Order, chatID)
+		summary.Primary = isPrimary(s.readChatPrimaryForListLocked().primaryOwners(), chatID, summary.AgentKey)
 	}
 	return summary, err
 }
@@ -410,6 +411,8 @@ func (s *FileStore) listChatsWithPresentationLocked(options ListOptions, applyOr
 	lastRunID, limit := options.LastRunID, options.Limit
 	where, args := chatListWhere(options)
 	owners := newAgentKeyMatcher(options.AgentKeyFilter)
+	primaries := s.readChatPrimaryForListLocked().primaryOwners()
+	primaryOnly := options.Primary != nil && *options.Primary
 
 	pinnedOnly := options.Pinned != nil && *options.Pinned
 	unpinnedOnly := options.Pinned != nil && !*options.Pinned
@@ -418,15 +421,19 @@ func (s *FileStore) listChatsWithPresentationLocked(options ListOptions, applyOr
 	// need every match before they can be arranged.
 	stopAtLimit := limit > 0 && (!applyOrder || unpinnedOnly && orderState.SortMode != SortModeManual)
 	switch {
-	case pinnedOnly:
-		// Pins are a short ID list, so read them by primary key instead of
-		// scanning every chat and comparing afterwards.
-		if len(pins.Order) == 0 {
+	case pinnedOnly || primaryOnly:
+		// Pins and primary pointers are short ID lists, so read them by primary
+		// key instead of scanning every chat and comparing afterwards.
+		ids := pins.Order
+		if !pinnedOnly {
+			ids = primaryChatIDs(primaries)
+		}
+		if len(ids) == 0 {
 			return nil, nil
 		}
-		where, args = appendChatIDsClause(where, args, pins.Order)
+		where, args = appendChatIDsClause(where, args, ids)
 	case stopAtLimit:
-		ids, err := s.recentChatIDsLocked(where, args, options, owners, pins, limit)
+		ids, err := s.recentChatIDsLocked(where, args, options, owners, pins, primaries, limit)
 		if err != nil {
 			return nil, err
 		}
@@ -464,6 +471,10 @@ func (s *FileStore) listChatsWithPresentationLocked(options ListOptions, applyOr
 		}
 		sum.Pinned = containsChatID(pins.Order, sum.ChatID)
 		if options.Pinned != nil && sum.Pinned != *options.Pinned {
+			continue
+		}
+		sum.Primary = isPrimary(primaries, sum.ChatID, sum.AgentKey)
+		if options.Primary != nil && sum.Primary != *options.Primary {
 			continue
 		}
 		items = append(items, sum)
@@ -518,7 +529,7 @@ func appendChatIDsClause(where string, args []any, chatIDs []string) (string, []
 // recentChatIDsLocked picks the newest matching chats from the few columns the
 // filters need, so the wide summary row and its RUNS lookup are only computed
 // for the chats that are returned.
-func (s *FileStore) recentChatIDsLocked(where string, args []any, options ListOptions, owners agentKeyMatcher, pins PinnedState, limit int) ([]string, error) {
+func (s *FileStore) recentChatIDsLocked(where string, args []any, options ListOptions, owners agentKeyMatcher, pins PinnedState, primaries map[string]string, limit int) ([]string, error) {
 	rows, err := s.db.Query("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, LAST_RUN_ID_ FROM CHATS WHERE 1=1"+where+chatListRecentOrder, args...)
 	if err != nil {
 		return nil, err
@@ -535,6 +546,9 @@ func (s *FileStore) recentChatIDsLocked(where string, args []any, options ListOp
 			continue
 		}
 		if options.Pinned != nil && containsChatID(pins.Order, chatID) != *options.Pinned {
+			continue
+		}
+		if options.Primary != nil && isPrimary(primaries, chatID, agentKey) != *options.Primary {
 			continue
 		}
 		ids = append(ids, chatID)

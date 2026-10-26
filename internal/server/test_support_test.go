@@ -57,7 +57,7 @@ func newTestMemoryStore(root string) (*memory.Store, error) {
 }
 
 func (s *Server) listChatSummaries(lastRunID string, agentKey string) ([]api.ChatSummaryResponse, error) {
-	return s.listChatSummariesWithPinned(lastRunID, agentKey, nil, 0, nil, nil)
+	return s.listChatSummariesWithPinned(lastRunID, agentKey, nil, 0, nil, nil, nil)
 }
 
 func (s *Server) listAgentSummaries(includeChats int, scope string) ([]api.AgentSummary, error) {

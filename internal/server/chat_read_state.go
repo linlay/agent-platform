@@ -51,8 +51,15 @@ func (s *Server) listAgentSummariesWithPinned(includeChats int, scope string, mo
 	if err != nil {
 		return nil, err
 	}
+	primaryChats, err := s.primaryChatsByAgent()
+	if err != nil {
+		return nil, err
+	}
 	for i := range items {
 		items[i].Stats = toAPIAgentStats(stats[items[i].Key])
+		if primaryChat, ok := primaryChats[items[i].Key]; ok {
+			items[i].PrimaryChat = &primaryChat
+		}
 		if includeChats > 0 {
 			chats, err := s.conversationService().RecentSummaries(items[i].Key, includeChats, pinned)
 			if err != nil {

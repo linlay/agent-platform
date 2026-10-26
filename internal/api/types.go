@@ -277,6 +277,8 @@ type QueryRequest struct {
 	EditingMode     *bool              `json:"editingMode,omitempty"`
 	AccessLevel     string             `json:"accessLevel,omitempty"`
 	Model           *QueryModelOptions `json:"model,omitempty"`
+	// Primary makes the Chat this query creates its Agent's primary Chat.
+	Primary bool `json:"primary,omitempty"`
 
 	// Internal runtime hint: the stream bootstrap already emitted the synthetic
 	// request.query for this run, so agent mode prefixes must not emit it again.
@@ -421,6 +423,8 @@ type AgentSummary struct {
 	Role                   string                     `json:"role,omitempty"`
 	Stats                  AgentChatStats             `json:"stats"`
 	Chats                  []ChatSummaryResponse      `json:"chats,omitempty"`
+	// PrimaryChat is set by /api/agents; omitted when the Agent has none.
+	PrimaryChat *ChatSummaryResponse `json:"primaryChat,omitempty"`
 }
 
 type AgentChatStats struct {
@@ -1225,6 +1229,7 @@ type ToolDetailResponse = queryinput.ToolDefinition
 
 type ChatSummaryResponse struct {
 	Pinned   bool   `json:"pinned"`
+	Primary  bool   `json:"primary"`
 	ChatID   string `json:"chatId"`
 	ChatName string `json:"chatName"`
 	AgentKey string `json:"agentKey,omitempty"`
@@ -1240,6 +1245,10 @@ type ChatSummaryResponse struct {
 	Usage          *ChatUsageData `json:"usage,omitempty"`
 	ActiveRun      *ActiveRunInfo `json:"activeRun,omitempty"`
 	Error          *ChatErrorInfo `json:"error,omitempty"`
+}
+
+type SetPrimaryChatRequest struct {
+	ChatID string `json:"chatId"`
 }
 
 type ChatOrderResponse struct {
@@ -1347,6 +1356,7 @@ type ChatDetailResponse struct {
 	Display     EventDisplay `json:"display"`
 	CanContinue bool         `json:"canContinue"`
 	Pinned      bool         `json:"pinned"`
+	Primary     bool         `json:"primary"`
 	ChatID      string       `json:"chatId"`
 	ChatName    string       `json:"chatName"`
 	AgentKey    string       `json:"agentKey,omitempty"`
