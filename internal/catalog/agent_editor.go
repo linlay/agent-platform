@@ -193,7 +193,7 @@ func (r *FileRegistry) CreateEditableAgent(key string, definition map[string]any
 		return EditableAgentFiles{}, err
 	}
 
-	definition = normalizeEditableDefinition(definition)
+	definition = normalizeEditableDefinition(withAgentIconCreateDefault(definition))
 	stripPresetToolDeclarations(definition, r.cfg.PresetsForMode(stringNode(definition["mode"])).Tools, nil)
 	stripPresetConnectorDeclarations(definition, r.cfg.PresetsForMode(stringNode(definition["mode"])).Connectors, nil)
 	agentDir := filepath.Join(r.cfg.Paths.AgentsDir, key)
