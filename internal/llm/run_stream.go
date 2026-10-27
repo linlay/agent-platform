@@ -244,5 +244,3 @@ type hitlNoticeEntry struct {
 	mode             string
 	formPayload      map[string]any
 }
-
-const defaultContextWindow = 128000

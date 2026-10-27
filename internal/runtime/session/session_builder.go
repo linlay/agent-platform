@@ -210,6 +210,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		Locale:                    s.deps.Config.Prompts.Runtime.ResolveLocale(options.Locale),
 		EnvironmentPromptTemplate: s.deps.Config.Prompts.Runtime.Template(),
 		ModelKey:                  agentDef.ModelKey,
+		MaxInputTokens:            agentDef.MaxInputTokens,
 		ToolNames:                 toolNames,
 		ToolSetFrozen:             true,
 		ProtectedPaths:            accesspolicy.PlatformProtectedPaths(s.deps.Config),

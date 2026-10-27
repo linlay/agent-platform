@@ -53,6 +53,7 @@ type AgentDefinition struct {
 	Introductions        []string
 	Wonders              []string
 	ModelKey             string
+	MaxInputTokens       int    // modelConfig.maxInputTokens; 0 means the model's own limit.
 	ModelReasoningEffort string // Persisted top-level selection; empty means unspecified.
 	ServiceTier          string
 	Mode                 string

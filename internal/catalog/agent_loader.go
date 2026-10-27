@@ -628,6 +628,9 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		return AgentDefinition{}, nil, err
 	}
 	def.ModelKey = stringNode(modelConfig["modelKey"])
+	if def.MaxInputTokens, err = ParseAgentMaxInputTokens(modelConfig); err != nil {
+		return AgentDefinition{}, nil, err
+	}
 	reasoning := mapNode(modelConfig["reasoning"])
 	def.ModelReasoningEffort = stringNode(reasoning["effort"])
 	if enabled, ok := reasoning["enabled"].(bool); ok && !enabled {

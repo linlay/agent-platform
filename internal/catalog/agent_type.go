@@ -349,12 +349,42 @@ func ValidateAgentCoderBackend(def AgentDefinition) error {
 
 func ValidateAgentModelConfig(def AgentDefinition) error {
 	if AgentUsesACPCoderBackend(def) || AgentIsProxyMode(def.Mode) || AgentIsChannelMode(def.Mode) {
+		if def.MaxInputTokens > 0 {
+			return fmt.Errorf("modelConfig.maxInputTokens is only supported for native Agents")
+		}
 		return nil
 	}
 	if strings.TrimSpace(def.ModelKey) == "" {
 		return fmt.Errorf("modelConfig.modelKey is required")
 	}
 	return nil
+}
+
+// ParseAgentMaxInputTokens reads modelConfig.maxInputTokens: absent means the
+// model's own limit; a present value must be a positive integer. The model
+// limit is checked at management entry points, not at load.
+func ParseAgentMaxInputTokens(modelConfig map[string]any) (int, error) {
+	raw, exists := modelConfig["maxInputTokens"]
+	if !exists {
+		return 0, nil
+	}
+	value := 0
+	switch typed := raw.(type) {
+	case int:
+		value = typed
+	case int64:
+		value = int(typed)
+	case uint64:
+		value = int(typed)
+	case float64:
+		if typed == float64(int(typed)) {
+			value = int(typed)
+		}
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("modelConfig.maxInputTokens must be a positive integer")
+	}
+	return value, nil
 }
 
 // ValidateOrdinaryAgentTools rejects removed tool names and tools reserved for

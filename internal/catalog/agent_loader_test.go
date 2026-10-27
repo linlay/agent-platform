@@ -2114,3 +2114,30 @@ func TestParseAgentFileRejectsRetiredMemoryConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestParseAgentMaxInputTokens(t *testing.T) {
+	parse := func(t *testing.T, body string) (AgentDefinition, error) {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "agent.yml")
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return parseAgentDefinitionForTest(path)
+	}
+	def, err := parse(t, "key: demo\nmode: GENERAL\nmodelConfig:\n  modelKey: demo-model\n  maxInputTokens: 200000\n")
+	if err != nil || def.MaxInputTokens != 200000 {
+		t.Fatalf("maxInputTokens = %d err=%v, want 200000", def.MaxInputTokens, err)
+	}
+	def, err = parse(t, "key: demo\nmode: GENERAL\nmodelConfig:\n  modelKey: demo-model\n")
+	if err != nil || def.MaxInputTokens != 0 {
+		t.Fatalf("absent maxInputTokens = %d err=%v, want 0", def.MaxInputTokens, err)
+	}
+	for _, value := range []string{"0", "-1", "1.5", "big", "null"} {
+		if _, err := parse(t, "key: demo\nmode: GENERAL\nmodelConfig:\n  modelKey: demo-model\n  maxInputTokens: "+value+"\n"); err == nil || !strings.Contains(err.Error(), "maxInputTokens must be a positive integer") {
+			t.Fatalf("maxInputTokens %s must fail, got %v", value, err)
+		}
+	}
+	if _, err := parse(t, "key: demo\nmode: PROXY\nmodelConfig:\n  modelKey: demo-model\n  maxInputTokens: 1000\n"); err == nil || !strings.Contains(err.Error(), "only supported for native Agents") {
+		t.Fatalf("PROXY maxInputTokens must fail, got %v", err)
+	}
+}

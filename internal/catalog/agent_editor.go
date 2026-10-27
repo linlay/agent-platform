@@ -569,7 +569,7 @@ var agentYAMLKeyOrder = map[string][]string{
 		"kbaseConfig", "memoryConfig", "promptFile", "runtimePrompts", "stageSettings",
 		"visibility", "controls", "greetings", "introductions", "wonders",
 	},
-	"modelConfig":           {"modelKey", "serviceTier", "reasoning", "sampling"},
+	"modelConfig":           {"modelKey", "maxInputTokens", "serviceTier", "reasoning", "sampling"},
 	"modelConfig.reasoning": {"enabled", "effort"},
 	"contextConfig":         {"tags"},
 }

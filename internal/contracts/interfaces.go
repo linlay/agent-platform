@@ -390,6 +390,9 @@ type QuerySession struct {
 	Locale                    string
 	EnvironmentPromptTemplate string
 	ModelKey                  string
+	// MaxInputTokens is the Agent's modelConfig.maxInputTokens; 0 means the
+	// model's own limit. The Run window never exceeds the model's limit.
+	MaxInputTokens            int
 	ToolNames                 []string
 	ToolSetFrozen             bool `json:"-"`
 	Mode                      string

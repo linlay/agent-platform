@@ -366,6 +366,9 @@ func (s *ControlService) Validate(t ControlTarget, content string) error {
 		if e = ValidateKnowledgeBinding(m, s.ValidateLibrary); e != nil {
 			return e
 		}
+		if e = ValidateModelInputLimit(m, s.Models); e != nil {
+			return e
+		}
 		if s.Registry != nil {
 			for _, name := range stringList(node(m, "toolConfig")["tools"]) {
 				if _, ok := s.Registry.Tool(name); !ok {

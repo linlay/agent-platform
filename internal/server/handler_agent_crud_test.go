@@ -18,6 +18,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/kbases"
+	"agent-platform/internal/models"
 	"agent-platform/internal/ws"
 	"context"
 
@@ -2082,4 +2083,31 @@ func installTestKnowledgeLibrary(t *testing.T, server *Server) string {
 		t.Fatal(err)
 	}
 	return d.ID
+}
+
+func TestAgentSaveChecksMaxInputTokensAgainstModelLimit(t *testing.T) {
+	fixture := newTestFixture(t)
+	definition := func(limit int) map[string]any {
+		return map[string]any{
+			"key":         "window-agent",
+			"name":        "Window Agent",
+			"mode":        "GENERAL",
+			"modelConfig": map[string]any{"modelKey": "mock-model", "maxInputTokens": limit},
+		}
+	}
+	body, err := json.Marshal(map[string]any{"key": "window-agent", "definition": definition(models.DefaultContextWindow + 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/create", bytes.NewReader(body)))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "exceeds model mock-model limit") {
+		t.Fatalf("expected limit rejection, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{"key": "window-agent", "definition": definition(64000)})
+	def, ok := fixture.registry.AgentDefinition("window-agent")
+	if !ok || def.MaxInputTokens != 64000 {
+		t.Fatalf("saved maxInputTokens = %#v", def.MaxInputTokens)
+	}
 }
