@@ -711,7 +711,6 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 		},
 		Modes: []api.AgentEditorOption{
 			{Key: "GENERAL", Label: "GENERAL"},
-			{Key: "PLAN-EXECUTE", Label: "PLAN-EXECUTE"},
 			{Key: "CODER", Label: "CODER"},
 			{Key: "CHANNEL", Label: "CHANNEL"},
 			{Key: "PROXY", Label: "PROXY"},

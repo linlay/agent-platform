@@ -201,10 +201,9 @@ func TestBuiltSystemInitProfilesHaveExactlyOneInitial(t *testing.T) {
 		{AgentKey: "coder", Mode: "CODER"},
 		{AgentKey: "coder-planning", Mode: "CODER", PlanningMode: true},
 		{AgentKey: "kbase", Mode: "KBASE"},
-		{AgentKey: "pipeline", Mode: "PLAN_EXECUTE"},
 	}
 	for _, session := range sessions {
-		profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "hello"}, nil, 12, 4, 12, config.PromptsConfig{})
+		profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "hello"}, nil, 12, config.PromptsConfig{})
 		if err := validateSystemInitProfiles(profiles); err != nil {
 			t.Fatalf("mode %s produced invalid profiles: %v (%#v)", session.Mode, err, profiles)
 		}
@@ -221,7 +220,7 @@ func TestSystemInitFingerprintChangesWithPromptAndStage(t *testing.T) {
 	if got := ComputeSystemInitFingerprint(changedPrompt, "main", tools); got == base {
 		t.Fatalf("expected prompt change to update fingerprint")
 	}
-	if got := ComputeSystemInitFingerprint(session, "plan", tools); got == base {
+	if got := ComputeSystemInitFingerprint(session, "planning", tools); got == base {
 		t.Fatalf("expected stage change to update fingerprint")
 	}
 }
@@ -229,7 +228,7 @@ func TestSystemInitFingerprintChangesWithPromptAndStage(t *testing.T) {
 func TestCachedSystemInitConversions(t *testing.T) {
 	profiles := BuildSystemInitProfiles(fingerprintTestSession(), api.QueryRequest{ChatID: "chat-1", Message: "hello"}, []api.ToolDetailResponse{
 		{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}},
-	}, 12, 4, 12, config.PromptsConfig{})
+	}, 12, config.PromptsConfig{})
 	if len(profiles) != 1 {
 		t.Fatalf("expected one profile, got %#v", profiles)
 	}
@@ -280,7 +279,7 @@ func TestWorkspaceLessSystemInitAndDirectDefinitionsStayIdentical(t *testing.T) 
 	}
 
 	direct := toOpenAIToolSpecs(effectiveToolDefinitions(toolDefs, session.ToolNames, session))
-	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4, 12, config.PromptsConfig{})
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, config.PromptsConfig{})
 	if len(profiles) != 1 {
 		t.Fatalf("expected one profile, got %#v", profiles)
 	}
@@ -306,103 +305,13 @@ func TestWorkspaceLessSystemInitAndDirectDefinitionsStayIdentical(t *testing.T) 
 	}
 }
 
-func TestPlanExecuteSystemInitProfilesUseRuntimeSettings(t *testing.T) {
-	session := fingerprintTestSession()
-	session.Mode = "PLAN_EXECUTE"
-	session.ToolNames = []string{"bash"}
-	session.ResolvedPlanExecuteSettings = contracts.PlanExecuteSettings{}
-	session.StageSettings = map[string]any{
-		"plan": map[string]any{
-			"toolConfig": map[string]any{
-				"tools": []any{"custom_plan"},
-			},
-		},
-		"execute": map[string]any{
-			"instructionsPrompt": "execute primary",
-			"toolConfig": map[string]any{
-				"tools": []any{"bash", "custom_exec"},
-			},
-		},
-		"summary": map[string]any{
-			"instructionsPrompt": "summary primary",
-		},
-	}
-	toolDefs := []api.ToolDetailResponse{
-		{Name: "custom_plan", Description: "plan"},
-		{Name: "plan_add_tasks", Description: "add tasks"},
-		{
-			Name:        "bash",
-			Description: "run shell",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"command": map[string]any{"type": "string"},
-					"cwd":     map[string]any{"type": "string"},
-				},
-				"required": []any{"command"},
-			},
-		},
-		{Name: "custom_exec", Description: "exec"},
-		{Name: "plan_update_task", Description: "update task"},
-	}
-
-	settings := resolvePlanExecuteRuntimeSettings(session, 12, 4)
-	if settings.MaxSteps != 12 || settings.MaxWorkRoundsPerTask != 4 {
-		t.Fatalf("expected runtime defaults to be applied, got %#v", settings)
-	}
-
-	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4, 12, config.PromptsConfig{})
-	if len(profiles) != 3 {
-		t.Fatalf("expected plan/execute/summary profiles, got %#v", profiles)
-	}
-	byKey := map[string]contracts.SystemInitProfile{}
-	for _, profile := range profiles {
-		byKey[profile.CacheKey] = profile
-	}
-	if _, ok := byKey["plan-execute:plan"]; !ok {
-		t.Fatalf("missing plan profile %#v", byKey)
-	}
-	if _, ok := byKey["plan-execute:execute"]; !ok {
-		t.Fatalf("missing execute profile %#v", byKey)
-	}
-	if _, ok := byKey["plan-execute:summary"]; !ok {
-		t.Fatalf("missing summary profile %#v", byKey)
-	}
-
-	assertToolNames(t, byKey["plan-execute:plan"].Tools, []string{"custom_plan", "plan_add_tasks"})
-	assertToolNames(t, byKey["plan-execute:execute"].Tools, appendUniqueTools(stageToolsOrDefault(settings.Execute, session.ToolNames), "plan_update_task"))
-	assertToolNames(t, byKey["plan-execute:summary"].Tools, nil)
-	executeSpecs, err := cachedToolSpecsToOpenAI(byKey["plan-execute:execute"].Tools)
-	if err != nil {
-		t.Fatalf("decode execute tool specs: %v", err)
-	}
-	for _, spec := range executeSpecs {
-		if spec.Function.Name == "bash" && !schemaRequiredSet(spec.Function.Parameters)["cwd"] {
-			t.Fatalf("PLAN_EXECUTE execute stage must require bash.cwd without Workspace: %#v", spec.Function.Parameters)
-		}
-	}
-	executeContent, _ := byKey["plan-execute:execute"].SystemMessage["content"].(string)
-	for _, expected := range []string{
-		"Runtime Context: Path Policy",
-		`cwd: "@chat"`,
-		"execute primary",
-	} {
-		if !strings.Contains(executeContent, expected) {
-			t.Fatalf("expected execute system message to contain %q, got %#v", expected, byKey["plan-execute:execute"].SystemMessage)
-		}
-	}
-	if byKey["plan-execute:summary"].SystemMessage["content"] != "summary primary" {
-		t.Fatalf("unexpected summary system message %#v", byKey["plan-execute:summary"].SystemMessage)
-	}
-}
-
 func TestCoderSystemInitProfileUsesDistinctMode(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Mode = "CODER"
 	toolDefs := []api.ToolDetailResponse{
 		{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}},
 	}
-	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4, 12, config.PromptsConfig{})
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, config.PromptsConfig{})
 	if len(profiles) != 1 {
 		t.Fatalf("expected one CODER profile, got %#v", profiles)
 	}
@@ -425,7 +334,7 @@ func TestCoderSystemInitProfileIncludesCoderSystemPrompt(t *testing.T) {
 		{Name: "plan_get_tasks", Description: "get tasks", Parameters: map[string]any{"type": "object"}},
 		{Name: "plan_update_task", Description: "update task", Parameters: map[string]any{"type": "object"}},
 	}
-	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4, 12, config.PromptsConfig{})
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, config.PromptsConfig{})
 	if len(profiles) != 1 {
 		t.Fatalf("expected one CODER profile, got %#v", profiles)
 	}
@@ -457,8 +366,8 @@ func TestPlanningModeBuildsOnePlanningSystemInitForEveryNativeMode(t *testing.T)
 		session.PlanningMode = true
 		session.ToolNames = []string{"bash", "file_read", "ask_user_question"}
 		session.PlanningExcludeTools = []string{"bash"}
-		session.PlanExecuteExcludeTools = []string{"ask_user_question"}
-		profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, planningSystemInitToolDefs(), 12, 4, 12, config.PromptsConfig{})
+		session.ExecuteExcludeTools = []string{"ask_user_question"}
+		profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, planningSystemInitToolDefs(), 12, config.PromptsConfig{})
 		if len(profiles) != 1 || profiles[0].CacheKey != wantKey || !profiles[0].Initial || profiles[0].Stage != "planning" {
 			t.Fatalf("%s: expected one initial %s planning profile, got %#v", mode, wantKey, profiles)
 		}
@@ -467,11 +376,11 @@ func TestPlanningModeBuildsOnePlanningSystemInitForEveryNativeMode(t *testing.T)
 }
 
 func TestPlanningModeIsNotBuiltForUnsupportedModes(t *testing.T) {
-	for _, mode := range []string{"PLAN_EXECUTE", "ONESHOT"} {
+	for _, mode := range []string{"ONESHOT"} {
 		session := fingerprintTestSession()
 		session.Mode = mode
 		session.PlanningMode = true
-		if profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "hello"}, planningSystemInitToolDefs(), 12, 4, 12, config.PromptsConfig{}); len(profiles) != 0 {
+		if profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "hello"}, planningSystemInitToolDefs(), 12, config.PromptsConfig{}); len(profiles) != 0 {
 			t.Fatalf("%s must not build planning profiles, got %#v", mode, profiles)
 		}
 	}
@@ -486,9 +395,9 @@ func TestConfirmedPlanRunBuildsOrdinaryProfileUnderOwnCacheKey(t *testing.T) {
 		// As built by the session builder: CODER's plan task tools are already listed.
 		session.ToolNames = []string{"bash", "file_read", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
 		req := api.QueryRequest{ChatID: "chat-1", Message: "hello"}
-		ordinary := BuildSystemInitProfiles(session, req, planningSystemInitToolDefs(), 12, 4, 12, config.PromptsConfig{})
+		ordinary := BuildSystemInitProfiles(session, req, planningSystemInitToolDefs(), 12, config.PromptsConfig{})
 		session.ConfirmedPlanRun = true
-		confirmed := BuildSystemInitProfiles(session, req, planningSystemInitToolDefs(), 12, 4, 12, config.PromptsConfig{})
+		confirmed := BuildSystemInitProfiles(session, req, planningSystemInitToolDefs(), 12, config.PromptsConfig{})
 		if len(ordinary) != 1 || len(confirmed) != 1 {
 			t.Fatalf("%s: expected one profile each, got %#v and %#v", mode, ordinary, confirmed)
 		}
@@ -515,8 +424,6 @@ func TestSessionSystemInitCacheKeySeparatesRunForms(t *testing.T) {
 		{mode: "GENERAL", stage: "planning", want: "react:planning"},
 		{mode: "GENERAL", stage: "general", confirmed: true, want: "react:execute"},
 		{mode: "KBASE", stage: "planning-feedback", want: "kbase:planning"},
-		{mode: "PLAN_EXECUTE", stage: "summary", want: "plan-execute:summary"},
-		{mode: "PLAN_EXECUTE", stage: "plan", confirmed: true, want: "plan-execute:plan"},
 		{mode: "REACT", stage: "anything", want: "react:main"},
 	}
 	for _, tc := range cases {
@@ -565,7 +472,7 @@ func TestKBaseEditingReusesTheMainSystemInitProfile(t *testing.T) {
 	}
 	build := func(editing bool) contracts.SystemInitProfile {
 		session.EditingMode = editing
-		profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "edit policy"}, toolDefs, 12, 4, 12, config.PromptsConfig{})
+		profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "edit policy"}, toolDefs, 12, config.PromptsConfig{})
 		if len(profiles) != 1 {
 			t.Fatalf("expected one profile, got %#v", profiles)
 		}
@@ -600,7 +507,7 @@ func TestKBaseMainBuildsSameFileToolSchemasWithReadOnlySourcePrompt(t *testing.T
 		toolDefs = append(toolDefs, api.ToolDetailResponse{Name: name, Description: name})
 	}
 
-	profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "read and report"}, toolDefs, 12, 4, 12, config.PromptsConfig{})
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "read and report"}, toolDefs, 12, config.PromptsConfig{})
 	if len(profiles) != 1 {
 		t.Fatalf("expected one main profile, got %#v", profiles)
 	}
@@ -632,13 +539,10 @@ func fingerprintTestSession() contracts.QuerySession {
 		PromptAppend:     contracts.DefaultPromptAppendConfig(),
 		SoulPrompt:       "soul",
 		AgentsPrompt:     "agents",
-		PlanPrompt:       "plan",
-		ExecutePrompt:    "execute",
-		SummaryPrompt:    "summary",
-		ResolvedPlanExecuteSettings: contracts.PlanExecuteSettings{
-			Plan:    contracts.StageSettings{SystemPrompt: "plan system"},
-			Execute: contracts.StageSettings{SystemPrompt: "execute system"},
-			Summary: contracts.StageSettings{SystemPrompt: "summary system"},
+		ResolvedPlanningSettings: contracts.PlanningModeSettings{
+			Planning: contracts.StageSettings{SystemPrompt: "planning system"},
+			Execute:  contracts.StageSettings{SystemPrompt: "execute system"},
+			Summary:  contracts.StageSettings{SystemPrompt: "summary system"},
 		},
 		StaticRuntimeEnv: map[string]string{"FOO": "bar"},
 	}
@@ -700,7 +604,7 @@ func TestSystemInitFingerprintIncludesRenderedLocaleAndTemplate(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Locale = "en-US"
 	build := func(session contracts.QuerySession) contracts.SystemInitProfile {
-		profiles := BuildSystemInitProfiles(session, api.QueryRequest{}, nil, 10, 10, 10, config.PromptsConfig{})
+		profiles := BuildSystemInitProfiles(session, api.QueryRequest{}, nil, 10, config.PromptsConfig{})
 		if len(profiles) != 1 {
 			t.Fatalf("profiles: %d", len(profiles))
 		}
@@ -738,7 +642,7 @@ func TestModeAndEnvironmentUseSamePromptLocale(t *testing.T) {
 			session.Mode = mode
 			session.Locale = "en-US"
 			session.ModeSystemPrompt = "Respond in {{language_preference}}"
-			profiles := BuildSystemInitProfiles(session, api.QueryRequest{}, nil, 10, 10, 10, config.PromptsConfig{})
+			profiles := BuildSystemInitProfiles(session, api.QueryRequest{}, nil, 10, config.PromptsConfig{})
 			content := profiles[0].SystemMessage["content"].(string)
 			if !strings.Contains(content, "Respond in en") || !strings.Contains(content, "language: en") || strings.Contains(content, "en-US") {
 				t.Fatal(content)
@@ -753,7 +657,7 @@ func TestConfirmedPlanRunKeepsExcludedPlanTaskToolsRemovedForCoder(t *testing.T)
 	session.Mode = "CODER"
 	session.ConfirmedPlanRun = true
 	session.ToolNames = []string{"bash", "file_read"}
-	profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "hello"}, planningSystemInitToolDefs(), 12, 4, 12, config.PromptsConfig{})
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "hello"}, planningSystemInitToolDefs(), 12, config.PromptsConfig{})
 	if len(profiles) != 1 {
 		t.Fatalf("expected one profile, got %#v", profiles)
 	}

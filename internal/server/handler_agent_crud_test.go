@@ -307,39 +307,6 @@ func TestAgentChannelCRUDPersistsImportConfigWithoutModelConfig(t *testing.T) {
 	}
 }
 
-func TestAgentPlanExecuteCRUDUsesAPIModeContract(t *testing.T) {
-	fixture := newTestFixture(t)
-
-	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
-		"key": "plan-agent",
-		"definition": map[string]any{
-			"key":         "plan-agent",
-			"name":        "Plan Agent",
-			"role":        "Planner",
-			"description": "plan execute test agent",
-			"mode":        "PLAN-EXECUTE",
-			"modelConfig": map[string]any{"modelKey": "mock-model"},
-		},
-	})
-	if created.Mode != "PLAN-EXECUTE" || created.Definition["mode"] != "PLAN-EXECUTE" {
-		t.Fatalf("expected PLAN-EXECUTE create response, got %#v", created)
-	}
-
-	detail := getAdminAgentDetail(t, fixture.server, "plan-agent")
-	if detail.Mode != "PLAN-EXECUTE" || detail.Definition["mode"] != "PLAN-EXECUTE" {
-		t.Fatalf("expected PLAN-EXECUTE detail response, got %#v", detail)
-	}
-
-	detail.Definition["description"] = "updated plan execute test agent"
-	updated := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/update", map[string]any{
-		"key":        "plan-agent",
-		"definition": detail.Definition,
-	})
-	if updated.Mode != "PLAN-EXECUTE" || updated.Definition["mode"] != "PLAN-EXECUTE" {
-		t.Fatalf("expected PLAN-EXECUTE update response, got %#v", updated)
-	}
-}
-
 func TestAgentCreateKBaseGeneratesKeyAndName(t *testing.T) {
 	fixture := newTestFixture(t)
 	workspaceDir := filepath.Join(t.TempDir(), "knowledge-base-alpha")
@@ -1578,12 +1545,11 @@ func TestAgentEditorOptionsHTTP(t *testing.T) {
 	if response.Data.Models[0].ReasoningEfforts == nil || len(response.Data.Models[0].ReasoningEfforts) != 0 {
 		t.Fatalf("non-reasoner model should return an empty reasoning effort list, got %#v", response.Data.Models[0].ReasoningEfforts)
 	}
-	if got := response.Data.Modes; len(got) != 5 ||
+	if got := response.Data.Modes; len(got) != 4 ||
 		got[0].Key != "GENERAL" || got[0].Label != "GENERAL" ||
-		got[1].Key != "PLAN-EXECUTE" || got[1].Label != "PLAN-EXECUTE" ||
-		got[2].Key != "CODER" || got[2].Label != "CODER" ||
-		got[3].Key != "CHANNEL" || got[3].Label != "CHANNEL" ||
-		got[4].Key != "PROXY" || got[4].Label != "PROXY" {
+		got[1].Key != "CODER" || got[1].Label != "CODER" ||
+		got[2].Key != "CHANNEL" || got[2].Label != "CHANNEL" ||
+		got[3].Key != "PROXY" || got[3].Label != "PROXY" {
 		t.Fatalf("unexpected modes %#v", got)
 	}
 	for _, tag := range response.Data.ContextTags {

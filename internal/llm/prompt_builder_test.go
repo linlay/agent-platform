@@ -212,7 +212,7 @@ func TestBuildSystemPromptRendersCoderSystemPromptPlaceholders(t *testing.T) {
 		PlanningMode:            false,
 		ToolNames:               []string{"bash", "file_read", "file_write", "file_edit", "ask_user_question", "plan_add_tasks", "plan_get_tasks", "plan_update_task"},
 		PlanningExcludeTools:    []string{"bash", "file_write", "file_edit", "plan_add_tasks", "plan_update_task"},
-		PlanExecuteExcludeTools: []string{"ask_user_question"},
+		ExecuteExcludeTools: []string{"ask_user_question"},
 		ModeSystemPrompt:        "CODER {{agent_key}} {{agent_name}} {{planning_mode}} {{workspace_dir}} {{available_tools}} {{planning_stage_tools}} {{execute_stage_tools}} {{file_read_tool_name}} {{ask_user_question_tool_name}}",
 		RuntimeContext: RuntimeRequestContext{
 			LocalPaths: LocalPaths{WorkspaceDir: "/workspace"},

@@ -28,10 +28,10 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
 			for key, body := range map[string]string{
-				"plan-agent": strings.Join([]string{
-					"key: plan-agent",
-					"name: Plan Agent",
-					"mode: PLAN-EXECUTE",
+				"coder-agent": strings.Join([]string{
+					"key: coder-agent",
+					"name: Coder Agent",
+					"mode: CODER",
 					"modelConfig:",
 					"  modelKey: mock-model",
 				}, "\n"),
@@ -63,7 +63,7 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	seedAgentModeChat(t, store, "chat-react-agent", "loyw3v28", "mock-agent", "REACT", 1_000)
 
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents?scope=nav&mode=general,PLAN-EXECUTE&includeChats=1", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents?scope=nav&mode=general,CODER&includeChats=1", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("mode-filtered agents status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -72,13 +72,13 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		t.Fatalf("decode mode-filtered agents response: %v", err)
 	}
 	if len(response.Data) != 2 {
-		t.Fatalf("expected REACT and PLAN-EXECUTE agents, got %#v", response.Data)
+		t.Fatalf("expected REACT and CODER agents, got %#v", response.Data)
 	}
 	byKey := make(map[string]api.AgentSummary, len(response.Data))
 	for _, item := range response.Data {
 		byKey[item.Key] = item
 	}
-	if byKey["mock-agent"].Mode != "GENERAL" || byKey["plan-agent"].Mode != "PLAN-EXECUTE" {
+	if byKey["mock-agent"].Mode != "GENERAL" || byKey["coder-agent"].Mode != "CODER" {
 		t.Fatalf("unexpected mode-filtered agents: %#v", response.Data)
 	}
 	if len(byKey["mock-agent"].Chats) != 1 || byKey["mock-agent"].Chats[0].Mode != "GENERAL" {
@@ -101,7 +101,7 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	for _, mode := range []string{"REACT", "react", "PLAN_EXECUTE", "ACP-PROXY", "ONESHOT"} {
+	for _, mode := range []string{"REACT", "react", "PLAN-EXECUTE", "PLAN_EXECUTE", "ACP-PROXY", "ONESHOT"} {
 		rec = httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents?mode="+mode, nil))
 		if rec.Code != http.StatusBadRequest {
@@ -129,7 +129,7 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		ID:    "agents_mode_ws",
 		Payload: marshalPayload(map[string]any{
 			"scope":        "nav",
-			"mode":         "GENERAL,PLAN-EXECUTE",
+			"mode":         "GENERAL,CODER",
 			"includeChats": 1,
 		}),
 	}); err != nil {

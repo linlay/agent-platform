@@ -399,10 +399,10 @@ type QuerySession struct {
 	KBaseRetrievalConfig      string
 	CapabilityPrompts         []string
 	PlanningMode              bool
-	// PlanningExcludeTools and PlanExecuteExcludeTools are the configured tools
+	// PlanningExcludeTools and ExecuteExcludeTools are the configured tools
 	// removed from a planning Run and from a Run started by a confirmed plan.
-	PlanningExcludeTools    []string
-	PlanExecuteExcludeTools []string
+	PlanningExcludeTools []string
+	ExecuteExcludeTools  []string
 	// ConfirmedPlanRun marks an ordinary Run that was started from a confirmed
 	// plan; ToolNames already has the execution exclusions applied.
 	ConfirmedPlanRun bool
@@ -417,38 +417,34 @@ type QuerySession struct {
 	ConnectorCLIEntries []connector.CLIEntry `json:"-"`
 	ConnectorBinDirs    []string
 	// ConnectorInstallBinDirs are host-only bins of active CLI installations.
-	ConnectorInstallBinDirs     []string
-	ConnectorEnv                map[string]string                 `json:"-"`
-	ConnectorCredentials        []connector.CredentialEnvironment `json:"-"`
-	ContextTags                 []string
-	Budget                      map[string]any
-	StageSettings               map[string]any
-	ResolvedBudget              Budget
-	ResolvedPlanExecuteSettings PlanExecuteSettings
-	ResolvedPlanningSettings    PlanningModeSettings
-	RunLimits                   RunLimits
-	HistoryMessages             []map[string]any
-	CurrentMessages             []map[string]any
-	GlobalMemoryContext         string
-	AgentMemoryContext          string
-	PlanTaskContext             string
-	RuntimeContext              RuntimeRequestContext
-	PromptAppend                PromptAppendConfig
-	AdvancedUserPrompt          bool
-	OwnerPrompt                 string
-	OwnerPromptLoaded           bool
-	SkillCatalogPrompt          string
-	ViewCatalogPrompt           string
-	SystemInitCache             map[string]SystemInitSnapshot
-	PendingSystemInitKeys       map[string]bool
+	ConnectorInstallBinDirs  []string
+	ConnectorEnv             map[string]string                 `json:"-"`
+	ConnectorCredentials     []connector.CredentialEnvironment `json:"-"`
+	ContextTags              []string
+	Budget                   map[string]any
+	StageSettings            map[string]any
+	ResolvedBudget           Budget
+	ResolvedPlanningSettings PlanningModeSettings
+	RunLimits                RunLimits
+	HistoryMessages          []map[string]any
+	CurrentMessages          []map[string]any
+	GlobalMemoryContext      string
+	AgentMemoryContext       string
+	PlanTaskContext          string
+	RuntimeContext           RuntimeRequestContext
+	PromptAppend             PromptAppendConfig
+	AdvancedUserPrompt       bool
+	OwnerPrompt              string
+	OwnerPromptLoaded        bool
+	SkillCatalogPrompt       string
+	ViewCatalogPrompt        string
+	SystemInitCache          map[string]SystemInitSnapshot
+	PendingSystemInitKeys    map[string]bool
 
 	// Prompt files loaded from agent directory.
 	SoulPrompt            string
 	AgentsPrompt          string
 	WorkspaceAgentsPrompt string
-	PlanPrompt            string
-	ExecutePrompt         string
-	SummaryPrompt         string
 	ModeSystemPrompt      string
 	KBaseModePrompts      KBaseModePrompts
 
@@ -594,7 +590,6 @@ type ExecutionContext struct {
 
 	SandboxSession       *SandboxSession
 	Budget               Budget
-	PlanExecuteSettings  PlanExecuteSettings
 	PlanningModeSettings PlanningModeSettings
 	RunLoopState         RunLoopState
 	PlanState            *PlanRuntimeState

@@ -50,70 +50,28 @@ func TestStageSettingsParsesSamplingWithZeroTemperature(t *testing.T) {
 	}
 }
 
-func TestResolvePlanExecuteSettingsIgnoresRootSampling(t *testing.T) {
-	settings := ResolvePlanExecuteSettings(map[string]any{
-		"sampling": map[string]any{
-			"temperature": 0.7,
-			"topP":        0.9,
+func TestResolvePlanningModeSettingsSummaryFallsBackToExecute(t *testing.T) {
+	settings := ResolvePlanningModeSettings(map[string]any{
+		"execute": map[string]any{
+			"modelConfig": map[string]any{"maxOutputTokens": 4096},
 		},
-		"plan": map[string]any{
+	}, 0)
+	if settings.Summary.MaxOutputTokens != 4096 {
+		t.Fatalf("summary without its own stage must reuse execute, got %#v", settings.Summary)
+	}
+
+	settings = ResolvePlanningModeSettings(map[string]any{
+		"execute": map[string]any{
+			"modelConfig": map[string]any{"maxOutputTokens": 4096},
+		},
+		"summary": map[string]any{
 			"modelConfig": map[string]any{
-				"sampling": map[string]any{
-					"temperature": 0.2,
-				},
+				"sampling": map[string]any{"temperature": 0.2},
 			},
 		},
-	}, 0, 0)
-
-	if settings.Plan.Sampling.Temperature == nil || *settings.Plan.Sampling.Temperature != 0.2 {
-		t.Fatalf("expected plan temperature override, got %#v", settings.Plan.Sampling)
-	}
-	if settings.Plan.Sampling.TopP != nil {
-		t.Fatalf("did not expect root topP to be inherited, got %#v", settings.Plan.Sampling)
-	}
-	if !settings.Execute.Sampling.IsZero() || !settings.Summary.Sampling.IsZero() {
-		t.Fatalf("did not expect root sampling to create execute/summary settings, got execute=%#v summary=%#v", settings.Execute.Sampling, settings.Summary.Sampling)
-	}
-}
-
-func TestResolvePlanExecuteSettingsParsesNestedStageModelAndToolConfig(t *testing.T) {
-	settings := ResolvePlanExecuteSettings(map[string]any{
-		"plan": map[string]any{
-			"modelConfig": map[string]any{
-				"modelKey": "nested-model",
-				"reasoning": map[string]any{
-					"enabled": true,
-					"effort":  "HIGH",
-				},
-				"maxOutputTokens": 4096,
-				"sampling": map[string]any{
-					"temperature": 0.2,
-					"topP":        0.9,
-				},
-			},
-			"toolConfig": map[string]any{
-				"tools": []any{"file_read", "datetime"},
-			},
-		},
-	}, 0, 0)
-
-	if settings.Plan.ModelKey != "nested-model" {
-		t.Fatalf("expected nested model key to win, got %q", settings.Plan.ModelKey)
-	}
-	if settings.Plan.ReasoningEnabled != true || settings.Plan.ReasoningEffort != "HIGH" {
-		t.Fatalf("expected nested reasoning to win, got enabled=%v effort=%q", settings.Plan.ReasoningEnabled, settings.Plan.ReasoningEffort)
-	}
-	if settings.Plan.MaxOutputTokens != 4096 {
-		t.Fatalf("expected nested max output tokens, got %d", settings.Plan.MaxOutputTokens)
-	}
-	if len(settings.Plan.Tools) != 2 || settings.Plan.Tools[0] != "file_read" || settings.Plan.Tools[1] != "datetime" {
-		t.Fatalf("expected nested tools to win, got %#v", settings.Plan.Tools)
-	}
-	if settings.Plan.Sampling.Temperature == nil || *settings.Plan.Sampling.Temperature != 0.2 {
-		t.Fatalf("expected nested temperature to win, got %#v", settings.Plan.Sampling)
-	}
-	if settings.Plan.Sampling.TopP == nil || *settings.Plan.Sampling.TopP != 0.9 {
-		t.Fatalf("expected nested topP, got %#v", settings.Plan.Sampling)
+	}, 0)
+	if settings.Summary.MaxOutputTokens != 0 || settings.Summary.Sampling.Temperature == nil || *settings.Summary.Sampling.Temperature != 0.2 {
+		t.Fatalf("explicit summary stage must replace execute, got %#v", settings.Summary)
 	}
 }
 

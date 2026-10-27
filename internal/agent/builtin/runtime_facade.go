@@ -95,7 +95,7 @@ func IsConfirmedPlanRun(params map[string]any) bool {
 func ConfirmedPlanTools(session contracts.QuerySession, defs []api.ToolDetailResponse) []string {
 	return planmode.ConfirmedPlanTools(session, defs)
 }
-func PlanExecuteSyntheticQueryMessage(locale string) string {
+func ExecuteSyntheticQueryMessage(locale string) string {
 	return planmode.ExecuteSyntheticQueryMessage(locale)
 }
 func SubmitPlanningDecision(param api.SubmitParam) string {

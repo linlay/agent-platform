@@ -126,7 +126,6 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 			Request:              req,
 			Session:              session,
 			Budget:               session.ResolvedBudget,
-			PlanExecuteSettings:  session.ResolvedPlanExecuteSettings,
 			PlanningModeSettings: session.ResolvedPlanningSettings,
 			RunLimits:            session.RunLimits,
 			AccessLevel:          session.AccessLevel,
@@ -192,11 +191,10 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 			messages = []openAIMessage{cachedSystem}
 		} else {
 			systemPrompt := buildSystemPrompt(session, req, model.Key, PromptBuildOptions{
-				Stage:                   options.Stage,
-				StageInstructionsPrompt: "",
-				StageSystemPrompt:       "",
-				ToolDefinitions:         effectiveDefs,
-				IncludeAfterCallHints:   true,
+				Stage:                 options.Stage,
+				StageSystemPrompt:     "",
+				ToolDefinitions:       effectiveDefs,
+				IncludeAfterCallHints: true,
 			})
 			if e.llmConsoleEnabled(llmConsolePrompt) {
 				log.Printf("[llm][run:%s][%s] LLM delta stream system prompt:\n%s", session.RunID, options.Stage, systemPrompt)
@@ -250,11 +248,10 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	}
 
 	promptBuildOptions := PromptBuildOptions{
-		Stage:                   options.Stage,
-		StageInstructionsPrompt: "",
-		StageSystemPrompt:       "",
-		ToolDefinitions:         effectiveDefs,
-		IncludeAfterCallHints:   true,
+		Stage:                 options.Stage,
+		StageSystemPrompt:     "",
+		ToolDefinitions:       effectiveDefs,
+		IncludeAfterCallHints: true,
 	}
 	stream := &llmRunStream{
 		summaryCall:            options.SummaryTargetTokens > 0,
@@ -383,9 +380,6 @@ func budgetStageForName(session QuerySession, stage string) string {
 	if strings.Contains(normalized, "planning") {
 		return "planning"
 	}
-	if strings.Contains(normalized, "plan") {
-		return "plan"
-	}
 	// Every ordinary native Agent shares one main-loop budget stage, so
 	// stageSettings.execute.budget means the same thing in every mode.
 	if strings.Contains(normalized, "execute") || agentbuiltin.PlanningModeSupported(session.Mode) {
@@ -412,22 +406,10 @@ func stageSettingsForSession(session QuerySession, stage string) StageSettings {
 	}
 	// An ordinary native Run reads stageSettings.execute in every mode; only
 	// the context summary keeps its own optional stage.
-	if agentbuiltin.PlanningModeSupported(session.Mode) && !strings.Contains(strings.ToLower(stage), "summary") {
-		return session.ResolvedPlanningSettings.Execute
+	if strings.Contains(strings.ToLower(stage), "summary") {
+		return session.ResolvedPlanningSettings.Summary
 	}
-	return planExecuteStageSettingsForName(session.ResolvedPlanExecuteSettings, stage)
-}
-
-func planExecuteStageSettingsForName(settings PlanExecuteSettings, stage string) StageSettings {
-	normalized := strings.ToLower(strings.TrimSpace(stage))
-	switch {
-	case strings.Contains(normalized, "summary"):
-		return settings.Summary
-	case strings.Contains(normalized, "plan"):
-		return settings.Plan
-	default:
-		return settings.Execute
-	}
+	return session.ResolvedPlanningSettings.Execute
 }
 
 func filterToolDefinitions(defs []api.ToolDetailResponse, allowed []string) []api.ToolDetailResponse {
@@ -743,4 +725,14 @@ func currentRunModelOptions(modelKey string, settings StageSettings) *queryinput
 func isSideLaneRunScope(scopeID string) bool {
 	scopeID = strings.TrimSpace(scopeID)
 	return strings.HasPrefix(scopeID, "btw:") || strings.HasPrefix(scopeID, "explain:")
+}
+
+func minPositive(value int, fallback int) int {
+	if value > 0 && value < fallback {
+		return value
+	}
+	if fallback > 0 {
+		return fallback
+	}
+	return value
 }

@@ -106,11 +106,7 @@ func defaultConfig(options LoadOptions) Config {
 					Timeout: 0,
 				},
 			},
-			React: ReactDefaultsConfig{MaxSteps: 60},
-			Plan: PlanExecuteDefaultsConfig{
-				MaxSteps:             60,
-				MaxWorkRoundsPerTask: 6,
-			},
+			React:         ReactDefaultsConfig{MaxSteps: 60},
 			CoderPlanning: CoderPlanningDefaultsConfig{MaxSteps: 60},
 		},
 		SSE: SSEConfig{

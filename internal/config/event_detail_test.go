@@ -4,10 +4,10 @@ import "testing"
 
 func TestModeDefaultDetailSettings(t *testing.T) {
 	c := Config{}
-	if err := c.applyAgentSettingsFile(configFixture(t, "agent-settings.yml", "coder:\n  interaction-config:\n    default-detail: full\ngeneral:\n  interaction-config:\n    default-detail: summary\nplan-execute:\n  interaction-config:\n    default-detail: full\n")); err != nil {
+	if err := c.applyAgentSettingsFile(configFixture(t, "agent-settings.yml", "coder:\n  interaction-config:\n    default-detail: full\ngeneral:\n  interaction-config:\n    default-detail: summary\nproxy:\n  interaction-config:\n    default-detail: full\n")); err != nil {
 		t.Fatal(err)
 	}
-	if c.ModeDefaultDetails["coder"] != "full" || c.ModeDefaultDetails["general"] != "summary" || c.ModeDefaultDetails["plan-execute"] != "full" {
+	if c.ModeDefaultDetails["coder"] != "full" || c.ModeDefaultDetails["general"] != "summary" || c.ModeDefaultDetails["proxy"] != "full" {
 		t.Fatal(c.ModeDefaultDetails)
 	}
 	for _, bad := range []string{"null", "true", "verbose", "''", "[]"} {

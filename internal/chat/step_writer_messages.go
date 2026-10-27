@@ -627,18 +627,3 @@ func boolFromAny(value any) bool {
 }
 
 // parseStage normalises a stage marker string to a stage name.
-func parseStage(marker string) string {
-	marker = strings.TrimSpace(marker)
-	switch {
-	case strings.HasPrefix(marker, "react-step"):
-		return "react"
-	case marker == "plan-draft" || marker == "plan-generate":
-		return "plan"
-	case strings.HasPrefix(marker, "execute-task"):
-		return "execute"
-	case marker == "summary":
-		return "summary"
-	default:
-		return marker
-	}
-}

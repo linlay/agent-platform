@@ -185,9 +185,6 @@ executor:
     #   maxSteps: 100
 
 # Other public modes use the same display-default contract.
-plan-execute:
-  interaction-config:
-    default-detail: full
 proxy:
   interaction-config:
     default-detail: summary

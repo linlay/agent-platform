@@ -746,7 +746,7 @@ func planContinuationRequestInput(original *chat.QueryLine, submitReq queryinput
 func confirmedPlanSyntheticBootstrap(session contracts.QuerySession, system *chat.QueryLineSystem) *stream.SyntheticQuery {
 	bootstrap := &stream.SyntheticQuery{
 		ChatID:   session.ChatID,
-		Message:  agentbuiltin.PlanExecuteSyntheticQueryMessage(session.Locale),
+		Message:  agentbuiltin.ExecuteSyntheticQueryMessage(session.Locale),
 		Messages: cloneMessageMapsForSyntheticBootstrap(session.CurrentMessages),
 	}
 	if system != nil {

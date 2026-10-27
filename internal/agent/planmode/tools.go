@@ -40,7 +40,7 @@ func PlanningTools(session contracts.QuerySession, defs []api.ToolDetailResponse
 // ConfirmedPlanTools is the tool set of a Run started from a confirmed plan:
 // the Agent's effective tools without the configured execution exclusions.
 func ConfirmedPlanTools(session contracts.QuerySession, defs []api.ToolDetailResponse) []string {
-	tools := removeToolNames(session.ToolNames, excludedToolNames(session.PlanExecuteExcludeTools, defs)...)
+	tools := removeToolNames(session.ToolNames, excludedToolNames(session.ExecuteExcludeTools, defs)...)
 	return removeToolNames(tools, contracts.FinalizePlanningToolName)
 }
 

@@ -58,38 +58,6 @@ shared:
     tool-description-title: "Tool description:"
     after-call-hint-title: "Recommended instructions after tool call:"
 
-  plan-execute:
-    task-execution-prompt-template: |
-      Task list:
-      {{task_list}}
-      Current task ID: {{task_id}}
-      Current task description: {{task_description}}
-      Execution rules:
-      1) Call at most one tool per round.
-      2) You may call any available tool as needed.
-      3) Before finishing this task, you MUST call plan_update_task to update its status.
-    plan-user-prompt-template: |
-      {{plan_prompt}}
-
-      {{execute_tool_descriptions}}
-
-      {{plan_callable_tool_descriptions}}
-
-      Create an execution plan for the user's request. You MUST call plan_add_tasks before the stage finishes.
-
-      User request:
-      {{user_request}}
-    summary-system-prompt: |
-      Summarize the completed plan execution for the user.
-    summary-user-prompt-template: |
-      Please provide a final summary of the completed plan.
-
-      Original request:
-      {{original_request}}
-
-      Task results:
-      {{task_results}}
-
   # Wraps the task message of a Run started by an automation (scheduled or manual
   # trigger). Applied by trusted trigger source, not by the request role.
   # Placeholders: {{message}}, {{automation_id}}. Empty or missing: no wrapper.

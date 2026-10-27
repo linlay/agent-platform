@@ -440,10 +440,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		ChatsRoot: cfg.Paths.ChatsDir, MaxReadBytes: cfg.FileTools.MaxReadBytes,
 	}
 	systemInits := llm.NewSystemInitProfileBuilder(modelRegistry, llm.SystemInitDefaults{
-		PlanMaxSteps:             cfg.Defaults.Plan.MaxSteps,
-		PlanMaxWorkRoundsPerTask: cfg.Defaults.Plan.MaxWorkRoundsPerTask,
-		CoderPlanningMaxSteps:    cfg.Defaults.CoderPlanning.MaxSteps,
-		Prompts:                  cfg.Prompts,
+		CoderPlanningMaxSteps: cfg.Defaults.CoderPlanning.MaxSteps,
+		Prompts:               cfg.Prompts,
 	})
 	profiles := runtimeadapter.Profiles{Builder: systemInits, Tools: toolExecutor}
 	sessions := runtimesession.New(runtimesession.Dependencies{KnowledgeLibrary: kbasesService.LibraryOption, ValidateKnowledge: knowledgeManager.ValidateRunLibrary, Config: cfg, Chats: chatStore, Registry: runtimeadapter.Catalog{Registry: registry}, Models: modelRegistry, Runs: runManager, Tools: toolExecutor, Profiles: profiles})

@@ -96,13 +96,8 @@ type AgentDefinition struct {
 	ChannelConfig AgentChannelConfig
 
 	// Prompt files loaded from agent directory.
-	SoulPrompt   string // from SOUL.md
-	AgentsPrompt string // resolved from promptFile or AGENTS.md fallback
-
-	// PLAN_EXECUTE stage prompts (stage-scoped promptFile).
-	PlanPrompt    string
-	ExecutePrompt string
-	SummaryPrompt string
+	SoulPrompt    string // from SOUL.md
+	AgentsPrompt  string // resolved from promptFile or AGENTS.md fallback
 	MemoryEnabled bool
 	MemoryConfig  AgentMemoryConfig
 }

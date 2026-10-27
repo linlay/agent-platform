@@ -136,74 +136,19 @@ func TestParseAgentFileRejectsPlatformConfigTool(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileSupportsNestedPlanExecuteStageConfig(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: nested-stage\n" +
-		"name: Nested Stage\n" +
-		"mode: PLAN-EXECUTE\n" +
-		"modelConfig:\n" +
-		"  modelKey: root-model\n" +
-		"  sampling:\n" +
-		"    temperature: 0.7\n" +
-		"    topP: 0.9\n" +
-		"stageSettings:\n" +
-		"  execute:\n" +
-		"    modelConfig:\n" +
-		"      modelKey: nested-model\n" +
-		"      reasoning:\n" +
-		"        enabled: true\n" +
-		"        effort: MEDIUM\n" +
-		"      maxOutputTokens: 8192\n" +
-		"      sampling:\n" +
-		"        frequencyPenalty: 0.1\n" +
-		"    toolConfig:\n" +
-		"      tools:\n" +
-		"        - bash\n" +
-		"        - file_read\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	def, err := parseAgentDefinitionForTest(path)
-	if err != nil {
-		t.Fatalf("parse agent file: %v", err)
-	}
-	settings := contracts.ResolvePlanExecuteSettings(def.StageSettings, 0, 0)
-	if settings.Execute.ModelKey != "nested-model" {
-		t.Fatalf("expected nested execute model key, got %q", settings.Execute.ModelKey)
-	}
-	if settings.Execute.ReasoningEnabled != true || settings.Execute.ReasoningEffort != "MEDIUM" {
-		t.Fatalf("expected nested reasoning settings, got enabled=%v effort=%q", settings.Execute.ReasoningEnabled, settings.Execute.ReasoningEffort)
-	}
-	if settings.Execute.MaxOutputTokens != 8192 {
-		t.Fatalf("expected nested max output tokens, got %d", settings.Execute.MaxOutputTokens)
-	}
-	if !reflect.DeepEqual(settings.Execute.Tools, []string{"bash", "file_read"}) {
-		t.Fatalf("expected nested tools to win, got %#v", settings.Execute.Tools)
-	}
-	if settings.Execute.Sampling.Temperature == nil || *settings.Execute.Sampling.Temperature != 0.7 {
-		t.Fatalf("expected execute temperature inherited from root model sampling, got %#v", settings.Execute.Sampling)
-	}
-	if settings.Execute.Sampling.FrequencyPenalty == nil || *settings.Execute.Sampling.FrequencyPenalty != 0.1 {
-		t.Fatalf("expected nested frequency penalty, got %#v", settings.Execute.Sampling)
-	}
-}
-
 func TestParseAgentFileMergesStageSettingsBudgetIntoResolvedBudget(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: stage-budget\n" +
 		"name: Stage Budget\n" +
-		"mode: PLAN-EXECUTE\n" +
+		"mode: GENERAL\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n" +
 		"budget:\n" +
 		"  maxSteps: 120\n" +
 		"stageSettings:\n" +
-		"  plan:\n" +
+		"  planning:\n" +
 		"    budget:\n" +
 		"      maxSteps: 20\n" +
 		"      timeout: 600\n" +
@@ -225,13 +170,13 @@ func TestParseAgentFileMergesStageSettingsBudgetIntoResolvedBudget(t *testing.T)
 	if budget.MaxSteps != 120 {
 		t.Fatalf("root max steps = %d, want 120", budget.MaxSteps)
 	}
-	if budget.Stages["plan"].MaxSteps != 20 || budget.Stages["plan"].Tool.Timeout != 90 || budget.Stages["plan"].Tool.MaxCalls != 40 {
-		t.Fatalf("plan stage budget = %#v, want maxSteps 20 tool timeout 90 maxCalls 40", budget.Stages["plan"])
+	if budget.Stages["planning"].MaxSteps != 20 || budget.Stages["planning"].Tool.Timeout != 90 || budget.Stages["planning"].Tool.MaxCalls != 40 {
+		t.Fatalf("planning stage budget = %#v, want maxSteps 20 tool timeout 90 maxCalls 40", budget.Stages["planning"])
 	}
 	if budget.Stages["summary"].MaxSteps != 3 {
 		t.Fatalf("summary stage budget = %#v, want maxSteps 3", budget.Stages["summary"])
 	}
-	if stageBudget := mapNode(mapNode(def.Budget["stages"])["plan"]); stageBudget["timeout"] != nil {
+	if stageBudget := mapNode(mapNode(def.Budget["stages"])["planning"]); stageBudget["timeout"] != nil {
 		t.Fatalf("stage-level timeout should not be merged into effective budget, got %#v", stageBudget)
 	}
 }
@@ -391,14 +336,6 @@ func TestParseAgentFileRejectsNonACPAgentsWithoutModelConfig(t *testing.T) {
 				"key: react-demo",
 				"name: React Demo",
 				"mode: GENERAL",
-			},
-		},
-		{
-			name: "plan-execute",
-			lines: []string{
-				"key: plan-demo",
-				"name: Plan Demo",
-				"mode: PLAN-EXECUTE",
 			},
 		},
 		{
@@ -679,34 +616,8 @@ func TestParseAgentFileDefaultsEmptyOrInvalidVisibilityToNav(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileAcceptsCanonicalPlanExecuteMode(t *testing.T) {
-	for _, mode := range []string{"PLAN-EXECUTE"} {
-		t.Run(mode, func(t *testing.T) {
-			root := t.TempDir()
-			path := filepath.Join(root, "agent.yml")
-			content := "" +
-				"key: demo\n" +
-				"name: Demo\n" +
-				"mode: " + mode + "\n" +
-				"modelConfig:\n" +
-				"  modelKey: demo-model\n"
-			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-				t.Fatalf("write agent file: %v", err)
-			}
-
-			def, err := parseAgentDefinitionForTest(path)
-			if err != nil {
-				t.Fatalf("parse agent file: %v", err)
-			}
-			if def.Mode != "PLAN_EXECUTE" {
-				t.Fatalf("mode = %q, want PLAN_EXECUTE", def.Mode)
-			}
-		})
-	}
-}
-
 func TestParseAgentFileRejectsRetiredPublicModes(t *testing.T) {
-	for _, mode := range []string{"REACT", "react", "ACP-PROXY", "ACP_PROXY", "PLAN_EXECUTE", "ONESHOT"} {
+	for _, mode := range []string{"REACT", "react", "ACP-PROXY", "ACP_PROXY", "PLAN-EXECUTE", "PLAN_EXECUTE", "ONESHOT"} {
 		t.Run(mode, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "agent.yml")
 			content := "key: demo\nname: Demo\nmode: " + mode + "\nmodelConfig:\n  modelKey: demo-model\n"
@@ -1239,7 +1150,7 @@ func TestOnlySandboxRequiresWorkspace(t *testing.T) {
 }
 
 func TestNativeModesBindOneLibraryWithoutImplicitTools(t *testing.T) {
-	for _, mode := range []string{"GENERAL", "CODER", "KBASE", "PLAN-EXECUTE"} {
+	for _, mode := range []string{"GENERAL", "CODER", "KBASE"} {
 		t.Run(mode, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "agent.yml")
 			workspace := ""
@@ -1581,9 +1492,9 @@ func TestLibraryBindingRejectsUnsupportedFieldsAndNonNative(t *testing.T) {
 	}
 }
 
-func TestPlanExecuteAndNativeCoderAttachKBaseCapability(t *testing.T) {
+func TestGeneralAndNativeCoderAttachKBaseCapability(t *testing.T) {
 	workspaceRoot := filepath.ToSlash(t.TempDir())
-	for _, mode := range []string{"PLAN-EXECUTE", "CODER"} {
+	for _, mode := range []string{"GENERAL", "CODER"} {
 		t.Run(mode, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "agent.yml")
 			content := "key: attached\nmode: " + mode + "\nmodelConfig:\n  modelKey: mock-model\n" +
@@ -2049,114 +1960,6 @@ func TestParseAgentFileAllowsOptingOutOfBaseMemoryTools(t *testing.T) {
 		if containsString(def.Tools, tool) {
 			t.Fatalf("expected %s to stay disabled, got %#v", tool, def.Tools)
 		}
-	}
-}
-
-func TestParseAgentFileWithPromptsLoadsPlanExecuteConventionFiles(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: demo\n" +
-		"name: Demo\n" +
-		"mode: PLAN-EXECUTE\n" +
-		"modelConfig:\n" +
-		"  modelKey: demo-model\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-	for name, body := range map[string]string{
-		"AGENTS.plan.md":    "plan convention",
-		"AGENTS.execute.md": "execute convention",
-		"AGENTS.summary.md": "summary convention",
-	} {
-		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o644); err != nil {
-			t.Fatalf("write %s: %v", name, err)
-		}
-	}
-
-	def, err := parseAgentFileWithPromptsForTest(path, root)
-	if err != nil {
-		t.Fatalf("parse agent file with prompts: %v", err)
-	}
-	if def.PlanPrompt != "plan convention" || def.ExecutePrompt != "execute convention" || def.SummaryPrompt != "summary convention" {
-		t.Fatalf("unexpected stage prompts: plan=%q execute=%q summary=%q", def.PlanPrompt, def.ExecutePrompt, def.SummaryPrompt)
-	}
-}
-
-func TestParseAgentFileWithPromptsStagePromptFileOverridesConvention(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: demo\n" +
-		"name: Demo\n" +
-		"mode: PLAN-EXECUTE\n" +
-		"modelConfig:\n" +
-		"  modelKey: demo-model\n" +
-		"stageSettings:\n" +
-		"  plan:\n" +
-		"    promptFile: custom-plan.md\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.plan.md"), []byte("plan convention"), 0o644); err != nil {
-		t.Fatalf("write convention prompt: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "custom-plan.md"), []byte("custom plan"), 0o644); err != nil {
-		t.Fatalf("write custom prompt: %v", err)
-	}
-
-	def, err := parseAgentFileWithPromptsForTest(path, root)
-	if err != nil {
-		t.Fatalf("parse agent file with prompts: %v", err)
-	}
-	if def.PlanPrompt != "custom plan" {
-		t.Fatalf("plan prompt = %q, want custom override", def.PlanPrompt)
-	}
-}
-
-func TestParseAgentFileWithPromptsPlanExecuteFallbackOrder(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: demo\n" +
-		"name: Demo\n" +
-		"mode: PLAN-EXECUTE\n" +
-		"promptFile: shared.md\n" +
-		"modelConfig:\n" +
-		"  modelKey: demo-model\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.plan.md"), []byte("plan convention"), 0o644); err != nil {
-		t.Fatalf("write plan convention: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "shared.md"), []byte("shared fallback"), 0o644); err != nil {
-		t.Fatalf("write shared prompt: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("agents fallback"), 0o644); err != nil {
-		t.Fatalf("write agents prompt: %v", err)
-	}
-
-	def, err := parseAgentFileWithPromptsForTest(path, root)
-	if err != nil {
-		t.Fatalf("parse agent file with prompts: %v", err)
-	}
-	if def.PlanPrompt != "plan convention" {
-		t.Fatalf("plan prompt = %q, want convention", def.PlanPrompt)
-	}
-	if def.ExecutePrompt != "shared fallback" || def.SummaryPrompt != "shared fallback" {
-		t.Fatalf("execute/summary prompts = %q/%q, want shared fallback", def.ExecutePrompt, def.SummaryPrompt)
-	}
-
-	if err := os.Remove(filepath.Join(root, "shared.md")); err != nil {
-		t.Fatalf("remove shared prompt: %v", err)
-	}
-	def, err = parseAgentFileWithPromptsForTest(path, root)
-	if err != nil {
-		t.Fatalf("parse agent file with prompts after fallback removal: %v", err)
-	}
-	if def.ExecutePrompt != "agents fallback" || def.SummaryPrompt != "agents fallback" {
-		t.Fatalf("execute/summary prompts = %q/%q, want AGENTS.md fallback", def.ExecutePrompt, def.SummaryPrompt)
 	}
 }
 

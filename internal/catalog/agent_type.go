@@ -38,8 +38,6 @@ func NormalizeAgentModeForRuntime(value string) string {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
 	case "", agentModeLegacyReact:
 		return AgentModeGeneral
-	case "PLAN-EXECUTE":
-		return "PLAN_EXECUTE"
 	default:
 		return strings.ToUpper(strings.TrimSpace(value))
 	}
@@ -47,8 +45,6 @@ func NormalizeAgentModeForRuntime(value string) string {
 
 func AgentModeForAPI(value string) string {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
-	case "PLAN_EXECUTE":
-		return "PLAN-EXECUTE"
 	case agentModeLegacyReact:
 		return AgentModeGeneral
 	default:
@@ -80,18 +76,16 @@ func ParsePublicAgentMode(value string) (string, error) {
 		return "", deprecation.New("mode REACT was removed from configuration and API inputs; use GENERAL")
 	case AgentModeCoder, AgentModeKBase, AgentModeExecutor, AgentModeProxy, AgentModeChannel:
 		return strings.ToUpper(raw), nil
-	case "PLAN-EXECUTE":
-		return "PLAN_EXECUTE", nil
 	case "ACP-PROXY", "ACP_PROXY":
 		return "", deprecation.New("mode %q was removed; use PROXY", raw)
-	case "PLAN_EXECUTE":
-		return "", deprecation.New("mode %q was removed; use PLAN-EXECUTE", raw)
+	case "PLAN-EXECUTE", "PLAN_EXECUTE":
+		return "", deprecation.New("mode %q was removed; use GENERAL with planningMode", raw)
 	case "ONESHOT":
 		return "", deprecation.New("mode ONESHOT is internal-only and cannot be configured; use GENERAL")
 	case "TEAM":
 		return "TEAM", nil
 	default:
-		return "", fmt.Errorf("mode must be GENERAL, CODER, KBASE, TEAM, EXECUTOR, PLAN-EXECUTE, PROXY, or CHANNEL")
+		return "", fmt.Errorf("mode must be GENERAL, CODER, KBASE, TEAM, EXECUTOR, PROXY, or CHANNEL")
 	}
 }
 

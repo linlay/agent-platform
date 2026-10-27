@@ -52,7 +52,7 @@ func TestExecuteStageToolsFollowAgentToolsMinusExecuteExclusions(t *testing.T) {
 		session: contracts.QuerySession{
 			Mode:                    "CODER",
 			ToolNames:               []string{"bash", "file_read", "artifact_publish", "plan_add_tasks", contracts.FinalizePlanningToolName, "ask_user_question", "plan_update_task", "datetime"},
-			PlanExecuteExcludeTools: []string{"ask_user_question"},
+			ExecuteExcludeTools: []string{"ask_user_question"},
 		},
 	}
 	want := []string{"bash", "file_read", "artifact_publish", "plan_add_tasks", "plan_update_task", "datetime"}
@@ -106,7 +106,7 @@ func TestPlanningPromptHasNoSourceDefault(t *testing.T) {
 				PlanningMode:            true,
 				ToolNames:               []string{"bash", "web_fetch", "ask_user_question"},
 				PlanningExcludeTools:    []string{"bash"},
-				PlanExecuteExcludeTools: []string{"ask_user_question"},
+				ExecuteExcludeTools: []string{"ask_user_question"},
 			},
 		}
 		prompt := stream.planningPrompt()

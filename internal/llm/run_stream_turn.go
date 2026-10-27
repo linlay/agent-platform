@@ -844,7 +844,7 @@ func (s *llmRunStream) enqueueFallback(text string) {
 
 // AccumulatedMessages returns the messages accumulated during the stream's
 // lifetime, including system prompt, user messages, assistant replies and
-// tool results. Used by plan_execute to carry context into the summary stage.
+// tool results. Planning Runs use it to carry context into their next turn.
 func (s *llmRunStream) AccumulatedMessages() []openAIMessage {
 	return append([]openAIMessage(nil), s.messages...)
 }
