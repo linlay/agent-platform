@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -198,11 +199,27 @@ func browserSavedMetadata(t *testing.T, result ToolExecutionResult) map[string]a
 
 func TestBrowserFilesDownloadPublishesPrivateBytesAtomicallyAndIdempotently(t *testing.T) {
 	data := []byte("private download content")
+	var chatDir string
+	acknowledgements := 0
 	executor, execCtx, invoker, chatDir := browserFilesTestRuntime(t, func(request ClientRequest) map[string]any {
-		if request.Payload["method"] != "Surface.readDownload" {
-			t.Fatal("wrong download method")
+		switch request.Payload["method"] {
+		case "Surface.readDownload":
+			return map[string]any{"ok": true, "result": browserDownloadWire(data)}
+		case "Surface.releaseDownload":
+			params := request.Payload["params"].(map[string]any)
+			metadata, err := executorDownloadReceiptForTest(chatDir, "page:chrome-1", "download1")
+			if err != nil || params["downloadId"] != "download1" || params["sha256"] != metadata.SHA256 || len(params) != 2 {
+				t.Fatalf("cleanup preceded durable publication or used wrong identity: %#v %v", params, err)
+			}
+			acknowledgements++
+			if acknowledgements > 1 {
+				return map[string]any{"ok": true, "result": map[string]any{"released": true}}
+			}
+			return map[string]any{"ok": true, "result": map[string]any{"released": true, "downloadId": "download1", "sha256": metadata.SHA256}}
+		default:
+			t.Fatalf("unexpected download method: %s", request.Payload["method"])
 		}
-		return map[string]any{"ok": true, "result": browserDownloadWire(data)}
+		return nil
 	})
 	args := map[string]any{"surfaceId": "page:chrome-1", "action": "save", "downloadId": "download1"}
 	var name string
@@ -212,7 +229,7 @@ func TestBrowserFilesDownloadPublishesPrivateBytesAtomicallyAndIdempotently(t *t
 			t.Fatalf("save: %#v %v", result, err)
 		}
 		metadata := browserSavedMetadata(t, result)
-		if metadata["saved"] != true || metadata["dataOmitted"] != true || metadata["fileName"] != "report.txt" {
+		if metadata["saved"] != true || metadata["dataOmitted"] != true || metadata["fileName"] != "report.txt" || metadata["cleanupPending"] != nil {
 			t.Fatalf("missing saved metadata: %#v", metadata)
 		}
 		if i == 0 {
@@ -238,17 +255,110 @@ func TestBrowserFilesDownloadPublishesPrivateBytesAtomicallyAndIdempotently(t *t
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("download permissions: %v %v", info, err)
 	}
-	data = []byte("different content for same id")
-	result, err := executor.Invoke(context.Background(), "surface_downloads", args, execCtx)
-	if err != nil || result.Error != "surface_download_conflict" || strings.Contains(result.Output, `"saved":true`) {
-		t.Fatalf("same-id conflict not preserved: %#v %v", result, err)
+	_, err = executor.persistBrowserDownload(context.Background(), "page:chrome-1", "download1", "report.txt", "text/plain", []byte("different content for same id"), execCtx)
+	if !errors.Is(err, errBrowserDownloadConflict) {
+		t.Fatalf("same-id conflict not preserved: %v", err)
 	}
 	savedAgain, _ := os.ReadFile(path)
 	if string(savedAgain) != string(saved) {
 		t.Fatal("conflict overwrote existing file")
 	}
-	if len(invoker.requests) != 3 {
-		t.Fatalf("unexpected replay: %d", len(invoker.requests))
+	if len(invoker.requests) != 3 || invoker.requests[0].Payload["method"] != "Surface.readDownload" || invoker.requests[1].Payload["method"] != "Surface.releaseDownload" || invoker.requests[2].Payload["method"] != "Surface.releaseDownload" {
+		t.Fatalf("repeat save must not reread the released browser file: %#v", invoker.requests)
+	}
+}
+
+func executorDownloadReceiptForTest(chatDir, surfaceID, downloadID string) (browserDownloadReceipt, error) {
+	_, receiptPath := browserDownloadReceiptLocation(surfaceID, downloadID)
+	data, err := os.ReadFile(filepath.Join(chatDir, receiptPath))
+	var receipt browserDownloadReceipt
+	if err == nil {
+		err = json.Unmarshal(data, &receipt)
+	}
+	return receipt, err
+}
+
+func TestBrowserFilesSavedDownloadSurvivesCleanupFailureWithoutReread(t *testing.T) {
+	data := []byte("durable Chat file")
+	for _, ack := range []map[string]any{
+		{"ok": false, "error": map[string]any{"code": "download_not_found", "message": "private worker path"}},
+		{"ok": true, "result": map[string]any{"released": false, "data": "private worker bytes"}},
+		{"ok": true, "result": map[string]any{"released": true, "downloadId": "another-download"}},
+		{"ok": true, "result": map[string]any{"released": true, "sha256": strings.Repeat("0", 64)}},
+	} {
+		executor, execCtx, invoker, chatDir := browserFilesTestRuntime(t, func(request ClientRequest) map[string]any {
+			if request.Payload["method"] == "Surface.readDownload" {
+				return map[string]any{"ok": true, "result": browserDownloadWire(data)}
+			}
+			return ack
+		})
+		args := map[string]any{"surfaceId": "p", "action": "save", "downloadId": "download1"}
+		for range 2 {
+			result, err := executor.Invoke(context.Background(), "surface_downloads", args, execCtx)
+			metadata := browserSavedMetadata(t, result)
+			if err != nil || result.ExitCode != 0 || metadata["saved"] != true || metadata["cleanupPending"] != true || strings.Contains(result.Output, "private worker") || strings.Contains(result.Output, string(data)) {
+				t.Fatalf("cleanup failure lost or leaked a durable save: %#v %v", result, err)
+			}
+		}
+		if len(invoker.requests) != 3 || invoker.requests[2].Payload["method"] != "Surface.releaseDownload" {
+			t.Fatalf("cleanup retry reread or replayed the download: %#v", invoker.requests)
+		}
+		receipt, err := executorDownloadReceiptForTest(chatDir, "p", "download1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(chatDir, receipt.ReferenceName), "changed Chat file")
+		result, err := executor.Invoke(context.Background(), "surface_downloads", args, execCtx)
+		if err != nil || result.ExitCode == 0 || len(invoker.requests) != 3 {
+			t.Fatalf("changed published file was acknowledged or refetched: %#v %v", result, err)
+		}
+	}
+}
+
+func TestBrowserFilesSavedDownloadSurvivesCleanupTransportFailure(t *testing.T) {
+	executor, execCtx, _, _ := browserFilesTestRuntime(t, nil)
+	metadata, err := executor.persistBrowserDownload(context.Background(), "p", "download1", "report.txt", "text/plain", []byte("already durable"), execCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, transportErr := range []error{context.Canceled, context.DeadlineExceeded, errors.New("private transport path")} {
+		invoker := &scriptedClientRequestInvoker{err: transportErr}
+		executor.clientRequest = invoker
+		result, err := executor.Invoke(context.Background(), "surface_downloads", map[string]any{"surfaceId": "p", "action": "save", "downloadId": "download1"}, execCtx)
+		saved := browserSavedMetadata(t, result)
+		if err != nil || result.ExitCode != 0 || saved["saved"] != true || saved["cleanupPending"] != true || saved["referenceName"] != metadata["referenceName"] || invoker.calls != 1 || invoker.request.Payload["method"] != "Surface.releaseDownload" || strings.Contains(result.Output, "private transport") {
+			t.Fatalf("cleanup transport failure invalidated or replayed the save: %#v %v", result, err)
+		}
+	}
+}
+
+func TestBrowserFilesSavedDownloadRejectsInvalidReceiptBeforeCleanup(t *testing.T) {
+	for _, mutate := range []func(*browserDownloadReceipt){
+		func(r *browserDownloadReceipt) { r.ReferenceName = "../private-outside.txt" },
+		func(r *browserDownloadReceipt) { r.FileName = "another-file.txt" },
+		func(r *browserDownloadReceipt) { r.SizeBytes = browserFileMaxBytes + 1 },
+		func(r *browserDownloadReceipt) { r.SHA256 = strings.Repeat("0", 64) },
+		func(r *browserDownloadReceipt) { r.MimeType = "invalid MIME" },
+	} {
+		executor, execCtx, invoker, chatDir := browserFilesTestRuntime(t, nil)
+		_, err := executor.persistBrowserDownload(context.Background(), "p", "download1", "report.txt", "text/plain", []byte("durable file"), execCtx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		receipt, err := executorDownloadReceiptForTest(chatDir, "p", "download1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		mutate(&receipt)
+		_, path := browserDownloadReceiptLocation("p", "download1")
+		data, _ := json.Marshal(receipt)
+		if err := os.WriteFile(filepath.Join(chatDir, path), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		result, err := executor.Invoke(context.Background(), "surface_downloads", map[string]any{"surfaceId": "p", "action": "save", "downloadId": "download1"}, execCtx)
+		if err != nil || result.ExitCode == 0 || len(invoker.requests) != 0 || strings.Contains(result.Output, "private-outside") || strings.Contains(result.Output, `"saved":true`) {
+			t.Fatalf("invalid receipt was released, refetched or exposed: %#v %v", result, err)
+		}
 	}
 }
 
@@ -260,7 +370,7 @@ func TestBrowserFilesDownloadValidatesIntegrityAndDoesNotClaimFailedSaves(t *tes
 		func(m map[string]any) { m["downloadId"] = "another-page-download" },
 		func(m map[string]any) { m["sizeBytes"] = browserFileMaxBytes + 1 },
 	} {
-		executor, execCtx, _, chatDir := browserFilesTestRuntime(t, func(ClientRequest) map[string]any {
+		executor, execCtx, invoker, chatDir := browserFilesTestRuntime(t, func(ClientRequest) map[string]any {
 			node := browserDownloadWire([]byte("secret bytes"))
 			mutate(node)
 			return map[string]any{"ok": true, "result": node}
@@ -272,6 +382,9 @@ func TestBrowserFilesDownloadValidatesIntegrityAndDoesNotClaimFailedSaves(t *tes
 		entries, _ := os.ReadDir(chatDir)
 		if len(entries) != 0 {
 			t.Fatal("invalid download wrote files")
+		}
+		if len(invoker.requests) != 1 || invoker.requests[0].Payload["method"] != "Surface.readDownload" {
+			t.Fatal("invalid download was acknowledged")
 		}
 	}
 	executor, execCtx, _, chatDir := browserFilesTestRuntime(t, func(ClientRequest) map[string]any {

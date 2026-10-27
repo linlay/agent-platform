@@ -116,6 +116,71 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 	}
 }
 
+func TestChatUploadAboveBrowserTransferAndMultipartMemoryLimits(t *testing.T) {
+	// Chat attachments use HTTP multipart, independently of the browser tool's
+	// 4 MiB transfer limit. The 32 MiB parser budget only controls memory usage.
+	for _, size := range []int64{5 << 20, 33 << 20} {
+		t.Run(fmt.Sprintf("%dMiB", size>>20), func(t *testing.T) {
+			fixture := newTestFixture(t)
+			payload, err := os.CreateTemp(t.TempDir(), "multipart-*")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer payload.Close()
+			writer := multipart.NewWriter(payload)
+			part, err := writer.CreateFormFile("file", "ordinary-attachment.bin")
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantDigest := sha256.New()
+			content := io.MultiWriter(part, wantDigest)
+			chunk := strings.Repeat("synthetic chat attachment\n", 4096)
+			for remaining := size; remaining > 0; {
+				count := min(remaining, int64(len(chunk)))
+				if _, err := io.WriteString(content, chunk[:count]); err != nil {
+					t.Fatal(err)
+				}
+				remaining -= count
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := payload.Seek(0, io.SeekStart); err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/api/upload", payload)
+			req.Header.Set("Content-Type", writer.FormDataContentType())
+			t.Cleanup(func() {
+				// Direct ServeHTTP tests do not run net/http's request cleanup.
+				if req.MultipartForm != nil {
+					if err := req.MultipartForm.RemoveAll(); err != nil {
+						t.Errorf("remove multipart temporary files: %v", err)
+					}
+				}
+			})
+			rec := httptest.NewRecorder()
+			fixture.server.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("upload status %d: %s", rec.Code, rec.Body.String())
+			}
+			var response api.ApiResponse[api.UploadResponse]
+			if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			wantSHA := hex.EncodeToString(wantDigest.Sum(nil))
+			if response.Data.Upload.SizeBytes != size || response.Data.Upload.SHA256 != wantSHA {
+				t.Fatalf("upload integrity mismatch: %#v", response.Data.Upload)
+			}
+			resource := httptest.NewRecorder()
+			fixture.server.ServeHTTP(resource, httptest.NewRequest(http.MethodGet, uploadResourceRequestURL(t, response.Data), nil))
+			gotDigest := sha256.Sum256(resource.Body.Bytes())
+			if resource.Code != http.StatusOK || int64(resource.Body.Len()) != size || hex.EncodeToString(gotDigest[:]) != wantSHA {
+				t.Fatalf("resource status=%d size=%d; content must match uploaded attachment", resource.Code, resource.Body.Len())
+			}
+		})
+	}
+}
+
 func TestResourceServesEncodedImageInlineAndRejectsUnsafeKeys(t *testing.T) {
 	fixture := newTestFixture(t)
 	chatID := "chat-resource-image"

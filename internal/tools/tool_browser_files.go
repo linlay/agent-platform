@@ -284,8 +284,22 @@ func (t *RuntimeToolExecutor) webControlSurfaceDownloads(ctx context.Context, ar
 	if failed {
 		return failure, nil
 	}
+	if t.cfg.RuntimeMode != config.RuntimeModeDesktop {
+		return browserFileFailure("desktop_cdp_unsupported_runtime", "webpage file transfer requires the Desktop runtime"), nil
+	}
 	if _, valid := t.browserFilesChatDir(execCtx); !valid {
 		return browserFileFailure("surface_download_chat_unavailable", "the current Chat file context is unavailable"), nil
+	}
+	metadata, lookupErr := t.lookupBrowserDownload(ctx, surfaceID, downloadID, execCtx)
+	if lookupErr != nil {
+		code := "surface_download_save_failed"
+		if errors.Is(lookupErr, errBrowserDownloadConflict) {
+			code = "surface_download_conflict"
+		}
+		return browserFileFailure(code, "the saved download could not be verified; existing Chat files were preserved"), nil
+	}
+	if metadata != nil {
+		return t.releaseSavedBrowserDownload(ctx, surfaceID, downloadID, metadata, execCtx), nil
 	}
 	result, err := t.webControlSurfaceCall(ctx, "Surface.readDownload", surfaceID, map[string]any{"downloadId": downloadID}, execCtx)
 	if err != nil || result.ExitCode != 0 {
@@ -314,9 +328,28 @@ func (t *RuntimeToolExecutor) webControlSurfaceDownloads(ctx context.Context, ar
 		}
 		return browserFileFailure(code, "the download could not be saved safely; existing Chat files were preserved"), nil
 	}
-	// Never return the original byte-bearing response, including on validation
-	// or persistence failure. No model result, history or tool spill sees data.
-	return structuredResult(map[string]any{"transport": "reverse-websocket", "response": map[string]any{"ok": true, "method": "Surface.readDownload", "result": metadata}}), nil
+	return t.releaseSavedBrowserDownload(ctx, surfaceID, downloadID, metadata, execCtx), nil
+}
+
+func (t *RuntimeToolExecutor) releaseSavedBrowserDownload(ctx context.Context, surfaceID, downloadID string, metadata map[string]any, execCtx *ExecutionContext) ToolExecutionResult {
+	// Publication is already durable. A failed cleanup must not turn it into a
+	// failed save or cause the original download-producing action to be replayed.
+	result, err := t.webControlSurfaceCall(ctx, "Surface.releaseDownload", surfaceID, map[string]any{"downloadId": downloadID, "sha256": metadata["sha256"]}, execCtx)
+	response, _ := result.Structured["response"].(map[string]any)
+	node, _ := response["result"].(map[string]any)
+	released := node["released"] == true
+	if id, present := node["downloadId"]; present && id != downloadID {
+		released = false
+	}
+	if sum, present := node["sha256"]; present && sum != metadata["sha256"] {
+		released = false
+	}
+	if err != nil || result.ExitCode != 0 || response["ok"] != true || !released {
+		metadata["cleanupPending"] = true
+	}
+	// Neither byte-bearing reads nor arbitrary cleanup responses cross the tool
+	// boundary; only the independently verified Chat receipt is returned.
+	return structuredResult(map[string]any{"transport": "reverse-websocket", "response": map[string]any{"ok": true, "method": "Surface.readDownload", "result": metadata}})
 }
 
 func browserDownloadListResult(result ToolExecutionResult) ToolExecutionResult {
@@ -379,6 +412,70 @@ type browserDownloadReceipt struct {
 	SHA256        string `json:"sha256"`
 }
 
+func browserDownloadReceiptLocation(surfaceID, downloadID string) (string, string) {
+	key := sha256.Sum256([]byte(surfaceID + "\x00" + downloadID))
+	keyString := hex.EncodeToString(key[:])
+	return keyString, filepath.Join(chat.ToolRootDirName, "browser-downloads", keyString+".json")
+}
+
+// The existing Chat receipt is the durable idempotency record. It is verified
+// against its public file before using it; no second download cache is kept.
+func (t *RuntimeToolExecutor) lookupBrowserDownload(ctx context.Context, surfaceID, downloadID string, execCtx *ExecutionContext) (map[string]any, error) {
+	browserDownloadPublication.Lock()
+	defer browserDownloadPublication.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	chatDir, valid := t.browserFilesChatDir(execCtx)
+	if !valid {
+		return nil, errors.New("Chat unavailable")
+	}
+	root, err := os.OpenRoot(chatDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	key, receiptPath := browserDownloadReceiptLocation(surfaceID, downloadID)
+	info, err := root.Stat(receiptPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > 16<<10 {
+		return nil, errBrowserDownloadConflict
+	}
+	file, err := root.Open(receiptPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err = file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 16<<10 {
+		return nil, errBrowserDownloadConflict
+	}
+	data, err := io.ReadAll(io.LimitReader(file, (16<<10)+1))
+	var receipt browserDownloadReceipt
+	if err != nil || len(data) > 16<<10 || json.Unmarshal(data, &receipt) != nil || receipt.FileName != browserDownloadFileName(receipt.FileName) || receipt.ReferenceName != "chrome-download-"+key[:24]+"-"+receipt.FileName || receipt.SizeBytes < 0 || receipt.SizeBytes > browserFileMaxBytes || len(receipt.SHA256) != sha256.Size*2 {
+		return nil, errBrowserDownloadConflict
+	}
+	contentType, _, err := mime.ParseMediaType(receipt.MimeType)
+	if err != nil || contentType != receipt.MimeType {
+		return nil, errBrowserDownloadConflict
+	}
+	if err := browserVerifyPublishedDigest(root, receipt.ReferenceName, receipt.SizeBytes, receipt.SHA256); err != nil {
+		return nil, err
+	}
+	return browserDownloadMetadata(downloadID, receipt), nil
+}
+
 func (t *RuntimeToolExecutor) persistBrowserDownload(ctx context.Context, surfaceID, downloadID, fileName, contentType string, data []byte, execCtx *ExecutionContext) (map[string]any, error) {
 	browserDownloadPublication.Lock()
 	defer browserDownloadPublication.Unlock()
@@ -404,9 +501,7 @@ func (t *RuntimeToolExecutor) persistBrowserDownload(ctx context.Context, surfac
 		contentType = parsed
 	}
 	digest := sha256.Sum256(data)
-	key := sha256.Sum256([]byte(surfaceID + "\x00" + downloadID))
-	keyString := hex.EncodeToString(key[:])
-	receiptPath := filepath.Join(chat.ToolRootDirName, "browser-downloads", keyString+".json")
+	keyString, receiptPath := browserDownloadReceiptLocation(surfaceID, downloadID)
 	receipt := browserDownloadReceipt{ReferenceName: "chrome-download-" + keyString[:24] + "-" + fileName, FileName: fileName, MimeType: contentType, SizeBytes: len(data), SHA256: hex.EncodeToString(digest[:])}
 	if existing, err := root.ReadFile(receiptPath); err == nil {
 		var stored browserDownloadReceipt
@@ -445,21 +540,25 @@ func browserDownloadMetadata(downloadID string, receipt browserDownloadReceipt) 
 }
 
 func browserVerifyPublishedFile(root *os.Root, name string, data []byte) error {
+	want := sha256.Sum256(data)
+	return browserVerifyPublishedDigest(root, name, len(data), hex.EncodeToString(want[:]))
+}
+
+func browserVerifyPublishedDigest(root *os.Root, name string, size int, sum string) error {
 	file, err := root.Open(name)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() != int64(len(data)) {
+	if err != nil || !info.Mode().IsRegular() || info.Size() != int64(size) {
 		return errBrowserDownloadConflict
 	}
 	hash := sha256.New()
 	if _, err := io.Copy(hash, io.LimitReader(file, browserFileMaxBytes+1)); err != nil {
 		return err
 	}
-	want := sha256.Sum256(data)
-	if hex.EncodeToString(hash.Sum(nil)) != hex.EncodeToString(want[:]) {
+	if hex.EncodeToString(hash.Sum(nil)) != sum {
 		return errBrowserDownloadConflict
 	}
 	return nil

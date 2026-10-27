@@ -1117,7 +1117,7 @@ func (t *RuntimeToolExecutor) webControlSurfaceScreenshot(ctx context.Context, a
 }
 
 func (t *RuntimeToolExecutor) webControlSurfaceClick(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
-	if failure, failed := webControlFields(args, "surfaceId", "selector", "x", "y", "ref", "observationId", "waitFor", "timeoutMs"); failed {
+	if failure, failed := webControlFields(args, "surfaceId", "selector", "x", "y", "ref", "observationId", "waitFor", "timeoutMs", "captureDownload"); failed {
 		return failure, nil
 	}
 	surfaceID, failure, failed := webControlSurfaceID(args, true)
@@ -1162,19 +1162,16 @@ func (t *RuntimeToolExecutor) webControlSurfaceClick(ctx context.Context, args m
 		if !hasRef {
 			return webControlInvalidArgs("timeoutMs is only valid with ref and observationId", "timeoutMs"), nil
 		}
-		var number float64
-		switch value := timeout.(type) {
-		case float64:
-			number = value
-		case int:
-			number = float64(value)
-		default:
-			return webControlInputError(toolinput.New("timeoutMs", "JSON integer in range 100–10000", timeout, true, "Provide an integer in the allowed range.")), nil
-		}
-		if math.IsNaN(number) || math.IsInf(number, 0) || number < 100 || number > 10000 || math.Trunc(number) != number {
+		number, valid := webControlNumber(timeout)
+		if !valid || number < 100 || number > 10000 || math.Trunc(number) != number {
 			return webControlInputError(toolinput.New("timeoutMs", "JSON integer in range 100–10000", timeout, true, "Provide an integer in the allowed range.")), nil
 		}
 		params["timeoutMs"] = number
+	}
+	if capture, present, failure, failed := webControlBool(args, "captureDownload"); failed {
+		return failure, nil
+	} else if present {
+		params["captureDownload"] = capture
 	}
 	return t.webControlSurfaceCall(ctx, method, surfaceID, params, execCtx)
 }
@@ -1235,7 +1232,7 @@ func (t *RuntimeToolExecutor) webControlSurfaceElement(ctx context.Context, args
 	if hasRef {
 		actionArgs["ref"], actionArgs["observationId"] = ref, observationID
 	} else {
-		actionArgs["surfaceId"], actionArgs["selector"] = surfaceID, selector
+		actionArgs["selector"] = selector
 	}
 	if raw, present := args["value"]; present {
 		value, ok := raw.(string)
@@ -1276,10 +1273,6 @@ func (t *RuntimeToolExecutor) webControlSurfaceElement(ctx context.Context, args
 		return webControlInvalidArgs("value is only valid with fill, select or type", "value"), nil
 	}
 	// WorkPanel and Chrome share one typed interaction contract in Desktop.
-	delete(actionArgs, "surfaceId")
-	if !hasRef {
-		actionArgs["selector"] = selector
-	}
 	return t.webControlSurfaceCall(ctx, "Surface.interact", surfaceID, actionArgs, execCtx)
 }
 

@@ -17,7 +17,7 @@ inputSchema:
       enum:
         - list
         - save
-      description: "Required. Download operation."
+      description: "Required. List captured downloads or verify and save one to this Chat; see the web-control skill."
     downloadId:
       type: string
       description: "Required for save; download identity returned by list."
