@@ -9,6 +9,7 @@ import (
 
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
+	agentexecutor "agent-platform/internal/agent/executor"
 	agentkbase "agent-platform/internal/agent/kbase"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/contracts"
@@ -17,6 +18,7 @@ import (
 
 const AgentModeCoder = agentcoder.Mode
 const AgentModeKBase = agentkbase.Mode
+const AgentModeExecutor = agentexecutor.Mode
 const AgentModeProxy = "PROXY"
 const AgentModeChannel = "CHANNEL"
 const removedChatWorkspaceRoot = "@chat"
@@ -36,8 +38,6 @@ func NormalizeAgentModeForRuntime(value string) string {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
 	case "", agentModeLegacyReact:
 		return AgentModeGeneral
-	case "PLAN-EXECUTE":
-		return "PLAN_EXECUTE"
 	default:
 		return strings.ToUpper(strings.TrimSpace(value))
 	}
@@ -45,8 +45,6 @@ func NormalizeAgentModeForRuntime(value string) string {
 
 func AgentModeForAPI(value string) string {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
-	case "PLAN_EXECUTE":
-		return "PLAN-EXECUTE"
 	case agentModeLegacyReact:
 		return AgentModeGeneral
 	default:
@@ -76,20 +74,18 @@ func ParsePublicAgentMode(value string) (string, error) {
 		return AgentModeGeneral, nil
 	case agentModeLegacyReact:
 		return "", deprecation.New("mode REACT was removed from configuration and API inputs; use GENERAL")
-	case AgentModeCoder, AgentModeKBase, AgentModeProxy, AgentModeChannel:
+	case AgentModeCoder, AgentModeKBase, AgentModeExecutor, AgentModeProxy, AgentModeChannel:
 		return strings.ToUpper(raw), nil
-	case "PLAN-EXECUTE":
-		return "PLAN_EXECUTE", nil
 	case "ACP-PROXY", "ACP_PROXY":
 		return "", deprecation.New("mode %q was removed; use PROXY", raw)
-	case "PLAN_EXECUTE":
-		return "", deprecation.New("mode %q was removed; use PLAN-EXECUTE", raw)
+	case "PLAN-EXECUTE", "PLAN_EXECUTE":
+		return "", deprecation.New("mode %q was removed; use GENERAL with planningMode", raw)
 	case "ONESHOT":
 		return "", deprecation.New("mode ONESHOT is internal-only and cannot be configured; use GENERAL")
 	case "TEAM":
 		return "TEAM", nil
 	default:
-		return "", fmt.Errorf("mode must be GENERAL, CODER, KBASE, TEAM, PLAN-EXECUTE, PROXY, or CHANNEL")
+		return "", fmt.Errorf("mode must be GENERAL, CODER, KBASE, TEAM, EXECUTOR, PROXY, or CHANNEL")
 	}
 }
 
@@ -353,12 +349,42 @@ func ValidateAgentCoderBackend(def AgentDefinition) error {
 
 func ValidateAgentModelConfig(def AgentDefinition) error {
 	if AgentUsesACPCoderBackend(def) || AgentIsProxyMode(def.Mode) || AgentIsChannelMode(def.Mode) {
+		if def.MaxInputTokens > 0 {
+			return fmt.Errorf("modelConfig.maxInputTokens is only supported for native Agents")
+		}
 		return nil
 	}
 	if strings.TrimSpace(def.ModelKey) == "" {
 		return fmt.Errorf("modelConfig.modelKey is required")
 	}
 	return nil
+}
+
+// ParseAgentMaxInputTokens reads modelConfig.maxInputTokens: absent means the
+// model's own limit; a present value must be a positive integer. The model
+// limit is checked at management entry points, not at load.
+func ParseAgentMaxInputTokens(modelConfig map[string]any) (int, error) {
+	raw, exists := modelConfig["maxInputTokens"]
+	if !exists {
+		return 0, nil
+	}
+	value := 0
+	switch typed := raw.(type) {
+	case int:
+		value = typed
+	case int64:
+		value = int(typed)
+	case uint64:
+		value = int(typed)
+	case float64:
+		if typed == float64(int(typed)) {
+			value = int(typed)
+		}
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("modelConfig.maxInputTokens must be a positive integer")
+	}
+	return value, nil
 }
 
 // ValidateOrdinaryAgentTools rejects removed tool names and tools reserved for

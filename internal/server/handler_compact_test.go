@@ -58,7 +58,7 @@ func testActiveRunManualCompactPersistence(t *testing.T, withReasoning bool) {
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	queryResp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"chatId":"`+chatID+`","message":"keep this current instruction"}`))
+	queryResp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"chatId":"`+chatID+`","message":"keep this current instruction"}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}

@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -72,6 +73,35 @@ type OrchestratableAgentStream interface {
 type StreamDeltaMapper interface {
 	Map(delta AgentDelta) []stream.StreamInput
 	CloneIsolated(runID string, chatID string) StreamDeltaMapper
+}
+
+// ContentViewBindingMapper is implemented by mappers that attach the producing
+// session's Markdown view binder to content deltas.
+type ContentViewBindingMapper interface {
+	SetContentViewBinder(stream.ContentViewBinder)
+}
+
+// BindContentViews attaches the session's binder when both sides support it.
+func BindContentViews(ctx context.Context, mapper StreamDeltaMapper, session *QuerySession) {
+	target, ok := mapper.(ContentViewBindingMapper)
+	if binder := ContentViewBinderFor(ctx, session); ok && binder != nil {
+		target.SetContentViewBinder(binder)
+	}
+}
+
+// ContentViewBinderFor adapts the session's Markdown view binder to content
+// deltas. It returns nil for sessions without connector views.
+func ContentViewBinderFor(ctx context.Context, session *QuerySession) stream.ContentViewBinder {
+	if session == nil || session.BindMarkdownView == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	bind := session.BindMarkdownView
+	return func(ref view.Reference, body json.RawMessage) (view.Reference, error) {
+		return bind(ctx, ref, body)
+	}
 }
 
 type StreamDeltaMapperFactory interface {
@@ -301,13 +331,17 @@ type QuerySession struct {
 	InteractionConfig *interaction.Config
 	// ResolveView freezes a mounted presentation in this Chat before publication.
 	// It is installed by the session producer, never supplied by query clients.
-	ResolveView          func(context.Context, view.Reference, string) (view.Reference, error) `json:"-"`
-	SharedConnectorsRoot string                                                                `json:"-"`
-	NativeConnectorTools map[string]string                                                     `json:"-"` // Trusted platform capability bindings, never model input.
+	ResolveView func(context.Context, view.Reference, string) (view.Reference, error) `json:"-"`
+	// BindMarkdownView freezes a display view written in assistant Markdown and
+	// validates its body against the view's inputSchema.
+	BindMarkdownView     func(context.Context, view.Reference, json.RawMessage) (view.Reference, error) `json:"-"`
+	SharedConnectorsRoot string                                                                         `json:"-"`
+	NativeConnectorTools map[string]string                                                              `json:"-"` // Trusted platform capability bindings, never model input.
 	SharedSkillsRoot     string
 	SkillDirs            map[string]string
 	ConnectorDirs        map[string]string `json:"-"` // Frozen mounted connector runtime paths.
 	MCPServerKeys        []string          `json:"-"` // Agent-scoped MCP servers mcp_search/mcp_call may reach; MCP tool mode only.
+	ViewMounts           []view.Mount      `json:"-"` // Frozen display view mounts view_describe may disclose.
 	RequestID            string
 	RunID                string
 	// TempRoot and TempRoots are the process-start temporary-directory snapshot
@@ -343,15 +377,22 @@ type QuerySession struct {
 	RunOwner RunOwner
 	// TeamRuntime is populated only for an orchestrated Team-owned run.
 	TeamRuntime *TeamRuntimeContext
-	// ModeToolDefinitions are session-local tools owned by a built-in mode.
-	// They are included in model/system-init schemas but never enter catalog.
-	ModeToolDefinitions       []api.ToolDetailResponse
+	// ModeToolDefinitions are session-local tool definitions owned by a
+	// built-in mode or by the Run (result_submit with the caller's output
+	// format). They are included in model/system-init schemas but never enter
+	// catalog.
+	ModeToolDefinitions []api.ToolDetailResponse
+	// ResultContract is set only for a Run started through /api/execute.
+	ResultContract            *ResultContract `json:"-"`
 	AgentName                 string
 	AgentRole                 string
 	AgentDescription          string
 	Locale                    string
 	EnvironmentPromptTemplate string
 	ModelKey                  string
+	// MaxInputTokens is the Agent's modelConfig.maxInputTokens; 0 means the
+	// model's own limit. The Run window never exceeds the model's limit.
+	MaxInputTokens            int
 	ToolNames                 []string
 	ToolSetFrozen             bool `json:"-"`
 	Mode                      string
@@ -361,14 +402,17 @@ type QuerySession struct {
 	KBaseRetrievalConfig      string
 	CapabilityPrompts         []string
 	PlanningMode              bool
-	// PlanningExcludeTools and PlanExecuteExcludeTools are the configured tools
+	// PlanningExcludeTools and ExecuteExcludeTools are the configured tools
 	// removed from a planning Run and from a Run started by a confirmed plan.
-	PlanningExcludeTools    []string
-	PlanExecuteExcludeTools []string
+	PlanningExcludeTools []string
+	ExecuteExcludeTools  []string
 	// ConfirmedPlanRun marks an ordinary Run that was started from a confirmed
 	// plan; ToolNames already has the execution exclusions applied.
 	ConfirmedPlanRun bool
 	EditingMode      bool
+	// Detail is the delivery level frozen at admission; every observer of
+	// the Run receives the events it allows.
+	Detail stream.DetailLevel
 
 	Created             bool
 	Subject             string
@@ -376,37 +420,34 @@ type QuerySession struct {
 	ConnectorCLIEntries []connector.CLIEntry `json:"-"`
 	ConnectorBinDirs    []string
 	// ConnectorInstallBinDirs are host-only bins of active CLI installations.
-	ConnectorInstallBinDirs     []string
-	ConnectorEnv                map[string]string                 `json:"-"`
-	ConnectorCredentials        []connector.CredentialEnvironment `json:"-"`
-	ContextTags                 []string
-	Budget                      map[string]any
-	StageSettings               map[string]any
-	ResolvedBudget              Budget
-	ResolvedPlanExecuteSettings PlanExecuteSettings
-	ResolvedPlanningSettings    PlanningModeSettings
-	RunLimits                   RunLimits
-	HistoryMessages             []map[string]any
-	CurrentMessages             []map[string]any
-	GlobalMemoryContext         string
-	AgentMemoryContext          string
-	PlanTaskContext             string
-	RuntimeContext              RuntimeRequestContext
-	PromptAppend                PromptAppendConfig
-	AdvancedUserPrompt          bool
-	OwnerPrompt                 string
-	OwnerPromptLoaded           bool
-	SkillCatalogPrompt          string
-	SystemInitCache             map[string]SystemInitSnapshot
-	PendingSystemInitKeys       map[string]bool
+	ConnectorInstallBinDirs  []string
+	ConnectorEnv             map[string]string                 `json:"-"`
+	ConnectorCredentials     []connector.CredentialEnvironment `json:"-"`
+	ContextTags              []string
+	Budget                   map[string]any
+	StageSettings            map[string]any
+	ResolvedBudget           Budget
+	ResolvedPlanningSettings PlanningModeSettings
+	RunLimits                RunLimits
+	HistoryMessages          []map[string]any
+	CurrentMessages          []map[string]any
+	GlobalMemoryContext      string
+	AgentMemoryContext       string
+	PlanTaskContext          string
+	RuntimeContext           RuntimeRequestContext
+	PromptAppend             PromptAppendConfig
+	AdvancedUserPrompt       bool
+	OwnerPrompt              string
+	OwnerPromptLoaded        bool
+	SkillCatalogPrompt       string
+	ViewCatalogPrompt        string
+	SystemInitCache          map[string]SystemInitSnapshot
+	PendingSystemInitKeys    map[string]bool
 
 	// Prompt files loaded from agent directory.
 	SoulPrompt            string
 	AgentsPrompt          string
 	WorkspaceAgentsPrompt string
-	PlanPrompt            string
-	ExecutePrompt         string
-	SummaryPrompt         string
 	ModeSystemPrompt      string
 	KBaseModePrompts      KBaseModePrompts
 
@@ -552,7 +593,6 @@ type ExecutionContext struct {
 
 	SandboxSession       *SandboxSession
 	Budget               Budget
-	PlanExecuteSettings  PlanExecuteSettings
 	PlanningModeSettings PlanningModeSettings
 	RunLoopState         RunLoopState
 	PlanState            *PlanRuntimeState
@@ -733,6 +773,7 @@ type ActiveRun struct {
 	ScopeID      string
 	PlanningMode bool
 	EditingMode  bool
+	Detail       stream.DetailLevel
 }
 
 type RunStatusInfo struct {
@@ -750,6 +791,7 @@ type RunStatusInfo struct {
 	AccessLevelVersion int64
 	PlanningMode       bool
 	EditingMode        bool
+	Detail             stream.DetailLevel
 	RunOrigin          *RunOrigin `json:"-"`
 }
 

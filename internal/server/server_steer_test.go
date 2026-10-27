@@ -54,7 +54,7 @@ func TestTailSteerQueuedBeforeFinalDoneContinuesSameRun(t *testing.T) {
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"chatId":"`+chatID+`","message":"start"}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"chatId":"`+chatID+`","message":"start"}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestLateSteerAfterRunCompleteIsUnmatched(t *testing.T) {
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"finish normally"}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"finish normally"}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}

@@ -20,6 +20,11 @@ type ConnectorChecker interface {
 
 func (h *ToolHandler) ConfigureConnectors(connections ConnectorConnectionReader, checker ConnectorChecker) *ToolHandler {
 	h.connectorConnections, h.connectorChecker = connections, checker
+	if lifecycle, ok := connections.(interface {
+		BeginDelete(context.Context, string) (func(), error)
+	}); ok && h.sources != nil {
+		h.sources.BeginConnectorDelete = lifecycle.BeginDelete
+	}
 	if preparer, ok := connections.(interface {
 		StartPreparation(string) (connectorauth.Preparation, error)
 	}); ok && h.sources != nil {

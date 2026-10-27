@@ -5,6 +5,7 @@ import (
 
 	agentcontract "agent-platform/internal/agent"
 	"agent-platform/internal/agent/coder"
+	"agent-platform/internal/agent/executor"
 	"agent-platform/internal/agent/general"
 	"agent-platform/internal/agent/kbase"
 	"agent-platform/internal/agent/planmode"
@@ -38,10 +39,15 @@ type WorkspaceGitPolicy = agentcontract.WorkspaceGitPolicy
 func IsCoderMode(mode string) bool     { return coder.IsMode(mode) }
 func IsKBaseMode(mode string) bool     { return kbase.IsMode(mode) }
 func IsGeneralMode(mode string) bool   { return general.IsMode(mode) }
+func IsExecutorMode(mode string) bool  { return executor.IsMode(mode) }
 func GeneralCreateToolNames() []string { return general.CreateToolNames() }
-func CoderCreateToolNames() []string   { return coder.CreateToolNames() }
+func ExecutorCreateToolNames() []string {
+	return executor.CreateToolNames()
+}
+func CoderCreateToolNames() []string { return coder.CreateToolNames() }
 
 const GeneralCreatePrefix = general.CreatePrefix
+const ExecutorCreatePrefix = executor.CreatePrefix
 
 func IsCoderACPBackend(mode, acpBridgeID string) bool {
 	return coder.IsACPBackend(mode, acpBridgeID)
@@ -54,7 +60,7 @@ func IsCoderNativeBackend(mode, acpBridgeID string) bool {
 // mode. Planning is a capability of ordinary native Agents, not of one mode;
 // TEAM coordinators and pipeline modes do not offer it.
 func PlanningModeSupported(mode string) bool {
-	return general.IsMode(mode) || coder.IsMode(mode) || kbase.IsMode(mode) || strings.EqualFold(mode, "TEAM")
+	return general.IsMode(mode) || coder.IsMode(mode) || kbase.IsMode(mode) || executor.IsMode(mode) || strings.EqualFold(mode, "TEAM")
 }
 
 // NativePlanning reports whether the platform itself runs the Agent's planning
@@ -68,6 +74,9 @@ func PlanningModeEnabled(mode string, requested bool) bool {
 
 // WorkspaceEditingDefault reads a template value, never a mode-specific grant.
 func WorkspaceEditingDefault(mode string) bool {
+	if executor.IsMode(mode) {
+		return !executor.WorkspaceReadOnly
+	}
 	descriptor, ok := Lookup(mode)
 	return !ok || !descriptor.Profile.WorkspaceReadOnly
 }
@@ -86,7 +95,7 @@ func IsConfirmedPlanRun(params map[string]any) bool {
 func ConfirmedPlanTools(session contracts.QuerySession, defs []api.ToolDetailResponse) []string {
 	return planmode.ConfirmedPlanTools(session, defs)
 }
-func PlanExecuteSyntheticQueryMessage(locale string) string {
+func ExecuteSyntheticQueryMessage(locale string) string {
 	return planmode.ExecuteSyntheticQueryMessage(locale)
 }
 func SubmitPlanningDecision(param api.SubmitParam) string {

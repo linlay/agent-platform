@@ -3,6 +3,7 @@ package stream
 import (
 	"reflect"
 	"sync/atomic"
+	"time"
 
 	"agent-platform/internal/contracts/queryinput"
 )
@@ -42,6 +43,9 @@ type StreamRequest struct {
 	AccessGrant map[string]any
 	// PlanRunID links a Run started by approving a plan to its planning Run.
 	PlanRunID string
+	// AnnounceHold is how long an announcement at least holds the progress
+	// line; zero disables the hold.
+	AnnounceHold time.Duration
 }
 
 type SceneRef struct {
@@ -70,6 +74,7 @@ type StreamEventAssembler struct {
 	seq        atomic.Int64
 	dispatcher *StreamEventDispatcher
 	normalizer *SseEventNormalizer
+	activities *ActivityTracker
 	request    StreamRequest
 }
 
@@ -81,13 +86,18 @@ type EventEmission struct {
 	Event      StreamEvent
 	Normalized bool
 	Visible    bool
-	Cursor     int64
+	// Ephemeral events are delivered live with Seq 0 and never reserve a
+	// public sequence: a progress activity is replaced by the next one and
+	// resent on attach, so it has no place in the replay log.
+	Ephemeral bool
+	Cursor    int64
 }
 
 func NewAssembler(request StreamRequest) *StreamEventAssembler {
 	assembler := &StreamEventAssembler{
 		dispatcher: NewDispatcher(request),
 		normalizer: NewNormalizer(),
+		activities: NewActivityTracker(request.RunID, request.ChatID, request.AnnounceHold),
 		request:    request,
 	}
 	if request.InitialSeq > 0 {
@@ -292,16 +302,48 @@ func (a *StreamEventAssembler) emit(events []StreamEvent) []EventEmission {
 	}
 	emissions := make([]EventEmission, 0, len(events))
 	for _, event := range events {
+		if event.Type == "run.activity" && a.hiddenToolActivity(event) {
+			continue
+		}
 		normalized := a.normalizer.IsVisible(event)
 		visible := normalized && IsClientVisibleEventData(event.Data())
-		cursor := a.seq.Load()
+		var derived []StreamEvent
 		if visible {
-			cursor = a.seq.Add(1)
-			event.Seq = cursor
-		} else {
-			event.Seq = 0
+			var keep bool
+			keep, derived = a.activities.Track(event.Type, event.Timestamp, event.Payload)
+			if !keep {
+				continue
+			}
 		}
-		emissions = append(emissions, EventEmission{Event: event, Normalized: normalized, Visible: visible, Cursor: cursor})
+		emissions = append(emissions, a.stamp(event, normalized, visible))
+		for _, activity := range derived {
+			emissions = append(emissions, a.stamp(activity, true, true))
+		}
 	}
 	return emissions
+}
+
+func (a *StreamEventAssembler) stamp(event StreamEvent, normalized bool, visible bool) EventEmission {
+	cursor := a.seq.Load()
+	ephemeral := visible && IsProgressActivity(event.Type, event.Payload)
+	if visible && !ephemeral {
+		cursor = a.seq.Add(1)
+		event.Seq = cursor
+	} else {
+		event.Seq = 0
+	}
+	return EventEmission{Event: event, Normalized: normalized, Visible: visible, Ephemeral: ephemeral, Cursor: cursor}
+}
+
+func (a *StreamEventAssembler) hiddenToolActivity(event StreamEvent) bool {
+	activity, ok := event.Payload["activity"].(map[string]any)
+	if !ok {
+		return false
+	}
+	// An announcement is the model's message to the user, not a view of the
+	// tool that carried it, so a hidden announce tool still publishes it.
+	if anyString(activity["kind"]) == ActivityKindAnnounce {
+		return false
+	}
+	return a.normalizer.IsHiddenTool(anyString(activity["toolId"]), anyString(activity["toolName"]))
 }

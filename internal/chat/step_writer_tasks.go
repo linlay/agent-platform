@@ -9,7 +9,6 @@ import (
 
 type taskStepBuffer struct {
 	taskID       string
-	taskStage    string
 	taskStatus   string
 	taskAgentKey string
 
@@ -112,12 +111,6 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	}
 	applyStepLineModelMetadata(&line, buffer.pendingModelKey, buffer.pendingReasoningEffort)
 
-	if w.mode == "PLAN_EXECUTE" {
-		line.Stage = buffer.taskStage
-		if strings.TrimSpace(line.Stage) == "" {
-			line.Stage = w.currentStage
-		}
-	}
 	w.assignReactSeq(&line)
 
 	if line.UpdatedAt > 0 {

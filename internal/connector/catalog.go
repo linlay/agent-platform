@@ -14,6 +14,8 @@ import (
 
 type Summary struct {
 	Manifest
+	Status      string          `json:"status,omitempty"`
+	Error       string          `json:"error,omitempty"`
 	TokenSchema json.RawMessage `json:"tokenSchema,omitempty"`
 	Builtin     bool            `json:"builtin"`
 	ReadOnly    bool            `json:"readOnly"`
@@ -38,11 +40,26 @@ type ViewSummary struct {
 }
 
 func (s Sources) Summaries() ([]Summary, error) {
-	packages, err := s.LoadAll()
+	return s.summaries(false)
+}
+
+// AdminSummaries retains invalid packages for diagnosis without exposing their
+// unvalidated capabilities to the usage catalog or runtime.
+func (s Sources) AdminSummaries() ([]Summary, error) {
+	return s.summaries(true)
+}
+
+func (s Sources) summaries(includeInvalid bool) ([]Summary, error) {
+	result := []Summary{}
+	packages, err := s.loadAll("", func(id string, err error) {
+		if includeInvalid {
+			builtin := IsBuiltin(id)
+			result = append(result, Summary{Manifest: Manifest{ID: id, Name: id}, Status: "invalid", Error: err.Error(), Builtin: builtin, ReadOnly: builtin, CanDelete: !builtin, Skills: []string{}})
+		}
+	})
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Summary, 0, len(packages))
 	for _, pkg := range packages {
 		summary := Summary{Manifest: pkg.Manifest, TokenSchema: pkg.TokenSchema, Builtin: pkg.Builtin, ReadOnly: pkg.Builtin, CanDelete: !pkg.Builtin, HasMCP: len(pkg.MCP) > 0, HasCLI: pkg.CLI != nil, HasBin: pkg.BinDir != "", Skills: []string{}}
 		summary.HasNative = len(pkg.NativeTools()) > 0
@@ -62,6 +79,7 @@ func (s Sources) Summaries() ([]Summary, error) {
 		sort.Slice(summary.Views, func(i, j int) bool { return summary.Views[i].Key < summary.Views[j].Key })
 		result = append(result, summary)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result, nil
 }
 

@@ -21,9 +21,15 @@ func TestConnectionToolLocaleMatchesLiveAndReplay(t *testing.T) {
 		conn.SendResponse("/api/chat", tc.id, 0, "success", map[string]any{"events": []stream.EventData{event}})
 		replay, _ := json.Marshal(mustReadQueuedMessage(t, conn.writeQueue).frame)
 		conn.CompleteRequest(tc.id)
-		conn.SendStreamEvent("live", event)
-		live, _ := json.Marshal(mustReadQueuedMessage(t, conn.writeQueue).frame)
-		for _, data := range [][]byte{replay, live} {
+		frames := [][]byte{replay}
+		for _, eventType := range []string{"tool.start", "tool.snapshot", "tool.result"} {
+			out := event
+			out.Type = eventType
+			conn.SendStreamEvent("live", out)
+			live, _ := json.Marshal(mustReadQueuedMessage(t, conn.writeQueue).frame)
+			frames = append(frames, live)
+		}
+		for _, data := range frames {
 			if !strings.Contains(string(data), tc.label) || strings.Contains(string(data), "toolI18n") {
 				t.Fatalf("%s: %s", tc.id, data)
 			}

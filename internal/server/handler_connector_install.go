@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/adminsource"
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/mcp"
@@ -79,7 +80,7 @@ func (s *Server) handleConnectorImport(w http.ResponseWriter, r *http.Request) {
 // HTTP MCP imports: connector operation lock, package revalidation and reload.
 func (s *Server) publishPreparedConnector(ctx context.Context, prepared *connector.PreparedArchive, overwrite bool) (connector.Package, error) {
 	return withCatalogDirectoryTransaction(ctx, s, "connectors", func(ctx context.Context) (connector.Package, error) {
-		return prepared.Publish(ctx, overwrite, mcp.ValidateConnectorPackages, func() error {
+		return prepared.Publish(ctx, overwrite, mcp.ValidateConnectorImportPackages, func() error {
 			if s.deps.CatalogReloader != nil {
 				return s.deps.CatalogReloader.Reload(context.WithoutCancel(ctx), "connectors")
 			}
@@ -203,6 +204,10 @@ func (s *Server) writeConnectorError(w http.ResponseWriter, err error) {
 		return
 	}
 	switch {
+	case errors.Is(err, catalog.ErrPresetConnectorReadOnly):
+		status, code = http.StatusConflict, "preset_connector_readonly"
+	case errors.Is(err, adminsource.ErrConnectorDetach):
+		status, code = http.StatusConflict, "connector_detach_conflict"
 	case errors.Is(err, connector.ErrArchiveIdentityMismatch):
 		status, code = http.StatusConflict, "connector_identity_mismatch"
 	case errors.Is(err, connectorauth.ErrOAuthClientSetupRequired):

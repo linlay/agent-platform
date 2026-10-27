@@ -19,10 +19,10 @@ import (
 
 func (s *Server) enrichToolMetadata(events []stream.EventData, _ string) {
 	lookup := s.toolLookup()
-	if lookup == nil {
-		return
-	}
 	for i := range events {
+		if lookup == nil {
+			break
+		}
 		if events[i].Type != "tool.snapshot" && events[i].Type != "tool.start" {
 			continue
 		}
@@ -47,6 +47,50 @@ func (s *Server) enrichToolMetadata(events []stream.EventData, _ string) {
 		if label := def.Label; label != "" {
 			events[i].Payload["toolLabel"] = label
 		}
+	}
+	inheritToolResultTranslations(events)
+}
+
+// Repair presentation at the read boundary, without rewriting stored history.
+// Only inherit the same invocation's snapshot; target labels belong to MCP.
+func inheritToolResultTranslations(events []stream.EventData) {
+	snapshots := map[string]map[string]stream.EventData{}
+	for _, event := range events {
+		if event.Type != "tool.start" && event.Type != "tool.snapshot" {
+			continue
+		}
+		toolID := event.String("toolId")
+		translations, _ := event.Value("toolI18n").(map[string]any)
+		if toolID == "" || len(translations) == 0 {
+			continue
+		}
+		if snapshots[toolID] == nil {
+			snapshots[toolID] = map[string]stream.EventData{}
+		}
+		snapshots[toolID][event.String("runId")] = event
+	}
+	for i, event := range events {
+		if event.Type != "tool.result" || event.Value("toolI18n") != nil || event.Value("target") != nil {
+			continue
+		}
+		name, label := event.String("toolName"), event.String("toolLabel")
+		if label != "" && label != name {
+			continue
+		}
+		var snapshot stream.EventData
+		matches := 0
+		for runID, candidate := range snapshots[event.String("toolId")] {
+			if candidate.String("toolName") != name || (event.String("runId") != "" && runID != event.String("runId")) {
+				continue
+			}
+			snapshot = candidate
+			matches++
+		}
+		if matches != 1 {
+			continue
+		}
+		events[i].Payload = contracts.CloneMap(event.Payload)
+		events[i].Payload["toolI18n"] = snapshot.Value("toolI18n")
 	}
 }
 

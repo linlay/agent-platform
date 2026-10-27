@@ -10,7 +10,7 @@ import (
 
 // replayChatHistory is shared by active and archived chats. It projects stored
 // records into Detail; export applies its own document filters to Detail.Events.
-func replayChatHistory(summary Summary, lines []map[string]any, rawMessages []map[string]any, chatDir string, runStartedAt map[string]int64, runCompletedAt map[string]int64, runFinishReasons map[string]string, owners ...map[string]replayRunOwner) (Detail, error) {
+func replayChatHistory(summary Summary, lines []map[string]any, rawMessages []map[string]any, chatDir string, runStartedAt map[string]int64, runCompletedAt map[string]int64, runFinishReasons map[string]string, hiddenTools ClientHiddenToolFunc, owners ...map[string]replayRunOwner) (Detail, error) {
 	for _, m := range rawMessages {
 		delete(m, "_compactSource")
 		delete(m, "_modelKey")
@@ -19,7 +19,7 @@ func replayChatHistory(summary Summary, lines []map[string]any, rawMessages []ma
 	r := &historyReplay{
 		summary: summary, chatDir: chatDir,
 		runs: map[string]*chatRunData{}, taskQueries: collectReplayedTaskQueries(lines),
-		runOwners: map[string]replayRunOwner{},
+		runOwners: map[string]replayRunOwner{}, hiddenTools: hiddenTools,
 	}
 	if len(owners) > 0 {
 		r.runOwners = owners[0]
@@ -69,6 +69,7 @@ type historyReplay struct {
 	runOrder            []string
 	taskQueries         map[string]replayedSubTaskQuery
 	runOwners           map[string]replayRunOwner
+	hiddenTools         ClientHiddenToolFunc
 	seq                 int64
 	planning            *PlanningState
 	latestContextWindow map[string]any
@@ -202,6 +203,7 @@ func (r *historyReplay) finishEvents(runStartedAt, runCompletedAt map[string]int
 		allEvents = append(allEvents, events...)
 	}
 
+	allEvents = dropClientHiddenToolEvents(allEvents, r.hiddenTools)
 	for i := range allEvents {
 		allEvents[i].Seq = int64(i + 1)
 	}

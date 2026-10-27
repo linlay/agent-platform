@@ -3,7 +3,6 @@ package chat
 import (
 	"strings"
 
-	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
@@ -58,6 +57,9 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID string, 
 					"text":      text,
 					"taskId":    taskID,
 				}
+				if views := contentViewBindings(msg["views"]); len(views) > 0 {
+					payload["views"] = views
+				}
 				decorateReplayActor(payload, options)
 				addReplayLiveSeq(payload, liveSeq)
 				events = append(events, stream.EventData{
@@ -85,9 +87,6 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID string, 
 				}
 				callID, _ := tcMap["id"].(string)
 				fnName, _ := fn["name"].(string)
-				if agentteam.IsHiddenTool(fnName) {
-					continue
-				}
 				fnArgs, _ := fn["arguments"].(string)
 				toolID, _ := tcMap["_toolId"].(string)
 
@@ -117,9 +116,6 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID string, 
 			return nil, nil
 		}
 		if boolFromAny(msg["_internalOnly"]) {
-			return nil, nil
-		}
-		if agentteam.IsHiddenTool(stringFromAny(msg["name"])) {
 			return nil, nil
 		}
 		text := extractTextFromContent(msg["content"])
@@ -219,4 +215,25 @@ func planStateFromTaskSnapshot(snapshot *plantasks.Snapshot) *PlanState {
 		})
 	}
 	return plan
+}
+
+// contentViewBindings copies persisted Markdown view bindings from either the
+// live event ([]map[string]any) or decoded JSONL ([]any).
+func contentViewBindings(value any) []map[string]any {
+	var items []any
+	switch typed := value.(type) {
+	case []map[string]any:
+		for _, item := range typed {
+			items = append(items, item)
+		}
+	case []any:
+		items = typed
+	}
+	var out []map[string]any
+	for _, item := range items {
+		if binding := anyMap(item); len(binding) > 0 {
+			out = append(out, cloneStringAnyMap(binding))
+		}
+	}
+	return out
 }

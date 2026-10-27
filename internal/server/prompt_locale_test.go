@@ -47,7 +47,7 @@ func TestQueryPromptLocaleAndHistoricalReplay(t *testing.T) {
 	}})
 	var previous string
 	for i, locale := range []string{"en-US", "zh-CN", "zh-CN", ""} {
-		req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"locale-history","message":"hello"}`))
+		req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"locale-history","message":"hello"}`))
 		req.Header.Set("X-Locale", locale)
 		recorder := httptest.NewRecorder()
 		fixture.server.ServeHTTP(recorder, req)

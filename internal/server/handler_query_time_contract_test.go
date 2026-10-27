@@ -34,7 +34,7 @@ func TestQuerySSEPersistsOpaqueToolResultWithTimeNamedBusinessField(t *testing.T
 	fixture.agent = opaqueTimeNamedToolResultAgent()
 	server := newServerFromFixture(t, fixture)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{
 		"chatId":"chat-sse-time-contract",
 		"runId":"run-sse-time-contract",
 		"agentKey":"mock-agent",
@@ -80,7 +80,7 @@ func TestQueryNonStreamAllowsOpaqueToolResultWithTimeNamedBusinessField(t *testi
 	fixture.agent = opaqueTimeNamedToolResultAgent()
 	server := newServerFromFixture(t, fixture)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{
 		"chatId":"chat-non-stream-time-contract",
 		"runId":"run-non-stream-time-contract",
 		"agentKey":"mock-agent",

@@ -4,6 +4,7 @@ i18n:
     label: "Search Knowledge Base"
   zh-CN:
     label: "搜索知识库"
+activityArgs: [query]
 description: "Search a knowledge library by hybrid, full-text, vector or graph retrieval. Read the kbase-control skill before use."
 tags: [knowledge-base, search]
 clientVisible: true

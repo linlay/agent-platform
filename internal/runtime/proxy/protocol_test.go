@@ -127,3 +127,13 @@ func TestWebSocketTargetKeepsTokenOutOfURL(t *testing.T) {
 		t.Fatalf("direct target = %q header = %v", direct, header)
 	}
 }
+
+func TestUpstreamQueriesRequestFullDetail(t *testing.T) {
+	if got := QueryURL("http://upstream/"); got != "http://upstream/api/query?detail=full" {
+		t.Fatalf("QueryURL=%q", got)
+	}
+	frame := QueryPayload(runtimetypes.QueryCommand{RequestID: "req"}, nil, nil)
+	if frame["detail"] != "full" {
+		t.Fatalf("channel query frame must request full detail: %#v", frame)
+	}
+}

@@ -47,12 +47,12 @@ func (s *Server) chatWorkspaceFilter(hasWorkspace *bool) *chat.AgentKeyFilter {
 	return filter
 }
 
-func (s *Server) listChatSummariesWithPinned(lastRunID string, agentKey string, agentModes []string, limit int, pinned *bool, hasWorkspace *bool) ([]api.ChatSummaryResponse, error) {
+func (s *Server) listChatSummariesWithPinned(lastRunID string, agentKey string, agentModes []string, limit int, pinned *bool, primary *bool, hasWorkspace *bool) ([]api.ChatSummaryResponse, error) {
 	var items []chat.Summary
 	var err error
-	if filter := s.chatWorkspaceFilter(hasWorkspace); filter != nil {
+	if filter := s.chatWorkspaceFilter(hasWorkspace); filter != nil || primary != nil {
 		items, err = s.conversationService().ListSummariesWithOptions(chat.ListOptions{
-			LastRunID: lastRunID, AgentKey: agentKey, AgentModes: agentModes, Limit: limit, Pinned: pinned, AgentKeyFilter: filter,
+			LastRunID: lastRunID, AgentKey: agentKey, AgentModes: agentModes, Limit: limit, Pinned: pinned, Primary: primary, AgentKeyFilter: filter,
 		})
 	} else {
 		items, err = s.conversationService().ListSummariesWithPinned(lastRunID, agentKey, agentModes, limit, pinned)
@@ -131,6 +131,7 @@ func mapChatSummariesWithUsage(items []chat.Summary, includeUsage bool) []api.Ch
 	for _, item := range items {
 		resp := api.ChatSummaryResponse{
 			Pinned:   item.Pinned,
+			Primary:  item.Primary,
 			ChatID:   item.ChatID,
 			ChatName: item.ChatName,
 			AgentKey: item.AgentKey,
@@ -208,7 +209,9 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 	s.enrichToolMetadata(detail.Events, summaryAgentKey(summary))
 
 	response := api.ChatDetailResponse{
+		Display:  s.chatDisplay(summary.AgentKey, ""),
 		Pinned:   summary.Pinned,
+		Primary:  summary.Primary,
 		ChatID:   detail.ChatID,
 		ChatName: detail.ChatName,
 		AgentKey: summary.AgentKey,
@@ -411,12 +414,17 @@ func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
+	primary, err := parseOptionalBoolQuery(r, "primary")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+		return
+	}
 	hasWorkspace, err := parseOptionalBoolQuery(r, "hasWorkspace")
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
-	response, err := s.listChatSummariesWithPinned(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), modes, limit, pinned, hasWorkspace)
+	response, err := s.listChatSummariesWithPinned(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), modes, limit, pinned, primary, hasWorkspace)
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)
@@ -432,6 +440,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	chatID := r.URL.Query().Get("chatId")
 	if chatID == "" {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId is required"))
+		return
+	}
+	detail, ok := requestDetailLevel(w, r)
+	if !ok {
 		return
 	}
 	response, err := s.loadChatDetail(r.Context(), chatID, strings.EqualFold(r.URL.Query().Get("includeRawMessages"), "true"))
@@ -456,6 +468,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
+	response.Display = s.chatDisplay(response.AgentKey, chatReadDetail(response, detail))
+	response.Events = response.Display.EffectiveDetail.FilterEvents(response.Events)
 	writeJSON(w, http.StatusOK, api.Success(response))
 }
 

@@ -180,12 +180,15 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 		if err := view.ValidateDefinitions(dir, viewConfig.Views); err != nil {
 			return Package{}, fmt.Errorf("connector %s view.json: %w", id, err)
 		}
+		if err := validateViewQueries(id, pkg, viewConfig.Views); err != nil {
+			return Package{}, fmt.Errorf("connector %s view.json: %w", id, err)
+		}
 		pkg.Views = viewConfig.Views
 	} else if pkg.Type == "view" || !os.IsNotExist(err) {
 		return Package{}, fmt.Errorf("connector %s view.json: %w", id, err)
 	}
 	if pkg.Type == "native" {
-		if !IsNative(id) || pkg.AuthMode != AuthNoAuth || pkg.CLI != nil || len(pkg.MCP) != 0 || len(pkg.Views) != 0 || pkg.BinDir != "" {
+		if !IsNative(id) || pkg.AuthMode != AuthNoAuth || pkg.CLI != nil || len(pkg.MCP) != 0 || pkg.BinDir != "" {
 			return Package{}, fmt.Errorf("native connectors require a registered builtin capability package without executable components")
 		}
 	}
@@ -557,4 +560,36 @@ func (m Manifest) AuthorizationBrowser() string {
 // AuthorizationBrowser is declared only by the manifest.
 func (p Package) AuthorizationBrowser() string {
 	return p.Manifest.AuthorizationBrowser()
+}
+
+// validateViewQueries binds every query to the declaring package: native
+// operations must be registered for this connector, and CLI/MCP queries may
+// use only this package's own CLI or MCP components.
+func validateViewQueries(id string, pkg Package, views map[string]view.Definition) error {
+	for key, definition := range views {
+		operations := make(map[string]view.Query)
+		for name, query := range definition.Queries {
+			operations["query:"+name] = query
+		}
+		for name, action := range definition.Actions {
+			operations["action:"+name] = action.Query
+		}
+		for name, query := range operations {
+			switch query.Adapter {
+			case "native":
+				if owner, ok := NativeViewOperationOwner(query.Operation); !ok || owner != id {
+					return fmt.Errorf("%w: query %s of %s uses operation %q not registered for %s", view.ErrInvalid, name, key, query.Operation, id)
+				}
+			case "cli":
+				if pkg.CLI == nil {
+					return fmt.Errorf("%w: query %s of %s uses cli but the package has no cli.json", view.ErrInvalid, name, key)
+				}
+			case "mcp":
+				if _, ok := pkg.MCP[query.Component]; !ok {
+					return fmt.Errorf("%w: query %s of %s uses MCP component %q not declared in mcp.json", view.ErrInvalid, name, key, query.Component)
+				}
+			}
+		}
+	}
+	return nil
 }

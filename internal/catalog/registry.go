@@ -53,6 +53,7 @@ type AgentDefinition struct {
 	Introductions        []string
 	Wonders              []string
 	ModelKey             string
+	MaxInputTokens       int    // modelConfig.maxInputTokens; 0 means the model's own limit.
 	ModelReasoningEffort string // Persisted top-level selection; empty means unspecified.
 	ServiceTier          string
 	Mode                 string
@@ -96,13 +97,8 @@ type AgentDefinition struct {
 	ChannelConfig AgentChannelConfig
 
 	// Prompt files loaded from agent directory.
-	SoulPrompt   string // from SOUL.md
-	AgentsPrompt string // resolved from promptFile or AGENTS.md fallback
-
-	// PLAN_EXECUTE stage prompts (stage-scoped promptFile).
-	PlanPrompt    string
-	ExecutePrompt string
-	SummaryPrompt string
+	SoulPrompt    string // from SOUL.md
+	AgentsPrompt  string // resolved from promptFile or AGENTS.md fallback
 	MemoryEnabled bool
 	MemoryConfig  AgentMemoryConfig
 }
@@ -292,6 +288,7 @@ type SkillDefinition struct {
 
 type FileRegistry struct {
 	executionMu         sync.Mutex
+	deletingConnectors  map[string]bool
 	runtimeUsers        map[string]int
 	runtimeVersions     map[string]int
 	liveConnectorMounts map[string]connector.AgentRuntime
@@ -321,6 +318,9 @@ type FileRegistry struct {
 }
 
 func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*FileRegistry, error) {
+	if err := recoverConnectorDetaches(cfg); err != nil {
+		return nil, fmt.Errorf("recover connector detach: %w", err)
+	}
 	for _, mode := range []string{"general", "coder", "kbase"} {
 		if err := validatePresetTools(cfg.PresetsForMode(mode).Tools, toolDefs); err != nil {
 			return nil, fmt.Errorf("%s presets: %w", mode, err)
@@ -344,6 +344,7 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 		return nil, err
 	}
 	assembler.modePresets = cfg.ModePresets
+	assembler.modeDefaultDetails = cfg.ModeDefaultDetails
 	assembler.presetTools = append([]string(nil), cfg.PresetTools...)
 	assembler.presetConnectors = append([]string(nil), cfg.PresetConnectors...)
 	assembler.connectors.NativeKanbanControlDir = cfg.Paths.NativeKanbanControlDir

@@ -57,7 +57,7 @@ func newTestMemoryStore(root string) (*memory.Store, error) {
 }
 
 func (s *Server) listChatSummaries(lastRunID string, agentKey string) ([]api.ChatSummaryResponse, error) {
-	return s.listChatSummariesWithPinned(lastRunID, agentKey, nil, 0, nil, nil)
+	return s.listChatSummariesWithPinned(lastRunID, agentKey, nil, 0, nil, nil, nil)
 }
 
 func (s *Server) listAgentSummaries(includeChats int, scope string) ([]api.AgentSummary, error) {
@@ -700,9 +700,18 @@ func assertSSEMessagesHaveSeqAndTimestamp(t *testing.T, body string) {
 	if len(messages) == 0 {
 		t.Fatalf("expected sse messages, got body %s", body)
 	}
+	public := 0
 	for index, msg := range messages {
 		seq, ok := msg["seq"].(float64)
-		want := float64(index + 1)
+		if msg["type"] == "run.activity" && msg["retry"] == nil {
+			// Progress activities are live only and take no public sequence.
+			if !ok || seq != 0 {
+				t.Fatalf("progress activity reserved seq at index %d: %#v", index, msg)
+			}
+			continue
+		}
+		public++
+		want := float64(public)
 		if !ok || seq != want {
 			t.Fatalf("expected contiguous public seq=%v at index %d, got %#v", want, index, messages)
 		}

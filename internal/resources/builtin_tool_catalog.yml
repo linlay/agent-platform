@@ -16,6 +16,7 @@ visibleBuiltinTools:
   - file_read
   - file_write
   - finalize_planning
+  - result_submit
   - image_generate
   - speech_generate
   - kbase_list

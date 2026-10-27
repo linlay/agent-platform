@@ -13,6 +13,12 @@ import (
 func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	runID := strings.TrimSpace(r.URL.Query().Get("runId"))
 	agentKey := strings.TrimSpace(r.URL.Query().Get("agentKey"))
+	// A Run is delivered at the level it was admitted with; observers cannot
+	// choose another.
+	if r.URL.Query().Has("detail") {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "detail is fixed when the Run starts and cannot be set on attach", map[string]any{"code": "detail_not_allowed"}))
+		return
+	}
 
 	if !s.validateHTTPRunControl(w, r, runID) {
 		return
@@ -38,6 +44,10 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	display := s.chatDisplay(status.AgentKey, status.Detail)
+	detail := display.EffectiveDetail
+	w.Header().Set("X-Event-Detail", string(detail))
+	w.Header().Set("X-Agent-Default-Detail", string(display.DefaultDetail))
 	observer, err := s.deps.Runs.AttachObserver(runID, lastSeq)
 	if err != nil {
 		var replayErr *stream.ReplayWindowExceededError
@@ -83,6 +93,10 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				_ = sseWriter.WriteDone()
 				return
+			}
+			event = stream.WithDisplay(event, display.DefaultDetail, detail)
+			if !detail.Allows(event.Type, event.Payload) {
+				continue
 			}
 			if err := sseWriter.WriteJSON("message", localizeStreamEventData(requestLocale(r, "en"), event)); err != nil {
 				if isTimeContractViolation(err) {

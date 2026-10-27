@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/conversation"
+	"agent-platform/internal/models"
 )
 
 type compactChatStore interface {
@@ -134,11 +135,13 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 		return api.CompactResponse{}, &statusError{Status: http.StatusBadRequest, Message: "agent not found"}
 	}
 
-	window := 128000
+	// Same window rule as a Run of this Agent: its maxInputTokens, never
+	// above the model's limit.
+	window := models.EffectiveContextWindow(models.ModelDefinition{}, agentDef.MaxInputTokens)
 	l1Options := chat.L1Options{}
 	if agentOK && s.deps.Models != nil {
-		if model, err := s.deps.Models.GetModel(agentDef.ModelKey); err == nil && model.ContextWindow > 0 {
-			window = model.ContextWindow
+		if model, err := s.deps.Models.GetModel(agentDef.ModelKey); err == nil {
+			window = models.EffectiveContextWindow(model, agentDef.MaxInputTokens)
 			l1Options.KeepRecent = model.L1KeepRecentRounds
 			l1Options.PreserveReasoning = contracts.AnyBoolNode(contracts.AnyMapNode(model.Compat["messages"])["preserveReasoningContent"])
 		}

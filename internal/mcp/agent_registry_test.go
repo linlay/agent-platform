@@ -75,6 +75,9 @@ func TestAgentMCPInstancesUseOwnBinariesSessionsAndToolRoutes(t *testing.T) {
 		t.Fatal("two Agent tool routes collided")
 	}
 	for _, def := range defs {
+		if def.Label != "same_tool" {
+			t.Fatalf("scoped tool lost original display name: %#v", def)
+		}
 		if id, ok := GatewayToolID(def); !ok || id != "demo/server/same_tool" {
 			t.Fatalf("gateway id = %q %v from %#v", id, ok, def.Meta)
 		}

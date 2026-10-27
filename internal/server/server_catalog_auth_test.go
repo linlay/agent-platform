@@ -480,7 +480,7 @@ func TestQueryAcceptsValidLocalJWT(t *testing.T) {
 		t.Fatalf("new server: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"鉴权测试"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"鉴权测试"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+mustSignRS256JWT(t, privateKey, map[string]any{
 		"sub": "tester",
@@ -526,7 +526,7 @@ func TestQueryRejectsInvalidLocalJWT(t *testing.T) {
 		t.Fatalf("new server: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"鉴权测试"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"鉴权测试"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+mustSignRS256JWT(t, privateKey, map[string]any{
 		"sub": "tester",
@@ -555,7 +555,7 @@ func TestQueryRejectsMissingBearerWhenLocalJWTEnabled(t *testing.T) {
 	}
 	server := newServerFromFixture(t, fixture)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"鉴权测试"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"鉴权测试"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 

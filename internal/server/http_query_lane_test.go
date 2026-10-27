@@ -23,7 +23,7 @@ func TestHTTPQueryMainLane(t *testing.T) {
 				payload["lane"] = lane
 			}
 			rec := httptest.NewRecorder()
-			fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(marshalPayload(payload))))
+			fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewReader(marshalPayload(payload))))
 			if rec.Code != http.StatusOK || rec.Header().Get("X-Side-Id") != "" {
 				t.Fatalf("main response: %d %s", rec.Code, rec.Body.String())
 			}
@@ -59,7 +59,7 @@ func TestHTTPQueryBTWLanePreservesHiddenBranch(t *testing.T) {
 				payload := map[string]any{"lane": "btw", "chatId": chatID, "sideId": btwID, "message": message, "stream": streaming,
 					"references": []any{map[string]any{"type": "selection", "text": "selected source"}}}
 				rec := httptest.NewRecorder()
-				fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(marshalPayload(payload))))
+				fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewReader(marshalPayload(payload))))
 				if rec.Code != http.StatusOK {
 					t.Fatalf("side response: %d %s", rec.Code, rec.Body.String())
 				}
@@ -127,7 +127,7 @@ func TestHTTPQueryRejectsUnsupportedLaneBeforeCreatingChat(t *testing.T) {
 		t.Run(tc.lane, func(t *testing.T) {
 			fixture := newTestFixture(t)
 			rec := httptest.NewRecorder()
-			fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(marshalPayload(map[string]any{"lane": tc.lane, "chatId": "chat-rejected-lane", "agentKey": "mock-agent", "message": "reject me"}))))
+			fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewReader(marshalPayload(map[string]any{"lane": tc.lane, "chatId": "chat-rejected-lane", "agentKey": "mock-agent", "message": "reject me"}))))
 			if rec.Code != tc.status || !strings.Contains(rec.Body.String(), tc.code) {
 				t.Fatalf("response: %d %s", rec.Code, rec.Body.String())
 			}

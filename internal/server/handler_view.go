@@ -13,7 +13,7 @@ import (
 )
 
 // ViewRequest deliberately has no Agent/path/URL selector. A Chat determines
-// the owner; a snapshot hash supports history and Team/member presentations.
+// the owner; connector views require the snapshot hash published by events.
 type ViewRequest struct {
 	Source      string `json:"source"`
 	ChatID      string `json:"chatId"`
@@ -43,45 +43,26 @@ func (s *Server) getView(ctx context.Context, req ViewRequest) (view.Document, e
 	if principal := PrincipalFromContext(ctx); principal != nil && !s.principalCanAccessResourceChat(principal, req.ChatID) {
 		return view.Document{}, newAgentStatusError(http.StatusForbidden, "view_access_denied", "view access denied")
 	}
+	// Connector views are always read from the Chat's frozen snapshots. Events
+	// carry the hash; resolving the current mount here would let history change
+	// with connector updates.
+	if req.Hash == "" {
+		return view.Document{}, newAgentStatusError(http.StatusBadRequest, "view_snapshot_required", "view snapshot hash is required")
+	}
 	summary, err := s.deps.Chats.Summary(req.ChatID)
 	if err != nil {
 		return view.Document{}, err
 	}
-	if req.Hash != "" {
-		if summary != nil {
-			return view.LoadSnapshot(s.deps.Chats.ChatDir(req.ChatID), ref)
+	if summary != nil {
+		return view.LoadSnapshot(s.deps.Chats.ChatDir(req.ChatID), ref)
+	}
+	if s.deps.Archives != nil {
+		archived, err := s.deps.Archives.LoadArchived(req.ChatID)
+		if err == nil && archived != nil {
+			return view.LoadSnapshot(s.deps.Archives.ChatDir(req.ChatID), ref)
 		}
-		if s.deps.Archives != nil {
-			archived, err := s.deps.Archives.LoadArchived(req.ChatID)
-			if err == nil && archived != nil {
-				return view.LoadSnapshot(s.deps.Archives.ChatDir(req.ChatID), ref)
-			}
-		}
-		return view.Document{}, view.ErrNotFound
 	}
-	if summary == nil {
-		return view.Document{}, view.ErrNotFound
-	}
-
-	def, release, ok := acquireAgentRuntime(s.deps.Registry, summary.AgentKey)
-	if !ok {
-		return view.Document{}, view.ErrNotFound
-	}
-	defer release()
-	mounts, err := mountedViews(def)
-	if err != nil {
-		return view.Document{}, err
-	}
-	usage := req.Usage
-	if usage == "" {
-		usage = "display"
-	}
-	doc, err := s.viewService().Resolve(ctx, mounts, ref, usage)
-	if err != nil {
-		return view.Document{}, err
-	}
-	doc.View, err = view.SaveSnapshot(s.deps.Chats.ChatDir(req.ChatID), doc)
-	return doc, err
+	return view.Document{}, view.ErrNotFound
 }
 
 func viewStatus(err error) (int, string) {

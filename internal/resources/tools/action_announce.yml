@@ -1,0 +1,20 @@
+name: action_announce
+i18n:
+  en:
+    label: "Announce Next Steps"
+  zh-CN:
+    label: "行动公示"
+activityAnnounce: message
+description: Show the user one short sentence about what you are about to do next, in the user's language. This is the only progress the user sees; use it instead of reply text when calling tools, as the first call of the response. Name the concrete action and its target, plus any confirmed finding that motivates it; do not reveal internal reasoning. It does not change plan tasks and does not wait for the user.
+clientVisible: false
+inputSchema:
+  type: object
+  properties:
+    message:
+      type: string
+      minLength: 1
+      maxLength: 120
+      description: Required. One sentence about what you will do next, at most 120 characters.
+  required:
+    - message
+  additionalProperties: false

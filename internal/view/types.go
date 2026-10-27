@@ -12,6 +12,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 var (
@@ -22,7 +23,11 @@ var (
 	hashPattern    = regexp.MustCompile(`^[a-f0-9]{64}$`)
 )
 
-const MaxDocumentBytes = 8 << 20
+const (
+	MaxDocumentBytes    = 8 << 20
+	MaxDescriptionRunes = 1024
+	MaxSchemaBytes      = 4 << 10
+)
 
 // Reference is a configured identity plus server-resolved snapshot metadata.
 // Configuration accepts only connectorId and key; clients must not select paths.
@@ -123,12 +128,22 @@ type Config struct {
 }
 
 type Definition struct {
-	Title    string   `json:"title,omitempty"`
-	Renderer string   `json:"renderer"`
-	Usage    []string `json:"usage"`
-	Entry    string   `json:"entry,omitempty"`
-	Assets   []string `json:"assets,omitempty"`
-	Remote   *Remote  `json:"remote,omitempty"`
+	Title string `json:"title,omitempty"`
+	// Description and InputSchema are the model-facing contract of a display
+	// view: the model writes a Markdown block body matching InputSchema, and
+	// the template runs its declared queries itself. Neither is sent to the
+	// frame.
+	Description string          `json:"description,omitempty"`
+	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
+	Renderer    string          `json:"renderer"`
+	Usage       []string        `json:"usage"`
+	Entry       string          `json:"entry,omitempty"`
+	Assets      []string        `json:"assets,omitempty"`
+	Remote      *Remote         `json:"remote,omitempty"`
+	// Queries are read operations the rendered view may run through the host.
+	// They are frozen into the snapshot with the template.
+	Queries map[string]Query  `json:"queries,omitempty"`
+	Actions map[string]Action `json:"actions,omitempty"`
 }
 
 // Remote fetches only a template by key; no conversation/tool/form data is sent.
@@ -167,6 +182,15 @@ func ValidateDefinitions(root string, definitions map[string]Definition) error {
 			}
 			seen[usage] = true
 		}
+		if err := validateModelContract(key, d); err != nil {
+			return err
+		}
+		if err := validateActions(key, d); err != nil {
+			return err
+		}
+		if err := validateQueries(key, d); err != nil {
+			return err
+		}
 		if d.Remote != nil {
 			if d.Entry != "" || len(d.Assets) != 0 {
 				return fmt.Errorf("%w: local and remote sources cannot be mixed", ErrInvalid)
@@ -201,6 +225,29 @@ func ValidateDefinitions(root string, definitions map[string]Definition) error {
 				}
 			}
 		}
+	}
+	return nil
+}
+
+func validateModelContract(key string, d Definition) error {
+	description := strings.TrimSpace(d.Description)
+	if d.Supports("display") && description == "" {
+		return fmt.Errorf("%w: description is required for display view %s", ErrInvalid, key)
+	}
+	if utf8.RuneCountInString(description) > MaxDescriptionRunes {
+		return fmt.Errorf("%w: description for %s exceeds %d characters", ErrInvalid, key, MaxDescriptionRunes)
+	}
+	if !d.Supports("display") {
+		if len(d.InputSchema) != 0 {
+			return fmt.Errorf("%w: inputSchema for %s requires display usage", ErrInvalid, key)
+		}
+		return nil
+	}
+	if len(d.InputSchema) == 0 {
+		return fmt.Errorf("%w: inputSchema is required for display view %s", ErrInvalid, key)
+	}
+	if _, err := compileSchema(d.InputSchema); err != nil {
+		return fmt.Errorf("%w: inputSchema for %s: %v", ErrInvalid, key, err)
 	}
 	return nil
 }
@@ -243,11 +290,13 @@ type Asset struct {
 }
 
 type Document struct {
-	View   Reference      `json:"view"`
-	Entry  string         `json:"entry,omitempty"`
-	HTML   string         `json:"html,omitempty"`
-	QLC    map[string]any `json:"qlc,omitempty"`
-	Assets []Asset        `json:"assets,omitempty"`
+	View    Reference         `json:"view"`
+	Entry   string            `json:"entry,omitempty"`
+	HTML    string            `json:"html,omitempty"`
+	QLC     map[string]any    `json:"qlc,omitempty"`
+	Assets  []Asset           `json:"assets,omitempty"`
+	Queries map[string]Query  `json:"queries,omitempty"`
+	Actions map[string]Action `json:"actions,omitempty"`
 }
 
 func (r Reference) ConfigMap() map[string]any {

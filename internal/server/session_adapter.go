@@ -11,7 +11,6 @@ import (
 	"agent-platform/internal/contracts"
 	session "agent-platform/internal/runtime/session"
 	runtimetypes "agent-platform/internal/runtime/types"
-	"agent-platform/internal/view"
 )
 
 func (s *Server) sessionBuilder() *session.Builder { return s.deps.Sessions }
@@ -48,7 +47,6 @@ func buildAuthIdentity(principal *Principal) *contracts.AuthIdentity {
 	return identity
 }
 
-func (s *Server) viewService() *view.Service { return s.sessionBuilder().ViewService() }
 func (s *Server) agentUsesContainerHub(def catalog.AgentDefinition) bool {
 	return s.sessionBuilder().AgentUsesContainerHub(def)
 }

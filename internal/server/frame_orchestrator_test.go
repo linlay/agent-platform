@@ -236,7 +236,7 @@ func TestFrameOrchestratorRejectsInvalidSubAgentMode(t *testing.T) {
 	}
 	var emitted []contracts.AgentDelta
 	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{}, map[string]catalog.AgentDefinition{
-		"planner": {Key: "planner", Mode: "PLAN_EXECUTE"},
+		"planner": {Key: "planner", Mode: "CHANNEL"},
 	}, &emitted, nil)
 
 	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)

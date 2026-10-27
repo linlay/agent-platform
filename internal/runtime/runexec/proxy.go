@@ -22,6 +22,7 @@ type ProxyExecutor struct {
 	Runs              contracts.RunManager
 	Models            *models.ModelRegistry
 	Billing           config.BillingConfig
+	AnnounceHold      time.Duration
 	Routes            *proxy.Service
 	Driver            *proxy.Driver
 	Notifications     contracts.NotificationSink
@@ -84,6 +85,7 @@ func (e *ProxyExecutor) launch(prepared runtimetypes.PreparedQuery, registered r
 		chatUsage = *prepared.Summary.Usage
 	}
 	recorder := NewProxyEventRecorder(prepared.Req, registered.StartedAtMillis, prepared.AgentDef, e.Chats, writer, registered.Control, e.Notifications, chatUsage, e.Models, e.Billing)
+	recorder.SetAnnounceHold(e.AnnounceHold)
 	ctx, cancel := context.WithCancel(registered.RunCtx)
 	stopLifecycle := context.AfterFunc(e.BackgroundContext, cancel)
 	go func() {

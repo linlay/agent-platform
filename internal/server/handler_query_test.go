@@ -152,7 +152,7 @@ func TestPrepareQueryPromotesUploadCreatedChatNameAndUpdatesAgentKey(t *testing.
 		},
 	}}
 
-	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-agent-drift","message":"use uploaded image"}`))
+	req := httptest.NewRequest("POST", "/api/query?detail=full", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-agent-drift","message":"use uploaded image"}`))
 	prepared, err := prepareQueryForTest(server, req)
 	if err != nil {
 		t.Fatalf("prepareQueryForTest: %v", err)
@@ -205,7 +205,7 @@ func TestPrepareQueryNonSandboxAgentCreatesChatDirectory(t *testing.T) {
 		},
 	}}
 
-	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-no-dir","message":"hello"}`))
+	req := httptest.NewRequest("POST", "/api/query?detail=full", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-no-dir","message":"hello"}`))
 	prepared, err := prepareQueryForTest(server, req)
 	if err != nil {
 		t.Fatalf("prepareQueryForTest: %v", err)
@@ -250,7 +250,7 @@ func TestPrepareQueryFailsFastWhenSandboxAgentRequiresDisabledContainerHub(t *te
 		},
 	}}
 
-	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"列出目录"}`))
+	req := httptest.NewRequest("POST", "/api/query?detail=full", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"列出目录"}`))
 	_, err = prepareQueryForTest(server, req)
 	if err == nil {
 		t.Fatal("expected prepareQueryForTest to fail when sandbox agent requires disabled container-hub")
@@ -285,7 +285,7 @@ func TestPrepareQueryAllowsRuntimeEnvWithoutContainerHub(t *testing.T) {
 		},
 	}}
 
-	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"列出目录"}`))
+	req := httptest.NewRequest("POST", "/api/query?detail=full", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"列出目录"}`))
 	prepared, err := prepareQueryForTest(server, req)
 	if err != nil {
 		t.Fatalf("prepareQueryForTest: %v", err)
@@ -329,7 +329,7 @@ func TestPrepareQueryDesktopParamsDoNotGrantToolsOrRuntimeEnv(t *testing.T) {
 	}}
 
 	body := `{"agentKey":"agent-a","chatId":"chat-1","message":"看当前页面","params":{"desktop":{"surfaceId":"surface-a","source":"copilot"}}}`
-	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(body))
+	req := httptest.NewRequest("POST", "/api/query?detail=full", bytes.NewBufferString(body))
 	prepared, err := prepareQueryForTest(server, req)
 	if err != nil {
 		t.Fatalf("prepareQueryForTest: %v", err)
@@ -363,7 +363,7 @@ func TestPrepareQueryCapsDesktopImageStudioZenmiRunToOneToolCall(t *testing.T) {
 		}},
 	}}
 	body := `{"agentKey":"zenmi","chatId":"chat-image-studio","message":"edit image","params":{"desktop":{"source":"copilot","action":"image_studio"}}}`
-	prepared, err := prepareQueryForTest(server, httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(body)))
+	prepared, err := prepareQueryForTest(server, httptest.NewRequest("POST", "/api/query?detail=full", bytes.NewBufferString(body)))
 	if err != nil {
 		t.Fatalf("prepareQueryForTest: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestPrepareQueryCapsDesktopImageStudioZenmiRunToOneToolCall(t *testing.T) {
 	}
 
 	normalBody := `{"agentKey":"zenmi","chatId":"chat-normal","message":"hello","params":{"desktop":{"source":"copilot","action":"chat"}}}`
-	normal, err := prepareQueryForTest(server, httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(normalBody)))
+	normal, err := prepareQueryForTest(server, httptest.NewRequest("POST", "/api/query?detail=full", bytes.NewBufferString(normalBody)))
 	if err != nil {
 		t.Fatalf("prepare normal query: %v", err)
 	}

@@ -204,6 +204,10 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	// The source Run's query was admitted through chat_start, so its recorded
 	// references stay exempt from the frozen interaction policy here as well.
 	sourceStatus, sourceFound := s.deps.Runs.RunStatus(sourceRunID)
+	if sourceFound {
+		// Whoever watched the source Run keeps its delivery level.
+		req.Detail = sourceStatus.Detail
+	}
 	session, err := s.deps.Sessions.BuildQuerySession(context.Background(), req, summary, agentDef, sessionbuild.Options{
 		DisableSkillScriptGrants: !newExecutionRun,
 		SkipInteractionPolicy:    sourceFound && sourceStatus.RunOrigin != nil,
@@ -341,6 +345,7 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	runCtx, control := registered.RunCtx, registered.Control
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
+	contracts.BindContentViews(runCtx, mapper, &session)
 	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID, agentDef.Mode)
 	stepWriter.SetRunLocale(session.Locale)
 	transferredRuntime = true
@@ -741,7 +746,7 @@ func planContinuationRequestInput(original *chat.QueryLine, submitReq queryinput
 func confirmedPlanSyntheticBootstrap(session contracts.QuerySession, system *chat.QueryLineSystem) *stream.SyntheticQuery {
 	bootstrap := &stream.SyntheticQuery{
 		ChatID:   session.ChatID,
-		Message:  agentbuiltin.PlanExecuteSyntheticQueryMessage(session.Locale),
+		Message:  agentbuiltin.ExecuteSyntheticQueryMessage(session.Locale),
 		Messages: cloneMessageMapsForSyntheticBootstrap(session.CurrentMessages),
 	}
 	if system != nil {

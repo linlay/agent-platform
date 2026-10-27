@@ -4,6 +4,7 @@ i18n:
     label: "Edit File"
   zh-CN:
     label: "编辑文件"
+activityArgs: [description, filePath]
 description: |
   Edit a single text file on the host filesystem by replacing an exact string. Prefer this tool for modifying existing files when available; use file_write for full overwrites.
   Editing preserves a run-authored script proof only when this run already fully wrote the file and its pre-edit bytes still match. Editing an external script, or creating one through file_edit alone, does not create this proof.

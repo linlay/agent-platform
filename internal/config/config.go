@@ -15,6 +15,11 @@ type ConversationExportConfig struct {
 }
 
 type Config struct {
+	ModeDefaultDetails map[string]string
+	// AnnounceHoldSeconds is how long an announcement of next steps at least
+	// stays a scope's progress line; 0 disables the hold.
+	AnnounceHoldSeconds int
+
 	Export           ConversationExportConfig
 	PresetTools      []string
 	PresetConnectors []string
@@ -36,6 +41,7 @@ type Config struct {
 	CoderSettings    CoderSettingsConfig
 	GeneralSettings  GeneralSettingsConfig
 	TeamSettings     GeneralSettingsConfig
+	ExecutorSettings GeneralSettingsConfig
 	KBase            KBaseConfig
 	VisionRecognize  VisionRecognizeConfig
 	WebFetch         WebFetchConfig
@@ -193,9 +199,10 @@ type QueryConfig struct {
 type PromptsConfig struct {
 	Runtime      RuntimePromptConfig
 	Skill        PromptSkillConfig
+	View         PromptViewConfig
+	Announce     PromptAnnounceConfig
 	Reference    PromptReferenceConfig
 	ToolAppendix ToolAppendixPromptsConfig
-	PlanExecute  PlanExecutePromptsConfig
 	BTW          BTWPromptsConfig
 	Automation   AutomationPromptsConfig
 	PlanningMode PlanningModePromptsConfig
@@ -214,6 +221,19 @@ type PromptSkillConfig struct {
 	InstructionsLabel  string
 }
 
+// PromptViewConfig holds the Markdown VIEW rules and catalog header. Both are
+// required together; empty instructions omit the VIEW section.
+type PromptViewConfig struct {
+	InstructionsPrompt string
+	CatalogHeader      string
+}
+
+// PromptAnnounceConfig holds the progress announcement rules, appended when
+// the stage's tools include an announce tool. Empty omits the section.
+type PromptAnnounceConfig struct {
+	InstructionsPrompt string
+}
+
 type PromptReferenceConfig struct {
 	ProtocolPrompt         string
 	AdvancedProtocolPrompt string
@@ -222,13 +242,6 @@ type PromptReferenceConfig struct {
 type ToolAppendixPromptsConfig struct {
 	ToolDescriptionTitle string
 	AfterCallHintTitle   string
-}
-
-type PlanExecutePromptsConfig struct {
-	TaskExecutionPromptTemplate string
-	PlanUserPromptTemplate      string
-	SummarySystemPrompt         string
-	SummaryUserPromptTemplate   string
 }
 
 // BTWPromptsConfig controls the user-level instructions used by hidden side
@@ -412,7 +425,6 @@ type MemoryWorkerConfig struct {
 type DefaultsConfig struct {
 	Budget        BudgetDefaultsConfig
 	React         ReactDefaultsConfig
-	Plan          PlanExecuteDefaultsConfig
 	CoderPlanning CoderPlanningDefaultsConfig
 }
 
@@ -450,11 +462,6 @@ type HitlModeBudgetConfig struct {
 
 type ReactDefaultsConfig struct {
 	MaxSteps int
-}
-
-type PlanExecuteDefaultsConfig struct {
-	MaxSteps             int
-	MaxWorkRoundsPerTask int
 }
 
 type CoderPlanningDefaultsConfig struct {
@@ -851,13 +858,22 @@ type PlanningModeConfig struct {
 
 // DefaultPlanningModeConfig keeps planning free of local mutation and keeps
 // confirmed-plan execution from asking the user again.
+// DefaultAnnounceHoldSeconds is agent-settings.yml announce-hold-seconds when
+// omitted.
+const DefaultAnnounceHoldSeconds = 60
+
+// AnnounceHold returns the configured hold as a duration.
+func (c Config) AnnounceHold() time.Duration {
+	return time.Duration(c.AnnounceHoldSeconds) * time.Second
+}
+
 func DefaultPlanningModeConfig() PlanningModeConfig {
 	return PlanningModeConfig{
 		ExcludeTools: []string{
 			"bash", "bash_sandbox", "file_write", "file_edit", "artifact_publish", "image_generate", "speech_generate",
 			"plan_add_tasks", "plan_update_task",
 			"agent_invoke", "chat_start", "chat_interrupt", "chat_steer", "chat_manage",
-			"automation_manage", "catalog_manage", "run_env", "ask_user_form",
+			"automation_manage", "catalog_manage", "run_env", "ask_user_form", "result_submit",
 		},
 		ExecuteExcludeTools: []string{"ask_user_question", "ask_user_form"},
 	}
@@ -891,6 +907,8 @@ func (c Config) WorkspaceAgentsForMode(mode string) CoderWorkspaceAgentsConfig {
 		return c.KBase.WorkspaceAgents
 	case "TEAM":
 		return c.TeamSettings.WorkspaceAgents
+	case "EXECUTOR":
+		return c.ExecutorSettings.WorkspaceAgents
 	default:
 		return CoderWorkspaceAgentsConfig{}
 	}
@@ -919,7 +937,7 @@ func mergePresetNames(groups ...[]string) []string {
 }
 func (c Config) AllPresetConnectors() []string {
 	out := c.PresetConnectors
-	for _, mode := range []string{"general", "coder", "kbase"} {
+	for _, mode := range presetModeSections {
 		out = mergePresetNames(out, c.ModePresets[mode].Connectors)
 	}
 	return out

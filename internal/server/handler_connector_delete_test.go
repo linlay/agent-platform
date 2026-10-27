@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"agent-platform/internal/adminsource"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/connector"
 )
@@ -142,6 +143,12 @@ func TestConnectorDeleteHTTPContractAndRollback(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	registry := f.registry.(*catalog.FileRegistry)
+	_, release, ok := registry.AcquireAgentRuntime("mock-agent")
+	if !ok {
+		t.Fatal("missing Agent")
+	}
+	defer release()
 	for id, status := range map[string]int{"builtin.dbx": 403, "missing": 404, "../bad": 400, "": 400, "docs": 409} {
 		rec := deleteConnectorRequest(f.server, id)
 		if rec.Code != status {
@@ -244,5 +251,248 @@ func TestConnectorDeleteChecksFreshInvalidSourcesAndLeasedRuntimes(t *testing.T)
 	}
 	if _, err := f.server.connectorSources().Load("docs"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("package still installed: %v", err)
+	}
+}
+
+func TestConnectorDeleteAutomaticallyDetachesSavedMounts(t *testing.T) {
+	f := agentConnectorsFixture(t)
+	registry := f.registry.(*catalog.FileRegistry)
+	before, err := registry.ReadEditableAgentSource("mock-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A second Agent references the same package, but no Run holds a lease.
+	second := strings.ReplaceAll(before.Content, "mock-agent", "second-agent")
+	if err := os.MkdirAll(filepath.Join(f.cfg.Paths.AgentsDir, "second-agent"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.cfg.Paths.AgentsDir, "second-agent", "agent.yml"), []byte(second), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.server.reloadAgentCatalog(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	list := httptest.NewRecorder()
+	f.server.ServeHTTP(list, httptest.NewRequest("GET", "/api/admin/connectors", nil))
+	var body struct {
+		Data struct {
+			Connectors []struct {
+				ID    string `json:"id"`
+				Count *int   `json:"mountedAgentCount"`
+			} `json:"connectors"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(list.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range body.Data.Connectors {
+		if item.ID == "docs" {
+			found = true
+			if item.Count == nil || *item.Count != 2 {
+				t.Fatalf("count: %#v", item.Count)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("connector missing from directory")
+	}
+	if rec := deleteConnectorRequest(f.server, "docs"); rec.Code != 200 {
+		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+	}
+	for _, key := range []string{"mock-agent", "second-agent"} {
+		ids, err := registry.ReadAgentConnectors(key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ids) != 1 || ids[0] != "meeting" {
+			t.Fatalf("%s mounts: %v", key, ids)
+		}
+		def, ok := registry.AgentDefinition(key)
+		if !ok {
+			t.Fatalf("Agent %s disappeared", key)
+		}
+		for _, id := range def.Connectors {
+			if id == "docs" {
+				t.Fatal("stale published mount")
+			}
+		}
+	}
+	after, err := registry.ReadEditableAgentSource("mock-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(after.Content, "effort: low") {
+		t.Fatal("unrelated settings changed")
+	}
+	if _, err := f.server.connectorSources().Load("docs"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("package remains: %v", err)
+	}
+}
+
+func TestConnectorDeleteRunStartedAfterConfirmationLeavesMountsUntouched(t *testing.T) {
+	f := agentConnectorsFixture(t)
+	registry := f.registry.(*catalog.FileRegistry)
+	before, err := registry.ReadEditableAgentSource("mock-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the user opening confirmation before the lease is acquired.
+	if users, err := registry.ActiveConnectorUsers("docs"); err != nil || len(users) != 0 {
+		t.Fatalf("preflight: %v %v", users, err)
+	}
+	_, release, ok := registry.AcquireAgentRuntime("mock-agent")
+	if !ok {
+		t.Fatal("missing runtime")
+	}
+	defer release()
+	rec := deleteConnectorRequest(f.server, "docs")
+	if rec.Code != 409 || !strings.Contains(rec.Body.String(), "connector_in_use") {
+		t.Fatalf("busy: %d %s", rec.Code, rec.Body.String())
+	}
+	after, err := registry.ReadEditableAgentSource("mock-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Content != after.Content {
+		t.Fatal("busy deletion changed mounts")
+	}
+	if users, err := registry.ActiveConnectorUsers("docs"); err != nil || len(users) != 1 {
+		t.Fatalf("lease was changed: %v %v", users, err)
+	}
+	release()
+	if rec := deleteConnectorRequest(f.server, "docs"); rec.Code != 200 {
+		t.Fatalf("retry: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestConnectorDeleteRestoresMountsWhenReloadFails(t *testing.T) {
+	f := agentConnectorsFixture(t)
+	registry := f.registry.(*catalog.FileRegistry)
+	before, err := registry.ReadEditableAgentSource("mock-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.server.deps.CatalogReloader = &recordingServerCatalogReloader{err: errors.New("reload failed")}
+	if rec := deleteConnectorRequest(f.server, "docs"); rec.Code != 500 {
+		t.Fatalf("reload failure: %d %s", rec.Code, rec.Body.String())
+	}
+	after, err := registry.ReadEditableAgentSource("mock-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Content != after.Content {
+		t.Fatal("mounts not restored")
+	}
+	if _, err := f.server.connectorSources().Load("docs"); err != nil {
+		t.Fatalf("package not restored: %v", err)
+	}
+	// Failed deletion must release its execution-admission gate.
+	if _, release, ok := registry.AcquireAgentRuntime("mock-agent"); !ok {
+		t.Fatal("gate retained after rollback")
+	} else {
+		release()
+	}
+}
+
+func TestConnectorDeleteCatalogControlSharesDetachAndBusyPolicy(t *testing.T) {
+	f := agentConnectorsFixture(t)
+	registry := f.registry.(*catalog.FileRegistry)
+	service := &adminsource.ControlService{Config: f.cfg, Registry: registry, Mutations: f.server.adminSources, BeginConnectorDelete: f.server.connectorAuth.BeginDelete, Reload: func(ctx context.Context, reason string) error {
+		return f.server.deps.CatalogReloader.Reload(ctx, reason)
+	}}
+	target := adminsource.ControlTarget{ResourceType: "connector", ResourceKey: "docs"}
+	source, err := service.Read(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change := adminsource.ControlChange{ControlTarget: target, Action: "delete", BaseRevision: source.BaseRevision}
+	plan, err := service.Prepare(change, "caller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.DetachedAgentKeys) != 1 || plan.DetachedAgentKeys[0] != "mock-agent" {
+		t.Fatalf("approval: %#v", plan.DetachedAgentKeys)
+	}
+	_, release, ok := registry.AcquireAgentRuntime("mock-agent")
+	if !ok {
+		t.Fatal("missing runtime")
+	}
+	defer release()
+	if _, err := service.Apply(context.Background(), change, "caller", plan.Digest); err == nil {
+		t.Fatal("tool deletion bypassed live lease")
+	}
+	release()
+	root := f.server.connectorSources().PersistentRoot()
+	state := filepath.Join(root, "docs", "credentials.json")
+	if err := os.MkdirAll(filepath.Dir(state), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state, []byte(`{"fixture":"private"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.Apply(context.Background(), change, "caller", plan.Digest)
+	if err != nil || result["status"] != "applied" {
+		t.Fatalf("apply: %v %v", result, err)
+	}
+	ids, err := registry.ReadAgentConnectors("mock-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != "meeting" {
+		t.Fatalf("stale mounts: %v", ids)
+	}
+	if _, err := os.Stat(state); !os.IsNotExist(err) {
+		t.Fatalf("private state retained: %v", err)
+	}
+}
+
+// A malformed view must remain diagnosable and removable from the admin catalog.
+func TestConnectorDeleteWithInvalidView(t *testing.T) {
+	f := agentConnectorsFixture(t)
+	sources := f.server.connectorSources()
+	const id = "invalid-view"
+	writeMCPConnectorForTest(t, sources.ExternalRoot, id)
+	if err := os.WriteFile(filepath.Join(sources.ExternalRoot, id, "view.json"), []byte(`{"views":`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/connectors", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("catalog failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Data struct {
+			Connectors []struct {
+				ID        string `json:"id"`
+				Status    string `json:"status"`
+				Error     string `json:"error"`
+				CanDelete bool   `json:"canDelete"`
+				ReadOnly  bool   `json:"readOnly"`
+			} `json:"connectors"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range response.Data.Connectors {
+		if item.ID != id {
+			continue
+		}
+		found = true
+		if item.Status != "invalid" || item.Error == "" || !item.CanDelete || item.ReadOnly {
+			t.Fatalf("invalid external package must remain deletable: %+v", item)
+		}
+	}
+	if !found {
+		t.Fatal("invalid package missing from catalog")
+	}
+	rec = deleteConnectorRequest(f.server, id)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"deleted":true`) {
+		t.Fatalf("delete invalid package failed: %d %s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(sources.ExternalRoot, id)); !os.IsNotExist(err) {
+		t.Fatalf("invalid package retained: %v", err)
 	}
 }

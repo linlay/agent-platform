@@ -44,7 +44,7 @@ func TestPrepareSystemInitCacheWritesFreshSystemMessageOnPayloadChange(t *testin
 		PromptAppend:        contracts.DefaultPromptAppendConfig(),
 		GlobalMemoryContext: "Runtime Context: Current Session\n- stale session memory",
 	}
-	oldProfiles := llm.BuildSystemInitProfiles(oldSession, req, toolDefs, 0, 0, 0, config.PromptsConfig{})
+	oldProfiles := llm.BuildSystemInitProfiles(oldSession, req, toolDefs, 0, config.PromptsConfig{})
 	if len(oldProfiles) != 1 {
 		t.Fatalf("expected one system init profile, got %#v", oldProfiles)
 	}
@@ -152,51 +152,6 @@ func TestPrepareSystemInitCacheReturnsPendingLineOnFingerprintChange(t *testing.
 	}
 	if loaded != nil {
 		t.Fatalf("prepare should not append before query, got %#v", loaded)
-	}
-}
-
-func TestPrepareSystemInitCacheRegistersPlanExecuteProfiles(t *testing.T) {
-	store, err := chat.NewFileStoreAtStartup(t.TempDir())
-	if err != nil {
-		t.Fatalf("new chat store: %v", err)
-	}
-
-	req := api.QueryRequest{ChatID: "chat-plan", Message: "plan this"}
-	toolDefs := []api.ToolDetailResponse{{Name: "bash", Description: "run command"}}
-	server := &Server{deps: Dependencies{
-		Config:      config.Config{},
-		Chats:       store,
-		Tools:       systemInitStaticToolExecutor{defs: toolDefs},
-		SystemInits: llm.SystemInitProfileBuilder{},
-	}}
-	session := contracts.QuerySession{
-		RunID:        "run-1",
-		ChatID:       "chat-plan",
-		AgentKey:     "agent",
-		ModelKey:     "mock-model",
-		ToolNames:    []string{"bash"},
-		Mode:         "PLAN_EXECUTE",
-		PromptAppend: contracts.DefaultPromptAppendConfig(),
-	}
-
-	pending, err := server.prepareSystemInitCache(req, &session, true)
-	if err != nil {
-		t.Fatalf("prepare system init cache: %v", err)
-	}
-	if pending == nil || pending.CacheKey != "plan-execute:plan" {
-		t.Fatalf("expected only plan profile on the initial query, got %#v", pending)
-	}
-	if !session.PendingSystemInitKeys["plan-execute:execute"] || !session.PendingSystemInitKeys["plan-execute:summary"] {
-		t.Fatalf("expected execute and summary profiles to remain pending, got %#v", session.PendingSystemInitKeys)
-	}
-	if _, ok := session.SystemInitCache["plan-execute:plan"]; !ok {
-		t.Fatalf("expected plan profile cached, got %#v", session.SystemInitCache)
-	}
-	if _, ok := session.SystemInitCache["plan-execute:execute"]; !ok {
-		t.Fatalf("expected execute profile cached, got %#v", session.SystemInitCache)
-	}
-	if _, ok := session.SystemInitCache["plan-execute:summary"]; !ok {
-		t.Fatalf("expected summary profile cached, got %#v", session.SystemInitCache)
 	}
 }
 

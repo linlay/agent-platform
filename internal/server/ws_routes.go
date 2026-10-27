@@ -190,6 +190,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/connectors/order", s.wsConnectorOrder)
 	handler.RegisterRoute("/api/chats", s.wsChats)
 	handler.RegisterRoute("/api/chats/order", s.wsChatOrder)
+	handler.RegisterRoute("/api/chats/primary", s.wsChatPrimary)
 	handler.RegisterRoute("/api/chat", s.wsChat)
 	handler.RegisterRoute("/api/chat/jsonl", s.wsChatJSONL)
 	handler.RegisterRoute("/api/chat/system-prompt", s.wsChatSystemPrompt)
@@ -227,6 +228,8 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/compact", s.wsCompact)
 	handler.RegisterRoute("/api/file", s.wsAgentFile)
 	handler.RegisterRoute("/api/view", s.wsView)
+	handler.RegisterRoute("/api/view/query", s.wsViewQuery)
+	handler.RegisterRoute("/api/view/invoke", s.wsViewInvoke)
 	handler.RegisterRoute("/api/project/git", s.wsProjectGit)
 	handler.RegisterRoute("/api/project/git/branches", s.wsProjectGitBranches)
 	handler.RegisterRoute("/api/resource", s.wsResource)
@@ -332,6 +335,7 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		Mode         string          `json:"mode"`
 		Limit        json.RawMessage `json:"limit"`
 		Pinned       json.RawMessage `json:"pinned"`
+		Primary      json.RawMessage `json:"primary"`
 		HasWorkspace json.RawMessage `json:"hasWorkspace"`
 	}](req)
 	if err != nil {
@@ -367,13 +371,19 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	primary, primaryErr := parseOptionalBoolPayload(payload.Primary, "primary")
+	if primaryErr != nil {
+		conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, primaryErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
 	hasWorkspace, workspaceErr := parseOptionalBoolPayload(payload.HasWorkspace, "hasWorkspace")
 	if workspaceErr != nil {
 		conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, workspaceErr.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	response, listErr := s.listChatSummariesWithPinned(payload.LastRunID, payload.AgentKey, modes, limit, pinned, hasWorkspace)
+	response, listErr := s.listChatSummariesWithPinned(payload.LastRunID, payload.AgentKey, modes, limit, pinned, primary, hasWorkspace)
 	if listErr != nil {
 		if isTimeContractViolation(listErr) {
 			sendTimeContractViolation(conn, req.ID, listErr)
@@ -440,6 +450,8 @@ func (s *Server) wsChat(ctx context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	response.Display = s.chatDisplay(response.AgentKey, chatReadDetail(response, req.DetailLevel()))
+	response.Events = response.Display.EffectiveDetail.FilterEvents(response.Events)
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }

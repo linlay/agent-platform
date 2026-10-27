@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -57,20 +58,22 @@ type ControlPlan struct {
 	GeneratedFiles      map[string]string
 	Digest              string
 	KnowledgeBinding    *KnowledgeBindingReview
+	DetachedAgentKeys   []string
 	root, rel, revision string
 	exists              bool
 }
 type ControlService struct {
-	importReceipts    operationstate.Receipts[archiveImportReceipt]
-	Reload            func(context.Context, string) error
-	Coordinate        func(context.Context, string, func(context.Context) error) error
-	Mutations         *Service
-	Config            config.Config
-	Registry          catalog.Registry
-	Models            *models.ModelRegistry
-	ValidateLibrary   func(string) error
-	LibraryDefinition func(string) (kbases.Definition, error)
-	PrepareConnector  func(string) (connectorauth.Preparation, error)
+	importReceipts       operationstate.Receipts[archiveImportReceipt]
+	Reload               func(context.Context, string) error
+	Coordinate           func(context.Context, string, func(context.Context) error) error
+	Mutations            *Service
+	Config               config.Config
+	Registry             catalog.Registry
+	Models               *models.ModelRegistry
+	ValidateLibrary      func(string) error
+	LibraryDefinition    func(string) (kbases.Definition, error)
+	PrepareConnector     func(string) (connectorauth.Preparation, error)
+	BeginConnectorDelete func(context.Context, string) (func(), error)
 }
 
 func controlHash(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
@@ -363,6 +366,9 @@ func (s *ControlService) Validate(t ControlTarget, content string) error {
 		if e = ValidateKnowledgeBinding(m, s.ValidateLibrary); e != nil {
 			return e
 		}
+		if e = ValidateModelInputLimit(m, s.Models); e != nil {
+			return e
+		}
 		if s.Registry != nil {
 			for _, name := range stringList(node(m, "toolConfig")["tools"]) {
 				if _, ok := s.Registry.Tool(name); !ok {
@@ -532,6 +538,28 @@ func (s *ControlService) Prepare(c ControlChange, caller string) (*ControlPlan, 
 				return nil, fmt.Errorf("inline credentials are not editable; use connector authorization")
 			}
 		}
+	} else if c.ResourceType == "connector" {
+		editor, ok := s.Registry.(ConnectorDeletionEditor)
+		if !ok {
+			return nil, fmt.Errorf("connector deletion editor is not configured")
+		}
+		users, err := editor.ActiveConnectorUsers(c.ResourceKey)
+		if err != nil {
+			return nil, err
+		}
+		if len(users) > 0 {
+			return nil, &ConnectorInUseError{AgentKeys: users}
+		}
+		mutation, err := editor.PrepareConnectorDetach(c.ResourceKey)
+		if err != nil {
+			return nil, err
+		}
+		for _, file := range mutation.AgentKeys() {
+			p.DetachedAgentKeys = append(p.DetachedAgentKeys, file)
+		}
+		if len(p.DetachedAgentKeys) > 0 {
+			p.After = fmt.Sprintf("Remove connector mounts from %d Agents: %s", len(p.DetachedAgentKeys), strings.Join(p.DetachedAgentKeys, ", "))
+		}
 	} else if e = s.checkReferences(c.ControlTarget); e != nil {
 		return nil, e
 	}
@@ -549,19 +577,6 @@ func (s *ControlService) Prepare(c ControlChange, caller string) (*ControlPlan, 
 }
 func (s *ControlService) checkReferences(t ControlTarget) error {
 
-	if t.ResourceType == "connector" {
-		r, ok := s.Registry.(ConnectorUsageReader)
-		if !ok {
-			return fmt.Errorf("connector usage unavailable")
-		}
-		users, e := r.ConnectorUsers(t.ResourceKey)
-		if e != nil {
-			return e
-		}
-		if len(users) > 0 {
-			return &ConnectorInUseError{users}
-		}
-	}
 	// Scan current source as well as the published catalog, including invalid Agents.
 	return filepath.WalkDir(s.Config.Paths.AgentsDir, func(path string, d fs.DirEntry, e error) error {
 		if os.IsNotExist(e) {
@@ -597,6 +612,25 @@ func (s *ControlService) checkReferences(t ControlTarget) error {
 	})
 }
 func (s *ControlService) Apply(ctx context.Context, c ControlChange, caller, digest string) (map[string]any, error) {
+	if c.ResourceType == "connector" && c.Action == "delete" && s.BeginConnectorDelete != nil {
+		editor, ok := s.Registry.(ConnectorDeletionEditor)
+		if !ok {
+			return nil, fmt.Errorf("connector deletion editor is not configured")
+		}
+		users, err := editor.ActiveConnectorUsers(c.ResourceKey)
+		if err != nil {
+			return nil, err
+		}
+		if len(users) > 0 {
+			return nil, &ConnectorInUseError{AgentKeys: users}
+		}
+		release, err := s.BeginConnectorDelete(ctx, c.ResourceKey)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+	}
+
 	unlock := s.Mutations.LockAgentMutation()
 	defer unlock()
 	sourceUnlock := s.Mutations.LockSourceMutation()
@@ -630,7 +664,7 @@ func (s *ControlService) applyLocked(ctx context.Context, c ControlChange, calle
 			err = &contracts.MutationError{State: state, Err: err}
 		}
 	}()
-	if c.ResourceType == "connector" {
+	if c.ResourceType == "connector" && c.Action != "delete" {
 		release, e := connector.AcquireOperation(s.Config.Paths.EffectiveConnectorsCenterDir(), c.ResourceKey)
 		if e != nil {
 			return nil, e
@@ -644,6 +678,22 @@ func (s *ControlService) applyLocked(ctx context.Context, c ControlChange, calle
 	if p.Digest != digest {
 		return nil, fmt.Errorf("approval_stale")
 	}
+	if c.ResourceType == "connector" && c.Action == "delete" {
+		reader, ok := s.Registry.(ConnectorUsageReader)
+		if !ok {
+			return nil, fmt.Errorf("connector usage unavailable")
+		}
+		err := s.Mutations.deleteConnectorLocked(ctx, s.Config.Paths.ConnectorSources(), reader, c.ResourceKey, func(ctx context.Context) error { return s.reload(ctx, "connector") })
+		if err != nil {
+			if errors.Is(err, connector.ErrDeleteCleanup) {
+				state = "committed"
+			}
+			return nil, err
+		}
+		state = "committed"
+		return map[string]any{"status": "applied", "resourceType": "connector", "resourceKey": c.ResourceKey, "detachedAgentKeys": p.DetachedAgentKeys}, nil
+	}
+
 	if e = os.MkdirAll(filepath.Dir(p.root), 0755); e != nil {
 		return nil, e
 	}

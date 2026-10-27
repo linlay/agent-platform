@@ -307,6 +307,15 @@ func LocalizeEventPayload(locale string, eventType string, payload map[string]an
 	if payload == nil {
 		return payload
 	}
+	if eventType == "tool.result" {
+		out := cloneMap(payload)
+		// Localize the envelope only. Tool output is opaque business data.
+		localizeToolPresentation(locale, out)
+		return out
+	}
+	if eventType == "run.activity" {
+		return localizeActivityPayload(locale, payload)
+	}
 	out, _ := localizeJSONValue(locale, payload).(map[string]any)
 	if len(out) == 0 {
 		return payload
@@ -326,6 +335,11 @@ func LocalizeEventPayload(locale string, eventType string, payload map[string]an
 func localizeJSONValue(locale string, value any) any {
 	switch typed := value.(type) {
 	case map[string]any:
+		if eventType, _ := typed["type"].(string); eventType == "tool.result" {
+			out := cloneMap(typed)
+			localizeToolPresentation(locale, out)
+			return out
+		}
 		out := make(map[string]any, len(typed))
 		for key, child := range typed {
 			out[key] = localizeJSONValue(locale, child)

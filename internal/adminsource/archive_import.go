@@ -130,7 +130,7 @@ func (s *ControlService) PrepareArchiveImport(ctx context.Context, req ArchiveIm
 			return nil, err
 		}
 		p.close = prepared.Close
-		if err := prepared.Validate(mcp.ValidateConnectorPackages); err != nil {
+		if err := prepared.Validate(mcp.ValidateConnectorImportPackages); err != nil {
 			return nil, err
 		}
 		pkg := prepared.Package()
@@ -156,7 +156,7 @@ func (s *ControlService) PrepareArchiveImport(ctx context.Context, req ArchiveIm
 			p.After["cliPreparation"] = map[string]any{"runtime": pkg.CLI["runtime"], "init": pkg.CLI["init"], "versionCheck": pkg.CLI["versionCheck"]}
 		}
 		p.publish = func(ctx context.Context, check func() error) error {
-			_, err := prepared.PublishConditional(ctx, req.Overwrite, check, mcp.ValidateConnectorPackages, func() error { return s.reload(context.WithoutCancel(ctx), "connector") })
+			_, err := prepared.PublishConditional(ctx, req.Overwrite, check, mcp.ValidateConnectorImportPackages, func() error { return s.reload(context.WithoutCancel(ctx), "connector") })
 			var mutation *connector.ArchiveMutationError
 			if errors.As(err, &mutation) {
 				return &contracts.MutationError{State: mutation.State, Err: err}

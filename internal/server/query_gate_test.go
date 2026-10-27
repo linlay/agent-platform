@@ -59,7 +59,7 @@ func TestQueryGateRejectsPendingAwaitingModes(t *testing.T) {
 			seedDeferredAwaitingPayload(t, fixture.chats, chatID, runID, tc.awaitingID, tc.mode, 600, nowMs, tc.ask)
 
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"second query"}`))
+			req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"second query"}`))
 			req.Header.Set("Content-Type", "application/json")
 			fixture.server.ServeHTTP(rec, req)
 
@@ -138,7 +138,7 @@ func TestQueryGateCleansInvalidPendingAwaitingAndAllowsQuery(t *testing.T) {
 			tc.seed(t, fixture.chats, chatID)
 
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"allowed query"}`))
+			req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"allowed query"}`))
 			req.Header.Set("Content-Type", "application/json")
 			fixture.server.ServeHTTP(rec, req)
 			if rec.Code != http.StatusOK {
@@ -169,7 +169,7 @@ func TestQueryRejectsExistingLiveActiveRun(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"second query"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"second query"}`))
 	req.Header.Set("Content-Type", "application/json")
 	fixture.server.ServeHTTP(rec, req)
 

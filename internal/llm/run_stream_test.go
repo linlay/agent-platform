@@ -436,6 +436,12 @@ func TestParallelToolCallBatchStreamsResultAsEachToolCompletes(t *testing.T) {
 			t.Fatalf("expected empty-arguments DeltaToolCall for %s, got %#v", toolID, delta)
 		}
 	}
+	// Complete arguments let the first tool's activity show before it runs.
+	if delta, err := stream.Next(); err != nil {
+		t.Fatalf("expected first tool activity before tool end: %v", err)
+	} else if activity, ok := delta.(contracts.DeltaRunActivity); !ok || activity.Kind != contracts.ActivityToolRun || activity.ToolID != "tool_1" {
+		t.Fatalf("expected tool_run activity for tool_1 before tool end, got %#v", delta)
+	}
 	if delta, err := stream.Next(); err != nil {
 		t.Fatalf("expected tool end delta before batch starts: %v", err)
 	} else if _, ok := delta.(contracts.DeltaToolEnd); !ok {
@@ -730,10 +736,7 @@ func TestModelRetryRetriesProviderTimeoutBeforeVisibleOutput(t *testing.T) {
 		}
 		switch typed := delta.(type) {
 		case contracts.DeltaRunActivity:
-			statuses = append(statuses, typed.Status)
-			if typed.Status == "retrying" && typed.Retry["maxAttempts"] != 4 {
-				t.Fatalf("expected maxAttempts 4, got %#v", typed)
-			}
+			statuses = append(statuses, typed.Kind)
 		case contracts.DeltaModelTurnDiscard:
 			if typed.Retrying {
 				statuses = append(statuses, "retrying")
@@ -751,7 +754,7 @@ func TestModelRetryRetriesProviderTimeoutBeforeVisibleOutput(t *testing.T) {
 	if protocol.openCount != 2 {
 		t.Fatalf("expected 2 provider attempts, got %d", protocol.openCount)
 	}
-	if !reflect.DeepEqual(statuses, []string{"waiting", "retrying", "running", "completed"}) {
+	if !reflect.DeepEqual(statuses, []string{"thinking", "retrying"}) {
 		t.Fatalf("unexpected activity statuses %#v", statuses)
 	}
 	if content != "ok" {
@@ -878,7 +881,7 @@ func TestModelRetryEmitsFailedWhenAttemptsExhausted(t *testing.T) {
 			break
 		}
 		if activity, ok := delta.(contracts.DeltaRunActivity); ok {
-			statuses = append(statuses, activity.Status)
+			statuses = append(statuses, activity.Kind)
 		}
 		if discard, ok := delta.(contracts.DeltaModelTurnDiscard); ok && discard.Retrying {
 			statuses = append(statuses, "retrying")
@@ -894,7 +897,7 @@ func TestModelRetryEmitsFailedWhenAttemptsExhausted(t *testing.T) {
 	if protocol.openCount != 4 {
 		t.Fatalf("expected 4 provider attempts, got %d", protocol.openCount)
 	}
-	want := []string{"waiting", "retrying", "retrying", "retrying"}
+	want := []string{"thinking", "retrying", "retrying", "retrying"}
 	if !reflect.DeepEqual(statuses, want) {
 		t.Fatalf("statuses=%#v want %#v", statuses, want)
 	}
@@ -1078,9 +1081,9 @@ func TestFinishCurrentTurnEstimatesFileWriteChangeOnToolEnd(t *testing.T) {
 	if err := stream.finishCurrentTurn(); err != nil {
 		t.Fatalf("finishCurrentTurn: %v", err)
 	}
-	end, ok := stream.pending[0].(contracts.DeltaToolEnd)
+	end, ok := stream.pending[1].(contracts.DeltaToolEnd)
 	if !ok {
-		t.Fatalf("expected DeltaToolEnd first, got %#v", stream.pending)
+		t.Fatalf("expected DeltaToolEnd after the tool activity, got %#v", stream.pending)
 	}
 	fileChange := end.FileChanges["tool_1"]
 	assertFileChange(t, fileChange, resolvedTestPath(t, root, "owner.md"), "write", 2, 0, 0)
@@ -1123,9 +1126,9 @@ func TestFinishCurrentTurnEstimatesFileEditChangeOnToolEnd(t *testing.T) {
 	if err := stream.finishCurrentTurn(); err != nil {
 		t.Fatalf("finishCurrentTurn: %v", err)
 	}
-	end, ok := stream.pending[0].(contracts.DeltaToolEnd)
+	end, ok := stream.pending[1].(contracts.DeltaToolEnd)
 	if !ok {
-		t.Fatalf("expected DeltaToolEnd first, got %#v", stream.pending)
+		t.Fatalf("expected DeltaToolEnd after the tool activity, got %#v", stream.pending)
 	}
 	fileChange := end.FileChanges["tool_1"]
 	assertFileChange(t, fileChange, resolvedTestPath(t, root, "owner.md"), "edit", 1, 1, 1)
@@ -1545,6 +1548,7 @@ func TestRunStreamToolBudgetExceededTerminatesAndClearsActiveCall(t *testing.T) 
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke over-budget tool: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if stream.activeToolCall != nil {
 		t.Fatalf("over-budget tool remained active: %#v", stream.activeToolCall)
 	}
@@ -2405,6 +2409,7 @@ func TestInjectToolResultAppendsToolMessageAndFinalAssistantContent(t *testing.T
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(stream.pending) != 1 {
 		t.Fatalf("expected one pending tool result delta, got %#v", stream.pending)
 	}
@@ -3092,6 +3097,7 @@ func TestBashSecurityHardBlockQueuedInvocationSkipsApprovalAndExecutor(t *testin
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 0 {
 		t.Fatalf("expected hard-blocked command not to invoke executor, got %#v", executor.invocations)
 	}
@@ -3136,6 +3142,7 @@ func TestBashSecuritySoftBlockApproveExecutesOriginalCommand(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if stream.hitlPendingCall == nil {
 		t.Fatal("expected bash security soft block to wait for approval")
 	}
@@ -3187,6 +3194,7 @@ func TestBashSecuritySoftBlockPrefixApprovalWhitelistsRule(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
 		AwaitingID: stream.hitlAwaitingID,
@@ -3210,6 +3218,7 @@ func TestBashSecuritySoftBlockPrefixApprovalWhitelistsRule(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("second invokeActiveToolCall returned error: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 2 {
 		t.Fatalf("expected both commands to execute, got %#v", executor.invocations)
 	}
@@ -3241,6 +3250,7 @@ func TestBashSecuritySoftBlockAutoApprovesByAccessLevel(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 1 {
 		t.Fatalf("expected command to execute without approval UI, got %#v", executor.invocations)
 	}
@@ -3277,6 +3287,7 @@ func TestBashSecuritySoftBlockUsesExistingFingerprintApproval(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 1 {
 		t.Fatalf("expected command to execute with existing fingerprint approval, got %#v", executor.invocations)
 	}
@@ -3320,6 +3331,7 @@ func TestWriteToolEmitsApprovalBeforeExecuting(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active write: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 0 {
 		t.Fatalf("expected write not to execute before approval, got %#v", executor.invocations)
 	}
@@ -3382,6 +3394,7 @@ func TestWriteToolInsideSessionChatDirSkipsApproval(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active write: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(stream.pending) != 1 {
 		t.Fatalf("expected only tool result pending, got %#v", stream.pending)
 	}
@@ -3436,6 +3449,7 @@ func TestWriteToolInsideSessionHostAccessSkipsApproval(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active write: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(stream.pending) != 1 {
 		t.Fatalf("expected only tool result pending, got %#v", stream.pending)
 	}
@@ -3488,6 +3502,7 @@ func TestEditToolInsideSessionChatDirSkipsApproval(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active edit: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(stream.pending) != 1 {
 		t.Fatalf("expected only tool result pending, got %#v", stream.pending)
 	}
@@ -3543,6 +3558,7 @@ func TestEditToolInsideSessionHostAccessSkipsApproval(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active edit: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(stream.pending) != 1 {
 		t.Fatalf("expected only tool result pending, got %#v", stream.pending)
 	}
@@ -3586,6 +3602,7 @@ func TestWriteToolApprovalUsesToolLabelInCommand(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active write: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
 	if !ok || ask.Mode != "approval" || len(ask.Approvals) != 1 {
 		t.Fatalf("expected approval ask, got %#v", stream.pending)
@@ -3634,6 +3651,7 @@ func TestWriteToolApprovalExecutesAndWritesFile(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active write: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	data, err := os.ReadFile(filepath.Join(root, "owner.md"))
 	if err != nil {
 		t.Fatalf("read written file: %v", err)
@@ -3685,6 +3703,7 @@ func TestEditToolEmitsApprovalBeforeExecuting(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active edit: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 0 {
 		t.Fatalf("expected edit not to execute before approval, got %#v", executor.invocations)
 	}
@@ -3739,6 +3758,7 @@ func TestEditToolApprovalUsesToolLabelInCommand(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active edit: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
 	if !ok || ask.Mode != "approval" || len(ask.Approvals) != 1 {
 		t.Fatalf("expected approval ask, got %#v", stream.pending)
@@ -3790,6 +3810,7 @@ func TestEditToolApprovalExecutesAndEditsFile(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active edit: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	data, err := os.ReadFile(filepath.Join(root, "owner.md"))
 	if err != nil {
 		t.Fatalf("read edited file: %v", err)
@@ -3833,6 +3854,7 @@ func TestFileReadAccessApprovalEmitsAwaitingAsk(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active read: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 0 {
 		t.Fatalf("expected read not to execute before path approval, got %#v", executor.invocations)
 	}
@@ -3892,6 +3914,7 @@ func TestFileGrepAccessApprovalUsesToolLabelInCommand(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active grep: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 0 {
 		t.Fatalf("expected grep not to execute before path approval, got %#v", executor.invocations)
 	}
@@ -3943,6 +3966,7 @@ func TestFileEditPathApprovalUsesEditCommand(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active edit: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 0 {
 		t.Fatalf("expected edit not to execute before path approval, got %#v", executor.invocations)
 	}
@@ -4001,6 +4025,7 @@ func TestFileReadAccessAllowsSessionSkillsDirBeforeApproval(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active read: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 1 {
 		t.Fatalf("expected session skill read to execute without approval, got %#v", executor.invocations)
 	}
@@ -4046,6 +4071,7 @@ func TestFileReadAccessApprovalDecisions(t *testing.T) {
 			if err := stream.invokeActiveToolCall(); err != nil {
 				t.Fatalf("invoke active read: %v", err)
 			}
+			stream.pending = withoutRunActivities(stream.pending)
 			if len(executor.invocations) != 1 {
 				t.Fatalf("expected approved read to execute, got %#v", executor.invocations)
 			}
@@ -4093,6 +4119,7 @@ func TestFileReadAccessAutoApproveRecordsApprovalSummary(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active read: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 1 {
 		t.Fatalf("expected auto-approved read to execute, got %#v", executor.invocations)
 	}
@@ -4152,6 +4179,7 @@ func TestPendingFileReadApprovalResolvesAfterAccessLevelUpdate(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active read: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if stream.hitlPendingCall == nil {
 		t.Fatalf("expected pending approval")
 	}
@@ -4225,6 +4253,7 @@ func TestBashAccessAutoApproveRecordsApprovalSummary(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active bash: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 1 {
 		t.Fatalf("expected auto-approved bash to execute, got %#v", executor.invocations)
 	}
@@ -4319,6 +4348,7 @@ func TestRunAuthoredChatAndTempScriptsAvoidUnexpectedAwaiting(t *testing.T) {
 			if err := stream.invokeActiveToolCall(); err != nil {
 				t.Fatalf("invoke file_write: %v", err)
 			}
+			stream.pending = withoutRunActivities(stream.pending)
 			if stream.hitlPendingCall != nil {
 				t.Fatalf("file_write unexpectedly entered HITL: %#v", stream.hitlPendingCall)
 			}
@@ -4336,6 +4366,7 @@ func TestRunAuthoredChatAndTempScriptsAvoidUnexpectedAwaiting(t *testing.T) {
 			if err := stream.invokeActiveToolCall(); err != nil {
 				t.Fatalf("invoke bash: %v", err)
 			}
+			stream.pending = withoutRunActivities(stream.pending)
 			if stream.hitlPendingCall != nil {
 				t.Fatalf("auto-approved script execution entered HITL: %#v", stream.hitlPendingCall)
 			}
@@ -4493,6 +4524,7 @@ func TestPendingOpaqueScriptApprovalResolvesAfterAccessLevelUpdate(t *testing.T)
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke file_write: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	stream.pending = nil
 
 	stream.activeToolCall = &preparedToolInvocation{
@@ -4503,6 +4535,7 @@ func TestPendingOpaqueScriptApprovalResolvesAfterAccessLevelUpdate(t *testing.T)
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke default bash: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if stream.hitlPendingCall == nil || len(executor.invocations) != 1 {
 		t.Fatalf("default script execution must wait before bash, pending=%#v invocations=%#v", stream.hitlPendingCall, executor.invocations)
 	}
@@ -4560,6 +4593,7 @@ func TestOpaqueScriptAutoApprovalDoesNotBypassBashSecurityBlock(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke blocked node: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 0 {
 		t.Fatalf("bash security block must prevent execution, got %#v", executor.invocations)
 	}
@@ -4606,6 +4640,7 @@ func TestFileReadFullAccessDoesNotRecordApprovalSummary(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active read: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 1 {
 		t.Fatalf("expected full_access read to execute, got %#v", executor.invocations)
 	}
@@ -4643,6 +4678,7 @@ func TestFileReadAccessRejectDoesNotExecute(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active read: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 0 {
 		t.Fatalf("expected rejected read not to execute, got %#v", executor.invocations)
 	}
@@ -4845,6 +4881,7 @@ func TestWriteOutsideAccessPolicyRootsCombinesPathAndContentApproval(t *testing.
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active write: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 0 {
 		t.Fatalf("expected write not to execute before combined approval, got %#v", executor.invocations)
 	}
@@ -4917,6 +4954,7 @@ func TestKBaseExternalWriteUsesCommonApprovalBeforeExecutor(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active write: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 0 {
 		t.Fatalf("external write must wait for common approval, got %#v", executor.invocations)
 	}
@@ -5008,6 +5046,7 @@ func TestEditOutsideAccessPolicyRootsCombinesPathAndContentApprovalUsesToolLabel
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active edit: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 0 {
 		t.Fatalf("expected edit not to execute before combined approval, got %#v", executor.invocations)
 	}
@@ -5058,6 +5097,7 @@ func TestWriteOutsideAccessPolicyRootsCombinedSubmitExecutesOriginalToolCall(t *
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active write: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if stream.hitlPendingCall == nil || stream.hitlPendingCall.toolID != "tool_1" {
 		t.Fatalf("expected original write call to wait for approval, got %#v", stream.hitlPendingCall)
 	}
@@ -5125,6 +5165,7 @@ func TestWriteOutsideAccessPolicyRootsCombinedApprovalDecisions(t *testing.T) {
 			if err := stream.invokeActiveToolCall(); err != nil {
 				t.Fatalf("invoke active write: %v", err)
 			}
+			stream.pending = withoutRunActivities(stream.pending)
 			data, err := os.ReadFile(target)
 			if err != nil {
 				t.Fatalf("read written file: %v", err)
@@ -5185,6 +5226,7 @@ func TestWriteOutsideAccessPolicyRootsCombinedRejectDoesNotExecute(t *testing.T)
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active write: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 0 {
 		t.Fatalf("expected rejected write not to execute, got %#v", executor.invocations)
 	}
@@ -5239,6 +5281,7 @@ func TestEditOutsideAccessPolicyRootsCombinedApprovalDecisions(t *testing.T) {
 			if err := stream.invokeActiveToolCall(); err != nil {
 				t.Fatalf("invoke active edit: %v", err)
 			}
+			stream.pending = withoutRunActivities(stream.pending)
 			data, err := os.ReadFile(target)
 			if err != nil {
 				t.Fatalf("read edited file: %v", err)
@@ -5293,6 +5336,7 @@ func TestEditOutsideAccessPolicyRootsCombinedRejectDoesNotExecute(t *testing.T) 
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active edit: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 0 {
 		t.Fatalf("expected rejected edit not to execute, got %#v", executor.invocations)
 	}
@@ -5375,6 +5419,7 @@ func TestBashSecuritySoftBlockRejectDoesNotExecute(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
 		AwaitingID: stream.hitlAwaitingID,
@@ -5765,6 +5810,7 @@ func TestAwaitHITLApprovalBatchAndContinue_HostUsesUnifiedBashToolName(t *testin
 		if err := stream.invokeActiveToolCall(); err != nil {
 			t.Fatalf("invokeActiveToolCall returned error: %v", err)
 		}
+		stream.pending = withoutRunActivities(stream.pending)
 	}
 	if len(executor.invocations) != 1 || executor.invocations[0].name != "bash" {
 		t.Fatalf("expected host HITL flow to invoke unified bash, got %#v", executor.invocations)
@@ -5865,6 +5911,7 @@ func TestPrepareQueuedBashApprovalBatch_AppendsSingleSummaryAfterAllApprovedResu
 		if err := stream.invokeActiveToolCall(); err != nil {
 			t.Fatalf("invokeActiveToolCall returned error: %v", err)
 		}
+		stream.pending = withoutRunActivities(stream.pending)
 	}
 
 	if len(stream.messages) != 4 {
@@ -6010,6 +6057,7 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 		if err := stream.invokeActiveToolCall(); err != nil {
 			t.Fatalf("invokeActiveToolCall returned error: %v", err)
 		}
+		stream.pending = withoutRunActivities(stream.pending)
 	}
 
 	if len(executor.invocations) != 2 {
@@ -6368,10 +6416,12 @@ func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewOutsideMergedApprovalAsk(t
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	stream.activateNextToolCall()
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 
 	foundFormAsk := false
 	for _, delta := range stream.pending {
@@ -6571,6 +6621,7 @@ func TestPrepareQueuedBashApprovalBatch_BlocksEntireTurnAndResumesInOriginalOrde
 		if err := stream.invokeActiveToolCall(); err != nil {
 			t.Fatalf("invokeActiveToolCall returned error: %v", err)
 		}
+		stream.pending = withoutRunActivities(stream.pending)
 	}
 
 	if len(executor.invocations) != 2 {
@@ -6679,6 +6730,7 @@ func TestInvokeQueuedToolCallsAndPostHook_BlocksReadySiblingBeforeLaterApproval(
 		if err := stream.invokeActiveToolCall(); err != nil {
 			t.Fatalf("invokeActiveToolCall returned error: %v", err)
 		}
+		stream.pending = withoutRunActivities(stream.pending)
 	}
 
 	if len(executor.invocations) != 2 {
@@ -6887,6 +6939,7 @@ func TestInvokeActiveToolCallUsesSkillScopedChecker(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if stream.hitlAwaitingID != buildHITLAwaitingID("tool_1") {
 		t.Fatalf("expected awaiting id, got %q", stream.hitlAwaitingID)
 	}
@@ -7124,6 +7177,7 @@ func TestInvokeActiveToolCallAutoApprovesBuiltinLevelInCurrentRun(t *testing.T) 
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 1 {
 		t.Fatalf("expected auto-approved command to execute once, got %#v", executor.invocations)
 	}
@@ -7183,6 +7237,7 @@ func TestInvokeActiveToolCallDoesNotAutoApproveHTMLView(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)
 	}
+	stream.pending = withoutRunActivities(stream.pending)
 	if len(executor.invocations) != 0 {
 		t.Fatalf("expected html command to remain gated by form approval, got %#v", executor.invocations)
 	}
@@ -7258,5 +7313,66 @@ func TestInvokeTaskRejectsUnknownFields(t *testing.T) {
 		if invocation != nil || message == nil || !strings.Contains(fmt.Sprint(message), "unknown field") {
 			t.Fatalf("value=%s invocation=%#v message=%v", value, invocation, message)
 		}
+	}
+}
+
+// withoutRunActivities drops progress activities, which these tests do not
+// assert, from a pending delta list.
+func withoutRunActivities(pending []contracts.AgentDelta) []contracts.AgentDelta {
+	out := pending[:0:0]
+	for _, delta := range pending {
+		if _, ok := delta.(contracts.DeltaRunActivity); !ok {
+			out = append(out, delta)
+		}
+	}
+	return out
+}
+
+// nextWithoutRunActivity reads the next delta that is not a progress activity.
+func nextWithoutRunActivity(s *llmRunStream) (contracts.AgentDelta, error) {
+	for {
+		delta, err := s.Next()
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := delta.(contracts.DeltaRunActivity); !ok {
+			return delta, nil
+		}
+	}
+}
+
+func TestFinishCurrentTurnShowsAnnouncementOverFirstTool(t *testing.T) {
+	root := t.TempDir()
+	session := contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root}
+	announce := backendToolDefinition("action_announce")
+	announce.Meta["activityAnnounce"] = "message"
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{writeToolDefinition(), announce}}
+	turn := providerTurnWithToolCall("tool_1", "file_write", `{"filePath":"owner.md","content":"one\n"}`)
+	second := &toolCallAccumulator{ID: "tool_2", Type: "function", FunctionName: "action_announce"}
+	second.Arguments.WriteString(`{"message":"Write the owner file, then verify it."}`)
+	turn.toolCalls[1] = second
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		session: session,
+		engine: &LLMAgentEngine{
+			cfg:   config.Config{FileTools: config.FileToolsConfig{MaxReadBytes: 1024, MaxWriteBytes: 1024}},
+			tools: executor,
+		},
+		execCtx:      &contracts.ExecutionContext{Session: session},
+		maxSteps:     2,
+		allowToolUse: true,
+		currentTurn:  turn,
+	}
+	if err := stream.finishCurrentTurn(); err != nil {
+		t.Fatalf("finishCurrentTurn: %v", err)
+	}
+	var activities []contracts.DeltaRunActivity
+	for _, delta := range stream.pending {
+		if activity, ok := delta.(contracts.DeltaRunActivity); ok {
+			activities = append(activities, activity)
+		}
+	}
+	if len(activities) != 1 || activities[0].ToolID != "tool_2" {
+		t.Fatalf("the turn must show only the announcement, got %#v", activities)
 	}
 }

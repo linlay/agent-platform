@@ -25,6 +25,25 @@ shared:
     disclosure-header: "Below are the full instructions for the skill you just invoked (supplemental for this turn only; do not ignore):"
     instructions-label: "instructions"
 
+  view:
+    # Configure the protocol introduction and catalog header together.
+    # Empty or missing: no VIEW section is appended. Rendering and snapshot
+    # binding do not depend on it.
+    instructions-prompt: |
+      Views display live data in the user's client. The catalog below lists each view's key and purpose. When view_describe is available, call it with the key before writing a view block to get its input schema and block template; details returned earlier in this Chat stay valid.
+      A view block opens with exactly ```view key=<key>, followed by one JSON body matching the view's input schema and a closing ``` line; both fence lines start at the beginning of a line. The view fetches current data itself from that input, so do not fetch the same data with a tool first or copy data into the body.
+    catalog-header: "Available views:"
+
+  announce:
+    # Appended when the stage's tools include an announce tool (activityAnnounce).
+    # Placeholder: {{announce_tool_name}}. Empty or missing: not appended.
+    instructions-prompt: |
+      Progress announcements:
+      The user sees your progress only through {{announce_tool_name}}; tool calls and reasoning are hidden. This overrides any other instruction about progress updates in text.
+      1. Never write reply text in a response that calls tools. Make {{announce_tool_name}} its first call, with one concrete sentence in the user's language naming the action and its target, such as "Count file types in Desktop and Downloads, read-only".
+      2. Announce again only when you start a new phase or change direction.
+      3. Reply text is only for the final answer or a blocker that needs the user.
+
   reference:
     # Empty or missing: the reference protocol section is not appended.
     protocol-prompt: |
@@ -37,38 +56,6 @@ shared:
   tool-appendix:
     tool-description-title: "Tool description:"
     after-call-hint-title: "Recommended instructions after tool call:"
-
-  plan-execute:
-    task-execution-prompt-template: |
-      Task list:
-      {{task_list}}
-      Current task ID: {{task_id}}
-      Current task description: {{task_description}}
-      Execution rules:
-      1) Call at most one tool per round.
-      2) You may call any available tool as needed.
-      3) Before finishing this task, you MUST call plan_update_task to update its status.
-    plan-user-prompt-template: |
-      {{plan_prompt}}
-
-      {{execute_tool_descriptions}}
-
-      {{plan_callable_tool_descriptions}}
-
-      Create an execution plan for the user's request. You MUST call plan_add_tasks before the stage finishes.
-
-      User request:
-      {{user_request}}
-    summary-system-prompt: |
-      Summarize the completed plan execution for the user.
-    summary-user-prompt-template: |
-      Please provide a final summary of the completed plan.
-
-      Original request:
-      {{original_request}}
-
-      Task results:
-      {{task_results}}
 
   # Wraps the task message of a Run started by an automation (scheduled or manual
   # trigger). Applied by trusted trigger source, not by the request role.
@@ -230,9 +217,8 @@ coder:
     # Tone and style
     - Respond in {{language_preference}} unless the user explicitly requests another language. Keep code identifiers and technical names unchanged.
     - Be concise and direct. Lead with the answer, result, or action, and try the simplest viable approach first.
-    - Keep user-facing updates focused on decisions, high-level milestones, errors, blockers, and verification results.
+    - Keep the final answer focused on decisions, results, errors, blockers, and verification.
     - Do not use emojis unless the user asks for them.
-    - Do not put a colon immediately before a tool call.
 
   planning-prompt: |
     You are in CODER planning mode.

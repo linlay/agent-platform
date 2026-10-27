@@ -86,7 +86,8 @@ func defaultConfig(options LoadOptions) Config {
 			Timezone:        "Local",
 			Worker:          MemoryWorkerConfig{Enabled: true, PollIntervalSeconds: 300, TimeoutSeconds: 120, MaxBatches: 20},
 		},
-		PlanningMode: DefaultPlanningModeConfig(),
+		PlanningMode:        DefaultPlanningModeConfig(),
+		AnnounceHoldSeconds: DefaultAnnounceHoldSeconds,
 		Defaults: DefaultsConfig{
 			Budget: BudgetDefaultsConfig{
 				Timeout:  3600,
@@ -105,11 +106,7 @@ func defaultConfig(options LoadOptions) Config {
 					Timeout: 0,
 				},
 			},
-			React: ReactDefaultsConfig{MaxSteps: 60},
-			Plan: PlanExecuteDefaultsConfig{
-				MaxSteps:             60,
-				MaxWorkRoundsPerTask: 6,
-			},
+			React:         ReactDefaultsConfig{MaxSteps: 60},
 			CoderPlanning: CoderPlanningDefaultsConfig{MaxSteps: 60},
 		},
 		SSE: SSEConfig{

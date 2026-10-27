@@ -144,3 +144,8 @@ Run 准入与 Chat mutation 之间尚无覆盖所有入口的统一并发事务�
 ## Automation 独立工具组
 
 新增 `automation_query`（list/get/executions/execution/validate）与 `automation_manage`（create/update/setEnabled/delete/trigger），使用独立 `builtin.task-control` 挂载和 Native 根 Run 准入。它们共用 `internal/automation.Service`，不调用 Server handler 或 Desktop action，也不扩展 Catalog 的 resourceType。三类业务 view、版本校验、调用收据与手动执行语义见 [自动化](自动化.md#task-control-管理工具)。
+
+
+### 连接器删除与挂载
+
+`catalog_manage.delete` 与 HTTP 管理删除共用 adminsource 编排：配置挂载自动移除，活动 Run／子任务／TEAM 成员／Terminal 租约及挂起运行 pin 硬拒绝，不主动停止运行。删除审批的 after 与 detachedAgentKeys 展示将解除挂载的 Agent。审批后的实际提交再次检查活动租约；普通挂载清单变化使用提交时最新配置，全局／mode 预置和内置包继续受保护。包删除同时清理授权和 CLI 状态，批量来源修改、回滚与中断恢复遵循[连接器删除](连接器.md)。

@@ -21,9 +21,17 @@ func IsMCPGatewayToolName(name string) bool {
 	return false
 }
 
+// ViewDescribeToolName discloses one mounted display view on demand. It is an
+// ordinary tool, preset per mode in agent-settings.yml.
+const ViewDescribeToolName = "view_describe"
+
 const PlanAddTasksToolName = "plan_add_tasks"
 const PlanGetTasksToolName = "plan_get_tasks"
 const PlanUpdateTaskToolName = "plan_update_task"
+
+// ActionAnnounceToolName tells the user what the Run does next. It shows as the
+// progress line and leaves plan tasks alone.
+const ActionAnnounceToolName = "action_announce"
 
 var PlanTaskToolNames = []string{
 	PlanAddTasksToolName,

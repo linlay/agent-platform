@@ -526,7 +526,7 @@ func TestQueryAfterUploadDoesNotEmitChatStartInLiveStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(queryBody))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewReader(queryBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
@@ -540,7 +540,7 @@ func TestQueryAfterUploadDoesNotEmitChatStartInLiveStream(t *testing.T) {
 	assertSSEEventOrder(t, body, "request.query", "run.start")
 
 	chatRec := httptest.NewRecorder()
-	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+upload.ChatID, nil))
+	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+upload.ChatID, nil))
 	var detail api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &detail); err != nil {
 		t.Fatalf("decode chat detail: %v", err)

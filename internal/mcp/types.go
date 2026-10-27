@@ -152,6 +152,12 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 }
 
 func (t ToolDefinition) ToAPITool(serverKey string) api.ToolDetailResponse {
+	// Freeze the display fallback before Agent scoping replaces Name with an
+	// internal routing identifier.
+	label := strings.TrimSpace(t.Label)
+	if label == "" {
+		label = t.Name
+	}
 	meta := map[string]any{
 		"serverKey":      serverKey,
 		"sourceType":     "mcp",
@@ -176,7 +182,7 @@ func (t ToolDefinition) ToAPITool(serverKey string) api.ToolDetailResponse {
 	return api.ToolDetailResponse{
 		Key:           defaultToolKey(t.Key, t.Name),
 		Name:          t.Name,
-		Label:         t.Label,
+		Label:         label,
 		Description:   t.Description,
 		AfterCallHint: t.AfterCallHint,
 		Parameters:    contracts.CloneMap(t.Parameters),

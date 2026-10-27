@@ -23,6 +23,7 @@ func (s *Service) LocalRunExecutorParams(
 		s.broadcast("run.started", runStartedPushPayload(prepared.Req.RunID, prepared.Req.ChatID, prepared.Req.AgentKey, registered.StartedAtMillis))
 	}
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
+	contracts.BindContentViews(registered.RunCtx, mapper, &prepared.Session)
 	stepWriter := chat.NewStepWriter(execution.StepLineStore, prepared.Req.ChatID, prepared.Req.RunID, prepared.AgentDef.Mode)
 	stepWriter.SetOriginalQuery(prepared.Req.OriginalQuery)
 	stepWriter.SetPendingSystemInit(prepared.SystemInitLine)

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -70,35 +71,53 @@ func TestInvokeMCPReusesExistingConnectorCredentials(t *testing.T) {
 	if err != nil || len(result.MCP) == 0 || calls.Load() != 1 {
 		t.Fatal(result, err, calls.Load())
 	}
+	// Business calls run beside each other and beside a source operation,
+	// like an Agent's own calls; they never report the connector busy.
 	release, err := connector.AcquireOperation(sources.ExternalRoot, "demo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, busyErr := service.Invoke(context.Background(), scope, req)
+	var wg sync.WaitGroup
+	errs := make(chan error, 4)
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := service.Invoke(context.Background(), scope, req)
+			errs <- err
+		}()
+	}
+	wg.Wait()
 	release()
-	if busyErr == nil || busyErr.Error() != "connector_busy" || calls.Load() != 1 {
-		t.Fatal("package mutation lock bypassed", busyErr)
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal("concurrent business call failed", err)
+		}
+	}
+	if calls.Load() != 5 {
+		t.Fatal("concurrent business calls lost", calls.Load())
 	}
 	scope.Subject = "bob"
-	if _, err = service.Invoke(context.Background(), scope, req); err != nil || calls.Load() != 2 {
+	if _, err = service.Invoke(context.Background(), scope, req); err != nil || calls.Load() != 6 {
 		t.Fatal("application subject must not select connector credentials", err)
 	}
 	scope.Subject = "alice"
 	req.ToolName = "undeclared"
-	if _, err = service.Invoke(context.Background(), scope, req); err == nil || calls.Load() != 2 {
+	if _, err = service.Invoke(context.Background(), scope, req); err == nil || calls.Load() != 6 {
 		t.Fatal("invalid input executed", err)
 	}
 	if err := manager.Logout(context.Background(), "demo"); err != nil {
 		t.Fatal(err)
 	}
 	req.ToolName = "read"
-	if _, err = service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_configuration_required" || calls.Load() != 2 {
+	if _, err = service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_configuration_required" || calls.Load() != 6 {
 		t.Fatal("logout not shared", err)
 	}
 	if _, err := manager.Disconnect(context.Background(), "demo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_configuration_required" || calls.Load() != 2 {
+	if _, err := service.Invoke(context.Background(), scope, req); err == nil || err.Error() != "connector_configuration_required" || calls.Load() != 6 {
 		t.Fatal("Connector bypassed disconnected connection", err)
 	}
 	if _, err := os.Stat(filepath.Join(sources.StateRoot, "users")); !os.IsNotExist(err) {
@@ -117,11 +136,13 @@ func TestCLIHelper(t *testing.T) {
 	if json.Unmarshal([]byte(os.Args[len(os.Args)-1]), &value) != nil {
 		os.Exit(5)
 	}
-	json.NewEncoder(os.Stdout).Encode(map[string]any{"value": value["value"], "config": os.Getenv("DEMO_CONFIG_DIR")})
+	json.NewEncoder(os.Stdout).Encode(map[string]any{"value": value["value"], "config": os.Getenv("DEMO_CONFIG_DIR"), "home": os.Getenv("HOME")})
 	os.Exit(0)
 }
 func TestCLIUsesSingleJSONArgumentWithoutShellOrAmbientCredentials(t *testing.T) {
 	t.Setenv("UNRELATED_SECRET", "do-not-inherit")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "bin")
 	os.MkdirAll(bin, 0700)
@@ -151,7 +172,8 @@ func TestCLIUsesSingleJSONArgumentWithoutShellOrAmbientCredentials(t *testing.T)
 	}
 	malicious := `$(touch should-not-exist); " %PATH% & | < >`
 	args, _ := json.Marshal(map[string]any{"value": malicious})
-	output, err := callCLI(context.Background(), pkg, []string{"-test.run=^TestCLIHelper$", "--", "connectorops-helper", "--json", string(args)}, "")
+	manager := connectorauth.New(t.Context(), connector.Sources{}, nil)
+	output, err := callCLI(context.Background(), manager, pkg, []string{"-test.run=^TestCLIHelper$", "--", "connectorops-helper", "--json", string(args)}, "")
 	var decoded map[string]any
 	json.Unmarshal([]byte(output.Stdout), &decoded)
 	if err != nil || decoded["value"] != malicious {
@@ -159,6 +181,10 @@ func TestCLIUsesSingleJSONArgumentWithoutShellOrAmbientCredentials(t *testing.T)
 	}
 	if decoded["config"] != filepath.Join(pkg.StateRoot, "demo", "config") {
 		t.Fatal("wrong credential locator", output)
+	}
+	// Same host base as Host Bash: CLIs resolving default paths from HOME work.
+	if decoded["home"] != home {
+		t.Fatal("HOME not inherited", output)
 	}
 	if _, err = os.Stat(filepath.Join(dir, "should-not-exist")); !os.IsNotExist(err) {
 		t.Fatal("shell ran")

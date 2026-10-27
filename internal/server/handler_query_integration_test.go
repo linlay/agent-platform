@@ -53,7 +53,7 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	server := fixture.server
 
 	body := bytes.NewBufferString(`{"message":"元素碳的简介，100字","agentKey":"mock-agent"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -125,7 +125,7 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 		}
 	}
 
-	chatReq := httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID+"&includeRawMessages=true", nil)
+	chatReq := httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatID+"&includeRawMessages=true", nil)
 	chatRec := httptest.NewRecorder()
 	server.ServeHTTP(chatRec, chatReq)
 
@@ -218,7 +218,7 @@ func TestNativeEmptyToolAllowlistExposesNoTools(t *testing.T) {
 				}
 
 				body := bytes.NewBufferString(`{"chatId":"chat-empty-tools","message":"hello","agentKey":"mock-agent"}`)
-				req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+				req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body)
 				req.Header.Set("Content-Type", "application/json")
 				rec := httptest.NewRecorder()
 				fixture.server.ServeHTTP(rec, req)
@@ -261,7 +261,7 @@ func TestReactExplicitToolAllowlistExposesOnlyConfiguredTool(t *testing.T) {
 	})
 
 	body := bytes.NewBufferString(`{"chatId":"chat-explicit-tools","message":"hello","agentKey":"mock-agent"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)
@@ -308,7 +308,7 @@ func TestReactMCPServerAllowlistExposesOnlySelectedServerTools(t *testing.T) {
 	})
 
 	body := bytes.NewBufferString(`{"chatId":"chat-mcp-server-tools","message":"hello","agentKey":"mock-agent"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)
@@ -322,7 +322,7 @@ func TestQueryChatSourceCannotBeSpoofedByExternalPayload(t *testing.T) {
 	server := fixture.server
 
 	body := bytes.NewBufferString(`{"chatId":"chat-source-spoof","message":"hello","agentKey":"mock-agent","role":"automation","source":"automation:evil","sourceUser":"mallory"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
@@ -344,7 +344,7 @@ func TestQueryChatSourceUsesPrincipalSubject(t *testing.T) {
 	server := fixture.server
 
 	body := bytes.NewBufferString(`{"chatId":"chat-source-principal","message":"hello","agentKey":"mock-agent"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body)
 	req = req.WithContext(WithPrincipal(req.Context(), &Principal{Subject: "alice"}))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -368,7 +368,7 @@ func TestQueryChatSourceUsesChannelUser(t *testing.T) {
 
 	ctx := platformws.WithGatewayContext(context.Background(), platformws.GatewayContext{Channel: "wecom"})
 	body := bytes.NewBufferString(`{"chatId":"wecom#single#u1#1","message":"hello","agentKey":"mock-agent"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", body).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body).WithContext(ctx)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
@@ -385,7 +385,7 @@ func TestQueryChatSourceUsesChannelUser(t *testing.T) {
 	}
 
 	body = bytes.NewBufferString(`{"chatId":"wecom#single#u2#1","message":"hello","agentKey":"mock-agent","sourceUser":"remote-user"}`)
-	req = httptest.NewRequest(http.MethodPost, "/api/query", body).WithContext(ctx)
+	req = httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body).WithContext(ctx)
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
@@ -586,7 +586,7 @@ func TestQueryAppliesAgentSamplingConfigToProviderRequest(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hi","agentKey":"mock-agent"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"hi","agentKey":"mock-agent"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -613,7 +613,7 @@ func TestQueryNonStreamReturnsJSONAndPersistsChatHistory(t *testing.T) {
 
 	chatID := "chat-nonstream-json"
 	body := bytes.NewBufferString(`{"chatId":"` + chatID + `","message":"非流式回答","agentKey":"mock-agent","stream":false}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -658,7 +658,7 @@ func TestQueryNonStreamReturnsJSONAndPersistsChatHistory(t *testing.T) {
 	}
 
 	chatRec := httptest.NewRecorder()
-	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID+"&includeRawMessages=true", nil))
+	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatID+"&includeRawMessages=true", nil))
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat response: %v", err)
@@ -683,7 +683,7 @@ func TestQueryNonStreamReturnsFailureWhenRunErrors(t *testing.T) {
 		writeProviderSSE(t, w, `{"broken":true}`, `[DONE]`)
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"bad stream","agentKey":"mock-agent","stream":false}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"bad stream","agentKey":"mock-agent","stream":false}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -709,7 +709,7 @@ func TestQueryRejectsMisspelledStreamField(t *testing.T) {
 	server := fixture.server
 
 	body := bytes.NewBufferString(`{"message":"拼写错误字段","agentKey":"mock-agent","steam":false}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -722,7 +722,7 @@ func TestQueryRejectsMisspelledStreamField(t *testing.T) {
 
 func TestQueryRejectsInvalidAccessLevel(t *testing.T) {
 	fixture := newTestFixture(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hello","accessLevel":"root"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"hello","accessLevel":"root"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -776,21 +776,6 @@ func TestQueryModelOverrideKeepsCoderPlanningStageSettingsSeparate(t *testing.T)
 		}
 	}
 
-	planExecuteSession := &contracts.QuerySession{
-		Mode: "PLAN_EXECUTE",
-		StageSettings: map[string]any{
-			"plan":    map[string]any{},
-			"execute": map[string]any{},
-			"summary": map[string]any{},
-		},
-	}
-	applyQueryModelOptionsToSession(&api.QueryModelOptions{Key: "override-model"}, planExecuteSession)
-	if planExecuteSession.StageSettings["planning"] != nil {
-		t.Fatalf("PLAN_EXECUTE model override must not create CODER planning settings: %#v", planExecuteSession.StageSettings)
-	}
-	if nested := contracts.AnyMapNode(planExecuteSession.StageSettings["plan"]); nested["modelKey"] != "override-model" {
-		t.Fatalf("PLAN_EXECUTE plan override = %#v, want override-model", nested["modelKey"])
-	}
 }
 
 func TestQueryRoleFollowsOrigin(t *testing.T) {
@@ -832,7 +817,7 @@ func TestQueryUsesProvidedRunIDAndPersistsItEverywhere(t *testing.T) {
 	server := fixture.server
 	runID := "loyw3v28"
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"reuse run id","runId":"`+runID+`"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"reuse run id","runId":"`+runID+`"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
@@ -864,7 +849,7 @@ func TestQueryUsesProvidedRunIDAndPersistsItEverywhere(t *testing.T) {
 		t.Fatalf("expected summary lastRunId=%s, got %#v", runID, chatsResp.Data)
 	}
 
-	chatReq := httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatsResp.Data[0].ChatID+"&includeRawMessages=true", nil)
+	chatReq := httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatsResp.Data[0].ChatID+"&includeRawMessages=true", nil)
 	chatRec := httptest.NewRecorder()
 	server.ServeHTTP(chatRec, chatReq)
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
@@ -900,7 +885,7 @@ func TestQueryRequestQueryIncludesParamsAndReferences(t *testing.T) {
 				"params":{"channel":"desktop","nested":{"enabled":true}},
 		"references":[{"type":"skill","id":" mock-skill "},{"type":"skill","id":"MOCK-SKILL"},{"id":"ref_1","type":"file","name":"notes.txt","path":"@workspace/notes.txt","mimeType":"text/plain"}]
 	}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
@@ -921,7 +906,7 @@ func TestQueryRequestQueryIncludesParamsAndReferences(t *testing.T) {
 		t.Fatalf("expected 1 chat, got %#v", chatsResp.Data)
 	}
 
-	chatReq := httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatsResp.Data[0].ChatID+"&includeRawMessages=true", nil)
+	chatReq := httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatsResp.Data[0].ChatID+"&includeRawMessages=true", nil)
 	chatRec := httptest.NewRecorder()
 	server.ServeHTTP(chatRec, chatReq)
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
@@ -943,7 +928,7 @@ func TestQueryRequestQueryIncludesParamsAndReferences(t *testing.T) {
 
 func TestQueryRejectsRemovedRequiredSkillIDsWithExplicitCode(t *testing.T) {
 	fixture := newTestFixture(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{
 		"message":"old field",
 		"requiredSkillKeys":["missing-skill"]
 	}`))
@@ -961,7 +946,7 @@ func TestQueryRejectsRemovedRequiredSkillIDsWithExplicitCode(t *testing.T) {
 
 func TestQueryRejectsUnavailableReferencedSkillWithExplicitCode(t *testing.T) {
 	fixture := newTestFixture(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{
 		"message":"must use unavailable skill",
 		"references":[{"type":"skill","id":"missing-skill"}]
 	}`))
@@ -1100,7 +1085,7 @@ func assertRequestQueryContext(t *testing.T, message map[string]any) {
 
 func TestQueryRejectsRemovedSandboxPathReferenceField(t *testing.T) {
 	fixture := newTestFixture(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{
 		"message":"bad reference",
 		"references":[{"type":"skill","id":" mock-skill "},{"type":"skill","id":"MOCK-SKILL"},{"id":"ref_1","sandboxPath":"/workspace/notes.txt"}]
 	}`))
@@ -1119,7 +1104,7 @@ func TestQueryRejectsRemovedSandboxPathReferenceField(t *testing.T) {
 func TestQueryGeneratesBase36RunIDWhenMissing(t *testing.T) {
 	fixture := newTestFixture(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"generate run id"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"generate run id"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)
@@ -1150,7 +1135,7 @@ func TestChatSnapshotDeduplicatesChatStartAcrossMultipleQueries(t *testing.T) {
 	})
 	server := fixture.server
 
-	firstReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"first turn"}`))
+	firstReq := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"first turn"}`))
 	firstReq.Header.Set("Content-Type", "application/json")
 	firstRec := httptest.NewRecorder()
 	server.ServeHTTP(firstRec, firstReq)
@@ -1169,7 +1154,7 @@ func TestChatSnapshotDeduplicatesChatStartAcrossMultipleQueries(t *testing.T) {
 	}
 	chatID := chatsResp.Data[0].ChatID
 
-	secondReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"`+chatID+`","message":"second turn"}`))
+	secondReq := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"`+chatID+`","message":"second turn"}`))
 	secondReq.Header.Set("Content-Type", "application/json")
 	secondRec := httptest.NewRecorder()
 	server.ServeHTTP(secondRec, secondReq)
@@ -1178,7 +1163,7 @@ func TestChatSnapshotDeduplicatesChatStartAcrossMultipleQueries(t *testing.T) {
 	}
 
 	chatRec := httptest.NewRecorder()
-	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID+"&includeRawMessages=true", nil))
+	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatID+"&includeRawMessages=true", nil))
 	if chatRec.Code != http.StatusOK {
 		t.Fatalf("chat detail expected 200, got %d: %s", chatRec.Code, chatRec.Body.String())
 	}
@@ -1275,7 +1260,7 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 	})
 	server := fixture.server
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"现在几点？"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"现在几点？"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -1329,7 +1314,7 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 	}
 
 	chatRec := httptest.NewRecorder()
-	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatsResp.Data[0].ChatID, nil))
+	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatsResp.Data[0].ChatID, nil))
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)
@@ -1378,7 +1363,7 @@ func TestQueryNonStreamCanExecuteBackendToolLoop(t *testing.T) {
 	server := fixture.server
 
 	chatID := "chat-nonstream-tool"
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"`+chatID+`","message":"现在几点？","stream":false,"includeUsage":true,"includeFullText":true}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"`+chatID+`","message":"现在几点？","stream":false,"includeUsage":true,"includeFullText":true}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -1409,7 +1394,7 @@ func TestQueryNonStreamCanExecuteBackendToolLoop(t *testing.T) {
 	}
 
 	chatRec := httptest.NewRecorder()
-	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
+	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatID, nil))
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)
@@ -1469,7 +1454,7 @@ func TestQuerySendsPlaintextProviderAPIKeyAuthorizationHeader(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hello","agentKey":"mock-agent"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"hello","agentKey":"mock-agent"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)
@@ -1491,7 +1476,7 @@ func TestQueryAndRunDebugEventsDisabledByDefault(t *testing.T) {
 		)
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hide debug"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"hide debug"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)
@@ -1522,10 +1507,11 @@ func TestQueryAndRunDebugEventsDisabledByDefault(t *testing.T) {
 	}
 	runTypes := decodeEventTypesFromSSE(t, runRec.Body.String())
 	assertStringSliceExcludes(t, runTypes, "debug.llmChat")
-	assertStringSliceContains(t, runTypes, "run.activity", "usage.snapshot")
+	// Replay after the Run ended has no progress activity: it is live only.
+	assertStringSliceContains(t, runTypes, "usage.snapshot")
 
 	chatRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatID, nil))
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)
@@ -1552,7 +1538,7 @@ func TestQueryLLMChatRecordEmitsDebugLLMChat(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"record debug"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"record debug"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)
@@ -1622,7 +1608,7 @@ func TestQueryLLMChatRecordEmitsDebugLLMChat(t *testing.T) {
 	assertStringSliceContains(t, runTypes, "debug.llmChat")
 
 	chatRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatID, nil))
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)
@@ -1727,278 +1713,6 @@ func reactAssistantTextForServerTest(line map[string]any) string {
 		}
 	}
 	return result.String()
-}
-
-func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t *testing.T) {
-	var providerCallCount atomic.Int32
-
-	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode model request: %v", err)
-		}
-		toolNames := providerRequestToolNames(payload["tools"])
-
-		switch call := providerCallCount.Add(1); call {
-		case 1:
-			if !reflect.DeepEqual(toolNames, []string{"plan_add_tasks"}) {
-				t.Fatalf("plan stage tools=%#v want only plan_add_tasks", toolNames)
-			}
-			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_plan", "plan_add_tasks", map[string]any{
-					"tasks": []map[string]any{
-						{"taskId": "task_alpha", "description": "查询当前时间"},
-						{"taskId": "task_beta", "description": "再次查询当前时间"},
-					},
-				}),
-				`[DONE]`,
-			)
-		case 2:
-			assertStringSliceContains(t, toolNames, "datetime", "file_read", "plan_update_task")
-			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
-			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_time_alpha", "datetime", map[string]any{}),
-				`[DONE]`,
-			)
-		case 3:
-			assertStringSliceContains(t, toolNames, "datetime", "file_read", "plan_update_task")
-			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
-			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_done_alpha", "plan_update_task", map[string]any{
-					"taskId": "task_alpha",
-					"status": "completed",
-				}),
-				`[DONE]`,
-			)
-		case 4:
-			assertStringSliceContains(t, toolNames, "datetime", "file_read", "plan_update_task")
-			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
-			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_time_beta", "datetime", map[string]any{}),
-				`[DONE]`,
-			)
-		case 5:
-			assertStringSliceContains(t, toolNames, "datetime", "file_read", "plan_update_task")
-			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
-			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_done_beta", "plan_update_task", map[string]any{
-					"taskId": "task_beta",
-					"status": "completed",
-				}),
-				`[DONE]`,
-			)
-		case 6:
-			if len(toolNames) != 0 {
-				t.Fatalf("summary stage should not expose tools, got %#v", toolNames)
-			}
-			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"content":"任务已按顺序完成"},"finish_reason":"stop"}]}`,
-				`[DONE]`,
-			)
-		default:
-			t.Fatalf("unexpected provider call %d", call)
-		}
-	}, testFixtureOptions{
-		configure: func(cfg *config.Config) {
-			cfg.Memory.Enabled = true
-		},
-		setupRuntime: func(_ string, cfg *config.Config) {
-			agentPath := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
-			if err := os.WriteFile(agentPath, []byte(strings.Join([]string{
-				"key: mock-agent",
-				"name: Mock Agent",
-				"role: 测试代理",
-				"description: plan execute test agent",
-				"modelConfig:",
-				"  modelKey: mock-model",
-				"toolConfig:",
-				"  tools:",
-				"    - datetime",
-				"    - file_read",
-				"memoryConfig:",
-				"  enabled: true",
-				"mode: PLAN-EXECUTE",
-				"stageSettings:",
-				"  maxWorkRoundsPerTask: 4",
-			}, "\n")), 0o644); err != nil {
-				t.Fatalf("write plan-execute agent config: %v", err)
-			}
-		},
-	})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"请先规划再按顺序执行两个任务","agentKey":"mock-agent"}`))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if got := providerCallCount.Load(); got != 6 {
-		t.Fatalf("expected 6 provider calls, got %d", got)
-	}
-
-	messages := decodeSSEMessages(t, rec.Body.String())
-	preTaskToolNames := make([]string, 0)
-	firstTaskStartIndex := -1
-	taskStarts := map[string]int{}
-	taskStartPayloads := map[string]map[string]any{}
-	taskCompletes := map[string]int{}
-
-	for index, message := range messages {
-		switch stringValue(message["type"]) {
-		case "tool.start":
-			if firstTaskStartIndex < 0 {
-				preTaskToolNames = append(preTaskToolNames, stringValue(message["toolName"]))
-			}
-		case "task.start":
-			if firstTaskStartIndex < 0 {
-				firstTaskStartIndex = index
-			}
-			taskID := stringValue(message["taskId"])
-			taskStarts[taskID] = index
-			taskStartPayloads[taskID] = message
-		case "task.complete":
-			taskCompletes[stringValue(message["taskId"])] = index
-		}
-	}
-
-	if !reflect.DeepEqual(preTaskToolNames, []string{"plan_add_tasks"}) {
-		t.Fatalf("expected only plan_add_tasks before first task.start, got %#v", preTaskToolNames)
-	}
-
-	alphaStart, ok := taskStarts["task_alpha"]
-	if !ok {
-		t.Fatalf("missing task.start for task_alpha in %#v", messages)
-	}
-	if _, ok := taskStartPayloads["task_alpha"]["toolId"]; ok {
-		t.Fatalf("did not expect task.start toolId, got %#v", taskStartPayloads["task_alpha"])
-	}
-	alphaComplete, ok := taskCompletes["task_alpha"]
-	if !ok {
-		t.Fatalf("missing task.complete for task_alpha in %#v", messages)
-	}
-	betaStart, ok := taskStarts["task_beta"]
-	if !ok {
-		t.Fatalf("missing task.start for task_beta in %#v", messages)
-	}
-	betaComplete, ok := taskCompletes["task_beta"]
-	if !ok {
-		t.Fatalf("missing task.complete for task_beta in %#v", messages)
-	}
-	if !(alphaStart < alphaComplete && alphaComplete < betaStart && betaStart < betaComplete) {
-		t.Fatalf("expected sequential task execution, got alphaStart=%d alphaComplete=%d betaStart=%d betaComplete=%d", alphaStart, alphaComplete, betaStart, betaComplete)
-	}
-}
-
-func TestPlanExecuteRejectsFutureTaskCompletionAndKeepsSequentialProgress(t *testing.T) {
-	var providerCallCount atomic.Int32
-
-	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode model request: %v", err)
-		}
-		switch call := providerCallCount.Add(1); call {
-		case 1:
-			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_plan", "plan_add_tasks", map[string]any{
-					"tasks": []map[string]any{
-						{"taskId": "task_alpha", "description": "first"},
-						{"taskId": "task_beta", "description": "second"},
-					},
-				}),
-				`[DONE]`,
-			)
-		case 2:
-			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_future_done", "plan_update_task", map[string]any{
-					"taskId": "task_beta",
-					"status": "completed",
-				}),
-				`[DONE]`,
-			)
-		case 3:
-			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_alpha_done", "plan_update_task", map[string]any{
-					"taskId": "task_alpha",
-					"status": "completed",
-				}),
-				`[DONE]`,
-			)
-		case 4:
-			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_beta_done", "plan_update_task", map[string]any{
-					"taskId": "task_beta",
-					"status": "completed",
-				}),
-				`[DONE]`,
-			)
-		case 5:
-			if toolNames := providerRequestToolNames(payload["tools"]); len(toolNames) != 0 {
-				t.Fatalf("summary stage should not expose tools, got %#v", toolNames)
-			}
-			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"content":"sequential completion"},"finish_reason":"stop"}]}`,
-				`[DONE]`,
-			)
-		default:
-			t.Fatalf("unexpected provider call %d", call)
-		}
-	}, testFixtureOptions{
-		setupRuntime: func(_ string, cfg *config.Config) {
-			agentPath := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
-			if err := os.WriteFile(agentPath, []byte(strings.Join([]string{
-				"key: mock-agent",
-				"name: Mock Agent",
-				"role: test",
-				"description: ordered plan test",
-				"modelConfig:",
-				"  modelKey: mock-model",
-				"mode: PLAN-EXECUTE",
-				"stageSettings:",
-				"  maxWorkRoundsPerTask: 4",
-			}, "\n")), 0o644); err != nil {
-				t.Fatalf("write plan-execute agent config: %v", err)
-			}
-		},
-	})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"run ordered tasks","agentKey":"mock-agent"}`))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	futureRejected := false
-	alphaComplete := -1
-	betaStart := -1
-	for index, message := range decodeSSEMessages(t, rec.Body.String()) {
-		switch stringValue(message["type"]) {
-		case "tool.result":
-			if stringValue(message["toolId"]) != "tool_future_done" {
-				continue
-			}
-			result, _ := message["result"].(map[string]any)
-			futureRejected = stringValue(result["error"]) == "plan_task_not_current"
-		case "task.complete":
-			if stringValue(message["taskId"]) == "task_alpha" {
-				alphaComplete = index
-			}
-		case "task.start":
-			if stringValue(message["taskId"]) == "task_beta" {
-				betaStart = index
-			}
-		}
-	}
-	if !futureRejected {
-		t.Fatalf("future task completion was not rejected: %s", rec.Body.String())
-	}
-	if alphaComplete < 0 || betaStart < 0 || alphaComplete >= betaStart {
-		t.Fatalf("future rejection advanced the pipeline: alphaComplete=%d betaStart=%d body=%s", alphaComplete, betaStart, rec.Body.String())
-	}
 }
 
 func TestCoderPlanningModeQuestionsConfirmThenExecutes(t *testing.T) {
@@ -2127,7 +1841,7 @@ Plan first, then check the current time before reporting.
 	defer httpServer.Close()
 
 	chatID := "chat_coder_plan_confirm"
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please plan first","agentKey":"coder-app","chatId":"`+chatID+`","planningMode":true}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"please plan first","agentKey":"coder-app","chatId":"`+chatID+`","planningMode":true}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -2308,7 +2022,7 @@ func TestFinalizePlanningStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 
 	client := http.Client{Timeout: 10 * time.Second}
 	chatID := "chat_stream_plan_hidden"
-	resp, err := client.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please stream the plan","agentKey":"coder-app","chatId":"`+chatID+`","planningMode":true}`))
+	resp, err := client.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"please stream the plan","agentKey":"coder-app","chatId":"`+chatID+`","planningMode":true}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -2445,7 +2159,7 @@ Plan should be canceled before execution.
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please plan but do not execute","agentKey":"coder-app","planningMode":true}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"please plan but do not execute","agentKey":"coder-app","planningMode":true}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -2601,7 +2315,7 @@ Revised plan with explicit test coverage.
 	defer httpServer.Close()
 
 	chatID := "chat_plan_revisions"
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please plan revisions","agentKey":"coder-app","chatId":"`+chatID+`","planningMode":true}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"please plan revisions","agentKey":"coder-app","chatId":"`+chatID+`","planningMode":true}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -3145,7 +2859,7 @@ func assertPersistedPlanningModeRequestQuery(t *testing.T, server http.Handler) 
 	}
 
 	chatRec := httptest.NewRecorder()
-	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatsResp.Data[0].ChatID, nil))
+	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatsResp.Data[0].ChatID, nil))
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat response: %v", err)
@@ -3445,7 +3159,7 @@ func TestQueryStreamsToolPayloadEventsAndPersistsToolSnapshot(t *testing.T) {
 		)
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"现在几点？"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"现在几点？"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)
@@ -3474,7 +3188,7 @@ func TestQueryStreamsToolPayloadEventsAndPersistsToolSnapshot(t *testing.T) {
 	}
 
 	chatRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatsResp.Data[0].ChatID, nil))
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatsResp.Data[0].ChatID, nil))
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)
@@ -3498,7 +3212,7 @@ func TestQueryFailsRunWhenProviderOmitsToolCallID(t *testing.T) {
 		)
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"现在几点？"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"现在几点？"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)
@@ -3537,7 +3251,7 @@ func TestQueryToolBudgetExceededIsVisibleAndDurable(t *testing.T) {
 	const chatID = "chat-tool-budget-visible"
 	const runID = "loyw3v28"
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(
 		`{"chatId":"`+chatID+`","runId":"`+runID+`","agentKey":"mock-agent","message":"call the clock twice"}`,
 	))
 	req.Header.Set("Content-Type", "application/json")
@@ -3650,7 +3364,7 @@ func TestQueryToolBudgetExceededIsVisibleAndDurable(t *testing.T) {
 	}
 
 	chatRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatID, nil))
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)
@@ -3684,7 +3398,7 @@ func TestQuerySerialToolBudgetPersistsAllSiblingsAndAllowsNextRun(t *testing.T) 
 	fixture, providerCalls := newSerialToolBudgetExceededFixture(t)
 	const chatID = "chat-tool-budget-serial-siblings"
 
-	firstReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(
+	firstReq := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(
 		`{"chatId":"`+chatID+`","runId":"loyw3v30","agentKey":"mock-agent","message":"update every task"}`,
 	))
 	firstReq.Header.Set("Content-Type", "application/json")
@@ -3757,7 +3471,7 @@ func TestQuerySerialToolBudgetPersistsAllSiblingsAndAllowsNextRun(t *testing.T) 
 	}
 
 	chatRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatID, nil))
 	if chatRec.Code != http.StatusOK {
 		t.Fatalf("complete budget history must replay, got %d: %s", chatRec.Code, chatRec.Body.String())
 	}
@@ -3771,7 +3485,7 @@ func TestQuerySerialToolBudgetPersistsAllSiblingsAndAllowsNextRun(t *testing.T) 
 		}
 	}
 
-	continueReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(
+	continueReq := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(
 		`{"chatId":"`+chatID+`","runId":"loyw3v31","agentKey":"mock-agent","message":"continue","stream":false}`,
 	))
 	continueReq.Header.Set("Content-Type", "application/json")
@@ -3787,7 +3501,7 @@ func TestQueryNonStreamToolBudgetExceededPersistsError(t *testing.T) {
 	const chatID = "chat-tool-budget-sync"
 	const runID = "loyw3v29"
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(
 		`{"chatId":"`+chatID+`","runId":"`+runID+`","agentKey":"mock-agent","message":"call the clock twice","stream":false}`,
 	))
 	req.Header.Set("Content-Type", "application/json")
@@ -3984,7 +3698,7 @@ func TestQueryRejectsAmbiguousLegacyToolHistoryBeforeProviderCall(t *testing.T) 
 		t.Fatalf("complete legacy run: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(
 		`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"continue","stream":false}`,
 	))
 	req.Header.Set("Content-Type", "application/json")
@@ -4007,7 +3721,7 @@ func TestQueryEmitsRunErrorOnInvalidFirstFrame(t *testing.T) {
 		writeProviderSSE(t, w, `{"broken":true}`, `[DONE]`)
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"bad stream"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"bad stream"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -4040,7 +3754,7 @@ func TestQueryEmitsRunErrorWhenStreamFailsMidFlight(t *testing.T) {
 		}
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"mid stream error"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"mid stream error"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -4076,7 +3790,7 @@ func TestQueryStreamsBeforeRunCompleteOverHTTP(t *testing.T) {
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"stream please"}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"stream please"}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -4121,7 +3835,7 @@ func TestInterruptCancelsActiveRunAndSkipsRunComplete(t *testing.T) {
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"interrupt me"}`))
+	resp, err := http.Post(httpServer.URL+"/api/query?detail=full", "application/json", bytes.NewBufferString(`{"message":"interrupt me"}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}

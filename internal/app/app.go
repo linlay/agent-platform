@@ -24,6 +24,7 @@ import (
 	"agent-platform/internal/chatresource"
 	"agent-platform/internal/config"
 	"agent-platform/internal/connectorauth"
+	"agent-platform/internal/connectorops"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/credentialview"
@@ -42,6 +43,7 @@ import (
 	"agent-platform/internal/platformcontrol"
 	projectpkg "agent-platform/internal/project"
 	"agent-platform/internal/reload"
+	"agent-platform/internal/resultsubmit"
 	"agent-platform/internal/runenvops"
 	"agent-platform/internal/runops"
 	agentruntime "agent-platform/internal/runtime"
@@ -59,6 +61,8 @@ import (
 	"agent-platform/internal/terminal"
 	"agent-platform/internal/toolinteraction"
 	"agent-platform/internal/tools"
+	"agent-platform/internal/viewaction"
+	"agent-platform/internal/viewquery"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -238,6 +242,13 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if err != nil {
 		return nil, fmt.Errorf("initialize tool router: %w", err)
 	}
+	// History replay hides the same clientVisible=false tools as the live stream.
+	clientHiddenTools := func(name string) bool {
+		def, ok := toolExecutor.Tool(name)
+		return ok && def.ClientHidden()
+	}
+	chatStore.SetClientHiddenTools(clientHiddenTools)
+	archiveStore.SetClientHiddenTools(clientHiddenTools)
 
 	registryStartedAt := time.Now()
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
@@ -401,6 +412,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if err := toolExecutor.RegisterHandler(runenvops.NewToolHandler(cfg.RunEnv)); err != nil {
 		return nil, fmt.Errorf("register run_env tool: %w", err)
 	}
+	if err := toolExecutor.RegisterHandler(resultsubmit.NewToolHandler()); err != nil {
+		return nil, fmt.Errorf("register result_submit tool: %w", err)
+	}
 	automationService := &automation.Service{Registry: automationRegistry, Orchestrator: automationOrchestrator, History: automationExecutionHistory, DefaultZoneID: cfg.Automation.DefaultZoneID}
 	controlHandler := platformcontrol.NewToolHandler(cfg, registry, conversationService).ConfigureControl(&adminsource.ControlService{Mutations: adminSourceService, Config: cfg, Registry: registry, Models: modelRegistry, Reload: reloader.Reload, Coordinate: reloader.WithCatalogDirectoryMutation, ValidateLibrary: kbasesService.ValidateBinding, LibraryDefinition: kbasesService.BindingDefinition}, conversationService, modelRegistry).ConfigureAutomation(automationService).ConfigureLibraries(kbasesService)
 	connectorAuth := connectorauth.New(backgroundCtx, cfg.Paths.ConnectorSources(), nil).WithInheritEnv(cfg.Bash.InheritEnv).WithPreparationReload(func(ctx context.Context) error { return reloader.Reload(ctx, "connectors") }).WithIdentityFile(cfg.IdentityFile).WithCredentialValidator(mcpClient.ValidateConnectorCredentials)
@@ -426,10 +440,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		ChatsRoot: cfg.Paths.ChatsDir, MaxReadBytes: cfg.FileTools.MaxReadBytes,
 	}
 	systemInits := llm.NewSystemInitProfileBuilder(modelRegistry, llm.SystemInitDefaults{
-		PlanMaxSteps:             cfg.Defaults.Plan.MaxSteps,
-		PlanMaxWorkRoundsPerTask: cfg.Defaults.Plan.MaxWorkRoundsPerTask,
-		CoderPlanningMaxSteps:    cfg.Defaults.CoderPlanning.MaxSteps,
-		Prompts:                  cfg.Prompts,
+		CoderPlanningMaxSteps: cfg.Defaults.CoderPlanning.MaxSteps,
+		Prompts:               cfg.Prompts,
 	})
 	profiles := runtimeadapter.Profiles{Builder: systemInits, Tools: toolExecutor}
 	sessions := runtimesession.New(runtimesession.Dependencies{KnowledgeLibrary: kbasesService.LibraryOption, ValidateKnowledge: knowledgeManager.ValidateRunLibrary, Config: cfg, Chats: chatStore, Registry: runtimeadapter.Catalog{Registry: registry}, Models: modelRegistry, Runs: runManager, Tools: toolExecutor, Profiles: profiles})
@@ -442,9 +454,32 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			return def.Workspace.ProjectDir(), ok && def.MemoryConfig.Enabled && def.Engine == catalog.AgentEngineNative && def.ProxyConfig == nil && def.Mode != "CHANNEL"
 		}).WithArchives(archiveStore)
 	srv, err = server.New(server.Dependencies{
-		BackgroundContext:      backgroundCtx,
-		Config:                 cfg,
-		Chats:                  chatStore,
+		BackgroundContext: backgroundCtx,
+		Config:            cfg,
+		Chats:             chatStore,
+		ViewQueries:       &viewquery.Service{Operations: controlHandler.ViewQueryOperations(), Connectors: &connectorops.Service{Auth: connectorAuth, Sources: cfg.Paths.ConnectorSources()}, Sources: cfg.Paths.ConnectorSources()},
+		ViewActions: &viewaction.Service{Sources: cfg.Paths.ConnectorSources(), Connectors: &connectorops.Service{Auth: connectorAuth, Sources: cfg.Paths.ConnectorSources()}, Authorize: func(ctx context.Context, actor viewaction.Context, id string) error {
+			users, err := registry.ConfiguredConnectorUsers(id)
+			if err != nil {
+				return viewaction.ErrDenied
+			}
+			configured := false
+			for _, key := range users {
+				if key == actor.AgentKey {
+					configured = true
+					break
+				}
+			}
+			def, ok := registry.AgentDefinition(actor.AgentKey)
+			if ok && configured {
+				for _, mount := range def.ConnectorMounts {
+					if mount.ID == id {
+						return nil
+					}
+				}
+			}
+			return viewaction.ErrDenied
+		}},
 		Archives:               archiveStore,
 		Archiver:               archiver,
 		Memory:                 memoryStore,
@@ -497,6 +532,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Agent: runtimeadapter.Engine{AgentEngine: agentEngine}, Profiles: profiles, Sessions: sessions,
 		Notifications: notifications, ToolInteractions: interactionRegistry, DeltaMappers: llm.DeltaMapperFactory{Interactions: interactionRegistry, CredentialPolicy: credentialview.FromConfig(cfg)},
 		DeferredAwaitings: deferredAwaitings, Proxy: server.RuntimeProxyPort{Server: srv}, ResourceTickets: srv.RuntimeResourceTickets(),
+		PrimaryChats: conversationService,
 	})
 	runtimeService.Bind(queryService)
 	runtimeToolExecutor.WithWaitConditionProvider(waitEventProvider{runs: runops.NewToolHandler(runtimeService, runManager), auth: srv})
@@ -708,7 +744,7 @@ func runtimeQueryCommand(req api.QueryRequest) runtimetypes.QueryCommand {
 		Role: req.Role, Hidden: req.Hidden, Message: req.Message, SourceUser: req.SourceUser, References: references,
 		Params: contracts.CloneMap(req.Params), Scene: scene, Stream: req.Stream, IncludeUsage: req.IncludeUsage,
 		IncludeFullText: req.IncludeFullText, PlanningMode: req.PlanningMode, EditingMode: req.EditingMode,
-		AccessLevel: req.AccessLevel, Model: model,
+		AccessLevel: req.AccessLevel, Model: model, Primary: req.Primary,
 		SyntheticQueryBootstrapped: req.SyntheticQueryBootstrapped, ChatSource: req.ChatSource,
 		Origin: req.Origin.Clone(),
 	}

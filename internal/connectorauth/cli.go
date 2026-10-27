@@ -223,10 +223,11 @@ func cliLine(raw any, optional bool) (string, error) {
 	return line, nil
 }
 
-// cliEnvironment is the base of every CLI phase: the same inherited host
-// variables as Host Bash, the package's bin/, the active installation's bin
-// and the public cli.json env. HOME stays the user's own.
-func (m *Manager) cliEnvironment(pkg connector.Package) ([]string, error) {
+// ExecutionEnvironment is the base of every CLI phase and of direct connector
+// execution: the same inherited host variables as Host Bash, the package's
+// bin/, the active installation's bin and the public cli.json env. HOME stays
+// the user's own.
+func (m *Manager) ExecutionEnvironment(pkg connector.Package) ([]string, error) {
 	return m.cliEnvironmentWith(pkg, connector.ActiveInstallBin(pkg.InstallRoot, pkg.ID))
 }
 
@@ -254,7 +255,7 @@ func (m *Manager) cliEnvironmentWith(pkg connector.Package, installBin string) (
 // candidate under validation runs with only OS essentials, its own staged
 // credentials and private HOME/XDG directories.
 func (m *Manager) lifecycleEnvironment(ctx context.Context, pkg connector.Package) ([]string, error) {
-	env, err := m.cliEnvironment(pkg)
+	env, err := m.ExecutionEnvironment(pkg)
 	if err != nil {
 		return nil, err
 	}

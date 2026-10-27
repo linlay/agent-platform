@@ -850,6 +850,8 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 		result.Error = result.Text
 		return result
 	}
+	// Member Markdown views resolve with the member's own frozen mounts.
+	contracts.BindContentViews(childRunCtx, childMapper, &subSession)
 
 	sawContent := false
 	for {
@@ -911,6 +913,7 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 			ContentID: task.TaskID + ":final",
 			TaskID:    task.TaskID,
 			Delta:     text,
+			BindView:  contracts.ContentViewBinderFor(childRunCtx, &subSession),
 		}))
 	}
 	result.Text = text

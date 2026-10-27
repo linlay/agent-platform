@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/chatresource"
 	"agent-platform/internal/conversationexport"
@@ -110,14 +111,14 @@ func (s *Server) resolveExportAssistant(agentKey string) *conversationexport.Ass
 	if s.deps.Registry == nil {
 		return nil
 	}
-	var name string
+	var name, mode string
 	var icon any
 	if agentKey != "" {
 		definition, ok := s.deps.Registry.AgentDefinition(agentKey)
 		if !ok {
 			return nil
 		}
-		name, icon = definition.Name, definition.Icon
+		name, icon, mode = definition.Name, definition.Icon, definition.Mode
 	} else {
 		return nil
 	}
@@ -125,8 +126,11 @@ func (s *Server) resolveExportAssistant(agentKey string) *conversationexport.Ass
 	if name == "" || len(name) > conversationexport.MaxTitleBytes {
 		return nil
 	}
-	assistant := &conversationexport.AssistantV1{Name: name}
+	assistant := &conversationexport.AssistantV1{Name: name, Mode: catalog.AgentModeForAPI(mode)}
 	if descriptor, ok := icon.(map[string]any); ok {
+		if color, ok := descriptor["color"].(string); ok && len(color) <= 128 {
+			assistant.IconColor = strings.TrimSpace(color)
+		}
 		if iconName, ok := descriptor["name"].(string); ok && validExportIconName(iconName) {
 			assistant.IconName = iconName
 		}

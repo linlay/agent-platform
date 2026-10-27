@@ -83,6 +83,7 @@ func (d *StreamEventDispatcher) handleToolOutput(input ToolOutput) []StreamEvent
 
 func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent {
 	events := d.closeTool(input.ToolID, nil)
+	block, hasBlock := d.state.endedTools[input.ToolID]
 	delete(d.state.endedTools, input.ToolID)
 	payload := map[string]any{
 		"toolId":   input.ToolID,
@@ -103,9 +104,22 @@ func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent
 	}
 	if len(input.Target) > 0 {
 		payload["target"] = clonePayload(input.Target)
-		if label := strings.TrimSpace(input.ToolLabel); label != "" {
-			payload["toolLabel"] = label
+	}
+	label, translations := input.ToolLabel, input.ToolI18n
+	if len(input.Target) > 0 {
+		translations = nil
+	} else if hasBlock && block.Name == input.ToolName {
+		// Keep the presentation frozen for this invocation across catalog reloads.
+		if strings.TrimSpace(block.Label) != "" {
+			label = block.Label
 		}
+		translations = block.I18n
+	}
+	if label := strings.TrimSpace(label); label != "" {
+		payload["toolLabel"] = label
+	}
+	if len(translations) > 0 {
+		payload["toolI18n"] = i18n.CloneToolTranslations(translations)
 	}
 	if isBashToolResult(input.ToolName) {
 		if input.ExitCode != 0 {

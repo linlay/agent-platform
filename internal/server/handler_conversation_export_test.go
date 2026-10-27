@@ -54,6 +54,16 @@ func TestResolveExportAssistantUsesPublicIdentityAndSafeIcon(t *testing.T) {
 	}
 }
 
+func TestResolveExportAssistantPreservesIndependentIconAndColor(t *testing.T) {
+	fixture := newTestFixture(t)
+	fixture.server.deps.Registry = channelTestCatalogRegistry{defs: map[string]catalog.AgentDefinition{"worker": {Name: "Worker", Mode: "CODER", Icon: map[string]any{"name": "proxy", "color": "#358E8A"}}}}
+	bindTestRuntime(fixture.server)
+	got := fixture.server.resolveExportAssistant("worker")
+	if got == nil || got.Mode != "CODER" || got.IconName != "proxy" || got.IconColor != "#358E8A" {
+		t.Fatalf("identity=%#v", got)
+	}
+}
+
 func TestHandleChatExportSnapshotReturnsJSONDocument(t *testing.T) {
 	fixture := newTestFixture(t)
 	fixture.server.deps.Config.CORS.Enabled = true

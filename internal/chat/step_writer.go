@@ -22,13 +22,11 @@ type StepWriter struct {
 	store  StepLineStore
 	chatID string
 	runID  string
-	mode   string // "GENERAL" / "PLAN_EXECUTE" / "ONESHOT" / "CODER"
+	mode   string // the Run's agent mode, e.g. "GENERAL" / "CODER"
 
 	queryWritten  bool
 	originalQuery map[string]any
 	seqCounter    int
-
-	currentStage string
 
 	messages         []StoredMessage
 	pendingArtifacts *ArtifactPublicationState
@@ -159,19 +157,12 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 	case "request.query":
 		w.handleRequestQuery(event)
 
-	case "run.start":
-		// default stage; will be overridden by the first internal stage marker
-		if w.currentStage == "" {
-			w.currentStage = "oneshot"
-		}
-
 	case "reasoning.end", "content.end", "tool.end":
 		if event.String("status") == "failed" {
 			w.appendTypedEventLine(event, "event")
 		}
 
 	case "reasoning.snapshot":
-		w.ensureStep()
 		w.ensureMsgID()
 		ts := event.Timestamp
 		w.appendStoredMessage(event, StoredMessage{
@@ -183,7 +174,6 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		})
 
 	case "content.snapshot":
-		w.ensureStep()
 		w.ensureMsgID()
 		ts := event.Timestamp
 		actorType, agentKey := contentActorFromEvent(event)
@@ -191,6 +181,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			Role:      "assistant",
 			Content:   textContent(event.String("text")),
 			ContentID: event.String("contentId"),
+			Views:     contentViewBindings(event.Value("views")),
 			MsgID:     w.currentMsgID,
 			Ts:        &ts,
 			ActorType: actorType,
@@ -200,7 +191,6 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		})
 
 	case "tool.snapshot":
-		w.ensureStep()
 		w.ensureMsgID()
 		toolID := event.String("toolId")
 		toolName := event.String("toolName")
@@ -229,7 +219,6 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 	case "tool.result":
 		w.restoreMissingToolCall(event)
 		w.flushAssistantStepBeforeToolResult(event)
-		w.ensureStep()
 		toolID := event.String("toolId")
 		toolName := w.toolNames[toolID]
 		if strings.TrimSpace(toolName) == "" {
@@ -300,9 +289,6 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		}
 		delete(w.closedTaskIDs, taskID)
 		buffer := w.ensureTaskBuffer(taskID)
-		if strings.TrimSpace(buffer.taskStage) == "" {
-			buffer.taskStage = w.currentStage
-		}
 		buffer.taskStatus = ""
 		buffer.taskAgentKey = event.String("taskAgentKey")
 
@@ -478,9 +464,8 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 
 // OnStageMarker processes an internal stage boundary without exposing it as a
 // persisted or streamed event.
-func (w *StepWriter) OnStageMarker(stage string) {
+func (w *StepWriter) OnStageMarker(string) {
 	w.flushCurrentStep()
-	w.currentStage = parseStage(stage)
 }
 
 // CommitModelTurn opens the persistence gate for the current assistant turn.
@@ -644,12 +629,6 @@ func stampQueryMessages(messages []map[string]any, timestamp int64) {
 	}
 }
 
-func (w *StepWriter) ensureStep() {
-	if w.currentStage == "" {
-		w.currentStage = "oneshot"
-	}
-}
-
 func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredMessage) {
 	if taskID := w.taskIDForEvent(event); taskID != "" {
 		if w.closedTaskIDs[taskID] {
@@ -661,9 +640,6 @@ func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredM
 		}
 		if presentation := strings.TrimSpace(event.String("presentation")); presentation != "" {
 			buffer.presentation = presentation
-		}
-		if strings.TrimSpace(buffer.taskStage) == "" {
-			buffer.taskStage = w.currentStage
 		}
 		buffer.messages = upsertStoredMessage(buffer.messages, message)
 		buffer.liveSeq = maxLiveSeq(buffer.liveSeq, event.Seq)
@@ -728,7 +704,6 @@ func (w *StepWriter) restoreMissingToolCall(event stream.EventData) {
 	}
 	w.toolCallsSeen[toolID] = true
 	w.toolNames[toolID] = toolName
-	w.ensureStep()
 	w.ensureMsgID()
 	ts := event.Timestamp
 	w.appendStoredMessage(stream.EventData{Seq: event.Seq, Type: event.Type, Timestamp: event.Timestamp}, StoredMessage{
@@ -1012,9 +987,6 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	}
 	applyStepLineModelMetadata(&line, w.pendingModelKey, w.pendingReasoningEffort)
 
-	if w.mode == "PLAN_EXECUTE" {
-		line.Stage = w.currentStage
-	}
 	w.assignReactSeq(&line)
 
 	if err := w.store.AppendStepLine(w.chatID, line); err != nil {
@@ -1034,7 +1006,9 @@ func (w *StepWriter) clearCurrentStep() {
 	w.messages = nil
 	w.stepLiveSeq = 0
 	w.pendingAwaiting = nil
-	w.pendingApproval = nil
+	// The producer can record approval before tool.result reaches this writer.
+	// Flushing its assistant call must not discard the notice; the matching
+	// tool-result flush consumes it after persisting the inline audit message.
 	w.pendingUsage = nil
 	// pendingToolUsage survives a discarded model turn: the tool's provider
 	// already billed it, so it is written with the next step instead.

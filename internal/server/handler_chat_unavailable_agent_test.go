@@ -43,7 +43,7 @@ func TestChatHistorySurvivesUnavailableAgent(t *testing.T) {
 				fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 				return rec
 			}
-			before := read("/api/chat?chatId=" + chatID + "&includeRawMessages=true")
+			before := read("/api/chat?detail=full&chatId=" + chatID + "&includeRawMessages=true")
 			if before.Code != http.StatusOK || !strings.Contains(before.Body.String(), "persisted answer") {
 				t.Fatalf("initial history: %d %s", before.Code, before.Body.String())
 			}
@@ -91,7 +91,7 @@ func TestChatHistorySurvivesUnavailableAgent(t *testing.T) {
 						if err != nil {
 							t.Fatal(err)
 						}
-						req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body))
+						req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewReader(body))
 						req.Header.Set("X-Locale", locale)
 						rec := httptest.NewRecorder()
 						fixture.server.ServeHTTP(rec, req)
@@ -109,11 +109,11 @@ func TestChatHistorySurvivesUnavailableAgent(t *testing.T) {
 					}
 				}
 			}
-			after := read("/api/chat?chatId=" + chatID + "&includeRawMessages=true")
+			after := read("/api/chat?detail=full&chatId=" + chatID + "&includeRawMessages=true")
 			if after.Code != http.StatusOK || after.Body.String() != before.Body.String() {
 				t.Fatalf("Agent %s changed persisted replay: before=%s after=%s", state, before.Body.String(), after.Body.String())
 			}
-			if got := read("/api/chat?chatId=missing-chat"); got.Code != http.StatusNotFound {
+			if got := read("/api/chat?detail=full&chatId=missing-chat"); got.Code != http.StatusNotFound {
 				t.Fatalf("missing Chat must remain 404: %d %s", got.Code, got.Body.String())
 			}
 
@@ -121,7 +121,7 @@ func TestChatHistorySurvivesUnavailableAgent(t *testing.T) {
 			privateKey, publicKeyPath := writeTestJWTKeyPair(t, fixture.cfg.Paths.ChatsDir)
 			fixture.cfg.Auth = config.AuthConfig{Enabled: true, LocalPublicKeyFile: publicKeyPath, Issuer: "history-test"}
 			fixture.server = newServerFromFixture(t, fixture)
-			for _, path := range []string{"/api/chats", "/api/chat?chatId=" + chatID} {
+			for _, path := range []string{"/api/chats", "/api/chat?detail=full&chatId=" + chatID} {
 				if got := read(path); got.Code != http.StatusUnauthorized {
 					t.Fatalf("unauthenticated history: %d %s", got.Code, got.Body.String())
 				}

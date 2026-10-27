@@ -17,6 +17,8 @@ type StreamEventStateData struct {
 	reasoningBuffer   map[string]string
 	contentBuffer     map[string]string
 	contentGuards     map[string]*MarkdownDestinationGuard
+	contentBinders    map[string]ContentViewBinder
+	contentViews      map[string][]map[string]any
 	toolArgsBuffer    map[string]string
 	emittedAwaitings  map[string]bool
 	toolEndAtByID     map[string]int64
@@ -83,6 +85,8 @@ func NewStateData() *StreamEventStateData {
 		reasoningBuffer:   map[string]string{},
 		contentBuffer:     map[string]string{},
 		contentGuards:     map[string]*MarkdownDestinationGuard{},
+		contentBinders:    map[string]ContentViewBinder{},
+		contentViews:      map[string][]map[string]any{},
 		toolArgsBuffer:    map[string]string{},
 		emittedAwaitings:  map[string]bool{},
 		toolEndAtByID:     map[string]int64{},

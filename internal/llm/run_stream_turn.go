@@ -113,6 +113,10 @@ func (s *llmRunStream) fillNextPendingSource() error {
 		return s.invokeQueuedToolCallsAndPostHook()
 	}
 	if s.stopAfterToolBatch {
+		if payload := s.resultSubmitExhaustedError(); payload != nil {
+			s.enqueueTerminalRunError(payload)
+			return nil
+		}
 		if s.scheduleContextCompact(true) {
 			return nil
 		}
@@ -244,7 +248,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 		attempt:             1,
 		maxAttempts:         s.modelMaxAttempts(),
 	}
-	s.pending = append(s.pending, s.buildModelRunActivity("waiting", s.modelCall, nil))
+	s.pending = append(s.pending, s.modelCallActivity())
 	return nil
 }
 
@@ -596,11 +600,21 @@ func (s *llmRunStream) finishCurrentTurn() error {
 			}
 			return nil
 		}
+		if remind, failure := s.resultSubmitMissing(); remind || failure != nil {
+			if strings.TrimSpace(content) == "" {
+				s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, ResponseID: turn.responseID, EncryptedReasoning: turn.encryptedReasoning})
+			}
+			if remind {
+				s.messages = append(s.messages, openAIMessage{Role: "user", Content: resultSubmitReminder})
+				return nil
+			}
+			s.enqueueTerminalRunError(failure)
+			return nil
+		}
 
 		if strings.TrimSpace(content) == "" {
 			s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, ResponseID: turn.responseID, EncryptedReasoning: turn.encryptedReasoning})
 		}
-		s.pending = append(s.pending, s.buildModelRunActivity("completed", nil, nil))
 		if finishReason := strings.TrimSpace(turn.finishReason); finishReason != "" && !strings.EqualFold(finishReason, "tool_calls") {
 			s.pending = append(s.pending, DeltaFinishReason{Reason: finishReason})
 		}
@@ -669,9 +683,29 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		fileChanges = nil
 	}
 	s.pending = append(s.pending, turn.emptyArgumentToolCallDeltas()...)
+	if !toolRoundLimited {
+		// Arguments are complete: the turn's one tool activity shows now, so
+		// it covers approval waits and the whole batch. An announcement of
+		// the next steps wins over the first tool's own description.
+		var shown *preparedToolInvocation
+		for _, prepared := range preparedCalls {
+			if prepared.invocation == nil {
+				continue
+			}
+			if s.isAnnounceTool(prepared.invocation.toolName) {
+				shown = prepared.invocation
+				break
+			}
+			if shown == nil {
+				shown = prepared.invocation
+			}
+		}
+		if shown != nil {
+			s.pending = append(s.pending, s.toolRunActivity(shown))
+		}
+	}
 	s.pending = append(s.pending, DeltaToolEnd{ToolIDs: toolIDs, FileChanges: fileChanges})
 	s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq, ResponseID: turn.responseID, EncryptedReasoning: turn.encryptedReasoning})
-	s.pending = append(s.pending, s.buildModelRunActivity("completed", nil, nil))
 	for _, prepared := range preparedCalls {
 		toolCall := prepared.toolCall
 		invocation := prepared.invocation
@@ -810,7 +844,7 @@ func (s *llmRunStream) enqueueFallback(text string) {
 
 // AccumulatedMessages returns the messages accumulated during the stream's
 // lifetime, including system prompt, user messages, assistant replies and
-// tool results. Used by plan_execute to carry context into the summary stage.
+// tool results. Planning Runs use it to carry context into their next turn.
 func (s *llmRunStream) AccumulatedMessages() []openAIMessage {
 	return append([]openAIMessage(nil), s.messages...)
 }

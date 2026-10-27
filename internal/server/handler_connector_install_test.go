@@ -16,6 +16,7 @@ import (
 
 func TestConnectorZIPImportHTTPConflictAndAuthContract(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)
+	installInvalidConnectorFixture(t, fixture.cfg.Paths.EffectiveConnectorsCenterDir())
 	var archive bytes.Buffer
 	z := zip.NewWriter(&archive)
 	for name, data := range map[string]string{"connector.json": `{"id":"import-demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"self"}`, "mcp.json": `{"mcpServers":{"main":{"type":"streamableHttp","url":"https://example.test/mcp"}}}`} {

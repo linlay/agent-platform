@@ -49,13 +49,13 @@ func TestConfirmedPlanToolsRemoveConfiguredExclusions(t *testing.T) {
 	session := contracts.QuerySession{
 		Mode:                    "CODER",
 		ToolNames:               []string{"bash", contracts.FinalizePlanningToolName, AskUserQuestionToolName, "file_read", contracts.PlanGetTasksToolName},
-		PlanExecuteExcludeTools: []string{AskUserQuestionToolName},
+		ExecuteExcludeTools: []string{AskUserQuestionToolName},
 	}
 	want := []string{"bash", "file_read", contracts.PlanGetTasksToolName}
 	if got := ConfirmedPlanTools(session, nil); !reflect.DeepEqual(got, want) {
 		t.Fatalf("ConfirmedPlanTools()=%#v want %#v", got, want)
 	}
-	session.PlanExecuteExcludeTools = nil
+	session.ExecuteExcludeTools = nil
 	if got := ConfirmedPlanTools(session, nil); !containsTool(got, AskUserQuestionToolName) || containsTool(got, contracts.FinalizePlanningToolName) {
 		t.Fatalf("only configured tools and finalize_planning may be removed, got %#v", got)
 	}
@@ -67,7 +67,7 @@ func TestToolSelectionIsTheSameForEveryMode(t *testing.T) {
 			Mode:                    mode,
 			ToolNames:               []string{"bash", "file_read", AskUserQuestionToolName},
 			PlanningExcludeTools:    []string{"bash"},
-			PlanExecuteExcludeTools: []string{AskUserQuestionToolName},
+			ExecuteExcludeTools: []string{AskUserQuestionToolName},
 		}
 		if got, want := PlanningTools(session, nil), []string{"file_read", AskUserQuestionToolName, contracts.FinalizePlanningToolName}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("%s PlanningTools()=%#v want %#v", mode, got, want)

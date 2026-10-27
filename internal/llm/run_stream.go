@@ -54,27 +54,31 @@ type llmRunStream struct {
 	preserveSteersOnFinish      bool
 	checker                     hitl.Checker
 
-	step                 int
-	stageToolCalls       int
-	pending              []AgentDelta
-	modelCall            *pendingModelCall
-	modelTerminalError   error
-	currentTurn          *providerTurnStream
-	lastTrace            *llmChatTrace
-	finished             bool
-	closed               bool
-	fallbackSent         bool
-	cancelSent           bool
-	cancellationErr      error
-	toolShutdownTimeout  time.Duration
-	finalTurnAttempted   bool
-	allowToolUse         bool
-	previousToolResult   any
-	queuedToolCalls      []*preparedToolInvocation
-	activeToolCall       *preparedToolInvocation
-	activeToolExecution  *activeToolExecution
-	activeToolBatch      *activeToolBatch
-	stopAfterToolBatch   bool
+	step                int
+	stageToolCalls      int
+	pending             []AgentDelta
+	modelCall           *pendingModelCall
+	modelTerminalError  error
+	currentTurn         *providerTurnStream
+	lastTrace           *llmChatTrace
+	finished            bool
+	closed              bool
+	fallbackSent        bool
+	cancelSent          bool
+	cancellationErr     error
+	toolShutdownTimeout time.Duration
+	finalTurnAttempted  bool
+	allowToolUse        bool
+	previousToolResult  any
+	queuedToolCalls     []*preparedToolInvocation
+	activeToolCall      *preparedToolInvocation
+	activeToolExecution *activeToolExecution
+	activeToolBatch     *activeToolBatch
+	stopAfterToolBatch  bool
+	// resultSubmitRejected and resultSubmitReminded track result_submit for a
+	// Run started through /api/execute.
+	resultSubmitRejected int
+	resultSubmitReminded bool
 	terminalErrorPayload map[string]any
 	terminalErrorQueued  bool
 	promptBuildOptions   PromptBuildOptions
@@ -240,5 +244,3 @@ type hitlNoticeEntry struct {
 	mode             string
 	formPayload      map[string]any
 }
-
-const defaultContextWindow = 128000

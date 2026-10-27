@@ -18,6 +18,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/kbases"
+	"agent-platform/internal/models"
 	"agent-platform/internal/ws"
 	"context"
 
@@ -304,39 +305,6 @@ func TestAgentChannelCRUDPersistsImportConfigWithoutModelConfig(t *testing.T) {
 	detailChannelConfig, _ := detail.Definition["channelConfig"].(map[string]any)
 	if detail.Mode != "CHANNEL" || detailChannelConfig["remoteAgentKey"] != "coder" {
 		t.Fatalf("expected CHANNEL detail with import config, got %#v", detail)
-	}
-}
-
-func TestAgentPlanExecuteCRUDUsesAPIModeContract(t *testing.T) {
-	fixture := newTestFixture(t)
-
-	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
-		"key": "plan-agent",
-		"definition": map[string]any{
-			"key":         "plan-agent",
-			"name":        "Plan Agent",
-			"role":        "Planner",
-			"description": "plan execute test agent",
-			"mode":        "PLAN-EXECUTE",
-			"modelConfig": map[string]any{"modelKey": "mock-model"},
-		},
-	})
-	if created.Mode != "PLAN-EXECUTE" || created.Definition["mode"] != "PLAN-EXECUTE" {
-		t.Fatalf("expected PLAN-EXECUTE create response, got %#v", created)
-	}
-
-	detail := getAdminAgentDetail(t, fixture.server, "plan-agent")
-	if detail.Mode != "PLAN-EXECUTE" || detail.Definition["mode"] != "PLAN-EXECUTE" {
-		t.Fatalf("expected PLAN-EXECUTE detail response, got %#v", detail)
-	}
-
-	detail.Definition["description"] = "updated plan execute test agent"
-	updated := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/update", map[string]any{
-		"key":        "plan-agent",
-		"definition": detail.Definition,
-	})
-	if updated.Mode != "PLAN-EXECUTE" || updated.Definition["mode"] != "PLAN-EXECUTE" {
-		t.Fatalf("expected PLAN-EXECUTE update response, got %#v", updated)
 	}
 }
 
@@ -1578,12 +1546,11 @@ func TestAgentEditorOptionsHTTP(t *testing.T) {
 	if response.Data.Models[0].ReasoningEfforts == nil || len(response.Data.Models[0].ReasoningEfforts) != 0 {
 		t.Fatalf("non-reasoner model should return an empty reasoning effort list, got %#v", response.Data.Models[0].ReasoningEfforts)
 	}
-	if got := response.Data.Modes; len(got) != 5 ||
+	if got := response.Data.Modes; len(got) != 4 ||
 		got[0].Key != "GENERAL" || got[0].Label != "GENERAL" ||
-		got[1].Key != "PLAN-EXECUTE" || got[1].Label != "PLAN-EXECUTE" ||
-		got[2].Key != "CODER" || got[2].Label != "CODER" ||
-		got[3].Key != "CHANNEL" || got[3].Label != "CHANNEL" ||
-		got[4].Key != "PROXY" || got[4].Label != "PROXY" {
+		got[1].Key != "CODER" || got[1].Label != "CODER" ||
+		got[2].Key != "CHANNEL" || got[2].Label != "CHANNEL" ||
+		got[3].Key != "PROXY" || got[3].Label != "PROXY" {
 		t.Fatalf("unexpected modes %#v", got)
 	}
 	for _, tag := range response.Data.ContextTags {
@@ -2116,4 +2083,31 @@ func installTestKnowledgeLibrary(t *testing.T, server *Server) string {
 		t.Fatal(err)
 	}
 	return d.ID
+}
+
+func TestAgentSaveChecksMaxInputTokensAgainstModelLimit(t *testing.T) {
+	fixture := newTestFixture(t)
+	definition := func(limit int) map[string]any {
+		return map[string]any{
+			"key":         "window-agent",
+			"name":        "Window Agent",
+			"mode":        "GENERAL",
+			"modelConfig": map[string]any{"modelKey": "mock-model", "maxInputTokens": limit},
+		}
+	}
+	body, err := json.Marshal(map[string]any{"key": "window-agent", "definition": definition(models.DefaultContextWindow + 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/create", bytes.NewReader(body)))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "exceeds model mock-model limit") {
+		t.Fatalf("expected limit rejection, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{"key": "window-agent", "definition": definition(64000)})
+	def, ok := fixture.registry.AgentDefinition("window-agent")
+	if !ok || def.MaxInputTokens != 64000 {
+		t.Fatalf("saved maxInputTokens = %#v", def.MaxInputTokens)
+	}
 }

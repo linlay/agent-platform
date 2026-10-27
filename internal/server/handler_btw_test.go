@@ -283,7 +283,7 @@ func testBTWWebSocketLaneGuardsAndSequentialStreams(t *testing.T, source string,
 func TestBTWCreatesHiddenBranchWithoutChangingParentChat(t *testing.T) {
 	fixture := newTestFixture(t)
 	const chatID = "chat-btw-integration"
-	query := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"parent question"}`))
+	query := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"parent question"}`))
 	query.Header.Set("Content-Type", "application/json")
 	queryRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(queryRec, query)
@@ -300,7 +300,7 @@ func TestBTWCreatesHiddenBranchWithoutChangingParentChat(t *testing.T) {
 		t.Fatalf("load parent summary: %#v err=%v", summaryBefore, err)
 	}
 
-	btw := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"lane":"btw","chatId":"`+chatID+`","message":"side question"}`))
+	btw := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"lane":"btw","chatId":"`+chatID+`","message":"side question"}`))
 	btw.Header.Set("Content-Type", "application/json")
 	btwRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(btwRec, btw)
@@ -351,7 +351,7 @@ func TestBTWCreatesHiddenBranchWithoutChangingParentChat(t *testing.T) {
 		t.Fatalf("BTW provider message missing side-question boundary: %#v", messages[2])
 	}
 
-	continueReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"lane":"btw","chatId":"`+chatID+`","sideId":"`+btwID+`","message":"follow up","stream":false,"includeUsage":true}`))
+	continueReq := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"lane":"btw","chatId":"`+chatID+`","sideId":"`+btwID+`","message":"follow up","stream":false,"includeUsage":true}`))
 	continueReq.Header.Set("Content-Type", "application/json")
 	continueRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(continueRec, continueReq)
@@ -620,6 +620,9 @@ func serveJSONRequestForBTWTest(t *testing.T, server *Server, path string, body 
 
 func serveJSONRequestForBTWTestStatus(t *testing.T, server *Server, path string, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	if path == "/api/query" {
+		path += "?detail=full"
+	}
 	req := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()

@@ -182,7 +182,7 @@ func TestToolCancellationDeadlineAndLateReturns(t *testing.T) {
 			cancel()
 			started := time.Now()
 			for range calls {
-				delta, err := s.Next()
+				delta, err := nextWithoutRunActivity(s)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -235,7 +235,7 @@ func TestToolCancellationDoesNotDuplicatePublishedBatchResult(t *testing.T) {
 			t.Fatal("tool not started")
 		}
 	}
-	first, err := s.Next()
+	first, err := nextWithoutRunActivity(s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestToolCancellationBeforeWorkerStartsDoesNotInvokeExecutor(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			delta, err := s.Next()
+			delta, err := nextWithoutRunActivity(s)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -301,7 +301,7 @@ func TestToolCancellationLargeReadyBatchDoesNotBlockStartup(t *testing.T) {
 	}
 	cancel()
 	for range calls {
-		delta, err := s.Next()
+		delta, err := nextWithoutRunActivity(s)
 		if err != nil {
 			t.Fatal(err)
 		}

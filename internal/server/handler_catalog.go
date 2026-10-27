@@ -19,6 +19,7 @@ import (
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/knowledge"
@@ -272,7 +273,7 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (r
 			}
 		}()
 	}
-	if err := s.validateKnowledgeBinding(definition); err != nil {
+	if err := s.validateAgentReferences(definition); err != nil {
 		return api.AgentDetailResponse{}, err
 	}
 	if _, err := editor.CreateEditableAgent(key, definition, req.SoulPrompt, req.AgentsPrompt); err != nil {
@@ -308,13 +309,18 @@ func validateCreateAgentDefinition(definition map[string]any) error {
 	return knowledge.ValidateConfigSchema(contracts.AnyMapNode(definition["kbaseConfig"]))
 }
 
-func (s *Server) validateKnowledgeBinding(definition map[string]any) error {
+// validateAgentReferences checks what an Agent definition names outside the
+// catalog: its knowledge library and its model's input limit.
+func (s *Server) validateAgentReferences(definition map[string]any) error {
 	var validate func(string) error
 	if s.deps.KBases != nil {
 		validate = s.deps.KBases.ValidateBinding
 	}
 	if err := adminsource.ValidateKnowledgeBinding(definition, validate); err != nil {
 		return newAgentStatusError(http.StatusBadRequest, "invalid_knowledge_binding", err.Error())
+	}
+	if err := adminsource.ValidateModelInputLimit(definition, s.deps.Models); err != nil {
+		return newAgentStatusError(http.StatusBadRequest, "invalid_agent_definition", err.Error())
 	}
 	return nil
 }
@@ -351,12 +357,17 @@ func (s *Server) applyGeneralDefaultAgentConfig(definition map[string]any) map[s
 	if definition == nil {
 		return nil
 	}
-	if !agentbuiltin.IsGeneralMode(catalog.DefinitionRuntimeMode(definition)) && catalog.DefinitionRuntimeMode(definition) != "TEAM" {
-		return definition
-	}
-	defaults := s.deps.Config.GeneralSettings.DefaultAgent
-	if catalog.DefinitionRuntimeMode(definition) == "TEAM" {
+	mode := catalog.DefinitionRuntimeMode(definition)
+	var defaults config.CoderDefaultAgentConfig
+	switch {
+	case agentbuiltin.IsGeneralMode(mode):
+		defaults = s.deps.Config.GeneralSettings.DefaultAgent
+	case mode == "TEAM":
 		defaults = s.deps.Config.TeamSettings.DefaultAgent
+	case agentbuiltin.IsExecutorMode(mode):
+		defaults = s.deps.Config.ExecutorSettings.DefaultAgent
+	default:
+		return definition
 	}
 	return agentbuiltin.ApplyGeneralCreateDefaults(definition, agentbuiltin.GeneralCreateDefaults{
 		ModelKey: defaults.ModelKey, ReasoningEffort: defaults.ReasoningEffort, Budget: defaults.Budget,
@@ -400,10 +411,15 @@ func (s *Server) normalizeGeneratedModeCreation(key string, definition map[strin
 	prefix := ""
 	if descriptor, ok := agentbuiltin.Lookup(mode); ok {
 		prefix = strings.TrimSpace(descriptor.CreatePrefix)
-	} else if agentbuiltin.IsGeneralMode(mode) && key == "" && strings.TrimSpace(stringValue(definition["key"])) == "" {
-		// A general agent keeps a caller-chosen key; one is generated only
-		// when the caller did not choose.
-		prefix = agentbuiltin.GeneralCreatePrefix
+	} else if key == "" && strings.TrimSpace(stringValue(definition["key"])) == "" {
+		// General and executor agents keep a caller-chosen key; one is
+		// generated only when the caller did not choose.
+		switch {
+		case agentbuiltin.IsGeneralMode(mode):
+			prefix = agentbuiltin.GeneralCreatePrefix
+		case agentbuiltin.IsExecutorMode(mode):
+			prefix = agentbuiltin.ExecutorCreatePrefix
+		}
 	}
 	if prefix == "" {
 		return key, definition
@@ -438,7 +454,7 @@ func (s *Server) updateAgent(ctx context.Context, req api.UpdateAgentRequest) (a
 	if err := catalog.NormalizeAgentReasoningConfig("agent definition", definition); err != nil {
 		return api.AgentDetailResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_agent_definition", err.Error())
 	}
-	if err := s.validateKnowledgeBinding(definition); err != nil {
+	if err := s.validateAgentReferences(definition); err != nil {
 		return api.AgentDetailResponse{}, err
 	}
 	if _, err := editor.UpdateEditableAgent(key, definition, req.SoulPrompt, req.AgentsPrompt); err != nil {
@@ -463,7 +479,7 @@ func (s *Server) updateAgentName(ctx context.Context, key string, name string) (
 	}
 	definition := contracts.CloneMap(files.Definition)
 	definition["name"] = name
-	if err := s.validateKnowledgeBinding(definition); err != nil {
+	if err := s.validateAgentReferences(definition); err != nil {
 		return api.AgentDetailResponse{}, err
 	}
 	if _, err := editor.UpdateEditableAgent(key, definition, &files.SoulPrompt, &files.AgentsPrompt); err != nil {
@@ -591,7 +607,7 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 		delete(modelConfig, "serviceTier")
 	}
 	definition["modelConfig"] = modelConfig
-	if err := s.validateKnowledgeBinding(definition); err != nil {
+	if err := s.validateAgentReferences(definition); err != nil {
 		return api.AgentModelConfigResponse{}, err
 	}
 
@@ -700,7 +716,6 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 		},
 		Modes: []api.AgentEditorOption{
 			{Key: "GENERAL", Label: "GENERAL"},
-			{Key: "PLAN-EXECUTE", Label: "PLAN-EXECUTE"},
 			{Key: "CODER", Label: "CODER"},
 			{Key: "CHANNEL", Label: "CHANNEL"},
 			{Key: "PROXY", Label: "PROXY"},

@@ -823,7 +823,7 @@ func TestQueryModelOptionsValidation(t *testing.T) {
 	t.Run("unknown model rejects request model", func(t *testing.T) {
 		fixture := newTestFixture(t)
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hi","agentKey":"mock-agent","model":{"key":"missing-model"}}`))
+		req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"hi","agentKey":"mock-agent","model":{"key":"missing-model"}}`))
 		req.Header.Set("Content-Type", "application/json")
 		fixture.server.ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest {
@@ -847,7 +847,7 @@ func TestQueryModelOptionsValidation(t *testing.T) {
 			},
 		})
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hi","agentKey":"mock-agent","model":{"key":"gpt-5-codex"}}`))
+		req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"hi","agentKey":"mock-agent","model":{"key":"gpt-5-codex"}}`))
 		req.Header.Set("Content-Type", "application/json")
 		fixture.server.ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "provider") {
@@ -858,7 +858,7 @@ func TestQueryModelOptionsValidation(t *testing.T) {
 	t.Run("invalid reasoning effort rejects request model", func(t *testing.T) {
 		fixture := newTestFixture(t)
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hi","agentKey":"mock-agent","model":{"reasoningEffort":"FAST"}}`))
+		req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"hi","agentKey":"mock-agent","model":{"reasoningEffort":"FAST"}}`))
 		req.Header.Set("Content-Type", "application/json")
 		fixture.server.ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest {
@@ -927,7 +927,7 @@ data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}`,
 	})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hi","agentKey":"mock-agent","model":{"key":"coder-model","reasoningEffort":"HIGH"},"params":{"channel":"business","hitlLevel":9,"memoryContext":"business-memory"}}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"hi","agentKey":"mock-agent","model":{"key":"coder-model","reasoningEffort":"HIGH"},"params":{"channel":"business","hitlLevel":9,"memoryContext":"business-memory"}}`))
 	req.Header.Set("Content-Type", "application/json")
 	fixture.server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -976,7 +976,7 @@ data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}`,
 	})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hi","agentKey":"mock-agent","model":{"key":"coder-model","reasoningEffort":"NONE"}}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"hi","agentKey":"mock-agent","model":{"key":"coder-model","reasoningEffort":"NONE"}}`))
 	req.Header.Set("Content-Type", "application/json")
 	fixture.server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

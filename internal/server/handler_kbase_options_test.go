@@ -135,7 +135,7 @@ func TestKBaseOptionsHTTPWSAndQueryAdmission(t *testing.T) {
 	request.Lane = "btw"
 	rec = httptest.NewRecorder()
 	payload, _ := json.Marshal(request)
-	f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(string(payload))))
+	f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(string(payload))))
 	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "BTW does not accept skill, kbase or chat references") {
 		t.Fatal("BTW selection accepted")
 	}

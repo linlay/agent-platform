@@ -105,6 +105,13 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, chatsD
 		adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_config", err)
 		return err
 	}
+	// Resolve display defaults without writing inherited values into the source.
+	declared := mapNode(definition["interactionConfig"])
+	if _, explicit := declared["defaultDetail"]; !explicit {
+		if level := assembler.modeDefaultDetails[strings.ToLower(def.Mode)]; level != "" {
+			def.InteractionConfig.DefaultDetail = level
+		}
+	}
 	if source.Kind == "directory" && def.Key != name {
 		err := fmt.Errorf("key mismatch (file key=%q, directory=%q)", def.Key, name)
 		log.Printf("[catalog][agents] skip directory %s: %v", name, err)
@@ -340,38 +347,12 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 
 	topPromptFiles := parsePromptFileField(root["promptFile"])
 
-	switch def.Mode {
-	case "PLAN_EXECUTE":
-		stageSettings := mapNode(root["stageSettings"])
-		def.PlanPrompt = resolveStagePrompt(agentDir, "plan", mapNode(stageSettings["plan"]), topPromptFiles)
-		def.ExecutePrompt = resolveStagePrompt(agentDir, "execute", mapNode(stageSettings["execute"]), topPromptFiles)
-		def.SummaryPrompt = resolveStagePrompt(agentDir, "summary", mapNode(stageSettings["summary"]), topPromptFiles)
-	default:
-		if len(topPromptFiles) > 0 {
-			def.AgentsPrompt = loadPromptMarkdowns(agentDir, topPromptFiles)
-		}
-		if def.AgentsPrompt == "" {
-			def.AgentsPrompt = readOptionalMarkdown(filepath.Join(agentDir, "AGENTS.md"))
-		}
-	}
-}
-
-func resolveStagePrompt(agentDir string, stage string, stageConfig map[string]any, topPromptFiles []string) string {
-	stageFiles := parsePromptFileField(stageConfig["promptFile"])
-	if len(stageFiles) > 0 {
-		if content := loadPromptMarkdowns(agentDir, stageFiles); content != "" {
-			return content
-		}
-	}
-	if content := readOptionalMarkdown(filepath.Join(agentDir, "AGENTS."+stage+".md")); content != "" {
-		return content
-	}
 	if len(topPromptFiles) > 0 {
-		if content := loadPromptMarkdowns(agentDir, topPromptFiles); content != "" {
-			return content
-		}
+		def.AgentsPrompt = loadPromptMarkdowns(agentDir, topPromptFiles)
 	}
-	return readOptionalMarkdown(filepath.Join(agentDir, "AGENTS.md"))
+	if def.AgentsPrompt == "" {
+		def.AgentsPrompt = readOptionalMarkdown(filepath.Join(agentDir, "AGENTS.md"))
+	}
 }
 
 func parsePromptFileField(value any) []string {
@@ -488,7 +469,7 @@ func mergeStageSettingsBudgets(budget map[string]any, stageSettings map[string]a
 
 func stageBudgetsFromStageSettings(stageSettings map[string]any) map[string]map[string]any {
 	out := map[string]map[string]any{}
-	for _, stage := range []string{"plan", "planning", "execute", "summary"} {
+	for _, stage := range []string{"planning", "execute", "summary"} {
 		node := mapNode(stageSettings[stage])
 		if len(node) == 0 {
 			continue
@@ -647,6 +628,9 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		return AgentDefinition{}, nil, err
 	}
 	def.ModelKey = stringNode(modelConfig["modelKey"])
+	if def.MaxInputTokens, err = ParseAgentMaxInputTokens(modelConfig); err != nil {
+		return AgentDefinition{}, nil, err
+	}
 	reasoning := mapNode(modelConfig["reasoning"])
 	def.ModelReasoningEffort = stringNode(reasoning["effort"])
 	if enabled, ok := reasoning["enabled"].(bool); ok && !enabled {
@@ -1007,7 +991,7 @@ func validateAgentSamplingConfig(path string, root map[string]any) error {
 	if len(stageSettings) == 0 {
 		return nil
 	}
-	for _, stage := range []string{"plan", "planning", "execute", "summary"} {
+	for _, stage := range []string{"planning", "execute", "summary"} {
 		node := mapNode(stageSettings[stage])
 		if len(node) == 0 {
 			continue
@@ -1030,7 +1014,7 @@ func NormalizeAgentReasoningConfig(path string, root map[string]any) error {
 		{name: "modelConfig.reasoning", node: mapNode(mapNode(root["modelConfig"])["reasoning"])},
 	}
 	stageSettings := mapNode(root["stageSettings"])
-	for _, stage := range []string{"plan", "planning", "execute", "summary"} {
+	for _, stage := range []string{"planning", "execute", "summary"} {
 		reasoning := mapNode(mapNode(mapNode(stageSettings[stage])["modelConfig"])["reasoning"])
 		locations = append(locations, struct {
 			name string
@@ -1168,7 +1152,7 @@ func applyModelReasoningDefaults(stageSettings map[string]any, reasoning map[str
 	if stageSettings == nil {
 		stageSettings = map[string]any{}
 	}
-	for _, key := range []string{"plan", "planning", "execute", "summary"} {
+	for _, key := range []string{"planning", "execute", "summary"} {
 		node := cloneMapForWrite(mapNode(stageSettings[key]))
 		applyReasoningDefaultsToStageNode(node, enabled, enabledOK, effort, effortOK)
 		stageSettings[key] = node
@@ -1203,7 +1187,7 @@ func applyModelSamplingDefaults(stageSettings map[string]any, modelSampling map[
 	if stageSettings == nil {
 		stageSettings = map[string]any{}
 	}
-	for _, key := range []string{"plan", "planning", "execute", "summary"} {
+	for _, key := range []string{"planning", "execute", "summary"} {
 		node := cloneMapForWrite(mapNode(stageSettings[key]))
 		modelConfig := cloneMapForWrite(mapNode(node["modelConfig"]))
 		merged := contracts.MergeSamplingSettings(defaults, contracts.ParseSamplingSettings(mapNode(modelConfig["sampling"])))

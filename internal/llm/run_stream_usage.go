@@ -49,10 +49,7 @@ func (s *llmRunStream) fallbackContextEstimate() int {
 }
 
 func (s *llmRunStream) effectiveContextWindow() int {
-	if s.model.ContextWindow > 0 {
-		return s.model.ContextWindow
-	}
-	return defaultContextWindow
+	return models.EffectiveContextWindow(s.model, s.session.MaxInputTokens)
 }
 
 func (s *llmRunStream) effectiveReasoningEffort() string {
@@ -398,7 +395,6 @@ func (s *llmRunStream) markFirstVisibleDelta() {
 		return
 	}
 	s.currentTurn.firstVisibleAt = time.Now()
-	s.pending = append(s.pending, s.buildModelRunActivity("running", s.modelCall, nil))
 }
 
 func (s *llmRunStream) recordCurrentTurnTiming(completedAt time.Time) {

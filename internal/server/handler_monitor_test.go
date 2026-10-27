@@ -179,7 +179,7 @@ func TestMonitorEndpointsBypassHTTPAuth(t *testing.T) {
 		}
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"message":"鉴权测试"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(`{"message":"鉴权测试"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)

@@ -42,7 +42,7 @@ func TestQueryPersistsToolCallWithEmptyArguments(t *testing.T) {
 
 	query := func(body string) string {
 		t.Helper()
-		req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(body))
+		req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, req)
@@ -109,7 +109,7 @@ func TestQueryContinuationRepairsUnpairedToolResult(t *testing.T) {
 	})
 	query := func(body string) {
 		t.Helper()
-		req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(body))
+		req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, req)

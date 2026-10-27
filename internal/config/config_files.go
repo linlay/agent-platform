@@ -738,6 +738,13 @@ func (c *Config) applyPromptsValues(values map[string]any) {
 		c.Prompts.Skill.DisclosureHeader = stringValue(anyValue(skill["disclosure-header"], c.Prompts.Skill.DisclosureHeader), c.Prompts.Skill.DisclosureHeader)
 		c.Prompts.Skill.InstructionsLabel = stringValue(anyValue(skill["instructions-label"], c.Prompts.Skill.InstructionsLabel), c.Prompts.Skill.InstructionsLabel)
 	}
+	if viewPrompts, _ := values["view"].(map[string]any); len(viewPrompts) > 0 {
+		c.Prompts.View.InstructionsPrompt = stringValue(anyValue(viewPrompts["instructions-prompt"], c.Prompts.View.InstructionsPrompt), c.Prompts.View.InstructionsPrompt)
+		c.Prompts.View.CatalogHeader = stringValue(anyValue(viewPrompts["catalog-header"], c.Prompts.View.CatalogHeader), c.Prompts.View.CatalogHeader)
+	}
+	if announce, _ := values["announce"].(map[string]any); len(announce) > 0 {
+		c.Prompts.Announce.InstructionsPrompt = stringValue(anyValue(announce["instructions-prompt"], c.Prompts.Announce.InstructionsPrompt), c.Prompts.Announce.InstructionsPrompt)
+	}
 	reference, _ := values["reference"].(map[string]any)
 	if len(reference) > 0 {
 		c.Prompts.Reference.ProtocolPrompt = stringValue(anyValue(reference["protocol-prompt"], c.Prompts.Reference.ProtocolPrompt), c.Prompts.Reference.ProtocolPrompt)
@@ -747,13 +754,6 @@ func (c *Config) applyPromptsValues(values map[string]any) {
 	if len(toolAppendix) > 0 {
 		c.Prompts.ToolAppendix.ToolDescriptionTitle = stringValue(anyValue(toolAppendix["tool-description-title"], c.Prompts.ToolAppendix.ToolDescriptionTitle), c.Prompts.ToolAppendix.ToolDescriptionTitle)
 		c.Prompts.ToolAppendix.AfterCallHintTitle = stringValue(anyValue(toolAppendix["after-call-hint-title"], c.Prompts.ToolAppendix.AfterCallHintTitle), c.Prompts.ToolAppendix.AfterCallHintTitle)
-	}
-	planPrompts, _ := values["plan-execute"].(map[string]any)
-	if len(planPrompts) > 0 {
-		c.Prompts.PlanExecute.TaskExecutionPromptTemplate = stringValue(anyValue(planPrompts["task-execution-prompt-template"], c.Prompts.PlanExecute.TaskExecutionPromptTemplate), c.Prompts.PlanExecute.TaskExecutionPromptTemplate)
-		c.Prompts.PlanExecute.PlanUserPromptTemplate = stringValue(anyValue(planPrompts["plan-user-prompt-template"], c.Prompts.PlanExecute.PlanUserPromptTemplate), c.Prompts.PlanExecute.PlanUserPromptTemplate)
-		c.Prompts.PlanExecute.SummarySystemPrompt = stringValue(anyValue(planPrompts["summary-system-prompt"], c.Prompts.PlanExecute.SummarySystemPrompt), c.Prompts.PlanExecute.SummarySystemPrompt)
-		c.Prompts.PlanExecute.SummaryUserPromptTemplate = stringValue(anyValue(planPrompts["summary-user-prompt-template"], c.Prompts.PlanExecute.SummaryUserPromptTemplate), c.Prompts.PlanExecute.SummaryUserPromptTemplate)
 	}
 	if planningMode, _ := values["planning-mode"].(map[string]any); len(planningMode) > 0 {
 		c.Prompts.PlanningMode.PlanningPrompt = stringValue(anyValue(planningMode["planning-prompt"], c.Prompts.PlanningMode.PlanningPrompt), c.Prompts.PlanningMode.PlanningPrompt)

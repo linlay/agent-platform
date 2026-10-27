@@ -14,10 +14,11 @@ type Attachment struct {
 }
 
 type Config struct {
-	Model       bool       `json:"model"`
-	AccessLevel bool       `json:"accessLevel"`
-	Connectors  bool       `json:"connectors"`
-	Attachment  Attachment `json:"attachment"`
+	DefaultDetail string     `json:"defaultDetail"`
+	Model         bool       `json:"model"`
+	AccessLevel   bool       `json:"accessLevel"`
+	Connectors    bool       `json:"connectors"`
+	Attachment    Attachment `json:"attachment"`
 	// The show* fields only decide whether a client offers an entry. They never
 	// gate a request: editingMode and planningMode stay valid API parameters.
 	ShowEditingMode  bool `json:"showEditingMode"`
@@ -31,7 +32,7 @@ func Defaults(mode string) Config { return DefaultsForEngine(mode, false) }
 // DefaultsForEngine also applies the engine: an ACP bridge owns Workspace
 // editing, so the editing entry is never offered by default there.
 func DefaultsForEngine(mode string, acp bool) Config {
-	c := Config{Model: true, AccessLevel: true, Connectors: true, Attachment: Attachment{LocalFiles: true, ChatRecords: true, Skills: true, Kbases: true}}
+	c := Config{DefaultDetail: "summary", Model: true, AccessLevel: true, Connectors: true, Attachment: Attachment{LocalFiles: true, ChatRecords: true, Skills: true, Kbases: true}}
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case "KBASE":
 		c.Model, c.AccessLevel, c.Connectors, c.Attachment.ChatRecords = false, false, false, false
@@ -80,6 +81,14 @@ func ParseForEngine(mode string, acp bool, raw any) (Config, error) {
 	fields := map[string]*bool{"model": &c.Model, "accessLevel": &c.AccessLevel, "connectors": &c.Connectors,
 		"showEditingMode": &c.ShowEditingMode, "showPlanningMode": &c.ShowPlanningMode, "showTerminal": &c.ShowTerminal}
 	for key, value := range node {
+		if key == "defaultDetail" {
+			level, ok := value.(string)
+			if !ok || (level != "summary" && level != "full" && level != "none") {
+				return c, fmt.Errorf("interactionConfig.defaultDetail must be summary, full or none")
+			}
+			c.DefaultDetail = level
+			continue
+		}
 		if key == "attachment" {
 			attachment, ok := value.(map[string]any)
 			if !ok {

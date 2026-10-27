@@ -35,6 +35,13 @@ type DeltaMapper struct {
 	attemptToolIDs       map[string]bool
 	toolRegistry         ToolDefinitionLookup
 	interactions         *toolinteraction.Registry
+	// viewBinder belongs to the session this mapper streams; isolated clones
+	// for child tasks receive their own session's binder.
+	viewBinder stream.ContentViewBinder
+}
+
+func (m *DeltaMapper) SetContentViewBinder(binder stream.ContentViewBinder) {
+	m.viewBinder = binder
 }
 
 func NewDeltaMapper(runID string, chatID string, budget Budget, toolRegistry ToolDefinitionLookup, interactions *toolinteraction.Registry) *DeltaMapper {
@@ -95,6 +102,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		return []stream.StreamInput{stream.ContentDelta{
 			ContentID: contentID,
 			Delta:     value.Text,
+			BindView:  m.viewBinder,
 		}}
 	case DeltaReasoning:
 		reasoningID := value.ReasoningID
@@ -202,8 +210,11 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	case DeltaToolResult:
 		m.lastKind = ""
 		toolLabel, toolDescription := m.resolveToolMetadata(value.ToolName)
+		translations := m.resolveToolTranslations(value.ToolName)
 		if len(value.Target) > 0 {
 			toolLabel = value.TargetLabel
+			// Gateway labels describe the target, not the gateway tool.
+			translations = nil
 		}
 		sseResult := sseResultValue(value.Result)
 		resultError := value.Result.Error
@@ -216,6 +227,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ToolLabel:       toolLabel,
 			ToolDescription: toolDescription,
 			Result:          sseResult,
+			ToolI18n:        translations,
 			ModelOutput:     toolResultModelOutput(value.Result, sseResult),
 			Hitl:            CloneMap(value.Result.HITL),
 			Error:           resultError,
@@ -467,18 +479,11 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}}
 	case DeltaRunActivity:
 		m.lastKind = ""
-		return []stream.StreamInput{stream.InputRunActivity{
-			TaskID:      value.TaskID,
-			ChatID:      value.ChatID,
-			Phase:       value.Phase,
-			Status:      value.Status,
-			Backend:     value.Backend,
-			Key:         value.Key,
-			Message:     value.Message,
-			Retry:       CloneMap(value.Retry),
-			Recovery:    CloneMap(value.Recovery),
-			Degradation: CloneMap(value.Degradation),
-		}}
+		activity := m.runActivity(value)
+		if activity == nil {
+			return nil
+		}
+		return []stream.StreamInput{stream.InputRunActivity{TaskID: value.TaskID, ChatID: value.ChatID, Activity: activity}}
 	case DeltaContextCompact:
 		m.lastKind = ""
 		return []stream.StreamInput{stream.InputContextCompact{
