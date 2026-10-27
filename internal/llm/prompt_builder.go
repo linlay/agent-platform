@@ -20,11 +20,10 @@ import (
 )
 
 type PromptBuildOptions struct {
-	Stage                   string
-	StageInstructionsPrompt string
-	StageSystemPrompt       string
-	ToolDefinitions         []api.ToolDetailResponse
-	IncludeAfterCallHints   bool
+	Stage                 string
+	StageSystemPrompt     string
+	ToolDefinitions       []api.ToolDetailResponse
+	IncludeAfterCallHints bool
 }
 
 type systemPromptSection struct {
@@ -45,10 +44,6 @@ func buildSystemPrompt(session QuerySession, req api.QueryRequest, _ string, opt
 
 func buildSystemPromptSections(session QuerySession, req api.QueryRequest, options PromptBuildOptions) []systemPromptSection {
 	appendConfig := effectivePromptAppendConfig(session.PromptAppend)
-	stageInstructionsPrompt := strings.TrimSpace(options.StageInstructionsPrompt)
-	if stageInstructionsPrompt == "" {
-		stageInstructionsPrompt = resolveStageInstructionsPrompt(session, options.Stage)
-	}
 	stageSystemPrompt := strings.TrimSpace(options.StageSystemPrompt)
 	if stageSystemPrompt == "" {
 		stageSystemPrompt = resolveStageSystemPrompt(session, options.Stage)
@@ -84,7 +79,6 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 	appendRuntimeSystemPromptSections(&sections, session)
 	appendSection("runtime-path-policy", "Runtime Context: Path Policy", "runtime.path_policy", buildRuntimePathPolicySection(session, options.ToolDefinitions))
 	appendSection("runtime-plan-tasks", "Runtime Context: Current Plan Tasks", "runtime.plan_tasks", buildPlanTaskContextSection(session, toolNames, options.Stage))
-	appendSection("stage-instructions", "Stage Instructions Prompt", "stage.instructions", stageInstructionsPrompt)
 	appendSection("stage-system", "Stage System Prompt", "stage.system", stageSystemPrompt)
 	appendSection("tool-announce", "Progress Announcements", "tools.announce", buildAnnounceSection(options.ToolDefinitions, appendConfig))
 	appendSection("skill-catalog", "Skill Catalog Prompt", "skills.catalog", strings.TrimSpace(session.SkillCatalogPrompt))
@@ -282,40 +276,14 @@ func effectivePromptAppendConfig(config PromptAppendConfig) PromptAppendConfig {
 	return defaults
 }
 
-func resolveStageInstructionsPrompt(session QuerySession, stage string) string {
-	switch strings.ToLower(strings.TrimSpace(stage)) {
-	case "plan":
-		return strings.TrimSpace(session.PlanPrompt)
-	case "execute":
-		if strings.TrimSpace(session.ExecutePrompt) != "" {
-			return strings.TrimSpace(session.ExecutePrompt)
-		}
-	case "summary":
-		if strings.TrimSpace(session.SummaryPrompt) != "" {
-			return strings.TrimSpace(session.SummaryPrompt)
-		}
-	}
-	return ""
-}
-
 func resolveStageSystemPrompt(session QuerySession, stage string) string {
 	if planmode.IsPlanningStage(stage) && agentbuiltin.PlanningModeSupported(session.Mode) {
 		return strings.TrimSpace(session.ResolvedPlanningSettings.Planning.SystemPrompt)
 	}
-	if agentbuiltin.PlanningModeSupported(session.Mode) && !strings.EqualFold(strings.TrimSpace(stage), "summary") {
-		return strings.TrimSpace(session.ResolvedPlanningSettings.Execute.SystemPrompt)
+	if strings.EqualFold(strings.TrimSpace(stage), "summary") {
+		return strings.TrimSpace(session.ResolvedPlanningSettings.Summary.SystemPrompt)
 	}
-	settings := session.ResolvedPlanExecuteSettings
-	switch strings.ToLower(strings.TrimSpace(stage)) {
-	case "plan":
-		return strings.TrimSpace(settings.Plan.SystemPrompt)
-	case "summary":
-		return strings.TrimSpace(settings.Summary.SystemPrompt)
-	case "execute":
-		return strings.TrimSpace(settings.Execute.SystemPrompt)
-	default:
-		return strings.TrimSpace(settings.Execute.SystemPrompt)
-	}
+	return strings.TrimSpace(session.ResolvedPlanningSettings.Execute.SystemPrompt)
 }
 
 func buildSystemEnvironmentSection(session QuerySession) string {

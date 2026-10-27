@@ -599,9 +599,7 @@ func traceTestSessionWithSystemCache(t *testing.T, engine *LLMAgentEngine, req a
 		return session
 	}
 	profiles, err := NewSystemInitProfileBuilder(engine.models, SystemInitDefaults{
-		PlanMaxSteps:             engine.cfg.Defaults.Plan.MaxSteps,
-		PlanMaxWorkRoundsPerTask: engine.cfg.Defaults.Plan.MaxWorkRoundsPerTask,
-		Prompts:                  engine.cfg.Prompts,
+		Prompts: engine.cfg.Prompts,
 	}).BuildSystemInitProfiles(contracts.SystemInitBuildInput{
 		Session: session, Request: req, ToolDefinitions: engine.tools.Definitions(),
 	})

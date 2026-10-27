@@ -1497,9 +1497,10 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalMode(t *testing.T) {
 			"status": "answered",
 			"approvals": []any{
 				map[string]any{
-					"id":       "cmd-1",
-					"command":  "Proceed?",
-					"decision": "approve",
+					"id":          "cmd-1",
+					"command":     "Proceed?",
+					"description": "检查重复文件",
+					"decision":    "approve",
 				},
 			},
 		},
@@ -1518,6 +1519,9 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalMode(t *testing.T) {
 	}
 	if approvals[0]["id"] != "cmd-1" || approvals[0]["command"] != "Proceed?" || approvals[0]["decision"] != "approve" {
 		t.Fatalf("unexpected approval awaiting.answer payload %#v", approvals[0])
+	}
+	if approvals[0]["description"] != "检查重复文件" {
+		t.Fatalf("expected approval description in answer event, got %#v", approvals[0])
 	}
 }
 

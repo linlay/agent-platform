@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"strings"
 
 	agentcontract "agent-platform/internal/agent"
@@ -167,7 +168,8 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 	if err != nil {
 		return err
 	}
-	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "announce-hold-seconds", "general", "coder", "kbase", "team", "executor", "plan-execute", "proxy", "channel", "acp-bridges")
+	dropRetiredPlanExecute(values, path)
+	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "announce-hold-seconds", "general", "coder", "kbase", "team", "executor", "proxy", "channel", "acp-bridges")
 	if err != nil {
 		return err
 	}
@@ -195,13 +197,13 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 		c.AnnounceHoldSeconds = seconds
 	}
 	c.ModeDefaultDetails = map[string]string{}
-	for _, mode := range []string{"general", "coder", "kbase", "team", "executor", "plan-execute", "proxy", "channel"} {
+	for _, mode := range []string{"general", "coder", "kbase", "team", "executor", "proxy", "channel"} {
 		raw, exists := values[mode]
 		if !exists {
 			continue
 		}
 		section, err := configMap(raw, path+"."+mode, "preset-tools", "preset-connectors", "default-agent", "workspace-agents", "interaction-config")
-		if mode == "plan-execute" || mode == "proxy" || mode == "channel" {
+		if mode == "proxy" || mode == "channel" {
 			section, err = configMap(raw, path+"."+mode, "interaction-config")
 		}
 		if err != nil {
@@ -295,6 +297,9 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	if err != nil {
 		return err
 	}
+	if shared, ok := v["shared"].(map[string]any); ok {
+		dropRetiredPlanExecute(shared, path+".shared")
+	}
 	v, err = configMap(v, path, "shared", "coder", "kbase")
 	if err != nil {
 		return err
@@ -302,7 +307,7 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	if err := validatePromptTemplates(v, path); err != nil {
 		return err
 	}
-	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "view", "announce", "reference", "tool-appendix", "plan-execute", "automation", "btw", "planning-mode")
+	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "view", "announce", "reference", "tool-appendix", "automation", "btw", "planning-mode")
 	if err != nil {
 		return err
 	}
@@ -312,7 +317,6 @@ func (c *Config) applyAgentPromptFile(path string) error {
 		"announce":      {"instructions-prompt"},
 		"reference":     {"protocol-prompt", "advanced-protocol-prompt"},
 		"tool-appendix": {"tool-description-title", "after-call-hint-title"},
-		"plan-execute":  {"task-execution-prompt-template", "plan-user-prompt-template", "summary-system-prompt", "summary-user-prompt-template"},
 		"automation":    {"user-prompt-template"},
 		"btw":           {"user-prompt-template", "final-answer-prompt"},
 		"planning-mode": {"planning-prompt"},
@@ -439,4 +443,13 @@ func validateAIToolValues(values map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// dropRetiredPlanExecute ignores the plan-execute section left over from the
+// retired PLAN-EXECUTE mode, so existing deployments keep starting.
+func dropRetiredPlanExecute(values map[string]any, path string) {
+	if _, ok := values["plan-execute"]; ok {
+		delete(values, "plan-execute")
+		log.Printf("[config][warn] %s.plan-execute is ignored; PLAN-EXECUTE mode was removed", path)
+	}
 }

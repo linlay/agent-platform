@@ -614,7 +614,7 @@ func TestParseAgentFilePreservesExplicitStageReasoningOverrides(t *testing.T) {
 	if err := os.WriteFile(path, []byte(
 		"key: reasoned\n"+
 			"name: Reasoned\n"+
-			"mode: PLAN-EXECUTE\n"+
+			"mode: GENERAL\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"  reasoning:\n"+
@@ -650,7 +650,7 @@ func TestParseAgentFileMapsModelSamplingIntoStageSettings(t *testing.T) {
 	if err := os.WriteFile(path, []byte(
 		"key: sampled\n"+
 			"name: Sampled\n"+
-			"mode: PLAN-EXECUTE\n"+
+			"mode: GENERAL\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"  sampling:\n"+
@@ -658,7 +658,7 @@ func TestParseAgentFileMapsModelSamplingIntoStageSettings(t *testing.T) {
 			"    topP: 0.9\n"+
 			"    presencePenalty: 0\n"+
 			"stageSettings:\n"+
-			"  plan:\n"+
+			"  summary:\n"+
 			"    modelConfig:\n"+
 			"      sampling:\n"+
 			"        temperature: 0.2\n",
@@ -670,16 +670,16 @@ func TestParseAgentFileMapsModelSamplingIntoStageSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	plan, _ := def.StageSettings["plan"].(map[string]any)
-	planSampling := contracts.ParseSamplingSettings(mapNode(mapNode(plan["modelConfig"])["sampling"]))
-	if planSampling.Temperature == nil || *planSampling.Temperature != 0.2 {
-		t.Fatalf("expected plan temperature override, got %#v", planSampling)
+	summary, _ := def.StageSettings["summary"].(map[string]any)
+	summarySampling := contracts.ParseSamplingSettings(mapNode(mapNode(summary["modelConfig"])["sampling"]))
+	if summarySampling.Temperature == nil || *summarySampling.Temperature != 0.2 {
+		t.Fatalf("expected summary temperature override, got %#v", summarySampling)
 	}
-	if planSampling.TopP == nil || *planSampling.TopP != 0.9 {
-		t.Fatalf("expected plan topP inherited from modelConfig, got %#v", planSampling)
+	if summarySampling.TopP == nil || *summarySampling.TopP != 0.9 {
+		t.Fatalf("expected summary topP inherited from modelConfig, got %#v", summarySampling)
 	}
-	if planSampling.PresencePenalty == nil || *planSampling.PresencePenalty != 0 {
-		t.Fatalf("expected plan explicit zero presence penalty inherited from modelConfig, got %#v", planSampling)
+	if summarySampling.PresencePenalty == nil || *summarySampling.PresencePenalty != 0 {
+		t.Fatalf("expected summary explicit zero presence penalty inherited from modelConfig, got %#v", summarySampling)
 	}
 }
 
@@ -710,11 +710,11 @@ func TestParseAgentFileRejectsInvalidNestedStageSamplingType(t *testing.T) {
 	if err := os.WriteFile(path, []byte(
 		"key: bad-stage-sampling\n"+
 			"name: Bad Stage Sampling\n"+
-			"mode: PLAN-EXECUTE\n"+
+			"mode: GENERAL\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"stageSettings:\n"+
-			"  plan:\n"+
+			"  summary:\n"+
 			"    modelConfig:\n"+
 			"      sampling:\n"+
 			"        temperature: warm\n",
@@ -723,7 +723,7 @@ func TestParseAgentFileRejectsInvalidNestedStageSamplingType(t *testing.T) {
 	}
 
 	_, err := parseAgentDefinitionForTest(path)
-	if err == nil || !strings.Contains(err.Error(), "stageSettings.plan.modelConfig.sampling.temperature must be a number") {
+	if err == nil || !strings.Contains(err.Error(), "stageSettings.summary.modelConfig.sampling.temperature must be a number") {
 		t.Fatalf("expected invalid nested stage sampling type error, got %v", err)
 	}
 }

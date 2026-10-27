@@ -203,7 +203,6 @@ type PromptsConfig struct {
 	Announce     PromptAnnounceConfig
 	Reference    PromptReferenceConfig
 	ToolAppendix ToolAppendixPromptsConfig
-	PlanExecute  PlanExecutePromptsConfig
 	BTW          BTWPromptsConfig
 	Automation   AutomationPromptsConfig
 	PlanningMode PlanningModePromptsConfig
@@ -243,13 +242,6 @@ type PromptReferenceConfig struct {
 type ToolAppendixPromptsConfig struct {
 	ToolDescriptionTitle string
 	AfterCallHintTitle   string
-}
-
-type PlanExecutePromptsConfig struct {
-	TaskExecutionPromptTemplate string
-	PlanUserPromptTemplate      string
-	SummarySystemPrompt         string
-	SummaryUserPromptTemplate   string
 }
 
 // BTWPromptsConfig controls the user-level instructions used by hidden side
@@ -433,7 +425,6 @@ type MemoryWorkerConfig struct {
 type DefaultsConfig struct {
 	Budget        BudgetDefaultsConfig
 	React         ReactDefaultsConfig
-	Plan          PlanExecuteDefaultsConfig
 	CoderPlanning CoderPlanningDefaultsConfig
 }
 
@@ -471,11 +462,6 @@ type HitlModeBudgetConfig struct {
 
 type ReactDefaultsConfig struct {
 	MaxSteps int
-}
-
-type PlanExecuteDefaultsConfig struct {
-	MaxSteps             int
-	MaxWorkRoundsPerTask int
 }
 
 type CoderPlanningDefaultsConfig struct {

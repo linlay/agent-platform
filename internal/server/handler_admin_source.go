@@ -210,7 +210,7 @@ func (s *Server) writeAdminAgentTextSource(ctx context.Context, target api.Admin
 	if !ok {
 		return api.AdminSourceResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_agent_definition", "agent source must be a mapping")
 	}
-	if err := s.validateKnowledgeBinding(definition); err != nil {
+	if err := s.validateAgentReferences(definition); err != nil {
 		return api.AdminSourceResponse{}, err
 	}
 	file, err := editor.WriteEditableAgentSource(target.Key, content, baseSHA256)

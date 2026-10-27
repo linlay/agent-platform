@@ -28,6 +28,9 @@ func (s *FileStore) RestoreArchivedChat(archived ArchivedChat) (Summary, error) 
 	if err := s.clearChatPinnedLocked(chatID); err != nil {
 		return Summary{}, err
 	}
+	if err := s.clearChatPrimaryLocked(chatID); err != nil {
+		return Summary{}, err
+	}
 
 	usage := UsageData{}
 	if archived.Summary.Usage != nil {

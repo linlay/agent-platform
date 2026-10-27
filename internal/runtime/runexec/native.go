@@ -555,8 +555,6 @@ func PersistRunCompletionWithReason(params NativeOptions, assistantText string, 
 // the current runtime. It intentionally does not reinterpret historical rows.
 func PersistedRunMode(mode string) string {
 	switch strings.TrimSpace(mode) {
-	case "PLAN_EXECUTE":
-		return "PLAN-EXECUTE"
 	case "ONESHOT", "REACT":
 		return "GENERAL"
 	default:

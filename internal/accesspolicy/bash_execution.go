@@ -462,8 +462,12 @@ func interpreterScript(base string, args []string) string {
 func unwrapExecution(base string, args []string, cwd string, vars map[string]string) ([]string, string, bool) {
 	if base == "env" {
 		assignments, command, chdir, ignore, ok := shellanalysis.UnwrapEnv(args)
-		if !ok || len(command) == 0 {
+		if !ok {
 			return nil, cwd, false
+		}
+		if len(command) == 0 {
+			// Without a command env only prints the environment, like printenv.
+			return nil, cwd, true
 		}
 		if ignore {
 			vars["PATH"] = ""

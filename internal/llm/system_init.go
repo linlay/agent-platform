@@ -24,10 +24,8 @@ type SystemInitProfileBuilder struct {
 }
 
 type SystemInitDefaults struct {
-	PlanMaxSteps             int
-	PlanMaxWorkRoundsPerTask int
-	CoderPlanningMaxSteps    int
-	Prompts                  config.PromptsConfig
+	CoderPlanningMaxSteps int
+	Prompts               config.PromptsConfig
 }
 
 func NewSystemInitProfileBuilder(models *models.ModelRegistry, defaults SystemInitDefaults) SystemInitProfileBuilder {
@@ -39,8 +37,6 @@ func (b SystemInitProfileBuilder) BuildSystemInitProfiles(input contracts.System
 		input.Session,
 		input.Request,
 		input.ToolDefinitions,
-		b.Defaults.PlanMaxSteps,
-		b.Defaults.PlanMaxWorkRoundsPerTask,
 		b.Defaults.CoderPlanningMaxSteps,
 		b.Defaults.Prompts,
 	)
@@ -86,7 +82,7 @@ func validateSystemInitProfiles(profiles []contracts.SystemInitProfile) error {
 	return nil
 }
 
-func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, defaultCoderPlanningMaxSteps int, prompts config.PromptsConfig) (profiles []contracts.SystemInitProfile) {
+func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultCoderPlanningMaxSteps int, prompts config.PromptsConfig) (profiles []contracts.SystemInitProfile) {
 	defer func() {
 		for i := range profiles {
 			profiles[i].Fingerprint = fingerprintSystemInitProfile(profiles[i])
@@ -106,14 +102,6 @@ func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryReques
 		return []contracts.SystemInitProfile{buildPlanningSystemInitProfile(session, req, toolDefs)}
 	}
 	switch mode {
-	case "plan-execute":
-		settings := resolvePlanExecuteRuntimeSettings(session, defaultPlanMaxSteps, defaultPlanMaxWorkRoundsPerTask)
-		session.ResolvedPlanExecuteSettings = settings
-		return []contracts.SystemInitProfile{
-			buildPlanSystemInitProfile(session, req, settings, toolDefs),
-			buildExecuteSystemInitProfile(session, settings, toolDefs),
-			buildSummarySystemInitProfile(session, settings, prompts),
-		}
 	case "oneshot":
 		return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, "oneshot")}
 	default:
@@ -271,9 +259,6 @@ func sessionSystemInitCacheKey(session contracts.QuerySession, stage string) str
 
 func SystemInitCacheKey(mode string, stage string) string {
 	normalizedMode := normalizedSystemInitMode(mode)
-	if normalizedMode == "plan-execute" {
-		return normalizedMode + ":" + normalizedPlanExecuteStage(stage)
-	}
 	if descriptor, ok := agentbuiltin.Lookup(mode); ok {
 		return descriptor.MainCacheKey
 	}
@@ -300,7 +285,6 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 		"contextTags":                   sortedStrings(session.ContextTags),
 		"budget":                        session.Budget,
 		"stageSettings":                 session.StageSettings,
-		"resolvedPlanExecuteSettings":   session.ResolvedPlanExecuteSettings,
 		"resolvedCoderPlanningSettings": session.ResolvedPlanningSettings,
 		"promptAppend":                  session.PromptAppend,
 		"ownerPrompt":                   session.OwnerPrompt,
@@ -309,9 +293,6 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 		"soulPrompt":                    session.SoulPrompt,
 		"agentsPrompt":                  session.AgentsPrompt,
 		"workspaceAgentsPrompt":         session.WorkspaceAgentsPrompt,
-		"planPrompt":                    session.PlanPrompt,
-		"executePrompt":                 session.ExecutePrompt,
-		"summaryPrompt":                 session.SummaryPrompt,
 		"modeSystemPrompt":              session.ModeSystemPrompt,
 		"kbaseModePrompts":              session.KBaseModePrompts,
 		"runtimeEnvironmentID":          session.RuntimeEnvironmentID,
@@ -360,65 +341,6 @@ func buildDefaultSystemInitProfile(session contracts.QuerySession, req api.Query
 	return profile
 }
 
-func buildPlanSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
-	tools := planSystemInitTools(settings.Plan)
-	effectiveDefs := effectiveToolDefinitions(toolDefs, tools, session)
-	systemPrompt := buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
-		Stage:                 "plan",
-		ToolDefinitions:       effectiveDefs,
-		IncludeAfterCallHints: true,
-	})
-	specs := toOpenAIToolSpecs(effectiveDefs)
-	return contracts.SystemInitProfile{
-		AgentKey:      strings.TrimSpace(session.AgentKey),
-		CacheKey:      SystemInitCacheKey(session.Mode, "plan"),
-		Mode:          "plan-execute",
-		Stage:         "plan",
-		Fingerprint:   ComputeSystemInitFingerprint(session, "plan", effectiveDefs),
-		SystemMessage: map[string]any{"role": "system", "content": systemPrompt},
-		Tools:         openAIToolSpecsToAny(specs),
-		Initial:       true,
-	}
-}
-
-func buildExecuteSystemInitProfile(session contracts.QuerySession, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
-	tools := appendUniqueTools(stageToolsOrDefault(settings.Execute, session.ToolNames), "plan_update_task")
-	effectiveDefs := effectiveToolDefinitions(toolDefs, tools, session)
-	systemPrompt := strings.TrimSpace(settings.Execute.PrimaryPrompt())
-	if systemPrompt == "" {
-		systemPrompt = "Execute the current task."
-	}
-	systemPrompt = joinPromptSections(buildRuntimePathPolicySection(session, effectiveDefs), effectivePromptAppendConfig(session.PromptAppend).Reference.ProtocolPrompt, systemPrompt)
-	specs := toOpenAIToolSpecs(effectiveDefs)
-	return contracts.SystemInitProfile{
-		AgentKey:      strings.TrimSpace(session.AgentKey),
-		CacheKey:      SystemInitCacheKey(session.Mode, "execute"),
-		Mode:          "plan-execute",
-		Stage:         "execute",
-		Fingerprint:   ComputeSystemInitFingerprint(session, "execute", effectiveDefs),
-		SystemMessage: map[string]any{"role": "system", "content": systemPrompt},
-		Tools:         openAIToolSpecsToAny(specs),
-	}
-}
-
-func buildSummarySystemInitProfile(session contracts.QuerySession, settings contracts.PlanExecuteSettings, prompts config.PromptsConfig) contracts.SystemInitProfile {
-	systemPrompt := strings.TrimSpace(settings.Summary.PrimaryPrompt())
-	if systemPrompt == "" {
-		systemPrompt = strings.TrimSpace(prompts.PlanExecute.SummarySystemPrompt)
-	}
-	fingerprintSession := session
-	fingerprintSession.SummaryPrompt = strings.TrimSpace(strings.Join([]string{fingerprintSession.SummaryPrompt, systemPrompt}, "\n"))
-	return contracts.SystemInitProfile{
-		AgentKey:      strings.TrimSpace(session.AgentKey),
-		CacheKey:      SystemInitCacheKey(session.Mode, "summary"),
-		Mode:          "plan-execute",
-		Stage:         "summary",
-		Fingerprint:   ComputeSystemInitFingerprint(fingerprintSession, "summary", nil),
-		SystemMessage: map[string]any{"role": "system", "content": systemPrompt},
-		Tools:         []any{},
-	}
-}
-
 // buildPlanningSystemInitProfile is the single profile of a planning Run: the
 // Agent's shared system prompt with the planning tool set.
 func buildPlanningSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
@@ -441,27 +363,12 @@ func buildPlanningSystemInitProfile(session contracts.QuerySession, req api.Quer
 	}
 }
 
-func resolvePlanExecuteRuntimeSettings(session contracts.QuerySession, defaultMaxSteps int, defaultMaxWorkRoundsPerTask int) contracts.PlanExecuteSettings {
-	settings := session.ResolvedPlanExecuteSettings
-	if settings.MaxSteps <= 0 || settings.MaxWorkRoundsPerTask <= 0 {
-		settings = contracts.ResolvePlanExecuteSettings(session.StageSettings, defaultMaxSteps, defaultMaxWorkRoundsPerTask)
-	}
-	return settings
-}
-
 func resolvePlanningModeRuntimeSettings(session contracts.QuerySession, defaultMaxSteps int) contracts.PlanningModeSettings {
 	settings := session.ResolvedPlanningSettings
 	if settings.MaxSteps <= 0 {
 		settings = contracts.ResolvePlanningModeSettings(session.StageSettings, defaultMaxSteps)
 	}
 	return settings
-}
-
-func planSystemInitTools(stage contracts.StageSettings) []string {
-	if len(stage.Tools) > 0 {
-		return appendUniqueTools(stage.Tools, "plan_add_tasks")
-	}
-	return []string{"plan_add_tasks"}
 }
 
 func normalizedSystemInitMode(mode string) string {
@@ -471,24 +378,8 @@ func normalizedSystemInitMode(mode string) string {
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case "ONESHOT":
 		return "oneshot"
-	case "PLAN_EXECUTE", "PLAN-EXECUTE":
-		return "plan-execute"
 	default:
 		return "react"
-	}
-}
-
-func normalizedPlanExecuteStage(stage string) string {
-	value := strings.ToLower(strings.TrimSpace(stage))
-	switch {
-	case value == "plan":
-		return "plan"
-	case value == "summary":
-		return "summary"
-	case strings.HasPrefix(value, "execute"):
-		return "execute"
-	default:
-		return "execute"
 	}
 }
 

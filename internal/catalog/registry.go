@@ -53,6 +53,7 @@ type AgentDefinition struct {
 	Introductions        []string
 	Wonders              []string
 	ModelKey             string
+	MaxInputTokens       int    // modelConfig.maxInputTokens; 0 means the model's own limit.
 	ModelReasoningEffort string // Persisted top-level selection; empty means unspecified.
 	ServiceTier          string
 	Mode                 string
@@ -96,13 +97,8 @@ type AgentDefinition struct {
 	ChannelConfig AgentChannelConfig
 
 	// Prompt files loaded from agent directory.
-	SoulPrompt   string // from SOUL.md
-	AgentsPrompt string // resolved from promptFile or AGENTS.md fallback
-
-	// PLAN_EXECUTE stage prompts (stage-scoped promptFile).
-	PlanPrompt    string
-	ExecutePrompt string
-	SummaryPrompt string
+	SoulPrompt    string // from SOUL.md
+	AgentsPrompt  string // resolved from promptFile or AGENTS.md fallback
 	MemoryEnabled bool
 	MemoryConfig  AgentMemoryConfig
 }

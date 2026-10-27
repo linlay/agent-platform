@@ -21,8 +21,6 @@ func resolveAgentMode(mode string) AgentMode {
 	switch normalized {
 	case "ONESHOT":
 		return oneshotMode{}
-	case "PLAN_EXECUTE", "PLAN-EXECUTE":
-		return planPipelineMode{}
 	case agentteam.Mode:
 		return teamMode{}
 	case "GENERAL", "REACT":
@@ -126,10 +124,4 @@ func (oneshotMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.Qu
 		Stage:    "oneshot",
 		MaxSteps: 2, // One tool call round + one final answer turn
 	})
-}
-
-type planPipelineMode struct{}
-
-func (planPipelineMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
-	return newPlanPipelineStream(engine, ctx, req, session)
 }

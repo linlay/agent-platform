@@ -17,58 +17,14 @@ type StageSettings struct {
 	MaxOutputTokens    int
 }
 
-type PlanExecuteSettings struct {
-	Plan                 StageSettings
-	Execute              StageSettings
-	Summary              StageSettings
-	TaskExecutionPrompt  string
-	MaxSteps             int
-	MaxWorkRoundsPerTask int
-}
-
-// PlanningModeSettings is intentionally separate from PlanExecuteSettings.
-// The latter belongs to the PLAN_EXECUTE plan-tasks workflow; this type holds
-// the model settings of a planningMode Run and of the Run that executes a
-// confirmed plan, for any native Agent.
+// PlanningModeSettings holds the stage settings of a native Agent: Planning
+// for a planningMode Run, Execute for every other Run (including the one that
+// executes a confirmed plan), and Summary for context-summary calls.
 type PlanningModeSettings struct {
 	Planning StageSettings
 	Execute  StageSettings
+	Summary  StageSettings
 	MaxSteps int
-}
-
-func ResolvePlanExecuteSettings(raw map[string]any, defaultsMaxSteps int, defaultsMaxWorkRounds int) PlanExecuteSettings {
-	settings := PlanExecuteSettings{
-		MaxSteps:             defaultsMaxSteps,
-		MaxWorkRoundsPerTask: defaultsMaxWorkRounds,
-	}
-	if settings.MaxSteps <= 0 {
-		settings.MaxSteps = 60
-	}
-	if settings.MaxWorkRoundsPerTask <= 0 {
-		settings.MaxWorkRoundsPerTask = 6
-	}
-	if len(raw) == 0 {
-		return settings
-	}
-	if nested := anyMapNode(raw["plan"]); len(nested) > 0 {
-		settings.Plan = parseStageSettings(nested)
-	}
-	if nested := anyMapNode(raw["execute"]); len(nested) > 0 {
-		settings.Execute = parseStageSettings(nested)
-	}
-	if nested := anyMapNode(raw["summary"]); len(nested) > 0 {
-		settings.Summary = parseStageSettings(nested)
-	}
-	if settings.Plan.IsZero() {
-		settings.Plan = settings.Execute
-	}
-	if settings.Summary.IsZero() {
-		settings.Summary = settings.Execute
-	}
-	if value := anyStringNode(raw["taskExecutionPromptTemplate"]); value != "" {
-		settings.TaskExecutionPrompt = value
-	}
-	return settings
 }
 
 func ResolvePlanningModeSettings(raw map[string]any, defaultMaxSteps int) PlanningModeSettings {
@@ -84,6 +40,12 @@ func ResolvePlanningModeSettings(raw map[string]any, defaultMaxSteps int) Planni
 	}
 	if nested := anyMapNode(raw["execute"]); len(nested) > 0 {
 		settings.Execute = parseStageSettings(nested)
+	}
+	if nested := anyMapNode(raw["summary"]); len(nested) > 0 {
+		settings.Summary = parseStageSettings(nested)
+	}
+	if settings.Summary.IsZero() {
+		settings.Summary = settings.Execute
 	}
 	return settings
 }

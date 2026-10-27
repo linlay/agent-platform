@@ -51,8 +51,7 @@ func ApplyQueryModelOptionsToSession(options *queryinput.QueryModelOptions, sess
 	if modelKey != "" {
 		session.ModelKey = modelKey
 	}
-	session.StageSettings = applyQueryModelOptionsToRawStageSettings(session.Mode, session.StageSettings, modelKey, reasoningEffort)
-	session.ResolvedPlanExecuteSettings = applyQueryModelOptionsToResolvedPlanExecuteSettings(session.ResolvedPlanExecuteSettings, modelKey, reasoningEffort)
+	session.StageSettings = applyQueryModelOptionsToRawStageSettings(session.StageSettings, modelKey, reasoningEffort)
 	session.ResolvedPlanningSettings = applyQueryModelOptionsToResolvedPlanningSettings(session.ResolvedPlanningSettings, modelKey, reasoningEffort)
 }
 
@@ -147,7 +146,7 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 	return assembler, mapper
 }
 
-func applyQueryModelOptionsToRawStageSettings(mode string, raw map[string]any, modelKey string, reasoningEffort string) map[string]any {
+func applyQueryModelOptionsToRawStageSettings(raw map[string]any, modelKey string, reasoningEffort string) map[string]any {
 	out := contracts.CloneMap(raw)
 	if out == nil {
 		out = map[string]any{}
@@ -162,9 +161,10 @@ func applyQueryModelOptionsToRawStageSettings(mode string, raw map[string]any, m
 		out["reasoningEnabled"] = true
 		out["reasoningEffort"] = reasoningEffort
 	}
-	stages := []string{"plan", "execute", "summary"}
-	if agentbuiltin.PlanningModeSupported(mode) {
-		stages = []string{"planning", "execute"}
+	// An absent summary stage falls back to execute, which is overridden here.
+	stages := []string{"planning", "execute"}
+	if _, ok := out["summary"]; ok {
+		stages = append(stages, "summary")
 	}
 	for _, stage := range stages {
 		nested := contracts.CloneMap(contracts.AnyMapNode(out[stage]))
@@ -218,6 +218,7 @@ func applyQueryModelOptionsToResolvedPlanningSettings(settings contracts.Plannin
 	}
 	apply(&settings.Planning)
 	apply(&settings.Execute)
+	apply(&settings.Summary)
 	return settings
 }
 
@@ -507,6 +508,11 @@ func (s *Service) PrepareQueryAdmissionRequest(
 		return queryAdmission{}, err
 	}
 	req.References = preparedReferences
+	if req.Primary {
+		if err := s.checkPrimaryChatQuery(req, existingSummary, agentKey); err != nil {
+			return queryAdmission{}, err
+		}
+	}
 
 	req.ChatID = chatID
 	req.AgentKey = agentKey
@@ -556,25 +562,6 @@ type queryExecutionOptions = runtimetypes.QueryExecutionOptions
 
 func normalizeQueryModelServiceTier(value string) (string, bool) {
 	return agentbuiltin.CoderNormalizeServiceTier(value)
-}
-
-func applyQueryModelOptionsToResolvedPlanExecuteSettings(settings contracts.PlanExecuteSettings, modelKey string, reasoningEffort string) contracts.PlanExecuteSettings {
-	apply := func(stage *contracts.StageSettings) {
-		if modelKey != "" {
-			stage.ModelKey = modelKey
-		}
-		if reasoningEffort == "NONE" {
-			stage.ReasoningEnabled = false
-			stage.ReasoningEffort = ""
-		} else if reasoningEffort != "" {
-			stage.ReasoningEnabled = true
-			stage.ReasoningEffort = reasoningEffort
-		}
-	}
-	apply(&settings.Plan)
-	apply(&settings.Execute)
-	apply(&settings.Summary)
-	return settings
 }
 
 func queryChatSourceForUser(user string) string {
@@ -630,6 +617,11 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 	if !created {
 		summary, chatNamePromoted, err = s.deps.Chats.PromotePendingChatName(chatID, req.Message)
 		if err != nil {
+			return preparedQuery{}, err
+		}
+	}
+	if req.Primary {
+		if err := s.deps.PrimaryChats.PublishPrimaryChat(agentKey, chatID); err != nil {
 			return preparedQuery{}, err
 		}
 	}

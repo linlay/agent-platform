@@ -71,7 +71,7 @@ GET /ws -> request / response / stream / push / error frames
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| GET | `/api/agents` | query: `includeChats`、`chatsPinned`、`scope`、`mode`、`hasWorkspace` | agent 列表；包含 TEAM 的 Agent 列表，可附带最近 chat 摘要 |
+| GET | `/api/agents` | query: `includeChats`、`chatsPinned`、`scope`、`mode`、`hasWorkspace` | agent 列表；包含 TEAM 的 Agent 列表，可附带最近 chat 摘要；有主要聊天的 Agent 带 `primaryChat` |
 | GET/PUT | `/api/agents/order` | PUT body: `order` | 全部有效 runtime Agent 的 catalog 顺序 |
 | GET | `/api/agent` | query: `agentKey` | 单个运行时 agent 详情，不返回编辑专用字段 |
 | GET | `/api/skills` | query: 可选 `agentKey` | 全局有效技能目录、configured 与用户 pinned |
@@ -82,9 +82,11 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/skill-candidates` | query: `agentKey` | skill candidate 列表 |
 | GET | `/api/model-options` | 无 | 聊天运行时可选模型与思考深度 |
 
-`/api/agents` 的 `scope` 可取 `nav`、`copilot`、`invoke`、`internal`、`all`，省略时为 `all`；`includeChats` 为 `0..50`，省略时不附带 chat。可选 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `GENERAL`、`CODER`、`KBASE`、`TEAM`、`EXECUTOR`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）；`REACT` 仅在历史 Chat/Run 数据读取时兼容，作为筛选输入返回 400。`PLAN_EXECUTE`、`ONESHOT`、ACP 别名和未知值均返回 400。响应的 `mode` 统一返回 `GENERAL`，并附带 `engine`（`native` / `acp`，PROXY 与 CHANNEL 不返回）。`mode` 与 `scope` 为 AND，筛选普通 agent catalog 自身的 `mode`，不改变 `includeChats` 按 agentKey 获取 chat 的规则。
+`/api/agents` 的 `scope` 可取 `nav`、`copilot`、`invoke`、`internal`、`all`，省略时为 `all`；`includeChats` 为 `0..50`，省略时不附带 chat。可选 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `GENERAL`、`CODER`、`KBASE`、`TEAM`、`EXECUTOR`、`PROXY`、`CHANNEL`（大小写无关）；`REACT` 仅在历史 Chat/Run 数据读取时兼容，作为筛选输入返回 400。已下线的 `PLAN-EXECUTE`/`PLAN_EXECUTE`、`ONESHOT`、ACP 别名和未知值均返回 400。响应的 `mode` 统一返回 `GENERAL`，并附带 `engine`（`native` / `acp`，PROXY 与 CHANNEL 不返回）。`mode` 与 `scope` 为 AND，筛选普通 agent catalog 自身的 `mode`，不改变 `includeChats` 按 agentKey 获取 chat 的规则。
 
 `hasWorkspace` 是可选布尔筛选，作用于 Agent catalog 本身：`true` 只返回配置了具体项目目录的 Agent，`false` 只返回没有的 Agent（未配置 Workspace 或使用 `@root`），省略时不筛选；与 `scope`、`mode` 为 AND 关系。TEAM 按自身 Workspace 配置参与筛选。取值规则与 `chatsPinned` 相同。
+
+每个 Agent 有主要聊天时返回 `primaryChat`（与 `/api/chats` 相同的摘要结构和活动 Run 投影），没有时省略；它不受 `includeChats`、`chatsPinned` 影响，所有主要聊天由一次列表读取得到。规则见 [主要聊天](#主要聊天)。
 
 `chatsPinned` 是可选布尔筛选，仅作用于 `includeChats` 附带的 `chats[]`：`true` 只返回置顶 Chat，`false` 只返回未置顶 Chat，省略时保留全部。按 owner 先筛选，再按 recent 顺序取 N 条；不筛选 Agent/Team catalog，不改变 `stats` 的总数和未读数。HTTP 只接受单个 `true` 或 `false` 字符串，WebSocket 使用 JSON boolean；空值、重复参数、null 或其他类型返回 400。
 
@@ -233,7 +235,8 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| GET | `/api/chats` | query: `lastRunId`、`agentKey`、`mode`、`pinned`、`hasWorkspace`、`limit` | chat 摘要列表 |
+| GET | `/api/chats` | query: `lastRunId`、`agentKey`、`mode`、`pinned`、`primary`、`hasWorkspace`、`limit` | chat 摘要列表 |
+| PUT | `/api/chats/primary` | body: `chatId` | 把已有 Chat 设为其 Agent 的主要聊天，返回 `agentKey`、`chatId`、`previousChatId`、`changed` |
 | GET | `/api/chats/order` | 无 | 当前 `sortMode`、完整有序 `pinnedChats`、兼容投影 `pinnedOrder` 与可选 `updatedAt` |
 | PUT | `/api/chats/order` | body: `set_mode`、`move` 或 `set_pinned` operation | 更新后的 `sortMode`、`pinnedOrder` 与 `updatedAt` |
 | GET | `/api/chat` | query: `chatId`、`includeRawMessages`、`detail` | chat 详情，默认含 events；`detail` 见 [细节等级](#细节等级与-runactivity) |
@@ -256,7 +259,7 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 
 `/api/chats` 和 `/api/chat` 的历史发现、owner 和回放不要求当前 Agent 配置有效；Agent 详情的 404 不代表 Chat 不存在。客户端应独立加载历史与当前执行配置，保留 Chat 自身的认证、缺失及损坏错误，不能通过历史读取恢复无效 Agent 的 query 能力。详见 [历史读取与当前 Agent 可用性](会话存储与回放.md#历史读取与当前-agent-可用性)。
 
-`/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `GENERAL`、`CODER`、`KBASE`、`TEAM`、`EXECUTOR`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）。通用类型的筛选输入只接受 `GENERAL`，传入 `REACT` 返回 400；`GENERAL` 同时匹配历史保存的 `REACT` 和新的 `GENERAL` chat。可选布尔 `hasWorkspace` 按 chat 所属 Agent 当前是否配置了具体项目目录筛选（未配置 Workspace 或使用 `@root` 都视为没有）：`true` 只返回项目型 Agent 的 chat；`false` 排除它们，同时保留 Agent 已不在 catalog 中的 chat。它与 `mode`、`pinned` 为 AND 关系，并在 `limit` 截断之前生效。HTTP 只接受单个 `true` 或 `false` 字符串，WebSocket 使用同名 JSON boolean，其他值返回 400；旧 `agentType` 参数或 payload 返回 400，调用方应改用 `hasWorkspace`。`pinned=true` 按置顶 ID 直接读取；`pinned=false` 且实例排序为 `recent` 时，`limit` 在读取阶段生效，只为返回的 chat 计算完整摘要。旧别名和未知值均返回 400。筛选与 agentKey、lastRunId 为 AND 关系，TEAM Chat 也遵循这些筛选。显式 agentKey 只返回该根 Agent 的 Chat。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时必须在全部筛选和当前实例级排序后截断，不能先取最近记录再局部重排。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset 或分页游标。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。
+`/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `GENERAL`、`CODER`、`KBASE`、`TEAM`、`EXECUTOR`、`PROXY`、`CHANNEL`（大小写无关），已下线的 `PLAN-EXECUTE` 返回 400。通用类型的筛选输入只接受 `GENERAL`，传入 `REACT` 返回 400；`GENERAL` 同时匹配历史保存的 `REACT` 和新的 `GENERAL` chat。可选布尔 `hasWorkspace` 按 chat 所属 Agent 当前是否配置了具体项目目录筛选（未配置 Workspace 或使用 `@root` 都视为没有）：`true` 只返回项目型 Agent 的 chat；`false` 排除它们，同时保留 Agent 已不在 catalog 中的 chat。它与 `mode`、`pinned` 为 AND 关系，并在 `limit` 截断之前生效。HTTP 只接受单个 `true` 或 `false` 字符串，WebSocket 使用同名 JSON boolean，其他值返回 400；旧 `agentType` 参数或 payload 返回 400，调用方应改用 `hasWorkspace`。`pinned=true` 按置顶 ID 直接读取；`pinned=false` 且实例排序为 `recent` 时，`limit` 在读取阶段生效，只为返回的 chat 计算完整摘要。旧别名和未知值均返回 400。筛选与 agentKey、lastRunId 为 AND 关系，TEAM Chat 也遵循这些筛选。显式 agentKey 只返回该根 Agent 的 Chat。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时必须在全部筛选和当前实例级排序后截断，不能先取最近记录再局部重排。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset 或分页游标。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。
 
 `/api/chats` 的可选 `pinned` 与其他筛选按 AND 组合：`true` 只取置顶组，`false` 只取未置顶组，省略则取全部且置顶组在前。HTTP 只接受单个 `true` / `false`，WebSocket 只接受 JSON boolean；非法值返回 400。筛选和各组排序均在 `limit` 截断之前完成。例如 `mode=GENERAL&pinned=false&limit=8` 返回最多 8 条未置顶的匹配记录，不会让置顶项占用这 8 个位置。获取完整跨 mode 置顶组使用 `/api/chats?pinned=true`，不传 `mode` 或 `limit`。
 
@@ -267,6 +270,18 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 WebClient 与 Desktop 导航只通过一次 `/api/chats/order` 读取排序配置和完整跨 mode、跨 owner 的置顶摘要，不再探测能力或追加 `/api/chats?pinned=true`。读取响应的 `pinnedChats` 固定为数组（空列表为 `[]`），每项复用 `/api/chats` 摘要结构和活动 Run 投影，数组顺序即展示顺序；`pinnedOrder` 仅是同一列表的兼容 ID 投影。存储层在同一锁内读取偏好、置顶和持久化摘要；活动 Run 随后按既有规则补充，仍需实时 Push 校准。`updatedAt` 仅表示展示偏好修改时间，不能作为摘要整体的缓存版本。读取失败不得被客户端解释为空置顶列表。
 
 PUT/WS mutation 继续返回轻量 `sortMode/pinnedOrder/updatedAt`，不附带 `pinnedChats`，避免保存成功后摘要读取失败造成写入结果歧义。成功后两端通过统一读取接口刷新，普通未置顶预览按需补位。
+
+### 主要聊天
+
+每个 Agent 最多有一个主要聊天，它的其他 active Chat 是历史聊天；归档不受影响。指针保存在 `chat-primary.json`（存储与损坏处理见 [会话存储与回放](会话存储与回放.md)），不进入 JSONL 或 `chats.db`，也不区分 mode。Chat 摘要、`/api/chats/order` 的 `pinnedChats[]` 与 `/api/chat` 详情顶层固定返回 `primary` boolean。
+
+- 新建：`/api/query`（HTTP/WS）带 `primary:true`，且本次请求创建该 Chat（省略 `chatId`、`chatId` 尚不存在，或是只有上传、尚未受理首条 query 的占位 Chat）。Chat 建立后指针随即切换；`chatId` 指向已有 Chat 时返回 400，侧通道（`lane` 非空）同样返回 400。`primary` 是调用方原样输入，只作用于这一次请求，计划批准后的执行 Run 与恢复不会重放它。
+- 设定：`PUT /api/chats/primary {chatId}`（WS 同路径同字段）把已发布的已有 Chat 设为其 owner Agent 的主要聊天；Chat 不存在返回 404，上传占位 Chat 或无 owner 的 Chat 返回 400；已是主要聊天时 `changed:false` 且不广播。
+- 互斥：当前主要聊天有活动 Run（含等待用户提问、审批的 Run）时，新建与设定都返回 409 `primary_chat_busy`，`data` 带当前主要聊天的 `chatId` 与 `runIds`。query 在创建 Chat 之前检查，被拒绝时不会留下新 Chat。
+- 不切换指针的入口：普通 query、在历史聊天中续聊、Automation、`chat_start`、`/api/execute`、channel、derive 和归档恢复创建或继续的 Chat 都只是历史聊天。
+- 生命周期：归档或删除主要聊天时先清除指针，客户端由既有 `chat.archived` / `chat.deleted` 得知；恢复归档不恢复指针。没有指针的 Agent 视为没有主要聊天，升级后不迁移已有 Chat。
+- 列表：`/api/chats` 可选 `primary` 与其他筛选按 AND 组合，并在 `limit` 之前生效；`primary=true` 按指针 ID 直接读取，`agentKey=<key>&primary=false` 即该 Agent 的历史聊天。HTTP 只接受单个 `true`/`false`，WebSocket 使用 JSON boolean。
+- 指针切换成功后广播 `chat.primary.changed`。
 
 智能体可通过 `chat_manage` 的 `setPinned` 调用同一置顶业务入口，沿用 `chats.order.changed` 通知；工具契约与执行边界见 [Platform 控制工具设计](Platform控制工具设计.md#会话)。
 
@@ -279,7 +294,7 @@ PUT/WS mutation 继续返回轻量 `sortMode/pinnedOrder/updatedAt`，不附带 
 HTTP 与 WebSocket 使用相同字段和错误语义；WebSocket 空 payload 相当于 GET。成功 mutation 仅修改展示偏好，不修改 Chat `updatedAt`、owner、内容或已读状态；成功修改后广播 `chats.order.changed {updatedAt}`，客户端重读列表对账。归档或删除清理对应置顶 ID，并沿用既有 lifecycle Push；恢复归档不恢复置顶。
 
 
-Chat 列表摘要、`/api/agents?includeChats` 中的摘要和 `/api/chat` 详情顶层固定返回 `pinned` boolean。chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/agents?includeChats` 及 archive detail 中的共享 `runs[]` 均返回每次 run 的可选 `mode`。普通 agent 持久化规范 API mode（例如 `GENERAL`、`CODER`、`KBASE`、`TEAM`、`EXECUTOR`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`）；TEAM Agent 保存 `TEAM`。历史 chat/run 不根据当前 catalog 回填或转换，原始 mode 仅用于历史读取，不能作为当前筛选或运行输入；唯一的例外是改名前保存的 `REACT`：存储行与 JSONL 保持原值不改写，响应中统一以 `GENERAL` 返回，并可被 `mode=GENERAL` 筛选命中；TEAM Chat 按同样的 mode 规则筛选。
+Chat 列表摘要、`/api/agents?includeChats` 中的摘要和 `/api/chat` 详情顶层固定返回 `pinned` boolean。chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/agents?includeChats` 及 archive detail 中的共享 `runs[]` 均返回每次 run 的可选 `mode`。普通 agent 持久化规范 API mode（例如 `GENERAL`、`CODER`、`KBASE`、`TEAM`、`EXECUTOR`、`PROXY`、`CHANNEL`）；TEAM Agent 保存 `TEAM`。历史 chat/run 不根据当前 catalog 回填或转换，原始 mode 仅用于历史读取，不能作为当前筛选或运行输入；唯一的例外是改名前保存的 `REACT`：存储行与 JSONL 保持原值不改写，响应中统一以 `GENERAL` 返回，并可被 `mode=GENERAL` 筛选命中；TEAM Chat 按同样的 mode 规则筛选。
 
 `/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 摘要，以及 `/api/chat` 详情顶层在新数据中可包含 `source`，表示 chat 首次创建来源。当前只记录 query 与 automation 两类：`query` / `query:<user>` 表示由 query 创建，`automation:<automationId>` 表示由 automation 创建。旧数据为空、上传创建或派生创建时省略。channel 远程用户调用本机智能体仍属于 query source；gateway 可在受信 channel 请求中传 `sourceUser`，否则服务端会从形如 `channel#single#user1#...` 的 chatId 中取远端用户段作为 `query:<user>`。`sourceChannel` 是 gateway/channel 路由标签，不承载 query / automation 语义。
 
@@ -372,7 +387,7 @@ Automation 只配置 `agentKey`，TEAM 也按普通 Agent 准入执行。
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
 | POST | `/api/execute` | body（JSON 或 multipart 的 `request` 字段）: `agentKey`、`message`、`outputSchema`、`input`、`requestId`、`accessLevel`；multipart 其余字段为输入文件 | 等待 Run 结束，返回 `result_submit` 的 `{chatId,status,output|reason}`；契约见 [智能体执行接口](智能体执行接口.md) |
-| POST | `/api/query` | query: `detail`；body: `lane`（默认 `main`，可选 `btw`）、`sideId`（旁路分支续问）、`message`、`agentKey`、`chatId`、`runId`、`requestId`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
+| POST | `/api/query` | query: `detail`；body: `lane`（默认 `main`，可选 `btw`）、`sideId`（旁路分支续问）、`message`、`agentKey`、`chatId`、`runId`、`requestId`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model`、`primary`（见 [主要聊天](#主要聊天)） | 默认 SSE stream；`stream:false` 时返回 JSON |
 | GET | `/api/attach` | query: `runId`、根 `agentKey`、`lastSeq` | 按公开 owner 续接 run 的 SSE stream，档位为 Run 受理时冻结的 `detail`，不接受 `detail` 参数 |
 | POST | `/api/submit` | body: 根 `agentKey`、`runId`、`awaitingId`，以及 `params`（question/approval 的数组）或 `param`（planning/form 的单个对象），二选一 | HITL submit ack |
 | POST | `/api/steer` | body: 根 `agentKey`、`runId`、`message`、`requestId`、`chatId`、`steerId`、`references` | steer ack |
@@ -968,6 +983,7 @@ Desktop Action 的执行器错误由 Desktop Broker 转换为统一 error frame�
 | `archive.deleted` | `chatId` |
 | `catalog.updated` | `reason`、`updatedAt` |
 | `chats.order.changed` | `updatedAt`；列表展示偏好修改后刷新，时间不代表 Chat 内容变化 |
+| `chat.primary.changed` | `agentKey`、`chatId`、可选 `previousChatId`；Agent 的主要聊天指针切换 |
 | `awaiting.asking` | `chatId`、`runId`、根 `agentKey`、`awaitingId`、`mode`、`createdAt`、可选 `timeout` / `view` |
 | `awaiting.answered` | `chatId`、`runId`、根 `agentKey`、`awaitingId`、`mode`、`status`、`answeredAt`、可选 `errorCode` / `submitId` / `durationMs` |
 | `artifact.published` | `chatId`、`runId`、`artifactId`、`name`、`type`、`mimeType`、`sizeBytes`、`sha256`、`url`、`publishedAt`；仅已认证 Desktop Main |
@@ -1020,8 +1036,9 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/agents/connectors` | `agentKey/connectorId/enabled` 写入；旧 `agentKey` 读取保留兼容 | `response`；data 与 HTTP 使用挂载一致，失败返回原业务 error |
 | `/api/agent/model-config` | `agentKey`、可选 `modelKey/reasoningEffort/serviceTier` | `response` |
 | `/api/model-options` | 无 | `response` |
-| `/api/chats` | `lastRunId`、`agentKey`、`mode`、`pinned`、`hasWorkspace`、`limit` | `response` |
+| `/api/chats` | `lastRunId`、`agentKey`、`mode`、`pinned`、`primary`、`hasWorkspace`、`limit` | `response` |
 | `/api/chats/order` | 空 payload 读取；或 `operation` 与对应字段更新 | `response` |
+| `/api/chats/primary` | `chatId` | `response`；与 HTTP PUT 相同 |
 | `/api/chat` | `chatId`、`includeRawMessages` | `response` |
 | `/api/read` | `chatId` | `response` |
 | `/api/feedback` | feedback 字段 | `response` |

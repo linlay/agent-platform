@@ -5,7 +5,7 @@ i18n:
   zh-CN:
     label: "行动公示"
 activityAnnounce: message
-description: Tell the user, in one short sentence, what you are about to do next. The user often cannot see your tool calls or reasoning; this sentence is the only progress they see, so without it they are left waiting with no feedback. Call it at the start of every turn that needs tools, as the first tool call in the same response as the tool calls it describes, not on its own. Call it again whenever you move to a new phase, change direction, or finish a group of related steps. Skip it only when you answer directly without calling any other tool. State concretely what you will do and what it acts on, plus any confirmed findings that motivate it, in the user's language; do not reveal internal reasoning. Use this instead of narrating next steps in reply text. It does not change plan tasks and does not wait for the user.
+description: Show the user one short sentence about what you are about to do next, in the user's language. This is the only progress the user sees; use it instead of reply text when calling tools, as the first call of the response. Name the concrete action and its target, plus any confirmed finding that motivates it; do not reveal internal reasoning. It does not change plan tasks and does not wait for the user.
 clientVisible: false
 inputSchema:
   type: object

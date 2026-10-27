@@ -64,6 +64,8 @@ type QueryCommand struct {
 	AccessLevel                string
 	Model                      *QueryModelOptions
 	SyntheticQueryBootstrapped bool
+	// Primary makes the Chat this query creates its Agent's primary Chat.
+	Primary bool `json:"-"`
 	// Origin is who sent the input; admission defaults it to the requesting user.
 	Origin *queryinput.Origin
 	// AccessGrant audits how a chat_start Run obtained its access level.

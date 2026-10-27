@@ -74,6 +74,7 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 - `GET /api/attach` 与 `POST /api/submit` / `steer` / `interrupt` 统一按根 Run 的 `agentKey` 校验，TEAM 也使用同一契约。
 - `POST /api/submit` 使用 awaiting 协议：请求体必须包含 `runId`、`awaitingId`，并按 run 类型携带 根 `agentKey`。
 - Chat 默认按更新时间倒序展示，排序偏好由 Platform 保存；支持跨普通、CODER/KBASE 等 mode 的统一置顶，独立保存到 `chat-pinned.json`；未置顶列表在截断前排除置顶项，展示排序不修改内容时间。协议与存储见 [API与协议](./docs/API与协议.md) 和 [会话存储与回放](./docs/会话存储与回放.md)。
+- 每个 Agent 可有一个主要聊天，其余 active Chat 为历史聊天；指针独立保存到 `chat-primary.json`，由创建 Chat 的 query `primary:true` 或 `PUT /api/chats/primary` 切换，当前主要聊天有活动 Run 时拒绝切换。规则见 [API与协议](./docs/API与协议.md#主要聊天)。
 - Platform 重启统一取消全部未完成 Run，包括 question、planning、approval、form 和 wait；启动时幂等补齐中断结果与 cancel completion，清除 pending，不注册历史 activeRun 或自动启动执行。聊天内容保留，新 Query 使用当前 Agent 配置。活动 Run 的等待项由原执行流程收尾，会话读取不提前补写超时结果。
 - 工具执行中取消会先收尾工具结果，再保存 Run 终态；活动异步工具在整批共享 2 秒期限内保留真实返回，无法确认时明确记录副作用未知。旧的缺失结果历史不会自动重写，人工恢复流程见 [会话存储与回放](./docs/会话存储与回放.md)。
 - 文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传继续使用 `POST /api/upload`，实际下载继续使用 `GET /api/resource?file=...`；上传、生成图片和发布产物的 `url` 是相对于当前 Chat、按路径段编码的 `<relativePath>`，不含 `chatId`；Markdown 原样使用返回的 `url`，客户端资源 adapter 加入当前 `chatId` 后转换成该 HTTP 请求。发布产物 URL 指向发布副本。历史 endpoint Markdown 不迁移且不再预览，HTTP 数据面仍保留。`path` 只供智能体工具读取或继续发布，绝不进入 Markdown；`/ws` 只传文件引用与状态，不承载文件字节。

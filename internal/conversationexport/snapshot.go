@@ -41,8 +41,10 @@ func (e *SizeLimitError) Error() string {
 func (e *SizeLimitError) Unwrap() error { return ErrTooLarge }
 
 type AssistantV1 struct {
-	Name     string `json:"name"`
-	IconName string `json:"iconName,omitempty"`
+	Name      string `json:"name"`
+	IconName  string `json:"iconName,omitempty"`
+	Mode      string `json:"mode,omitempty"`
+	IconColor string `json:"iconColor,omitempty"`
 }
 
 type ResolveAssistant func(agentKey string) *AssistantV1
@@ -131,14 +133,16 @@ type SourceChunkV1 struct {
 }
 
 type TaskV1 struct {
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	TaskAgentKey     string `json:"taskAgentKey,omitempty"`
-	SubAgentName     string `json:"subAgentName,omitempty"`
-	SubAgentIconName string `json:"subAgentIconName,omitempty"`
-	Status           string `json:"status"`
-	DurationMs       int64  `json:"durationMs,omitempty"`
-	Error            string `json:"error,omitempty"`
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	TaskAgentKey      string `json:"taskAgentKey,omitempty"`
+	SubAgentName      string `json:"subAgentName,omitempty"`
+	SubAgentIconName  string `json:"subAgentIconName,omitempty"`
+	SubAgentMode      string `json:"subAgentMode,omitempty"`
+	SubAgentIconColor string `json:"subAgentIconColor,omitempty"`
+	Status            string `json:"status"`
+	DurationMs        int64  `json:"durationMs,omitempty"`
+	Error             string `json:"error,omitempty"`
 }
 
 type AttachmentV1 struct {
@@ -493,6 +497,7 @@ func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, att
 			if resolveAssistant != nil && task.TaskAgentKey != "" {
 				if agent := resolveAssistant(task.TaskAgentKey); agent != nil {
 					task.SubAgentName, task.SubAgentIconName = agent.Name, agent.IconName
+					task.SubAgentMode, task.SubAgentIconColor = agent.Mode, agent.IconColor
 				}
 			}
 			turn.Tasks = append(turn.Tasks, task)

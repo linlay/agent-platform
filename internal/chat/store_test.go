@@ -2389,8 +2389,8 @@ func TestStepWriterSplitsEachLLMRequestIntoReactStep(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-llm-step-boundary", "run-llm-step-boundary", "PLAN_EXECUTE")
-	writer.OnStageMarker("execute-task-1")
+	writer := NewStepWriter(store, "chat-llm-step-boundary", "run-llm-step-boundary", "GENERAL")
+	writer.OnStageMarker("react-step-1")
 	onEventForTest(writer, stream.EventData{
 		Type: "llm.request",
 		Payload: map[string]any{
@@ -2437,8 +2437,8 @@ func TestStepWriterSplitsEachLLMRequestIntoReactStep(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("expected react, react-tool, react lines, got %#v", lines)
 	}
-	if lines[0]["_type"] != StepLineTypeReact || toIntValue(lines[0]["seq"]) != 1 || lines[0]["stage"] != "execute" {
-		t.Fatalf("expected first llm chat react seq=1 stage=execute, got %#v", lines[0])
+	if lines[0]["_type"] != StepLineTypeReact || toIntValue(lines[0]["seq"]) != 1 || lines[0]["stage"] != nil {
+		t.Fatalf("expected first llm chat react seq=1 without stage, got %#v", lines[0])
 	}
 	if _, ok := lines[0]["inputMessages"]; ok {
 		t.Fatalf("inputMessages must not be persisted, got %#v", lines[0])
@@ -2446,8 +2446,8 @@ func TestStepWriterSplitsEachLLMRequestIntoReactStep(t *testing.T) {
 	if lines[1]["_type"] != StepLineTypeReactTool || toIntValue(lines[1]["seq"]) != 1 {
 		t.Fatalf("expected tool result to reuse seq=1, got %#v", lines[1])
 	}
-	if lines[2]["_type"] != StepLineTypeReact || toIntValue(lines[2]["seq"]) != 2 || lines[2]["stage"] != "execute" {
-		t.Fatalf("expected second llm chat react seq=2 stage=execute, got %#v", lines[2])
+	if lines[2]["_type"] != StepLineTypeReact || toIntValue(lines[2]["seq"]) != 2 {
+		t.Fatalf("expected second llm chat react seq=2, got %#v", lines[2])
 	}
 	if _, ok := lines[2]["inputMessages"]; ok {
 		t.Fatalf("inputMessages must not be persisted, got %#v", lines[2])
@@ -2912,14 +2912,14 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 	assertNoStepModelMetadata(t, contextWindow, "contextWindow")
 }
 
-func TestStepWriterPersistsPlanExecuteMetadataOnReactStep(t *testing.T) {
+func TestStepWriterPersistsModelMetadataOnReactStep(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-plan-execute-model", "run-plan-execute-model", "PLAN_EXECUTE")
-	writer.OnStageMarker("execute-task-1")
+	writer := NewStepWriter(store, "chat-step-model", "run-step-model", "GENERAL")
+	writer.OnStageMarker("react-step-1")
 	onEventForTest(writer, stream.EventData{
 		Type: "content.snapshot",
 		Payload: map[string]any{
@@ -2948,7 +2948,7 @@ func TestStepWriterPersistsPlanExecuteMetadataOnReactStep(t *testing.T) {
 	})
 	onEventForTest(writer, stream.EventData{Type: "run.complete"})
 
-	lines, err := readJSONLines(store.chatJSONLPath("chat-plan-execute-model"))
+	lines, err := readJSONLines(store.chatJSONLPath("chat-step-model"))
 	if err != nil {
 		t.Fatalf("read chat jsonl: %v", err)
 	}
@@ -2956,8 +2956,8 @@ func TestStepWriterPersistsPlanExecuteMetadataOnReactStep(t *testing.T) {
 		t.Fatalf("expected one react step line, got %#v", lines)
 	}
 	line := lines[0]
-	if line["_type"] != StepLineTypeReact || line["stage"] != "execute" || toIntValue(line["seq"]) != 1 {
-		t.Fatalf("expected execute react step, got %#v", line)
+	if line["_type"] != StepLineTypeReact || toIntValue(line["seq"]) != 1 {
+		t.Fatalf("expected react step, got %#v", line)
 	}
 	if line["modelKey"] != "plan-model" || line["reasoningEffort"] != "MEDIUM" {
 		t.Fatalf("expected react top-level model metadata, got %#v", line)

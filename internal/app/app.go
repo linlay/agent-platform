@@ -440,10 +440,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		ChatsRoot: cfg.Paths.ChatsDir, MaxReadBytes: cfg.FileTools.MaxReadBytes,
 	}
 	systemInits := llm.NewSystemInitProfileBuilder(modelRegistry, llm.SystemInitDefaults{
-		PlanMaxSteps:             cfg.Defaults.Plan.MaxSteps,
-		PlanMaxWorkRoundsPerTask: cfg.Defaults.Plan.MaxWorkRoundsPerTask,
-		CoderPlanningMaxSteps:    cfg.Defaults.CoderPlanning.MaxSteps,
-		Prompts:                  cfg.Prompts,
+		CoderPlanningMaxSteps: cfg.Defaults.CoderPlanning.MaxSteps,
+		Prompts:               cfg.Prompts,
 	})
 	profiles := runtimeadapter.Profiles{Builder: systemInits, Tools: toolExecutor}
 	sessions := runtimesession.New(runtimesession.Dependencies{KnowledgeLibrary: kbasesService.LibraryOption, ValidateKnowledge: knowledgeManager.ValidateRunLibrary, Config: cfg, Chats: chatStore, Registry: runtimeadapter.Catalog{Registry: registry}, Models: modelRegistry, Runs: runManager, Tools: toolExecutor, Profiles: profiles})
@@ -534,6 +532,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Agent: runtimeadapter.Engine{AgentEngine: agentEngine}, Profiles: profiles, Sessions: sessions,
 		Notifications: notifications, ToolInteractions: interactionRegistry, DeltaMappers: llm.DeltaMapperFactory{Interactions: interactionRegistry, CredentialPolicy: credentialview.FromConfig(cfg)},
 		DeferredAwaitings: deferredAwaitings, Proxy: server.RuntimeProxyPort{Server: srv}, ResourceTickets: srv.RuntimeResourceTickets(),
+		PrimaryChats: conversationService,
 	})
 	runtimeService.Bind(queryService)
 	runtimeToolExecutor.WithWaitConditionProvider(waitEventProvider{runs: runops.NewToolHandler(runtimeService, runManager), auth: srv})
@@ -745,7 +744,7 @@ func runtimeQueryCommand(req api.QueryRequest) runtimetypes.QueryCommand {
 		Role: req.Role, Hidden: req.Hidden, Message: req.Message, SourceUser: req.SourceUser, References: references,
 		Params: contracts.CloneMap(req.Params), Scene: scene, Stream: req.Stream, IncludeUsage: req.IncludeUsage,
 		IncludeFullText: req.IncludeFullText, PlanningMode: req.PlanningMode, EditingMode: req.EditingMode,
-		AccessLevel: req.AccessLevel, Model: model,
+		AccessLevel: req.AccessLevel, Model: model, Primary: req.Primary,
 		SyntheticQueryBootstrapped: req.SyntheticQueryBootstrapped, ChatSource: req.ChatSource,
 		Origin: req.Origin.Clone(),
 	}

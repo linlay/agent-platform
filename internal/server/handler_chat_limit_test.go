@@ -32,7 +32,7 @@ func TestChatsLimitHTTPAndWebSocket(t *testing.T) {
 		t.Fatalf("expected file chat store, got %T", fixture.chats)
 	}
 	seedAgentModeChat(t, store, "chat-react-limit", "loyw3v28", "agent-react", "REACT", 1_000)
-	seedAgentModeChat(t, store, "chat-plan-limit", "loyw3v29", "agent-plan", "PLAN-EXECUTE", 2_000)
+	seedAgentModeChat(t, store, "chat-plan-limit", "loyw3v29", "agent-plan", "CODER", 2_000)
 	seedAgentModeChat(t, store, "chat-team-limit", "loyw3v2a", "", "TEAM", 3_000)
 	if _, _, err := store.EnsureChat("chat-pending-upload", "", ""); err != nil {
 		t.Fatalf("ensure pending upload chat: %v", err)

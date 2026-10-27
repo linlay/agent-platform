@@ -387,7 +387,7 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 		t.Fatal(err)
 	}
 	def := catalog.AgentDefinition{
-		StageSettings: map[string]any{"plan": map[string]any{"toolConfig": map[string]any{"tools": []any{"datetime"}}}, "execute": map[string]any{"toolConfig": map[string]any{"tools": []any{"datetime"}}}},
+		StageSettings: map[string]any{"planning": map[string]any{"toolConfig": map[string]any{"tools": []any{"datetime"}}}, "execute": map[string]any{"toolConfig": map[string]any{"tools": []any{"datetime"}}}},
 		Key:           "zenmi",
 		Name:          "Zenmi",
 		Mode:          "REACT",
@@ -412,7 +412,7 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 	if session.KBaseBindingLibraryID == "" || len(session.CapabilityPrompts) != 1 {
 		t.Fatalf("embedded capability snapshot = enabled:%v prompts:%#v", session.KBaseBindingLibraryID, session.CapabilityPrompts)
 	}
-	for _, stage := range []contracts.StageSettings{session.ResolvedPlanExecuteSettings.Plan, session.ResolvedPlanExecuteSettings.Execute} {
+	for _, stage := range []contracts.StageSettings{session.ResolvedPlanningSettings.Planning, session.ResolvedPlanningSettings.Execute} {
 		if !reflect.DeepEqual(stage.Tools, []string{"datetime"}) {
 			t.Fatalf("KBASE capability expanded explicit stage tools: %v", stage.Tools)
 		}

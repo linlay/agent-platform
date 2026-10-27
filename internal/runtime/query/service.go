@@ -62,7 +62,16 @@ type Dependencies struct {
 	DeferredAwaitings DeferredAwaitingStore
 	Proxy             ProxyPort
 	ResourceTickets   proxy.TicketIssuer
+	PrimaryChats      PrimaryChatPort
 }
+
+// PrimaryChatPort switches an Agent's primary Chat. Admission checks the
+// current primary before the new Chat exists and publishes it once it does.
+type PrimaryChatPort interface {
+	EnsurePrimaryReplaceable(agentKey string) error
+	PublishPrimaryChat(agentKey string, chatID string) error
+}
+
 type Service struct {
 	deps              Dependencies
 	backgroundCtx     context.Context

@@ -416,6 +416,7 @@ type Summary struct {
 	// It is populated by single-Chat reads; navigation list reads leave it unset.
 	CanContinue bool   `json:"canContinue"`
 	Pinned      bool   `json:"pinned"`
+	Primary     bool   `json:"primary"`
 	ChatID      string `json:"chatId"`
 	ChatName    string `json:"chatName"`
 	AgentKey    string `json:"agentKey,omitempty"`

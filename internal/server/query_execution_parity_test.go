@@ -34,9 +34,6 @@ func TestQueryExecutionEntryPointParity(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if outcome == "recovery" {
-						data = append(data, []byte("\nmode: PLAN-EXECUTE\n")...)
-					}
 					if outcome == "subagent" {
 						data = []byte(strings.Replace(string(data), "    - datetime", "    - datetime\n    - agent_invoke", 1))
 					}
@@ -166,12 +163,6 @@ func TestQueryExecutionEntryPointParity(t *testing.T) {
 				runs, err := fixture.chats.ListRuns(req.ChatID)
 				if err != nil || len(runs) != 1 {
 					t.Fatalf("runs=%#v err=%v", runs, err)
-				}
-				if outcome == "recovery" {
-					jsonl, err := fixture.chats.LoadJSONLContent(req.ChatID)
-					if err != nil || !strings.Contains(jsonl, `"stage":"planning"`) {
-						t.Fatalf("missing planning stage, err=%v", err)
-					}
 				}
 				run := runs[0]
 				if run.FinishReason != expectedReason || run.AssistantText != expectedText {
