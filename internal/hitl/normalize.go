@@ -77,6 +77,9 @@ func NormalizeApproval(args map[string]any, params any) (map[string]any, error) 
 			"command":  contracts.AnyStringNode(definition["command"]),
 			"decision": decision,
 		}
+		if description := strings.TrimSpace(contracts.AnyStringNode(definition["description"])); description != "" {
+			entry["description"] = description
+		}
 		if reason := strings.TrimSpace(contracts.AnyStringNode(item["reason"])); reason != "" {
 			entry["reason"] = reason
 		}

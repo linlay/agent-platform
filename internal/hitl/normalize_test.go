@@ -18,7 +18,7 @@ func mustEncodeSubmitParams(t *testing.T, value any) api.SubmitParams {
 func TestNormalizeApprovalSupportsApproveRuleRunForCommand(t *testing.T) {
 	normalized, err := NormalizeApproval(map[string]any{
 		"approvals": []any{
-			map[string]any{"id": "tool_1", "command": "chmod 777 ~/a.sh"},
+			map[string]any{"id": "tool_1", "command": "chmod 777 ~/a.sh", "description": "调整脚本权限"},
 		},
 	}, mustEncodeSubmitParams(t, []map[string]any{
 		{"id": "tool_1", "decision": "approve_rule_run", "reason": "同规则本轮一并放行"},
@@ -36,6 +36,9 @@ func TestNormalizeApprovalSupportsApproveRuleRunForCommand(t *testing.T) {
 	}
 	if approvals[0]["decision"] != "approve_rule_run" {
 		t.Fatalf("expected approve_rule_run decision to be preserved, got %#v", approvals[0])
+	}
+	if approvals[0]["description"] != "调整脚本权限" {
+		t.Fatalf("expected original approval description, got %#v", approvals[0])
 	}
 	if approvals[0]["reason"] != "同规则本轮一并放行" {
 		t.Fatalf("expected reason to be preserved, got %#v", approvals[0])
@@ -168,5 +171,27 @@ func TestNormalizeFormRejectsInvalidParam(t *testing.T) {
 				t.Fatalf("expected error for %#v", tt.param)
 			}
 		})
+	}
+}
+
+func TestNormalizeApprovalBatchPreservesDescriptions(t *testing.T) {
+	normalized, err := NormalizeApproval(map[string]any{"approvals": []any{
+		map[string]any{"id": "a", "command": "ls", "description": "列出文件"},
+		map[string]any{"id": "b", "command": "pwd", "description": "显示目录"},
+		map[string]any{"id": "c", "command": "date"},
+	}}, mustEncodeSubmitParams(t, []map[string]any{
+		{"id": "a", "decision": "approve"},
+		{"id": "b", "decision": "reject", "reason": "不需要"},
+		{"id": "c", "decision": "approve"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvals := normalized["approvals"].([]map[string]any)
+	if approvals[0]["description"] != "列出文件" || approvals[1]["description"] != "显示目录" || approvals[1]["reason"] != "不需要" {
+		t.Fatalf("unexpected batch: %#v", approvals)
+	}
+	if _, exists := approvals[2]["description"]; exists {
+		t.Fatalf("missing description should stay absent: %#v", approvals[2])
 	}
 }

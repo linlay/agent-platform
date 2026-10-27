@@ -150,6 +150,9 @@ func formatAwaitingApprovals(raw any) []map[string]any {
 			if command := strings.TrimSpace(anyString(approval["command"])); command != "" {
 				entry["command"] = command
 			}
+			if description := strings.TrimSpace(anyString(approval["description"])); description != "" {
+				entry["description"] = description
+			}
 			if reason := strings.TrimSpace(anyString(approval["reason"])); reason != "" {
 				entry["reason"] = reason
 			}
