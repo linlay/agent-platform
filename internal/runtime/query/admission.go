@@ -99,6 +99,7 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 		editingMode = *prepared.Req.EditingMode
 	}
 	assembler := stream.NewAssembler(stream.StreamRequest{
+		Mail:      prepared.Req.Mail,
 		RequestID: prepared.Req.RequestID,
 		RunID:     prepared.Req.RunID,
 		ChatID:    prepared.Req.ChatID,
@@ -589,6 +590,12 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 		}
 	}()
 	req := admission.Req
+	if req.Primary {
+		if locker, ok := s.deps.PrimaryChats.(interface{ LockMutation() func() }); ok {
+			release := locker.LockMutation()
+			defer release()
+		}
+	}
 	agentDef := admission.AgentDef
 	chatID := req.ChatID
 	agentKey := req.AgentKey
@@ -662,6 +669,7 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 		return preparedQuery{}, err
 	}
 	applyDesktopImageStudioRunLimits(req, &session)
+	s.bindMailboxSession(req, &session)
 	if admission.OrchestratedTeam && admission.TeamSnapshot != nil {
 		if s.deps.Tools == nil {
 			return preparedQuery{}, fmt.Errorf("Team coordinator tool registry is unavailable")

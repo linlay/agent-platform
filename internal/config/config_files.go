@@ -191,6 +191,22 @@ func (c *Config) applyRuntimeFile(path string) error {
 			c.Export.MaxSnapshotBytes = int(mib << 20)
 		}
 	}
+	if raw, exists := values["mail"]; exists {
+		settings, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("mail must be a mapping")
+		}
+		for key, value := range settings {
+			if key != "max-hops" {
+				return fmt.Errorf("unknown mail.%s", key)
+			}
+			n, ok := value.(int64)
+			if !ok || n < 1 {
+				return fmt.Errorf("mail.max-hops must be a positive integer")
+			}
+			c.Mail.MaxHops = int(n)
+		}
+	}
 	if raw, exists := values["kbx"]; exists {
 		if err := c.applyKBXValues(raw); err != nil {
 			return err

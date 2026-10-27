@@ -45,9 +45,12 @@ func QueryRoleVisible(role string) bool {
 }
 
 type SubmitRequest struct {
-	ChatID   string `json:"chatId,omitempty"`
-	RunID    string `json:"runId"`
-	AgentKey string `json:"agentKey,omitempty"`
+	Origin      *Origin        `json:"-"`
+	MailHop     *int           `json:"-"`
+	AccessGrant map[string]any `json:"-"`
+	ChatID      string         `json:"chatId,omitempty"`
+	RunID       string         `json:"runId"`
+	AgentKey    string         `json:"agentKey,omitempty"`
 
 	AwaitingID string `json:"awaitingId"`
 	SubmitID   string `json:"submitId,omitempty"`
@@ -58,6 +61,16 @@ type SubmitRequest struct {
 	Params            SubmitParams `json:"params,omitempty"`
 	ContinuationRunID string       `json:"-"`
 	ContinuationState any          `json:"-"`
+}
+
+func (r *SubmitRequest) UnmarshalJSON(data []byte) error {
+	type plain SubmitRequest
+	var decoded plain
+	if err := DecodeStrictJSON(data, &decoded); err != nil {
+		return err
+	}
+	*r = SubmitRequest(decoded)
+	return nil
 }
 
 // Input returns the submitted answer in the shape its awaiting mode expects.
@@ -219,11 +232,13 @@ type SubmitResponse struct {
 }
 
 type SteerRequest struct {
-	RequestID string `json:"requestId,omitempty"`
-	ChatID    string `json:"chatId,omitempty"`
-	RunID     string `json:"runId"`
-	SteerID   string `json:"steerId,omitempty"`
-	AgentKey  string `json:"agentKey,omitempty"`
+	ModelMessage string     `json:"-"`
+	Mail         *MailInput `json:"-"`
+	RequestID    string     `json:"requestId,omitempty"`
+	ChatID       string     `json:"chatId,omitempty"`
+	RunID        string     `json:"runId"`
+	SteerID      string     `json:"steerId,omitempty"`
+	AgentKey     string     `json:"agentKey,omitempty"`
 
 	Message    string      `json:"message"`
 	References []Reference `json:"references,omitempty"`

@@ -107,10 +107,12 @@ func (c *InteractionSubmitCoordinator) Await(ctx context.Context, execCtx *Execu
 			Error:      "tool_interaction_invalid_payload",
 			ExitCode:   -1,
 			SubmitInfo: &SubmitInfo{
-				RunID:      result.Request.RunID,
-				AwaitingID: result.Request.AwaitingID,
-				SubmitID:   result.Request.SubmitID,
-				Input:      result.Request.Input(),
+				Origin:      result.Request.Origin,
+				AccessGrant: result.Request.AccessGrant,
+				RunID:       result.Request.RunID,
+				AwaitingID:  result.Request.AwaitingID,
+				SubmitID:    result.Request.SubmitID,
+				Input:       result.Request.Input(),
 			},
 		}, nil
 	}
@@ -124,10 +126,12 @@ func (c *InteractionSubmitCoordinator) Await(ctx context.Context, execCtx *Execu
 		RawParams:  rawParams,
 		ExitCode:   0,
 		SubmitInfo: &SubmitInfo{
-			RunID:      result.Request.RunID,
-			AwaitingID: result.Request.AwaitingID,
-			SubmitID:   result.Request.SubmitID,
-			Input:      result.Request.Input(),
+			Origin:      result.Request.Origin,
+			AccessGrant: result.Request.AccessGrant,
+			RunID:       result.Request.RunID,
+			AwaitingID:  result.Request.AwaitingID,
+			SubmitID:    result.Request.SubmitID,
+			Input:       result.Request.Input(),
 		},
 	}
 	toolResult.Output = handler.FormatModelOutput(toolResult)
@@ -183,6 +187,7 @@ func marshalJSON(value any) string {
 
 func NewSteerDelta(req api.SteerRequest) DeltaRequestSteer {
 	return DeltaRequestSteer{
+		Mail:       req.Mail,
 		Origin:     req.Origin.Clone(),
 		RequestID:  req.RequestID,
 		ChatID:     req.ChatID,

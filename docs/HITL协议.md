@@ -192,3 +192,7 @@ Desktop 对已接管的日常动作通过内部 agentPlatform 上下文及固定
 内置 view 加载入口为所有 HTML 统一注入 `shared/resize.js`，不依赖具体审阅组件，也不需要模板逐一接入；新增内置 HTML 自动覆盖。尺寸桥接通过 `ResizeObserver` 测量自然正文高度，在正文展开、收起、详情浮层开关或宽度变化时向宿主发送 `awaiting_resize`，包含当前 `runId`、`awaitingId`、`formId` 和 `height`（CSS 像素）。WebClient 仅接收当前 iframe 与表单对应的有限正数高度，短内容收缩，长内容受宿主整体最大高度约束并在 iframe 内滚动；不支持上报的模板保留默认尺寸。该消息只影响布局，不参与 collect、批准或拒绝。
 
 同一入口为只读内置 HTML 注入 `shared/focus.js`，`ask_user_form` 含真实输入控件，不注入。用户点击非交互区域且没有选中文本时，页面向宿主发送 `awaiting_focus_release`，包含当前 `runId` 与 `awaitingId`；点击按钮、链接和可聚焦元素不发送，选中文本时保留焦点以便复制。宿主收到后取回键盘焦点，使“提交 / 拒绝”的数字快捷键继续生效。该消息只移动焦点，不参与 collect、批准或拒绝。
+
+## Mailbox 会话投递
+
+Mailbox 的 ask 镜像由 letter 开出的 Run 的等待项，问题、表单、工具审批按 awaiting_source 区分；审批即便 mode=form 也不能作为普通填表批准。chat_submit 先到先得，并在分身冻结环境用上级当前档位重新评估审批；强制人工、readonly 和 hard block 不放宽。submit 写入代答者 origin 与权限 accessGrant。详见 [Mailbox](Mailbox.md#请示与跳数)。

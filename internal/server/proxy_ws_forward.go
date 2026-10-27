@@ -244,6 +244,10 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 		return api.SteerResponse{Accepted: false, Status: "unsupported", RunID: req.RunID, SteerID: steerID, Detail: "attachment steer is not supported for remote runs"}, nil, true
 	}
 	route.RememberSteerOrigin(steerID, req.Origin)
+	route.RememberSteerMail(steerID, req.Mail, req.Message)
+	if req.ModelMessage != "" {
+		req.Message = req.ModelMessage
+	}
 	if route.Transport == "sse" {
 		var response api.SteerResponse
 		statusErr := postProxyRunControl(route, "/api/steer", map[string]any{

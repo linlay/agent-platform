@@ -161,7 +161,12 @@ func ExecuteNative(params NativeOptions) Result {
 		OnCompactEvent:       func(data stream.EventData) { CompleteCompactControl(params.RunControl, data) },
 		OnPersistenceFailure: func(data stream.EventData) { HandleCompactCheckpointPersistenceFailure(params, data) },
 		OnProcessingError:    func(err error) { PublishLocalRunProcessingError(params, err) },
-		OnEvent:              func(data stream.EventData) { HandleAwaitingLifecycle(params, data, tracker) },
+		OnEvent: func(data stream.EventData) {
+			HandleAwaitingLifecycle(params, data, tracker)
+			if params.Session.RuntimeEvent != nil {
+				params.Session.RuntimeEvent(data)
+			}
+		},
 		Publish: func(data stream.EventData) error {
 			data = ClientVisibleEventData(data)
 			if params.EventBus != nil {
@@ -187,6 +192,9 @@ func ExecuteNative(params NativeOptions) Result {
 		},
 	})
 	MaybeBroadcastInterruptedAwaiting(params, tracker)
+	if params.Session.RuntimeComplete != nil {
+		params.Session.RuntimeComplete(params.Session.RunID, result.Completion.FinishReason, result.Completion.AssistantText, result.Persisted)
+	}
 	if params.StepWriter != nil {
 		params.StepWriter.Flush()
 	}
@@ -203,6 +211,9 @@ func ExecuteNative(params NativeOptions) Result {
 	}
 	if result.Persisted {
 		BroadcastCompletion(params, result.Completion)
+	}
+	if params.Session.RuntimeIdle != nil {
+		params.Session.RuntimeIdle()
 	}
 	return result
 }

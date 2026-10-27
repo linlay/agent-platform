@@ -36,6 +36,7 @@ import (
 	"agent-platform/internal/knowledge"
 	"agent-platform/internal/llm"
 	"agent-platform/internal/lsp"
+	"agent-platform/internal/mailbox"
 	"agent-platform/internal/mcp"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/memoryworker"
@@ -69,6 +70,7 @@ import (
 )
 
 type App struct {
+	mailbox                *mailbox.Service
 	nativeConnectorRelease func()
 	Config                 config.Config
 	RuntimeEnv             runtimeenv.Info
@@ -406,6 +408,19 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	chatResourceService := chatresource.NewService(chatStore)
 	terminalManager := terminal.NewManager()
 	conversationService := conversation.NewService(chatStore, archiveStore, archiver, runManager)
+	mailStore, err := mailbox.Open(cfg.Paths.ChatsDir)
+	if err != nil {
+		return nil, fmt.Errorf("initialize mailbox: %w", err)
+	}
+	mailService := mailbox.New(backgroundCtx, mailStore, cfg.Paths.ChatsDir, cfg.Mail.MaxHops, notifications)
+	cleanupMail := true
+	defer func() {
+		if cleanupMail {
+			_ = mailService.Close()
+		}
+	}()
+	conversationService.MailboxPurge = mailService.PurgeChat
+	conversationService.MailboxOpened = mailService.OpenedChats
 	conversationService.ExportMaxBytes = cfg.Export.MaxSnapshotBytes
 	conversationService.Notifications = notifications
 	conversationService.ControlReceipts = &operationstate.Receipts[conversation.ControlReceipt]{}
@@ -513,6 +528,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Runtime:                runtimeService,
 		ProxyRuntime:           proxyRuntime,
 		Conversation:           conversationService,
+		Mailbox:                mailService,
 		Project:                projectService,
 		DeferredAwaitings:      deferredAwaitings,
 		GatewayResolver:        gatewayResolver,
@@ -535,12 +551,16 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		PrimaryChats: conversationService,
 	})
 	runtimeService.Bind(queryService)
+	queryService.BindMailbox(mailService)
 	runtimeToolExecutor.WithWaitConditionProvider(waitEventProvider{runs: runops.NewToolHandler(runtimeService, runManager), auth: srv})
 	if err := queryService.Reconcile(); err != nil {
 		return nil, fmt.Errorf("reconcile persisted awaitings: %w", err)
 	}
+	if err := mailService.Reconcile(queryService.MailConsumedEvidence); err != nil {
+		return nil, fmt.Errorf("reconcile mailbox: %w", err)
+	}
 
-	if err := toolExecutor.RegisterHandler(runops.NewToolHandler(runtimeService, runManager)); err != nil {
+	if err := toolExecutor.RegisterHandler(runops.NewToolHandler(runtimeService, runManager).WithMailbox(mailService)); err != nil {
 		return nil, fmt.Errorf("register run tools: %w", err)
 	}
 	log.Printf("server dependencies wired in %s", startupElapsed(serverStartedAt))
@@ -586,8 +606,10 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	cleanupBackground = false
 	cleanupMCP = false
 	cleanupNative = false
+	cleanupMail = false
 
 	return &App{
+		mailbox:                mailService,
 		nativeConnectorRelease: nativeRelease,
 		Config:                 cfg,
 		RuntimeEnv:             hostEnv,
@@ -617,6 +639,11 @@ func (a *App) Close() error {
 	// restarting the process after shutdown has begun.
 	if a.backgroundCancel != nil {
 		a.backgroundCancel()
+	}
+	if a.mailbox != nil {
+		if err := a.mailbox.Close(); err != nil {
+			log.Printf("close mailbox: %v", err)
+		}
 	}
 	if a.memoryWorker != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

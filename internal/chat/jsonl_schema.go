@@ -40,6 +40,7 @@ var currentSteerLineFields = map[string]struct{}{
 }
 
 var currentSteerPayloadFields = map[string]struct{}{
+	"mailId": {}, "mailKind": {}, "mailAttempt": {}, "mailHop": {}, "outcome": {},
 	"origin": {},
 	// TODO(steer-origin): steer lines written before the origin rename.
 	"source":     {},
@@ -251,6 +252,13 @@ func validateCurrentSteerSchema(line map[string]any) error {
 	if !found || !ok || len(steer) == 0 {
 		return newJSONLSchemaViolation(line, "steer", "non-empty JSON object", jsonValueType(rawSteer), "steer payload is required")
 	}
+	if id, exists := steer["mailId"]; exists {
+		mailID, ok := id.(string)
+		kind, _ := steer["mailKind"].(string)
+		if !ok || strings.TrimSpace(mailID) == "" || (kind != "letter" && kind != "reply" && kind != "notify" && kind != "ask") || int64FromAny(steer["mailAttempt"]) < 1 {
+			return newJSONLSchemaViolation(line, "steer.mailId", "valid mailbox provenance", jsonValueType(id), "invalid mail identity, kind or attempt")
+		}
+	}
 	for field, value := range steer {
 		if _, ok := currentSteerPayloadFields[field]; !ok {
 			return newJSONLSchemaViolation(line, "steer."+field, "steer payload known fields", jsonValueType(value), "unknown steer payload field")
@@ -293,6 +301,9 @@ func validateCurrentSteerSchema(line map[string]any) error {
 			}
 		}
 		for _, field := range []string{"type", "agentKey", "chatId", "runId", "toolId"} {
+			if (field == "runId" || field == "toolId") && steer["mailId"] != "" && (steer["mailKind"] == "reply" || steer["mailKind"] == "ask") {
+				continue
+			}
 			value, ok := origin[field].(string)
 			if !ok || strings.TrimSpace(value) == "" {
 				return newJSONLSchemaViolation(line, "steer."+key+"."+field, "non-empty string", jsonValueType(origin[field]), "steer origin field is required")

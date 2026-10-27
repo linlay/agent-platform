@@ -173,6 +173,13 @@ func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 		}
 		required, _ := def.Parameters["required"].([]any)
 		wantRequired := []any{"runId"}
+		if def.Name == "chat_get_status" {
+			wantRequired = nil
+			properties := mapChild(t, def.Parameters, "properties")
+			if properties["mailId"] == nil {
+				t.Fatal("chat_get_status must also accept mailId")
+			}
+		}
 		if def.Name == "chat_steer" {
 			wantRequired = append(wantRequired, "message")
 		}

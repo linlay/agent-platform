@@ -32,6 +32,23 @@ type Route struct {
 	Done             chan struct{}
 	steerMu          sync.Mutex
 	steerOrigins     map[string]*queryinput.Origin
+	steerMails       map[string]*queryinput.MailInput
+	steerMessages    map[string]string
+}
+
+func (r *Route) RememberSteerMail(id string, mail *queryinput.MailInput, message string) {
+	if mail == nil {
+		return
+	}
+	r.steerMu.Lock()
+	defer r.steerMu.Unlock()
+	if r.steerMails == nil {
+		r.steerMails = map[string]*queryinput.MailInput{}
+		r.steerMessages = map[string]string{}
+	}
+	copy := *mail
+	r.steerMails[id] = &copy
+	r.steerMessages[id] = message
 }
 
 // RememberSteerOrigin stores local provenance before forwarding. It never
@@ -54,6 +71,8 @@ func (r *Route) DecorateSteerEvent(event stream.EventData) stream.EventData {
 	}
 	r.steerMu.Lock()
 	origin := r.steerOrigins[event.String("steerId")].Clone()
+	mail := r.steerMails[event.String("steerId")]
+	message := r.steerMessages[event.String("steerId")]
 	r.steerMu.Unlock()
 	// Upstream provenance is untrusted locally. Only a matching local Agent
 	// invocation can add origin; do not invent an event when forwarding.
@@ -65,6 +84,13 @@ func (r *Route) DecorateSteerEvent(event stream.EventData) stream.EventData {
 	}
 	if origin != nil {
 		payload["origin"] = origin.Payload()
+	}
+	for _, key := range []string{"mailId", "mailKind", "mailAttempt", "mailHop", "outcome"} {
+		delete(payload, key)
+	}
+	if mail != nil {
+		mail.Payload(payload)
+		payload["message"] = message
 	}
 	event.Payload = payload
 	return event

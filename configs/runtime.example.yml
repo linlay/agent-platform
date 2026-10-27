@@ -140,3 +140,7 @@ document-preview:
 # Independent export quota; positive integer MiB, restart to apply.
 conversation-export:
   max-snapshot-mib: 50
+
+# Maximum causal mailbox distance; terminal replies may exceed this limit.
+mail:
+  max-hops: 4

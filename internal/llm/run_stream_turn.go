@@ -923,6 +923,7 @@ func (s *llmRunStream) appendTailSteersBeforeFinish() bool {
 
 func (s *llmRunStream) appendSteers(steers []api.SteerRequest) {
 	for _, steer := range steers {
+		s.runControl.ConsumeMailInput(steer.Mail, steer.Origin, steer.References...)
 		if len(steer.PreparedMessages) == 0 {
 			content := steer.Message
 			if strings.TrimSpace(content) == "" {
@@ -932,11 +933,18 @@ func (s *llmRunStream) appendSteers(steers []api.SteerRequest) {
 		}
 		s.pending = append(s.pending, NewSteerDelta(steer))
 		steerKey := ""
-		if len(steer.References) > 0 {
+		if len(steer.References) > 0 || steer.Mail != nil {
 			steerKey = steer.RunID + "/" + steer.SteerID
 		}
 		for _, message := range steer.PreparedMessages {
-			s.messages = append(s.messages, openAIMessage{Role: "user", Content: message["content"], OriginSteerKey: steerKey})
+			input := openAIMessage{Role: "user", Content: message["content"], OriginSteerKey: steerKey}
+			if steer.Mail != nil {
+				input.MailID = steer.Mail.ID
+				if s.session.MailHeaders != nil {
+					input.MailHeader = s.session.MailHeaders(steer.Mail.ID)
+				}
+			}
+			s.messages = append(s.messages, input)
 		}
 	}
 }

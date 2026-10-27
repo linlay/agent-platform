@@ -165,6 +165,7 @@ func (s *llmRunStream) emitApprovalRequestDeltas(request approvalRequest) error 
 	if s.runControl != nil {
 		awaitDelta, _ := s.pending[len(s.pending)-1].(DeltaAwaitAsk)
 		context := awaitingContextFromDeltaAsk(awaitDelta)
+		context.DelegateApproval = s.mailApprovalDelegator(invocation)
 		if request.kind == approvalKindTool {
 			context.ExactApprovalIDs = []string{invocation.toolID}
 		}

@@ -364,12 +364,14 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}}
 	case DeltaRequestSubmit:
 		return []stream.StreamInput{stream.RequestSubmit{
-			RequestID:  value.RequestID,
-			ChatID:     value.ChatID,
-			RunID:      value.RunID,
-			AwaitingID: value.AwaitingID,
-			SubmitID:   value.SubmitID,
-			Input:      value.Input,
+			AccessGrant: value.AccessGrant,
+			Origin:      value.Origin,
+			RequestID:   value.RequestID,
+			ChatID:      value.ChatID,
+			RunID:       value.RunID,
+			AwaitingID:  value.AwaitingID,
+			SubmitID:    value.SubmitID,
+			Input:       value.Input,
 		}}
 	case DeltaAwaitingAnswer:
 		return []stream.StreamInput{stream.AwaitingAnswer{
@@ -378,6 +380,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}}
 	case DeltaRequestSteer:
 		return []stream.StreamInput{stream.RequestSteer{
+			Mail:       value.Mail,
 			Origin:     value.Origin.Clone(),
 			RequestID:  value.RequestID,
 			ChatID:     value.ChatID,

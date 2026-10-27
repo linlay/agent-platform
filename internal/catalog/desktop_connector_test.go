@@ -111,12 +111,12 @@ func TestTaskControlMountIsIndependent(t *testing.T) {
 		t.Fatal("task unavailable")
 	}
 	platform, _ := r.AgentDefinition("platform")
-	for _, name := range []string{"chat_start", "chat_get_status", "chat_interrupt", "chat_steer", "chat_query", "chat_manage", "automation_query", "automation_manage"} {
+	for _, name := range []string{"chat_send", "chat_notify", "chat_submit", "chat_start", "chat_get_status", "chat_interrupt", "chat_steer", "chat_query", "chat_manage", "automation_query", "automation_manage"} {
 		if !containsString(task.Tools, name) || containsString(platform.Tools, name) {
 			t.Fatalf("tool ownership: %s", name)
 		}
 	}
-	if len(task.ConnectorNativeTools) != 8 || containsString(task.Tools, "catalog_manage") || containsString(task.Tools, "desktop_shell") || containsString(task.Tools, "surface_list") {
+	if len(task.ConnectorNativeTools) != 11 || containsString(task.Tools, "catalog_manage") || containsString(task.Tools, "desktop_shell") || containsString(task.Tools, "surface_list") {
 		t.Fatalf("excess task grants: %v", task.Tools)
 	}
 	if task.SkillInstructionsPath("task-control") != "@connectors/builtin.task-control/skills/task-control/SKILL.md" {

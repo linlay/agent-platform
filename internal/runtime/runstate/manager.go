@@ -11,6 +11,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/runenv"
 	"agent-platform/internal/runtime/controlscope"
 	"agent-platform/internal/stream"
@@ -58,6 +59,7 @@ type Manager struct {
 	chatMaintenance       map[string]contracts.CompactControlHandle
 	chatMaintenanceResult map[string]contracts.CompactControlHandle
 	chatQueryAdmissions   map[string]map[string]int
+	maintenanceIdle       func(string)
 }
 
 func NewManager() *Manager {
@@ -166,6 +168,11 @@ func (m *Manager) registerLocked(session contracts.QuerySession) (context.Contex
 	}
 	control := contracts.NewRunControl(context.Background(), session.RunID)
 	control.SetInitialAccessLevel(session.AccessLevel)
+	control.SetCompactIdle(session.RuntimeIdle)
+	control.ConsumeMailInput(session.Mail, nil, queryinput.MakeReferences("chat", session.UserChatReferences)...)
+	if session.Mail == nil && session.RunOrigin != nil {
+		control.RaiseMailHop(1)
+	}
 	if session.SupportsContextCompaction {
 		control.EnableContextCompact()
 	}
@@ -682,8 +689,25 @@ func (m *Manager) CompleteChatMaintenance(chatID string, requestID string, resul
 	}
 	delete(m.chatMaintenance, chatID)
 	m.chatMaintenanceResult[key] = handle
+	idle := m.maintenanceIdle
 	m.mu.Unlock()
 	handle.Complete(result)
+	if idle != nil {
+		idle(chatID)
+	}
+}
+
+// Maintenance dispatch runs after the history writer releases its reservation.
+func (m *Manager) SetMaintenanceIdle(fn func(string)) {
+	m.mu.Lock()
+	m.maintenanceIdle = fn
+	m.mu.Unlock()
+}
+
+func (m *Manager) ChatMaintenanceActive(chatID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.chatMaintenance[chatID].Valid()
 }
 
 func (m *Manager) activeRunMatchLocked(chatID string) (*managedRun, []string) {
@@ -856,6 +880,9 @@ func (m *Manager) lookupControl(runID string) (*contracts.RunControl, bool) {
 	}
 	return state.control, true
 }
+
+// Control is the process-local lifecycle control, for trusted runtime services.
+func (m *Manager) Control(runID string) (*contracts.RunControl, bool) { return m.lookupControl(runID) }
 
 func (m *Manager) lookupRun(runID string) (*managedRun, bool) {
 	m.mu.Lock()

@@ -328,6 +328,13 @@ type RunLimits struct {
 }
 
 type QuerySession struct {
+	Mail               *queryinput.MailInput `json:"-"`
+	UserChatReferences []string              `json:"-"`
+	// MailHeaders is bound by Runtime and used only at the model boundary.
+	MailHeaders       func(string) string                `json:"-"`
+	RuntimeEvent      func(stream.EventData)             `json:"-"`
+	RuntimeComplete   func(string, string, string, bool) `json:"-"`
+	RuntimeIdle       func()                             `json:"-"`
 	InteractionConfig *interaction.Config
 	// ResolveView freezes a mounted presentation in this Chat before publication.
 	// It is installed by the session producer, never supplied by query clients.
@@ -711,13 +718,16 @@ func (u ModelUsage) HasBillableUsage() bool {
 }
 
 type SubmitInfo struct {
-	RunID      string
-	AwaitingID string
-	SubmitID   string
-	Input      any
+	AccessGrant map[string]any
+	Origin      *queryinput.Origin
+	RunID       string
+	AwaitingID  string
+	SubmitID    string
+	Input       any
 }
 
 type AwaitingSubmitContext struct {
+	DelegateApproval   func(context.Context, string, queryinput.SubmitRequest) error
 	ExactApprovalIDs   []string // one-time approvals bound to these invocation IDs
 	Summaries          []ApprovalSummary
 	SummariesTruncated bool
@@ -741,6 +751,7 @@ type AwaitingSubmitContext struct {
 
 func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
 	return AwaitingSubmitContext{
+		DelegateApproval:   c.DelegateApproval,
 		ExactApprovalIDs:   append([]string(nil), c.ExactApprovalIDs...),
 		Summaries:          append([]ApprovalSummary(nil), c.Summaries...),
 		SummariesTruncated: c.SummariesTruncated,

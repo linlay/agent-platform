@@ -159,6 +159,9 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 				msg["_compactSource"] = compactLineSource(line)
 				if stringFromAny(msg["runId"]) == "" {
 					msg["runId"] = runID
+					if id, ok := line["mailId"].(string); ok && id != "" {
+						msg["_mailId"] = id
+					}
 				}
 				messages = append(messages, msg)
 			}
@@ -182,6 +185,9 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 					}
 					msg := cloneMessageMap(m)
 					msg["runId"] = runID
+					if id, ok := line["mailId"].(string); ok && id != "" {
+						msg["_mailId"] = id
+					}
 					messages = append(messages, msg)
 				}
 			}
@@ -258,6 +264,9 @@ func teamMemberRawMessagesFromJSONLLines(lines []map[string]any, memberAgentKey 
 				msg := cloneMessageMap(raw)
 				msg["_compactSource"] = compactLineSource(line)
 				msg["runId"] = runID
+				if id, ok := line["mailId"].(string); ok && id != "" {
+					msg["_mailId"] = id
+				}
 				messages = append(messages, msg)
 			}
 		case StepLineTypeReact, StepLineTypeReactTool:
@@ -317,6 +326,9 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 				msg["_compactSource"] = compactLineSource(line)
 				if stringFromAny(msg["runId"]) == "" {
 					msg["runId"] = runID
+					if id, ok := line["mailId"].(string); ok && id != "" {
+						msg["_mailId"] = id
+					}
 				}
 				messages = append(messages, msg)
 			}
@@ -328,6 +340,9 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 				msg := cloneMessageMap(raw)
 				msg["_compactSource"] = compactLineSource(line)
 				msg["runId"] = runID
+				if id, ok := line["mailId"].(string); ok && id != "" {
+					msg["_mailId"] = id
+				}
 				messages = append(messages, msg)
 			}
 		case StepLineTypeReact, StepLineTypeReactTool:
@@ -374,6 +389,9 @@ func normalizedStepMessages(line map[string]any, runID string) []map[string]any 
 		delete(msg, "viewError")
 		delete(msg, "views")
 		msg["runId"] = runID
+		if id, ok := line["mailId"].(string); ok && id != "" {
+			msg["_mailId"] = id
+		}
 		role, _ := msg["role"].(string)
 		if role == "user" || role == "assistant" || role == "tool" {
 			if parts, ok := msg["content"].([]any); ok {

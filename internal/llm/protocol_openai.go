@@ -313,6 +313,8 @@ func rawMessageToOpenAI(raw map[string]any, preserveReasoning bool) openAIMessag
 		contentValue = raw["content"]
 	}
 	msg := openAIMessage{Role: role, Content: contentValue}
+	msg.MailID, _ = raw["_mailId"].(string)
+	msg.MailHeader, _ = raw["_mailHeader"].(string)
 	msg.EncryptedReasoning = contracts.EncryptedReasoningParts(raw["reasoning_content"])
 	msg.OriginModelKey, _ = raw["_modelKey"].(string)
 	msg.OriginSteerKey, _ = raw["_steerKey"].(string)

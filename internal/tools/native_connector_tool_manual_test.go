@@ -21,6 +21,9 @@ type nativeToolManualChapter struct {
 // top-level arguments are checked against their own heading or list item, so
 // an argument documented for another tool does not count as coverage.
 var nativeToolManualChapters = map[string]nativeToolManualChapter{
+	"chat_send":            {file: "references/mailbox.md", marker: "## chat_send"},
+	"chat_notify":          {file: "references/mailbox.md", marker: "## chat_notify"},
+	"chat_submit":          {file: "references/mailbox.md", marker: "## chat_submit"},
 	"desktop_kanban":       {file: "references/kanban.md"},
 	"catalog_query":        {file: "references/catalog.md"},
 	"catalog_manage":       {file: "references/catalog.md"},

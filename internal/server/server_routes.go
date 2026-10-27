@@ -359,6 +359,8 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/chats", s.method(http.MethodGet, s.handleChats))
 	s.router.HandleFunc("/api/chats/order", s.handleChatOrder)
 	s.router.HandleFunc("/api/chats/primary", s.method(http.MethodPut, s.handleChatPrimary))
+	s.router.HandleFunc("/api/mails", s.method(http.MethodGet, s.handleMails))
+	s.router.HandleFunc("/api/mails/action", s.method(http.MethodPost, s.handleMailAction))
 	s.router.HandleFunc("/api/chat", s.method(http.MethodGet, s.handleChat))
 	s.router.HandleFunc("/api/chats/search", s.method(http.MethodPost, s.handleGlobalSearch))
 	s.router.HandleFunc("/api/read", s.method(http.MethodPost, s.handleRead))

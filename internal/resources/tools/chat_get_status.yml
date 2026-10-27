@@ -4,7 +4,7 @@ i18n:
     label: "Get Chat Run Status"
   zh-CN:
     label: "查询会话运行状态"
-description: "Read the status and result of an independent run started by chat_start. Read the task-control skill before use."
+description: "Read mail status or the result of an owned independent run. Read the task-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: true
@@ -14,7 +14,9 @@ inputSchema:
     runId:
       type: string
       minLength: 1
-      description: "Required. Run ID returned by chat_start."
-  required:
-    - runId
+      description: "Owned Run ID; mutually exclusive with mailId."
+    mailId:
+      type: string
+      minLength: 1
+      description: "Mail ID. Mutually exclusive with runId. Inserted letters expose mail status only."
   additionalProperties: false

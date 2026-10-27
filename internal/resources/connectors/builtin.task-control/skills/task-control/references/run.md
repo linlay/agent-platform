@@ -49,6 +49,8 @@ Errors raised before a run exists carry `executionState: "not_started"`.
 
 ## chat_get_status
 
+Use either `{mailId}` or `{runId}`, never both. mailId reads the durable mail status; only delivery=started may include its owned Run state. Inserted letters expose only mail state. Legacy one-level restrictions still apply to this tool.
+
 `{runId}` reads the current status and result snapshot of a run previously created by chat_start for this calling Agent and subject. runId is the required string returned by chat_start; it identifies one execution within a Chat, not the Chat itself.
 
 When the run awaits human approval, tell the user to handle it in the target Chat instead of polling repeatedly. This tool cannot submit approvals.

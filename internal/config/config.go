@@ -51,6 +51,7 @@ type Config struct {
 	Models           CatalogConfig
 	Query            QueryConfig
 	Automation       AutomationConfig
+	Mail             MailConfig
 	Billing          BillingConfig
 	Memory           MemoryConfig
 	Defaults         DefaultsConfig
@@ -81,6 +82,8 @@ type LoadOptions struct {
 	// workspace/chat migration audit. Normal startup must leave it false.
 	IgnoreRemovedWorkingDirectoryForAudit bool
 }
+
+type MailConfig struct{ MaxHops int }
 
 type RuntimeMode string
 
@@ -872,7 +875,7 @@ func DefaultPlanningModeConfig() PlanningModeConfig {
 		ExcludeTools: []string{
 			"bash", "bash_sandbox", "file_write", "file_edit", "artifact_publish", "image_generate", "speech_generate",
 			"plan_add_tasks", "plan_update_task",
-			"agent_invoke", "chat_start", "chat_interrupt", "chat_steer", "chat_manage",
+			"agent_invoke", "chat_send", "chat_notify", "chat_submit", "chat_start", "chat_interrupt", "chat_steer", "chat_manage",
 			"automation_manage", "catalog_manage", "run_env", "ask_user_form", "result_submit",
 		},
 		ExecuteExcludeTools: []string{"ask_user_question", "ask_user_form"},

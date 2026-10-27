@@ -14,6 +14,7 @@ var requestContentKeys = []string{"message", "params", "scene"}
 // A line written before they moved out of query lacks them; readers treat a
 // missing decision as unset, since such a Run is never resumed.
 var requestDecisionKeys = []string{
+	"mailId", "mailKind", "mailAttempt", "mailHop", "outcome",
 	"requestId", "runId", "chatId", "agentKey", "lane", "origin", "accessGrant", "planRunId",
 	"accessLevel", "editingMode", "model", "references",
 }
@@ -36,6 +37,7 @@ func (q *QueryLine) lineMap() map[string]any {
 	line := map[string]any{
 		"_type": "query", "chatId": q.ChatID, "runId": q.RunID, "updatedAt": q.UpdatedAt,
 	}
+	q.MailInput.Payload(line)
 	set := func(key string, value string) {
 		if strings.TrimSpace(value) != "" {
 			line[key] = value
@@ -227,6 +229,7 @@ func queryLineFromMap(line map[string]any, fallbackChatID string) *QueryLine {
 		chatID = strings.TrimSpace(fallbackChatID)
 	}
 	out := &QueryLine{
+		MailInput:    queryinput.MailFromPayload(line),
 		Type:         "query",
 		ChatID:       chatID,
 		RunID:        strings.TrimSpace(stringFromAny(line["runId"])),
@@ -264,6 +267,7 @@ func queryLineFromMap(line map[string]any, fallbackChatID string) *QueryLine {
 // request.query event onto a query line.
 func queryLineDecisionsFromPayload(payload map[string]any) QueryLine {
 	line := QueryLine{
+		MailInput:   queryinput.MailFromPayload(payload),
 		RequestID:   strings.TrimSpace(stringFromAny(payload["requestId"])),
 		AgentKey:    strings.TrimSpace(stringFromAny(payload["agentKey"])),
 		Lane:        strings.TrimSpace(stringFromAny(payload["lane"])),

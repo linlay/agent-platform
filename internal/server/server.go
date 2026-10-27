@@ -30,6 +30,7 @@ import (
 	"agent-platform/internal/documentpreview"
 	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
+	"agent-platform/internal/mailbox"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	projectpkg "agent-platform/internal/project"
@@ -78,6 +79,7 @@ type QueryRuntime interface {
 }
 
 type Dependencies struct {
+	Mailbox                *mailbox.Service
 	Sessions               *session.Builder
 	BackgroundContext      context.Context
 	Config                 config.Config

@@ -207,6 +207,9 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		preserveReasoning := preserveReasoningContent(protocolConfig, stageSettings)
 		for _, raw := range mergeRawMessagesByMsgID(session.HistoryMessages) {
 			raw = e.materializeHistorySteer(raw, session, model.IsVision)
+			if id, ok := raw["_mailId"].(string); ok {
+				raw = mailModelInput(raw, id, session)
+			}
 			msg := rawMessageToOpenAI(raw, preserveReasoning)
 			if msg.Role != "" {
 				messages = append(messages, msg)
@@ -219,6 +222,9 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		}
 		pinnedMessageStart = len(messages)
 		for _, raw := range currentMessages {
+			if session.Mail != nil {
+				raw = mailModelInput(raw, session.Mail.ID, session)
+			}
 			msg := rawMessageToOpenAI(raw, preserveReasoning)
 			if msg.Role != "" {
 				messages = append(messages, msg)

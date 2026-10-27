@@ -99,7 +99,9 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 	awaitDelta := s.buildHITLAwaitDelta(awaitingID, args, maxRuleTimeout)
 	s.pending = append(s.pending, awaitDelta)
 	if s.runControl != nil {
-		s.runControl.ExpectSubmit(awaitingContextFromDeltaAsk(awaitDelta))
+		context := awaitingContextFromDeltaAsk(awaitDelta)
+		context.DelegateApproval = s.mailApprovalDelegator(invocations...)
+		s.runControl.ExpectSubmit(context)
 	}
 	return true
 }

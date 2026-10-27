@@ -9,6 +9,7 @@ import (
 )
 
 type StreamRequest struct {
+	Mail      *queryinput.MailInput
 	RequestID string
 	RunID     string
 	ChatID    string
@@ -192,6 +193,7 @@ func RequestQueryPayload(request StreamRequest) map[string]any {
 }
 
 func addRunDecisions(request StreamRequest, payload map[string]any) {
+	request.Mail.Payload(payload)
 	if request.AccessLevel != "" {
 		payload["accessLevel"] = request.AccessLevel
 	}

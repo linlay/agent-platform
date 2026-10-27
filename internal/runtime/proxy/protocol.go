@@ -62,9 +62,13 @@ func UpstreamTransport(proxy *catalog.ProxyConfig) string {
 }
 
 func QueryPayload(req runtimetypes.QueryCommand, proxy *catalog.ProxyConfig, references []runtimetypes.Reference) map[string]any {
+	message := req.Message
+	if req.ModelMessage != "" {
+		message = req.ModelMessage
+	}
 	payload := map[string]any{
 		"requestId": req.RequestID, "runId": req.RunID, "chatId": req.ChatID,
-		"agentKey": AgentKey(proxy, req.AgentKey), "role": req.Role, "message": req.Message,
+		"agentKey": AgentKey(proxy, req.AgentKey), "role": req.Role, "message": message,
 		"accessLevel": req.AccessLevel, "references": references, "params": ForwardParams(req, proxy, ""),
 		"model": req.Model, "scene": req.Scene, "stream": true,
 	}
@@ -242,6 +246,13 @@ func NormalizeEventIdentity(event stream.EventData, req runtimetypes.QueryComman
 		}
 	}
 	if event.Type == "request.query" {
+		for _, key := range []string{"mailId", "mailKind", "mailAttempt", "mailHop", "outcome"} {
+			delete(event.Payload, key)
+		}
+		if req.Mail != nil {
+			req.Mail.Payload(event.Payload)
+			event.Payload["message"] = req.Message
+		}
 		// Local bridges echo their execution params. The injected cwd belongs
 		// only to the outbound execution request, not public events or replay.
 		if params := contracts.AnyMapNode(event.Payload["params"]); RequestHasReservedCWD(params) {

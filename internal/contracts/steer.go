@@ -81,7 +81,7 @@ func (c *RunControl) PrepareAndEnqueueSteer(req api.SteerRequest) (bool, error) 
 		return false, nil
 	}
 	req.PreparedMessages = nil
-	if len(req.References) > 0 {
+	if len(req.References) > 0 || req.Mail != nil {
 		if prepare == nil {
 			return false, fmt.Errorf("reference steer is unavailable for this run")
 		}

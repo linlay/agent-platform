@@ -1300,12 +1300,14 @@ func (s *llmRunStream) toolSupportsOutputStreaming(invocation *preparedToolInvoc
 func (s *llmRunStream) appendInteractionSubmitDeltas(invocation *preparedToolInvocation, result ToolExecutionResult) {
 	if result.SubmitInfo != nil {
 		s.pending = append(s.pending, DeltaRequestSubmit{
-			RequestID:  s.session.RequestID,
-			ChatID:     s.session.ChatID,
-			RunID:      s.session.RunID,
-			AwaitingID: result.SubmitInfo.AwaitingID,
-			SubmitID:   result.SubmitInfo.SubmitID,
-			Input:      result.SubmitInfo.Input,
+			Origin:      result.SubmitInfo.Origin,
+			AccessGrant: result.SubmitInfo.AccessGrant,
+			RequestID:   s.session.RequestID,
+			ChatID:      s.session.ChatID,
+			RunID:       s.session.RunID,
+			AwaitingID:  result.SubmitInfo.AwaitingID,
+			SubmitID:    result.SubmitInfo.SubmitID,
+			Input:       result.SubmitInfo.Input,
 		})
 		if answer := interactionSubmitAwaitingAnswer(invocation, result); len(answer) > 0 {
 			if result.SubmitInfo.SubmitID != "" {

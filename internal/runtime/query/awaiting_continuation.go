@@ -225,6 +225,7 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 			return false, err
 		}
 	}
+	s.bindMailboxSession(req, &session)
 	if !sessionbuild.IsProxyAgentMode(agentDef.Mode) {
 		ApplyQueryModelOptionsToSession(req.Model, &session)
 	}

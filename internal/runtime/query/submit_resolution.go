@@ -120,6 +120,9 @@ func (s *Service) resolveNonContinuableDeferredSubmit(deferred DeferredAwaiting,
 	}
 	s.deferredAwaitings.Remove(req.AwaitingID)
 	s.broadcastDeferredAwaitingAnswer(deferred, answerPayload, resolvedAt)
+	if s.mailbox != nil {
+		s.mailbox.Kick(deferred.ChatID)
+	}
 
 	return queryinput.SubmitResponse{
 		Accepted:   true,
@@ -401,6 +404,9 @@ func (s *Service) resolveDeferredSubmit(req queryinput.SubmitRequest) (queryinpu
 	}
 	if continued {
 		recovered = nil
+	}
+	if s.mailbox != nil {
+		s.mailbox.Kick(deferred.ChatID)
 	}
 
 	return queryinput.SubmitResponse{

@@ -1,6 +1,8 @@
 package contracts
 
 type ModelMessage struct {
+	MailID             string          `json:"-"`
+	MailHeader         string          `json:"-"`
 	ReferenceContext   bool            `json:"-"`
 	OriginSteerKey     string          `json:"-"`
 	EncryptedReasoning []ReasoningPart `json:"-"`

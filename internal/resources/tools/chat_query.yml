@@ -18,6 +18,7 @@ inputSchema:
     action:
       type: "string"
       enum:
+        - "opened"
         - "current"
         - "list"
         - "search"

@@ -20,6 +20,7 @@ import (
 )
 
 type ProxyEventRecorder struct {
+	runtimeEvent      func(stream.EventData)
 	fullText          *FullTextBuilder
 	errorPayload      map[string]any
 	errorMessage      string
@@ -94,6 +95,7 @@ func NewProxyEventRecorder(
 		model = req.Model
 	}
 	queryPayload := stream.RequestQueryPayload(stream.StreamRequest{
+		Mail:      req.Mail,
 		RequestID: req.RequestID, RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey,
 		Message: req.Message, Hidden: req.Hidden, Scene: scene, References: req.References,
 		Params: req.Params, Model: model, PlanningMode: req.PlanningMode != nil && *req.PlanningMode,
@@ -252,6 +254,9 @@ func publishProxyEventData(eventBus *stream.RunEventBus, recorder *ProxyEventRec
 	}
 	if recorder != nil {
 		recorder.OnEvent(event)
+		if recorder.runtimeEvent != nil {
+			recorder.runtimeEvent(event)
+		}
 	}
 }
 

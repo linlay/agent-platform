@@ -638,7 +638,7 @@ func (s *Service) ControlManage(c ControlCaller, action string, args map[string]
 		if archived {
 			e = s.Archives.DeleteArchived(id)
 		} else {
-			e = s.Chats.DeleteChat(id)
+			e = s.DeleteChat(id)
 		}
 		if e != nil {
 			return nil, e

@@ -44,7 +44,8 @@ cmd/agent-platform/main.go
 - `internal/catalog` 装载目录定义并冻结 Team 成员、协调器与 prompt 快照。参见 [智能体配置](docs/智能体配置说明.md) 和 [运行时组装](docs/Agent运行时组装.md)。
 - `internal/runtime` 负责 Query 准入、Session、Run 状态、执行、恢复和子任务编排，不得依赖 Server。App 直接组装各组件；`adapter` 只转换旧执行器/catalog DTO。受管根 Proxy 驱动归 `proxy.Driver`，公共收尾与 recorder/usage 归 `runexec`；Server 经 ProxyPort 保留路由、响应、channel 与控制适配，不能宣称 ProxyPort 已移除。
 - `internal/server` 只做 HTTP/WS 解码、鉴权、响应映射、SSE flush 和薄适配，不得直接依赖 llm、tools 或具体 Agent mode。
-- `internal/runops` 负责 Chat 会话工具、所有权、幂等和禁止链式调用，直接依赖 Runtime 窄接口；`internal/automation` 负责注册、调度与执行记录。自动化初始权限来自 `query.accessLevel`，省略为 default，不继承 Chat 历史权限。 `internal/automation.Service` 共用于 HTTP 和 Task Control 的独立 Automation 工具，版本校验、审批及调用收据见 [自动化](docs/自动化.md#task-control-管理工具)。
+- `internal/runops` 负责 Chat 会话工具、所有权、幂等及旧工具的一层调用限制，直接依赖 Runtime 窄接口；`internal/automation` 负责注册、调度与执行记录。自动化初始权限来自 `query.accessLevel`，省略为 default，不继承 Chat 历史权限。 `internal/automation.Service` 共用于 HTTP 和 Task Control 的独立 Automation 工具，版本校验、审批及调用收据见 [自动化](docs/自动化.md#task-control-管理工具)。
+- `internal/mailbox` 保存独立 mail.db，负责 letter/reply/notify/ask 的受理、在途收据、回信幂等、附件复制与重启人工重投。Runtime 通过窄接口提供准入、消费、等待项及续接后的空闲钩子；工具授权在发信 Run 的权限临界区冻结，投递不依赖发信 Run 存活。仅 started 记录授予发信方 Run 控制，inserted 只能查 mail；请示代批在分身冻结环境下按上级当前档位重评，强制人工、只读与硬禁止不可放宽。详见 [Mailbox](docs/Mailbox.md)。
 - `internal/llm` 负责 prompt、模型流、HITL、planning 与工具循环；`internal/modelclient` 承接 Provider HTTP、首响应超时和错误分类；`internal/tools` 是通用工具 registry/router，mode 工具通过 named handler 接入，不增加 mode switch。
 - `internal/conversation`、`adminsource`、`chatresource` 分别负责会话/归档编排、源码 mutation 事务、Chat 资源解析和 mutation；Chat 资源沿用 principal/Chat 权限，不借用连接器授权。`internal/chat` 保存会话与回放数据。
 - `internal/connector` 校验、导入和编辑中立连接器包；`connectorauth` 负责部署级授权与 CLI 准备；`connectorops` 提供调用方中立的 CLI/MCP 执行与短期授权，不持有 WebApp、appId、Chat 或页面生命周期，不注册业务 operation/profile。旧包/凭据/MCP 目录迁移和 connector-migrate 命令已移除，`connectormigrate` 仅保留独立 Desktop 工具声明调整。包、挂载与凭据边界见 [连接器](docs/连接器.md)、[安装与授权](docs/连接器安装与授权.md) 和 [执行协议](docs/连接器执行协议.md)。
@@ -95,7 +96,7 @@ Chat 默认由 `AP_RUNTIME_CHATS_DIR` 控制，主要包含：
 
 - `chats.db`：chat 摘要索引。
 - `chat-order.json` / `chat-pinned.json`：Platform 管理的实例级 recent/manual 展示排序，缺省 recent（更新时间倒序），以及独立跨 mode 置顶顺序，不修改 Chat 内容时间或数据库 schema。
-- `chat-primary.json`：每个 Agent 的主要聊天指针（agentKey → chatId），其他 active Chat 为历史聊天；仅由创建 Chat 的 query `primary:true` 或 `PUT /api/chats/primary` 切换，当前主要聊天有活动 Run 时 409 拒绝，Automation/chat_start/execute 等入口不切换，见 [API 与协议](docs/API与协议.md#主要聊天)。
+- `chat-primary.json`：每个 Agent 的主要聊天指针（agentKey → chatId），其他 active Chat 为历史聊天；由创建 Chat 的 query `primary:true` 或 `PUT /api/chats/primary` 切换；Mailbox 仅在指针缺失时补建并设定主要聊天，当前主要聊天有活动 Run 时 409 拒绝，Automation/chat_start/execute 等入口不切换，见 [API 与协议](docs/API与协议.md#主要聊天)。
 - `<chatId>.jsonl`：运行事件、StepLine、system init 与 raw messages。
 - JSONL query 行的 `query` 只保存调用方原样输入（HTTP/WS 请求体、chat_start 参数、子任务条目、Automation 配置的 query），平台不往里加字段；平台决定与平台算出的有效值写在行顶层（requestId、agentKey、lane、origin、accessGrant、planRunId、accessLevel、hidden、planningMode、editingMode、model、references，任务行另有 taskId/taskName/taskToolId/taskAgentKey），缺省值写入时存下、读取时不重算，无输入的行不写 query；请求字段名大小写变体拒绝。`origin` 由平台判定（user/agent/automation）；HTTP/WS 请求及 Automation API/YAML query 中的 `role` 均接收、保留但不参与执行；`agent.yml` 的描述字段 `role` 继续保留；读取不分新旧布局，旧记录缺少的顶层决定视为未设置，显示字段从 query 读取。btw/explain 分支分别存于 `<chatId>/.btw/`、`.explain/`，协议用 `sideId`。详见 [API 与协议](docs/API与协议.md)。
 - `<chatId>/<uploaded-or-generated-file>`：上传与图片生成资源；工具返回内部绝对 `path` 和相对于当前 Chat 的稳定 `url`（不含 `chatId`），用户可见内容只使用 `url`。
@@ -192,8 +193,8 @@ make test
 - `configs/tools.yml` 的 `mcp.tool-mode` 默认 false，已挂载 MCP 工具逐个进入模型工具列表；开启后改为平台加入的 `mcp_search`/`mcp_call`（仅在挂载了 MCP 组件时），工具 ID 为 `连接器/MCP 服务/工具名`，调用按 Run 冻结的挂载与当前 schema 复核。两个工具不能在 Agent 或 preset 中声明，只读门禁与 VIEW 跟随真实目标，见 [MCP 工具模式](docs/MCP与工具交互.md#mcp-工具模式)。
 - `agent_invoke` 只允许显式配置的普通主 agent 使用，当前禁止嵌套；TEAM 的执行 Run 只自动注入 session-local embedded builtin `agent_delegate`，plan 工具来自普通配置或 preset。普通 Agent 配置、session 与执行入口均拒绝 `agent_delegate`，该工具也不进入公开工具 catalog。
 - flat plan task 按数组顺序执行且同时最多一个 `in_progress`；最前面的非终态 task 可由 `init` 进入 `in_progress` 或直接进入 `completed/failed/canceled`，`in_progress` 可进入任一终态，终态重试必须追加新 task。TEAM 的 plan task 表示顺序阶段，但当前阶段内部仍可通过单次 `agent_delegate` 按 `maxParallel` 并行执行成员。
-- 中文“会话”和“对话”均指 Chat；“新开会话／对话”使用 `chat_start` 并省略 `chatId`，未指定目标时可省略 `agentKey`，服务端从可信调用上下文补齐当前 Agent；只有继续用户指定的已有 Chat 才传 `chatId`。查询与中断仍按 `runId` 定位一次执行，不关闭或删除 Chat。
-- `chat_start` / `chat_get_status` / `chat_interrupt` / `chat_steer` 只允许挂载 `builtin.task-control` 的主 Agent 根 run（含 TEAM） 使用，chat_start 仅按精确 catalog `agentKey` 启动独立根 run，省略时使用可信调用方 Agent，省略 accessLevel 时继承父 Run 受理当时的当前档位（后续不联动），显式同级或降级直接启动，显式高于父档位必须经父 Chat 的强制人工审批，并由 Runtime 在授权受理点按冻结基线消费一次性收据后才创建 Chat；`runQuery.allowAccessLevelOverride` 已移除，见 [子智能体调度](docs/子智能体调度.md)；不设目标白名单、深度/并发配置或 maxActiveRuns。status/interrupt/steer 只接受同一调用 Agent 与 subject 创建的 run，目标 run 禁止再次调用任一 Chat 工具。 `chat_start` 只需 message；省略 agentKey 使用当前 Agent；目标为当前 Agent 时省略的 modelKey/reasoningEffort 逐字段继承调用方当前 Run 的有效值（关闭思考为 NONE，续聊同样适用），目标为其他 Agent 时不继承、使用目标自己的模型与默认思考强度，显式值仅覆盖对应字段；生效值纳入幂等与审批摘要并接受目标准入校验；目标 `interactionConfig` 只约束用户入口，不约束 `chat_start`/`chat_steer`，豁免仅限本次准入、不改 Run 冻结快照，审批、模型有效性与引用授权不变；`chat_query models` 只读列出本地 chat 模型，ACP 选项仍由 bridge 校验。
+- 中文“会话”和“对话”均指 Chat；“新开会话／对话”优先使用 `chat_send {newChat:true}`；旧 `chat_start` 保留并省略 `chatId`，未指定目标时可省略 `agentKey`，服务端从可信调用上下文补齐当前 Agent；只有继续用户指定的已有 Chat 才传 `chatId`。查询与中断仍按 `runId` 定位一次执行，不关闭或删除 Chat。
+- `chat_start` / `chat_get_status` / `chat_interrupt` / `chat_steer` 只允许挂载 `builtin.task-control` 的主 Agent 根 run（含 TEAM） 使用，chat_start 仅按精确 catalog `agentKey` 启动独立根 run，省略时使用可信调用方 Agent，省略 accessLevel 时继承父 Run 受理当时的当前档位（后续不联动），显式同级或降级直接启动，显式高于父档位必须经父 Chat 的强制人工审批，并由 Runtime 在授权受理点按冻结基线消费一次性收据后才创建 Chat；`runQuery.allowAccessLevelOverride` 已移除，见 [子智能体调度](docs/子智能体调度.md)；不设目标白名单、深度/并发配置或 maxActiveRuns。status/interrupt/steer 只接受同一调用 Agent 与 subject 创建的 run，这些旧执行工具对派生根 Run 继续限制一层，新 mailbox 工具按跳数限制。 `chat_start` 只需 message；省略 agentKey 使用当前 Agent；目标为当前 Agent 时省略的 modelKey/reasoningEffort 逐字段继承调用方当前 Run 的有效值（关闭思考为 NONE，续聊同样适用），目标为其他 Agent 时不继承、使用目标自己的模型与默认思考强度，显式值仅覆盖对应字段；生效值纳入幂等与审批摘要并接受目标准入校验；目标 `interactionConfig` 只约束用户入口，不约束 `chat_start`/`chat_steer`，豁免仅限本次准入、不改 Run 冻结快照，审批、模型有效性与引用授权不变；`chat_query models` 只读列出本地 chat 模型，ACP 选项仍由 bridge 校验。
 - Chat 创建后根 `agentKey` 固定。事件携带实际执行者 key，控制只认根 Run owner。成员历史隐藏其他执行者工具结果；总控保留自己的完整工具历史和成员最终结果。
 - Team 成员、成员定义、协调器配置与 prompt 在 run 开始时解析为快照，运行中 catalog 热重载不改变该 run；下一次 run 才读取新快照。
 - `/healthz` 报告 KBX 维护能力；单个库或 Agent 绑定失效不使平台返回 503，Run 与工具独立检查库是否就绪。
@@ -229,7 +230,7 @@ Desktop 原生连接器不属于外部 builtin 构建缓存，不要求 `sync-lo
 
 待实施设计：[云端部署与持续任务架构设计](docs/云端部署与持续任务架构设计.md)，覆盖完整 Linux 镜像、用户实例、身份与 HTTPS、云端 Job 和 Desktop 离线续跑；不改变当前重启取消 Run 等事实与约束。
 
-`builtin.task-control`（任务管理）独立提供六个 Chat 工具和两个 Automation 工具；`chat_steer` 不审批、不比较双方档位，同进程同调用冻结首次结果（含未受理与 unknown），收据随调用方 Run 结束清理（在途调用完成后释放）；确定未发送/明确拒绝为 not_started，SSE 传输或响应不确定为 unknown；由调用身份派生 steerId；Runtime 写入可选 request.steer.origin，来源不进入模型输入、不传上游。`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
+`builtin.task-control`（任务管理）独立提供九个 Chat 工具和两个 Automation 工具；`chat_steer` 不审批、不比较双方档位，同进程同调用冻结首次结果（含未受理与 unknown），收据随调用方 Run 结束清理（在途调用完成后释放）；确定未发送/明确拒绝为 not_started，SSE 传输或响应不确定为 unknown；由调用身份派生 steerId；Runtime 写入可选 request.steer.origin，旧 steer 来源不进入模型输入、不传上游；mail 的信封头只在模型输入边界生成。`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
 
 自动化行为、自然语言时间/Cron 与 YAML 契约归 task-control 的按需 references；Provider/Model 和外部连接器组件配置维护参考归 platform-control。Skill 不增加工具或文件权限，不应恢复外部 platform-admin/platform-automation 的重复路由。具体自动化更新与时区语义见 [自动化](docs/自动化.md#task-control-管理工具)。
 

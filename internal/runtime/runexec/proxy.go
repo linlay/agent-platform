@@ -85,6 +85,12 @@ func (e *ProxyExecutor) launch(prepared runtimetypes.PreparedQuery, registered r
 		chatUsage = *prepared.Summary.Usage
 	}
 	recorder := NewProxyEventRecorder(prepared.Req, registered.StartedAtMillis, prepared.AgentDef, e.Chats, writer, registered.Control, e.Notifications, chatUsage, e.Models, e.Billing)
+	recorder.runtimeEvent = prepared.Session.RuntimeEvent
+	if recorder.runtimeEvent != nil && prepared.Req.Mail != nil {
+		payload := map[string]any{"runId": prepared.Req.RunID}
+		prepared.Req.Mail.Payload(payload)
+		recorder.runtimeEvent(stream.EventData{Type: "request.query", Payload: payload})
+	}
 	recorder.SetAnnounceHold(e.AnnounceHold)
 	ctx, cancel := context.WithCancel(registered.RunCtx)
 	stopLifecycle := context.AfterFunc(e.BackgroundContext, cancel)
@@ -128,6 +134,12 @@ func (e *ProxyExecutor) execute(ctx context.Context, prepared runtimetypes.Prepa
 			bus.FreezeAndWait()
 		}
 		e.Runs.Finish(prepared.Req.RunID)
+		if prepared.Session.RuntimeComplete != nil {
+			prepared.Session.RuntimeComplete(prepared.Req.RunID, completion.FinishReason, completion.AssistantText, persisted)
+		}
+		if prepared.Session.RuntimeIdle != nil {
+			prepared.Session.RuntimeIdle()
+		}
 		status := "failed"
 		switch reason {
 		case "complete":
