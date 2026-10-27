@@ -55,3 +55,16 @@ func TestAnnounceHoldSeconds(t *testing.T) {
 		}
 	}
 }
+
+func TestRetiredPlanExecuteSectionsAreIgnored(t *testing.T) {
+	c := Config{}
+	if err := c.applyAgentSettingsFile(configFixture(t, "agent-settings.yml", "plan-execute:\n  interaction-config:\n    default-detail: full\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.ModeDefaultDetails["plan-execute"]; ok {
+		t.Fatal(c.ModeDefaultDetails)
+	}
+	if err := c.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", "shared:\n  plan-execute:\n    summary-system-prompt: old\n")); err != nil {
+		t.Fatal(err)
+	}
+}

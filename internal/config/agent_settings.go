@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"strings"
 
 	agentcontract "agent-platform/internal/agent"
@@ -167,6 +168,7 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 	if err != nil {
 		return err
 	}
+	dropRetiredPlanExecute(values, path)
 	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "announce-hold-seconds", "general", "coder", "kbase", "team", "executor", "proxy", "channel", "acp-bridges")
 	if err != nil {
 		return err
@@ -294,6 +296,9 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	v, err := loadYAMLMap(path)
 	if err != nil {
 		return err
+	}
+	if shared, ok := v["shared"].(map[string]any); ok {
+		dropRetiredPlanExecute(shared, path+".shared")
 	}
 	v, err = configMap(v, path, "shared", "coder", "kbase")
 	if err != nil {
@@ -438,4 +443,13 @@ func validateAIToolValues(values map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// dropRetiredPlanExecute ignores the plan-execute section left over from the
+// retired PLAN-EXECUTE mode, so existing deployments keep starting.
+func dropRetiredPlanExecute(values map[string]any, path string) {
+	if _, ok := values["plan-execute"]; ok {
+		delete(values, "plan-execute")
+		log.Printf("[config][warn] %s.plan-execute is ignored; PLAN-EXECUTE mode was removed", path)
+	}
 }
