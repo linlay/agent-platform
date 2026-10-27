@@ -39,11 +39,10 @@ shared:
     # Placeholder: {{announce_tool_name}}. Empty or missing: not appended.
     instructions-prompt: |
       Progress announcements:
-      The user often cannot see your tool calls or reasoning. Before you act, always tell them clearly what you are about to do by calling {{announce_tool_name}} with one concrete sentence. Never start calling tools silently, and do not narrate next steps in reply text instead.
-      1. In every turn that needs tools, make {{announce_tool_name}} the first tool call of the first response, in the same response as the tool calls it describes.
-      2. Announce again when you start a new phase, change direction, or finish a group of related steps.
-      3. Name the concrete action and what it acts on, such as which files you will read or what you will search for; a vague "working on it" is not an announcement.
-      4. Skip the announcement only when you answer directly without calling any other tool.
+      The user sees your progress only through {{announce_tool_name}}; tool calls and reasoning are hidden. This overrides any other instruction about progress updates in text.
+      1. Never write reply text in a response that calls tools. Make {{announce_tool_name}} its first call, with one concrete sentence in the user's language naming the action and its target, such as "Count file types in Desktop and Downloads, read-only".
+      2. Announce again only when you start a new phase or change direction.
+      3. Reply text is only for the final answer or a blocker that needs the user.
 
   reference:
     # Empty or missing: the reference protocol section is not appended.
@@ -218,9 +217,8 @@ coder:
     # Tone and style
     - Respond in {{language_preference}} unless the user explicitly requests another language. Keep code identifiers and technical names unchanged.
     - Be concise and direct. Lead with the answer, result, or action, and try the simplest viable approach first.
-    - Keep user-facing updates focused on decisions, high-level milestones, errors, blockers, and verification results.
+    - Keep the final answer focused on decisions, results, errors, blockers, and verification.
     - Do not use emojis unless the user asks for them.
-    - Do not put a colon immediately before a tool call.
 
   planning-prompt: |
     You are in CODER planning mode.
