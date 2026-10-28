@@ -29,30 +29,6 @@ func (s *llmRunStream) executeApprovedBashInvocation(invocation *preparedToolInv
 	}
 }
 
-func (s *llmRunStream) shouldAutoApproveHITL(result hitl.InterceptResult) bool {
-	if s.execCtx == nil || !result.Rule.IsBuiltinApproval() || result.Conflict != "" {
-		return false
-	}
-	if len(result.Requirements) > 0 {
-		for _, match := range result.Requirements {
-			if !s.shouldAutoApproveHITL(match) {
-				return false
-			}
-		}
-		return true
-	}
-	level := s.execCtx.Session.AccessLevel
-	if level == "" {
-		level = AccessLevelDefault
-	}
-	for _, allowed := range result.Rule.AutoApprove {
-		if allowed == level {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 	if len(s.queuedToolCalls) == 0 || s.hitlPendingBatch != nil || s.hitlPendingCall != nil || hasToolExecutionBarrier(s.queuedToolCalls) {
 		return false
@@ -171,29 +147,11 @@ func (s *llmRunStream) queuedBashApprovalCandidate(invocation *preparedToolInvoc
 	if s.lookupBashAccessReview(invocation).Blocked() {
 		return queuedBashApprovalCandidate{}, false
 	}
-	return s.queuedGenericHITLApprovalCandidate(invocation)
-}
-
-func (s *llmRunStream) queuedGenericHITLApprovalCandidate(invocation *preparedToolInvocation) (queuedBashApprovalCandidate, bool) {
-	if s.checker == nil {
-		return queuedBashApprovalCandidate{}, false
-	}
-	result := s.lookupPrecheckedHITL(invocation)
-	if !result.Intercepted || !result.Rule.IsBuiltinApproval() {
-		return queuedBashApprovalCandidate{}, false
-	}
-	request := hitlApprovalRequest(invocation, result)
-	access := s.lookupBashAccessReview(invocation)
-	request.bashAccessReview = &access
-	if handled, _ := s.tryResolveHITLApprovalFastPath(request, approvalFastPathSkipBatch); handled {
-		return queuedBashApprovalCandidate{}, false
-	}
-	invocation.shownApproval = &request
-	return queuedBashApprovalCandidate{invocation: invocation, match: result}, true
+	return queuedBashApprovalCandidate{}, false
 }
 
 func (s *llmRunStream) lookupPrecheckedHITL(invocation *preparedToolInvocation) hitl.InterceptResult {
-	if invocation == nil || s.checker == nil {
+	if invocation == nil {
 		return hitl.InterceptResult{}
 	}
 	result := s.checkBashHITL(invocation)
@@ -624,9 +582,6 @@ func (s *llmRunStream) applyHITLDecision(invocation *preparedToolInvocation, res
 		}
 		if request.bashSecurityReview != nil {
 			rules = append(rules, request.bashSecurityReview.RuleKey)
-		}
-		if request.bashHITLReview != nil {
-			rules = append(rules, request.bashHITLReview.Rule.RuleKey)
 		}
 		seen := map[string]bool{}
 		for _, rule := range rules {

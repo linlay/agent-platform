@@ -18,8 +18,8 @@ func writeSkillRuntimeFixture(t *testing.T, root string, skillID string, env str
 	t.Helper()
 
 	skillDir := filepath.Join(root, skillID)
-	if err := os.MkdirAll(filepath.Join(skillDir, ".bash-hooks"), 0o755); err != nil {
-		t.Fatalf("mkdir skill hooks: %v", err)
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# "+skillID+"\n\nskill"), 0o644); err != nil {
 		t.Fatalf("write SKILL.md: %v", err)
@@ -32,27 +32,21 @@ func writeSkillRuntimeFixture(t *testing.T, root string, skillID string, env str
 	return skillDir
 }
 
-func TestResolveSkillRuntimeSettingsMergesEnvAndHookDirsInOrder(t *testing.T) {
+func TestResolveSkillRuntimeSettingsMergesEnvInOrder(t *testing.T) {
 	agentDir := filepath.Join(t.TempDir(), "ru-agents", "agent", "revision")
 	centerDir := t.TempDir()
-	alphaDir := writeSkillRuntimeFixture(t, filepath.Join(agentDir, "skills"), "alpha", `{"NODE_ENV":"development","DEBUG":"1"}`)
-	betaDir := writeSkillRuntimeFixture(t, filepath.Join(agentDir, "skills"), "beta", `{"NODE_ENV":"production","TZ":"UTC"}`)
+	writeSkillRuntimeFixture(t, filepath.Join(agentDir, "skills"), "alpha", `{"NODE_ENV":"development","DEBUG":"1"}`)
+	writeSkillRuntimeFixture(t, filepath.Join(agentDir, "skills"), "beta", `{"NODE_ENV":"production","TZ":"UTC"}`)
 
-	alphaDir = installRuntimeSkillFixture(t, agentDir, "alpha")
-	betaDir = installRuntimeSkillFixture(t, agentDir, "beta")
+	installRuntimeSkillFixture(t, agentDir, "alpha")
+	installRuntimeSkillFixture(t, agentDir, "beta")
 	agentEnv := map[string]string{
 		"NODE_ENV": "test",
 		"BASE":     "1",
 	}
-	hookDirs, env, err := resolveSkillRuntimeSettings(agentEnv, agentDir, centerDir, []string{"alpha", "beta", "alpha"})
+	env, err := resolveSkillRuntimeSettings(agentEnv, agentDir, centerDir, []string{"alpha", "beta", "alpha"})
 	if err != nil {
 		t.Fatalf("resolveSkillRuntimeSettings() error = %v", err)
-	}
-	if !reflect.DeepEqual(hookDirs, []string{
-		filepath.Join(alphaDir, ".bash-hooks"),
-		filepath.Join(betaDir, ".bash-hooks"),
-	}) {
-		t.Fatalf("hookDirs = %#v", hookDirs)
 	}
 	wantEnv := map[string]string{
 		"NODE_ENV": "production",
@@ -69,7 +63,7 @@ func TestResolveSkillRuntimeSettingsRejectsUnreferencedSkills(t *testing.T) {
 	runtimeDir := filepath.Join(t.TempDir(), "ru-agents", "agent", "revision")
 	writeSkillRuntimeFixture(t, filepath.Join(runtimeDir, "skills"), "beta", `{"TZ":"UTC"}`)
 	installRuntimeSkillFixture(t, runtimeDir, "beta")
-	if _, _, err := resolveSkillRuntimeSettings(nil, runtimeDir, "", []string{"missing", "beta"}); err == nil {
+	if _, err := resolveSkillRuntimeSettings(nil, runtimeDir, "", []string{"missing", "beta"}); err == nil {
 		t.Fatal("unreferenced Skill was silently accepted")
 	}
 }
@@ -77,15 +71,12 @@ func TestResolveSkillRuntimeSettingsRejectsUnreferencedSkills(t *testing.T) {
 func TestResolveSkillRuntimeSettingsSupportsHyphenatedSkillIDs(t *testing.T) {
 	centerDir := t.TempDir()
 	runtimeDir := filepath.Join(t.TempDir(), "ru-agents", "agent", "revision")
-	platformAdminDir := writeSkillRuntimeFixture(t, filepath.Join(runtimeDir, "skills"), "platform-admin", `{"DANGEROUS_COMMANDS":"1"}`)
+	writeSkillRuntimeFixture(t, filepath.Join(runtimeDir, "skills"), "platform-admin", `{"DANGEROUS_COMMANDS":"1"}`)
 
-	platformAdminDir = installRuntimeSkillFixture(t, runtimeDir, "platform-admin")
-	hookDirs, env, err := resolveSkillRuntimeSettings(nil, runtimeDir, centerDir, []string{"platform-admin"})
+	installRuntimeSkillFixture(t, runtimeDir, "platform-admin")
+	env, err := resolveSkillRuntimeSettings(nil, runtimeDir, centerDir, []string{"platform-admin"})
 	if err != nil {
 		t.Fatalf("resolveSkillRuntimeSettings() error = %v", err)
-	}
-	if !reflect.DeepEqual(hookDirs, []string{filepath.Join(platformAdminDir, ".bash-hooks")}) {
-		t.Fatalf("hookDirs = %#v", hookDirs)
 	}
 	if !reflect.DeepEqual(env, map[string]string{"DANGEROUS_COMMANDS": "1"}) {
 		t.Fatalf("env = %#v", env)
@@ -97,12 +88,9 @@ func TestResolveSkillRuntimeSettingsReturnsAgentEnvWithoutSkills(t *testing.T) {
 		"HTTP_PROXY": "http://agent",
 	}
 
-	hookDirs, env, err := resolveSkillRuntimeSettings(agentEnv, "", "", nil)
+	env, err := resolveSkillRuntimeSettings(agentEnv, "", "", nil)
 	if err != nil {
 		t.Fatalf("resolveSkillRuntimeSettings() error = %v", err)
-	}
-	if hookDirs != nil {
-		t.Fatalf("hookDirs = %#v, want nil", hookDirs)
 	}
 	if !reflect.DeepEqual(env, agentEnv) {
 		t.Fatalf("env = %#v, want %#v", env, agentEnv)

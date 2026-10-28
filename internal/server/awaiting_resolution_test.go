@@ -81,7 +81,7 @@ func TestLiveApprovalTimeoutKeepsSingleBatchResultsAndValidContinuation(t *testi
 		}
 		if call == 1 {
 			calls := []providerToolCallSpec{}
-			for i, cmd := range []string{"docker rmi image-a", "docker rmi image-b", "ls /workspace/a", "ls /workspace/b", "ls /workspace/c"} {
+			for i, cmd := range []string{"rm -r /workspace/old-a", "rm -r /workspace/old-b", "ls /workspace/a", "ls /workspace/b", "ls /workspace/c"} {
 				calls = append(calls, providerToolCallSpec{ID: fmt.Sprintf("tool_%d", i), Name: "bash", Args: map[string]any{"command": cmd, "cwd": "/workspace"}})
 			}
 			writeProviderSSE(t, w, providerToolCallsFrame(t, calls), "[DONE]")
@@ -90,7 +90,7 @@ func TestLiveApprovalTimeoutKeepsSingleBatchResultsAndValidContinuation(t *testi
 		writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"inventory complete"},"finish_reason":"stop"}]}`, "[DONE]")
 	}, testFixtureOptions{
 		sandbox: &scriptedSandbox{execute: func(command, cwd string, _ map[string]string) contracts.SandboxExecutionResult {
-			if strings.HasPrefix(command, "docker rmi") {
+			if strings.HasPrefix(command, "rm -r") {
 				t.Errorf("timed out command executed: %s", command)
 			}
 			return contracts.SandboxExecutionResult{Stdout: "executed: " + command, Cwd: cwd}
@@ -103,14 +103,6 @@ func TestLiveApprovalTimeoutKeepsSingleBatchResultsAndValidContinuation(t *testi
 			}
 			data = bytes.ReplaceAll(data, []byte("  hitl:\n    timeout: 210"), []byte("  hitl:\n    timeout: 1"))
 			if err := os.WriteFile(agentPath, data, 0600); err != nil {
-				t.Fatal(err)
-			}
-			hooks := filepath.Join(cfg.Paths.SkillsCenterDir, "mock-skill", ".bash-hooks")
-			if err := os.MkdirAll(hooks, 0700); err != nil {
-				t.Fatal(err)
-			}
-			rule := "commands:\n  - command: docker\n    subcommands:\n      - match: rmi\n        level: 1\n        view: {key: confirm_dialog}\n        ruleKey: test-docker-rmi\n"
-			if err := os.WriteFile(filepath.Join(hooks, "approval.yml"), []byte(rule), 0600); err != nil {
 				t.Fatal(err)
 			}
 		},

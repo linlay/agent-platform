@@ -124,14 +124,9 @@ func resolveAdminSkillIcon(skillDir string, id string) (string, error) {
 func validateEditableSkillRuntimeFiles(skillDir string) ([]AdminSkillDiagnostic, error) {
 	diagnostics := []AdminSkillDiagnostic{}
 	hooksPath := filepath.Join(skillDir, ".bash-hooks")
-	if info, err := os.Lstat(hooksPath); err == nil {
-		switch {
-		case info.Mode()&os.ModeSymlink != 0:
-			diagnostics = append(diagnostics, skillDiagnostic("error", "invalid_bash_hooks", ".bash-hooks must not be a symlink", hooksPath))
-		case !info.IsDir():
-			diagnostics = append(diagnostics, skillDiagnostic("error", "invalid_bash_hooks", ".bash-hooks must be a directory", hooksPath))
-		}
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Lstat(hooksPath); err == nil {
+		diagnostics = append(diagnostics, skillDiagnostic("error", "unsupported_bash_hooks", ".bash-hooks is no longer supported; declare an intercepted action in a connector view.json instead", hooksPath))
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
 	envPath := filepath.Join(skillDir, ".runtime-env.json")

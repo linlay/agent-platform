@@ -20,6 +20,8 @@ type BashPlan struct {
 	ConnectorOnly bool
 	// ConnectorIDs lists the mounted connectors the command executes.
 	ConnectorIDs []string
+	// ConnectorCall is set when the whole command is one plain connector call.
+	ConnectorCall *ConnectorCall
 	// Requirements are leaf decisions; a rule approval never approves sibling requirements.
 	Requirements  []BashPlan
 	Decision      Decision

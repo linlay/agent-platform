@@ -483,7 +483,6 @@ type QuerySession struct {
 	WorkspaceRoot          string
 	ChatRoot               string
 	AccessLevel            string
-	SkillHookDirs          []string
 	// StaticRuntimeEnv is the immutable Agent/Skill environment frozen at admission.
 	StaticRuntimeEnv map[string]string
 	// RunEnvironment is the root run's lazy dynamic environment scope.

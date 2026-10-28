@@ -15,7 +15,7 @@ func (s *llmRunStream) mailApprovalDelegator(calls ...*preparedToolInvocation) f
 	if s.execCtx == nil || s.engine == nil {
 		return nil
 	}
-	engine, checker := s.engine, s.checker
+	engine := s.engine
 	execution := *s.execCtx
 	frozen := make([]preparedToolInvocation, len(calls))
 	for i, c := range calls {
@@ -41,7 +41,7 @@ func (s *llmRunStream) mailApprovalDelegator(calls ...*preparedToolInvocation) f
 			exec.RunControl = control
 			exec.ToolApprovals = nil
 			exec.BashSecurityApprovals = nil
-			review := &llmRunStream{engine: engine, checker: checker, ctx: ctx, session: exec.Session, execCtx: &exec, runControl: control}
+			review := &llmRunStream{engine: engine, ctx: ctx, session: exec.Session, execCtx: &exec, runControl: control}
 			inv := call
 			inv.args = contracts.CloneMap(call.args)
 			deny := func() error {
@@ -70,7 +70,8 @@ func (s *llmRunStream) mailApprovalDelegator(calls ...*preparedToolInvocation) f
 				if security.Decision == bashsec.ReviewBlock || (security.Decision == bashsec.ReviewRequiresApproval && !review.shouldAutoApproveBashSecurity(security)) {
 					return deny()
 				}
-				if match := review.checkBashHITL(&inv); match.Intercepted && !review.shouldAutoApproveHITL(match) {
+				// A view form review always waits for a person.
+				if review.checkBashHITL(&inv).Intercepted {
 					return deny()
 				}
 			}

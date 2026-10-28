@@ -302,10 +302,7 @@ func (s *llmRunStream) invocationMayAwaitBeforeResult(invocation *preparedToolIn
 	}
 	if isBashTool(invocation.toolName) {
 		if result := s.lookupPrecheckedHITL(invocation); result.Intercepted {
-			request := hitlApprovalRequest(invocation, result)
-			if handled, _ := s.tryResolveHITLApprovalFastPath(request, approvalFastPathSkipBatch); !handled {
-				return true
-			}
+			return true
 		}
 	}
 	return false
@@ -1149,11 +1146,9 @@ func (s *llmRunStream) handleToolApprovalBeforeInvoke(invocation *preparedToolIn
 		return true, err
 	}
 	if invocation.precheckedHITL != nil && invocation.precheckedHITL.Intercepted {
-		return true, s.handleHITLApproval(invocation, *invocation.precheckedHITL, hitlApprovalOptions{
-			allowExistingDecision: true,
-		})
+		return true, s.handleHITLApproval(invocation, *invocation.precheckedHITL, hitlApprovalOptions{})
 	}
-	if s.checker != nil && isBashTool(invocation.toolName) {
+	if isBashTool(invocation.toolName) {
 		if result := s.checkBashHITL(invocation); result.Intercepted {
 			return true, s.handleHITLApproval(invocation, result, hitlApprovalOptions{
 				skipPostToolHookImmediately: true,
@@ -1218,13 +1213,12 @@ func (s *llmRunStream) handleBashSecurityBlockBeforeInvoke(invocation *preparedT
 }
 
 type hitlApprovalOptions struct {
-	allowExistingDecision       bool
 	skipPostToolHookImmediately bool
 }
 
 func (s *llmRunStream) handleHITLApproval(invocation *preparedToolInvocation, result hitl.InterceptResult, options hitlApprovalOptions) error {
 	if result.Conflict != "" {
-		s.appendOriginalToolResult(invocation, ToolExecutionResult{Output: result.Conflict, Error: "hitl_hook_conflict", ExitCode: -1})
+		s.appendOriginalToolResult(invocation, ToolExecutionResult{Output: result.Conflict, Error: "view_intercept_rejected", ExitCode: -1})
 		return nil
 	}
 	if options.skipPostToolHookImmediately {
@@ -1233,14 +1227,6 @@ func (s *llmRunStream) handleHITLApproval(invocation *preparedToolInvocation, re
 	request := hitlApprovalRequest(invocation, result)
 	access := s.lookupBashAccessReview(invocation)
 	request.bashAccessReview = &access
-	if result.Rule.IsBuiltinApproval() {
-		if options.allowExistingDecision && request.hasApprovalDecision() {
-			return s.executeApprovedApprovalRequest(request)
-		}
-		if handled, err := s.tryResolveHITLApprovalFastPath(request, approvalFastPathExecuteNow); handled {
-			return err
-		}
-	}
 	if !options.skipPostToolHookImmediately {
 		s.skipPostToolHook = true
 	}

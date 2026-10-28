@@ -2,7 +2,6 @@ package llm
 
 import (
 	"agent-platform/internal/view"
-	"log"
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
@@ -107,7 +106,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		}
 		if decision == "approve" {
 			formPayload := AnyMapNode(selectedForm["data"])
-			rebuiltCommand, rebuildErr := reconstructCommandWithPayload(mapStringArg(invocation.args, "command"), formPayload)
+			rebuiltCommand, rebuildErr := rebuildInterceptedCommand(*match, formPayload)
 			if rebuildErr != nil {
 				payload := apperrors.Payload(
 					apperrors.CodeInteractionSubmitInvalidPayload,
@@ -293,22 +292,10 @@ func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.Interce
 	if title := strings.TrimSpace(result.Rule.Title); title != "" {
 		form["title"] = title
 	}
-	if payload := extractCommandPayload(result.ParsedCommand); len(payload) > 0 {
-		form["data"] = payload
-		args["form"] = form
-		return args
-	}
-	if payload := extractPayloadFromOriginalCommand(result.OriginalCommand); len(payload) > 0 {
-		form["data"] = payload
-		args["form"] = form
-		return args
+	if data := interceptFormData(result); data != nil {
+		form["data"] = data
 	}
 	args["form"] = form
-	log.Printf("[llm][run:%s][hitl][warning] missing html approval payload view=%v command=%q",
-		s.session.RunID,
-		result.Rule.View,
-		result.OriginalCommand,
-	)
 	return args
 }
 
@@ -361,7 +348,7 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 		result = bashSecurityInterceptResult(invocation, review)
 	} else if invocation != nil && invocation.precheckedHITL != nil {
 		result = *invocation.precheckedHITL
-	} else if s.checker != nil {
+	} else {
 		result = s.lookupPrecheckedHITL(invocation)
 	}
 	if invocation.shownApproval != nil {
@@ -378,12 +365,6 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 	if invocation.shownApproval != nil {
 		request := invocation.shownApproval
 		var requirements []any
-		if request.kind == approvalKindHITL {
-			requirements = append(requirements, hitl.RequirementMetadata(request.result)...)
-		}
-		if request.bashHITLReview != nil {
-			requirements = append(requirements, hitl.RequirementMetadata(*request.bashHITLReview)...)
-		}
 		if request.bashSecurityReview != nil {
 			requirements = append(requirements, map[string]any{"ruleKey": request.bashSecurityReview.RuleKey, "reason": request.bashSecurityReview.Reason})
 		}

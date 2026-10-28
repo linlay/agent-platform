@@ -1974,14 +1974,9 @@ func TestEmitHITLConfirmDeltasUsesRuleTimeoutOverride(t *testing.T) {
 	result := hitl.InterceptResult{
 		Intercepted: true,
 		Rule: hitl.FlatRule{
-			Match:   "create-leave",
 			Level:   1,
 			View:    view.Builtin("platform_control_review"),
 			Timeout: 60,
-		},
-		ParsedCommand: hitl.CommandComponents{
-			BaseCommand: "mock",
-			Tokens:      []string{"create-leave", "--payload", `{}`},
 		},
 	}
 
@@ -2027,7 +2022,6 @@ func TestAwaitHITLSubmitAndExecuteUsesRuleTimeoutOverride(t *testing.T) {
 		hitlMatch: &hitl.InterceptResult{
 			Intercepted: true,
 			Rule: hitl.FlatRule{
-				Match:   "rmi",
 				Level:   1,
 				View:    view.Builtin("confirm_dialog"),
 				Timeout: 1,
@@ -2585,8 +2579,8 @@ func TestBashHITLApprovalUsesAwaitingForAllViews(t *testing.T) {
 	tests := []struct {
 		name                     string
 		rule                     hitl.FlatRule
+		intercept                *hitl.ViewIntercept
 		initialCommand           string
-		parsedCommand            hitl.CommandComponents
 		submitParams             api.SubmitParams
 		submitParam              api.SubmitParam
 		expectedCommand          string
@@ -2599,15 +2593,10 @@ func TestBashHITLApprovalUsesAwaitingForAllViews(t *testing.T) {
 		{
 			name: "builtin confirm dialog",
 			rule: hitl.FlatRule{
-				Match: "push",
 				Level: 1,
 				View:  view.Builtin("confirm_dialog"),
 			},
 			initialCommand: "git push origin main",
-			parsedCommand: hitl.CommandComponents{
-				BaseCommand: "git",
-				Tokens:      []string{"push", "origin", "main"},
-			},
 			submitParams: encodedSubmitParams(t, []map[string]any{
 				map[string]any{
 					"id":       "tool_1",
@@ -2619,124 +2608,21 @@ func TestBashHITLApprovalUsesAwaitingForAllViews(t *testing.T) {
 			expectedKey:     "confirm_dialog",
 		},
 		{
-			name: "leave html view override",
-			rule: hitl.FlatRule{
-				Match: "create-leave",
-				Level: 1,
-				Title: "mock 请假申请",
-				View:  view.Builtin("platform_control_review"),
-			},
-			initialCommand: sampleLeaveCommand(3),
-			parsedCommand: hitl.CommandComponents{
-				BaseCommand: "mock",
-				Tokens:      []string{"create-leave", "--payload", `{"applicant_id":"E1001","days":3,"department_id":"engineering","end_date":"2026-04-22","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20"}`},
-			},
+			name:           "connector view form",
+			rule:           worklogIntercept(t, "issue", "worklog", "add-batch", "--payload", `{"entries":[{"key":"DEMO-1"}]}`).Rule,
+			intercept:      worklogIntercept(t, "issue", "worklog", "add-batch", "--payload", `{"entries":[{"key":"DEMO-1"}]}`).Intercept,
+			initialCommand: `jira issue worklog add-batch --payload '{"entries":[{"key":"DEMO-1"}]}'`,
 			submitParam: api.SubmitParam{
 				"decision": "approve",
-				"data":     sampleLeavePayload(2),
+				"data":     map[string]any{"params": map[string]any{"payload": map[string]any{"entries": []any{map[string]any{"key": "DEMO-2"}}}}},
 			},
-			expectedCommand:          sampleLeaveCommand(2),
-			expectedView:             "html",
-			expectedKey:              "platform_control_review",
-			expectedInitialPayload:   sampleLeavePayload(3),
-			expectedSubmittedPayload: sampleLeavePayload(2),
-			expectedAnswerDecision:   "approve",
-		},
-		{
-			name: "expense html view override",
-			rule: hitl.FlatRule{
-				Match: "expense add",
-				Level: 1,
-				View:  view.Builtin("resource_delete_review"),
-			},
-			initialCommand: sampleExpenseCommand(1280.5),
-			parsedCommand: hitl.CommandComponents{
-				BaseCommand: "mock",
-				Tokens:      []string{"expense", "add", "--payload", `{"employee":{"id":"E1001","name":"张三"},"department":{"code":"engineering","name":"工程部"},"expense_type":"travel","currency":"CNY","items":[{"amount":1280.5,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":1280.5}`},
-			},
-			submitParam: api.SubmitParam{
-				"decision": "approve",
-				"data": map[string]any{
-					"employee":     map[string]any{"id": "E1001", "name": "张三"},
-					"department":   map[string]any{"code": "engineering", "name": "工程部"},
-					"expense_type": "travel",
-					"currency":     "CNY",
-					"items": []any{
-						map[string]any{
-							"amount":      640.25,
-							"category":    "transport",
-							"description": "flight",
-							"invoice_id":  "INV-001",
-							"occurred_on": "2026-04-10",
-						},
-					},
-					"submitted_at": "2026-04-14T10:30:00+08:00",
-					"total_amount": 640.25,
-				},
-			},
-			expectedCommand: canonicalExpenseCommand(640.25),
+			expectedCommand: `jira --no-input issue worklog add-batch --payload '{"entries":[{"key":"DEMO-2"}]}' --json`,
 			expectedView:    "html",
-			expectedKey:     "resource_delete_review",
-			expectedSubmittedPayload: map[string]any{
-				"employee":     map[string]any{"id": "E1001", "name": "张三"},
-				"department":   map[string]any{"code": "engineering", "name": "工程部"},
-				"expense_type": "travel",
-				"currency":     "CNY",
-				"items": []any{
-					map[string]any{
-						"amount":      640.25,
-						"category":    "transport",
-						"description": "flight",
-						"invoice_id":  "INV-001",
-						"occurred_on": "2026-04-10",
-					},
-				},
-				"submitted_at": "2026-04-14T10:30:00+08:00",
-				"total_amount": 640.25,
-			},
-			expectedInitialPayload: map[string]any{
-				"employee":     map[string]any{"id": "E1001", "name": "张三"},
-				"department":   map[string]any{"code": "engineering", "name": "工程部"},
-				"expense_type": "travel",
-				"currency":     "CNY",
-				"items": []any{
-					map[string]any{
-						"amount":      1280.5,
-						"category":    "transport",
-						"description": "flight",
-						"invoice_id":  "INV-001",
-						"occurred_on": "2026-04-10",
-					},
-				},
-				"submitted_at": "2026-04-14T10:30:00+08:00",
-				"total_amount": 1280.5,
-			},
-			expectedAnswerDecision: "approve",
-		},
-		{
-			name: "procurement html view override",
-			rule: hitl.FlatRule{
-				Match: "procurement create",
-				Level: 1,
-				View:  view.Builtin("installation_review"),
-			},
-			initialCommand: sampleProcurementCommand("Shanghai"),
-			parsedCommand: hitl.CommandComponents{
-				BaseCommand: "mock",
-				Tokens:      []string{"procurement", "create", "--payload", `{"delivery_city":"Shanghai","requester_id":"E1001"}`},
-			},
-			submitParam: api.SubmitParam{
-				"decision": "approve",
-				"data": map[string]any{
-					"delivery_city": "Hangzhou",
-					"requester_id":  "E1001",
-				},
-			},
-			expectedCommand:          sampleProcurementCommand("Hangzhou"),
-			expectedView:             "html",
-			expectedKey:              "installation_review",
-			expectedInitialPayload:   map[string]any{"delivery_city": "Shanghai", "requester_id": "E1001"},
-			expectedSubmittedPayload: map[string]any{"delivery_city": "Hangzhou", "requester_id": "E1001"},
+			expectedKey:     "worklog",
+			expectedInitialPayload: map[string]any{"action": "worklog.batch", "params": map[string]any{
+				"payload": map[string]any{"entries": []any{map[string]any{"key": "DEMO-1"}}},
+			}},
+			expectedSubmittedPayload: map[string]any{"params": map[string]any{"payload": map[string]any{"entries": []any{map[string]any{"key": "DEMO-2"}}}}},
 			expectedAnswerDecision:   "approve",
 		},
 	}
@@ -2776,9 +2662,13 @@ func TestBashHITLApprovalUsesAwaitingForAllViews(t *testing.T) {
 				},
 			}
 			result := hitl.InterceptResult{
-				Intercepted:   true,
-				Rule:          tc.rule,
-				ParsedCommand: tc.parsedCommand,
+				Intercepted: true,
+				Rule:        tc.rule,
+				Intercept:   tc.intercept,
+			}
+			stream.session.ResolveView = func(_ context.Context, ref view.Reference, _ string) (view.Reference, error) {
+				ref.Renderer = "html"
+				return ref, nil
 			}
 
 			if err := stream.emitApprovalRequestDeltas(hitlApprovalRequest(invocation, result)); err != nil {
@@ -2824,13 +2714,8 @@ func TestBashHITLApprovalUsesAwaitingForAllViews(t *testing.T) {
 				if !reflect.DeepEqual(formPayload, tc.expectedInitialPayload) {
 					t.Fatalf("expected form payload %#v, got %#v", tc.expectedInitialPayload, awaitAsk)
 				}
-				if title, _ := form["title"].(string); tc.expectedKey == "platform_control_review" && title != "mock 请假申请" {
-					t.Fatalf("expected form title in awaiting.ask payload, got %#v", form)
-				}
-				if tc.expectedKey != "platform_control_review" {
-					if _, ok := form["title"]; ok {
-						t.Fatalf("did not expect title for non-leave form, got %#v", form)
-					}
+				if title, _ := form["title"].(string); title != "批量登记工时" {
+					t.Fatalf("expected the action description as form title, got %#v", form)
 				}
 				if len(awaitAsk.Approvals) != 0 {
 					t.Fatalf("expected form await to omit approvals, got %#v", awaitAsk.Approvals)
@@ -5463,7 +5348,6 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 		hitlMatch: &hitl.InterceptResult{
 			Intercepted: true,
 			Rule: hitl.FlatRule{
-				Match: "rmi",
 				Level: 1,
 				View:  view.Builtin("confirm_dialog"),
 			},
@@ -5573,13 +5457,8 @@ func TestAwaitHITLSubmitAndExecute_FormRejectWithFeedbackEmitsRetryableResultAnd
 	result := hitl.InterceptResult{
 		Intercepted: true,
 		Rule: hitl.FlatRule{
-			Match: "create-leave",
 			Level: 1,
 			View:  view.Builtin("platform_control_review"),
-		},
-		ParsedCommand: hitl.CommandComponents{
-			BaseCommand: "mock",
-			Tokens:      []string{"create-leave", "--payload", `{"applicant_id":"E1001","days":3,"department_id":"engineering","end_date":"2026-04-22","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20"}`},
 		},
 	}
 	if err := stream.emitApprovalRequestDeltas(hitlApprovalRequest(invocation, result)); err != nil {
@@ -5662,21 +5541,10 @@ func TestAwaitHITLSubmitAndExecute_FormPayloadRebuildFailureEmitsRejectHITLMetad
 		toolID:   "tool_1",
 		toolName: "bash",
 		args: map[string]any{
-			"command": "mock create-leave",
+			"command": "jira issue worklog add-batch --payload '{}'",
 		},
 	}
-	result := hitl.InterceptResult{
-		Intercepted: true,
-		Rule: hitl.FlatRule{
-			Match: "create-leave",
-			Level: 1,
-			View:  view.Builtin("platform_control_review"),
-		},
-		ParsedCommand: hitl.CommandComponents{
-			BaseCommand: "mock",
-			Tokens:      []string{"create-leave"},
-		},
-	}
+	result := worklogIntercept(t, "issue", "worklog", "add-batch", "--payload", `{}`)
 	if err := stream.emitApprovalRequestDeltas(hitlApprovalRequest(invocation, result)); err != nil {
 		t.Fatalf("emitApprovalRequestDeltas returned error: %v", err)
 	}
@@ -5709,7 +5577,7 @@ func TestAwaitHITLSubmitAndExecute_FormPayloadRebuildFailureEmitsRejectHITLMetad
 			t.Fatalf("expected form reject HITL metadata, got %#v", typed.Result.HITL)
 		}
 		reason, _ := typed.Result.HITL["reason"].(string)
-		if !strings.Contains(reason, "original command does not contain --payload") {
+		if !strings.Contains(reason, "data.params must be an object") {
 			t.Fatalf("expected rebuild error reason, got %#v", typed.Result.HITL)
 		}
 		if _, ok := typed.Result.HITL["submittedPayload"]; ok {
@@ -5723,7 +5591,7 @@ func TestAwaitHITLSubmitAndExecute_FormPayloadRebuildFailureEmitsRejectHITLMetad
 		t.Fatalf("expected rebuild failure tool message and HITL summary, got %#v", stream.messages)
 	}
 	noticeText, _ := stream.messages[len(stream.messages)-1].Content.(string)
-	if !strings.Contains(noticeText, `[System audit — HITL approval batch]`) || !strings.Contains(noticeText, `command="mock create-leave" decision=reject reason="original command does not contain --payload"`) || strings.Contains(noticeText, "submitted_payload=") {
+	if !strings.Contains(noticeText, `[System audit — HITL approval batch]`) || !strings.Contains(noticeText, `command="jira issue worklog add-batch --payload '{}'" decision=reject reason="data.params must be an object"`) || strings.Contains(noticeText, "submitted_payload=") {
 		t.Fatalf("expected rebuild failure HITL audit notice without submitted payload, got %#v", stream.messages[len(stream.messages)-1])
 	}
 }
@@ -5741,6 +5609,8 @@ func TestAwaitHITLApprovalBatchAndContinue_HostUsesUnifiedBashToolName(t *testin
 			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{
+			WorkspaceRoot:          t.TempDir(),
+			AccessLevel:            contracts.AccessLevelDefault,
 			RequestID:              "req_1",
 			ChatID:                 "chat_1",
 			RunID:                  "run_1",
@@ -5754,23 +5624,11 @@ func TestAwaitHITLApprovalBatchAndContinue_HostUsesUnifiedBashToolName(t *testin
 				AgentHasRuntimeSandbox: false,
 			},
 		},
-		checker: commandResultChecker{
-			results: map[string]hitl.InterceptResult{
-				"git status": {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog"), RuleKey: "repo::git"},
-					OriginalCommand: "git status",
-				},
-			},
-			tools: map[string]api.ToolDetailResponse{
-				strings.ToLower(bashToolDefinition().Name): bashToolDefinition(),
-			},
-		},
 		queuedToolCalls: []*preparedToolInvocation{{
 			toolID:   "tool_1",
 			toolName: "bash",
 			args: map[string]any{
-				"command":     "git status",
+				"command":     "chmod 777 /opt/demo/a.sh",
 				"description": "查看仓库状态",
 			},
 		}},
@@ -5840,40 +5698,20 @@ func TestPrepareQueuedBashApprovalBatch_AppendsSingleSummaryAfterAllApprovedResu
 			tools: executor,
 		},
 		session: contracts.QuerySession{
-			RequestID: "req_1",
-			ChatID:    "chat_1",
-			RunID:     "run_1",
+			WorkspaceRoot: t.TempDir(),
+			AccessLevel:   contracts.AccessLevelDefault,
+			RequestID:     "req_1",
+			ChatID:        "chat_1",
+			RunID:         "run_1",
 		},
 		runControl: contracts.NewRunControl(context.Background(), "run_1"),
 		execCtx: &contracts.ExecutionContext{
 			Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
 		},
-		checker: commandResultChecker{
-			results: map[string]hitl.InterceptResult{
-				"chmod 777 ~/a.sh": {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog"), RuleKey: "dangerous-commands::chmod"},
-					OriginalCommand: "chmod 777 ~/a.sh",
-				},
-				"chmod 777 ~/b.sh": {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog"), RuleKey: "dangerous-commands::chmod"},
-					OriginalCommand: "chmod 777 ~/b.sh",
-				},
-				"chmod 777 ~/c.sh": {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog"), RuleKey: "dangerous-commands::chmod"},
-					OriginalCommand: "chmod 777 ~/c.sh",
-				},
-			},
-			tools: map[string]api.ToolDetailResponse{
-				strings.ToLower(bashToolDefinition().Name): bashToolDefinition(),
-			},
-		},
 		queuedToolCalls: []*preparedToolInvocation{
-			{toolID: "tool_1", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
-			{toolID: "tool_2", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/b.sh", "description": "放开 b.sh 权限"}},
-			{toolID: "tool_3", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/c.sh", "description": "放开 c.sh 权限"}},
+			{toolID: "tool_1", toolName: "bash", args: map[string]any{"command": "chmod 777 /opt/demo/a.sh", "description": "放开 a.sh 权限"}},
+			{toolID: "tool_2", toolName: "bash", args: map[string]any{"command": "chmod 777 /opt/demo/b.sh", "description": "放开 b.sh 权限"}},
+			{toolID: "tool_3", toolName: "bash", args: map[string]any{"command": "chmod 777 /opt/demo/c.sh", "description": "放开 c.sh 权限"}},
 		},
 	}
 	var recordedApproval *chat.StepApproval
@@ -5888,7 +5726,7 @@ func TestPrepareQueuedBashApprovalBatch_AppendsSingleSummaryAfterAllApprovedResu
 	}
 	ask := stream.pending[0].(contracts.DeltaAwaitAsk)
 	approvalItems, _ := ask.Approvals[0].(map[string]any)
-	if approvalItems["ruleKey"] != "dangerous-commands::chmod" {
+	if !strings.HasPrefix(contracts.AnyStringNode(approvalItems["ruleKey"]), "bash-access:path:access-write") {
 		t.Fatalf("expected approval ask item to include ruleKey, got %#v", ask.Approvals)
 	}
 	ack := stream.runControl.ResolveSubmit(api.SubmitRequest{
@@ -5928,9 +5766,9 @@ func TestPrepareQueuedBashApprovalBatch_AppendsSingleSummaryAfterAllApprovedResu
 	}
 	text, _ := summary.Content.(string)
 	if !strings.Contains(text, `[System audit — HITL approval batch]`) ||
-		!strings.Contains(text, `1. tool=bash command="chmod 777 ~/a.sh" decision=approve reason=""`) ||
-		!strings.Contains(text, `2. tool=bash command="chmod 777 ~/b.sh" decision=approve reason=""`) ||
-		!strings.Contains(text, `3. tool=bash command="chmod 777 ~/c.sh" decision=approve reason=""`) {
+		!strings.Contains(text, `1. tool=bash command="chmod 777 /opt/demo/a.sh" decision=approve reason=""`) ||
+		!strings.Contains(text, `2. tool=bash command="chmod 777 /opt/demo/b.sh" decision=approve reason=""`) ||
+		!strings.Contains(text, `3. tool=bash command="chmod 777 /opt/demo/c.sh" decision=approve reason=""`) {
 		t.Fatalf("unexpected all-approved audit notice %#v", summary)
 	}
 	if recordedApproval == nil {
@@ -5939,13 +5777,13 @@ func TestPrepareQueuedBashApprovalBatch_AppendsSingleSummaryAfterAllApprovedResu
 	if recordedApproval.Notice != text {
 		t.Fatalf("expected recorded approval LLM notice to match user message, got %#v", recordedApproval)
 	}
-	if !strings.Contains(recordedApproval.Summary, `[HITL] 审批结果：`) || !strings.Contains(recordedApproval.Summary, `1. chmod 777 ~/a.sh → approve`) {
+	if !strings.Contains(recordedApproval.Summary, `[HITL] 审批结果：`) || !strings.Contains(recordedApproval.Summary, `1. chmod 777 /opt/demo/a.sh → approve`) {
 		t.Fatalf("expected recorded approval summary to remain interactions Chinese text, got %#v", recordedApproval)
 	}
 	if len(recordedApproval.Decisions) != 3 || recordedApproval.Decisions[2].Decision != "approve" {
 		t.Fatalf("expected recorded approval decisions, got %#v", recordedApproval)
 	}
-	if recordedApproval.Decisions[0].RuleKey != "dangerous-commands::chmod" {
+	if !strings.HasPrefix(recordedApproval.Decisions[0].RuleKey, "bash-access:path:access-write") {
 		t.Fatalf("expected recorded approval decisions to include ruleKey, got %#v", recordedApproval)
 	}
 }
@@ -5964,40 +5802,20 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 			tools: executor,
 		},
 		session: contracts.QuerySession{
-			RequestID: "req_1",
-			ChatID:    "chat_1",
-			RunID:     "run_1",
+			WorkspaceRoot: t.TempDir(),
+			AccessLevel:   contracts.AccessLevelDefault,
+			RequestID:     "req_1",
+			ChatID:        "chat_1",
+			RunID:         "run_1",
 		},
 		runControl: contracts.NewRunControl(context.Background(), "run_1"),
 		execCtx: &contracts.ExecutionContext{
 			Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
 		},
-		checker: commandResultChecker{
-			results: map[string]hitl.InterceptResult{
-				"chmod 777 ~/a.sh": {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog")},
-					OriginalCommand: "chmod 777 ~/a.sh",
-				},
-				"chmod 777 ~/b.sh": {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 2, View: view.Builtin("confirm_dialog")},
-					OriginalCommand: "chmod 777 ~/b.sh",
-				},
-				"chmod 777 ~/c.sh": {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog")},
-					OriginalCommand: "chmod 777 ~/c.sh",
-				},
-			},
-			tools: map[string]api.ToolDetailResponse{
-				strings.ToLower(bashToolDefinition().Name): bashToolDefinition(),
-			},
-		},
 		queuedToolCalls: []*preparedToolInvocation{
-			{toolID: "tool_1", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
-			{toolID: "tool_2", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/b.sh", "description": "放开 b.sh 权限"}},
-			{toolID: "tool_3", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/c.sh", "description": "放开 c.sh 权限"}},
+			{toolID: "tool_1", toolName: "bash", args: map[string]any{"command": "chmod 777 /opt/demo/a.sh", "description": "放开 a.sh 权限"}},
+			{toolID: "tool_2", toolName: "bash", args: map[string]any{"command": "chmod 777 /opt/demo/b.sh", "description": "放开 b.sh 权限"}},
+			{toolID: "tool_3", toolName: "bash", args: map[string]any{"command": "chmod 777 /opt/demo/c.sh", "description": "放开 c.sh 权限"}},
 		},
 	}
 
@@ -6063,7 +5881,7 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 	if len(executor.invocations) != 2 {
 		t.Fatalf("expected 2 approved bash invocations, got %#v", executor.invocations)
 	}
-	if executor.invocations[0].args["command"] != "chmod 777 ~/a.sh" || executor.invocations[1].args["command"] != "chmod 777 ~/b.sh" {
+	if executor.invocations[0].args["command"] != "chmod 777 /opt/demo/a.sh" || executor.invocations[1].args["command"] != "chmod 777 /opt/demo/b.sh" {
 		t.Fatalf("unexpected executed commands %#v", executor.invocations)
 	}
 
@@ -6130,9 +5948,9 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 	}
 	text, _ := summary.Content.(string)
 	if !strings.Contains(text, `[System audit — HITL approval batch]`) ||
-		!strings.Contains(text, `1. tool=bash command="chmod 777 ~/a.sh" decision=approve reason=""`) ||
-		!strings.Contains(text, `2. tool=bash command="chmod 777 ~/b.sh" decision=approve reason=""`) ||
-		!strings.Contains(text, `3. tool=bash command="chmod 777 ~/c.sh" decision=reject reason="风险过高"`) {
+		!strings.Contains(text, `1. tool=bash command="chmod 777 /opt/demo/a.sh" decision=approve reason=""`) ||
+		!strings.Contains(text, `2. tool=bash command="chmod 777 /opt/demo/b.sh" decision=approve reason=""`) ||
+		!strings.Contains(text, `3. tool=bash command="chmod 777 /opt/demo/c.sh" decision=reject reason="风险过高"`) {
 		t.Fatalf("unexpected mixed audit notice %#v", summary)
 	}
 }
@@ -6186,251 +6004,6 @@ func TestAwaitHITLApprovalBatchAndContinueUsesStoredMatch(t *testing.T) {
 	}
 	if invocation.hitlDecision.RuleKey != review.RuleKey {
 		t.Fatalf("expected stored match ruleKey, got %#v", invocation.hitlDecision)
-	}
-}
-
-func TestPrepareQueuedBashApprovalBatch_UsesLargestRuleTimeout(t *testing.T) {
-	stream := &llmRunStream{
-		ctx: context.Background(),
-		engine: &LLMAgentEngine{
-			tools: stubToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}},
-		},
-		session: contracts.QuerySession{
-			RequestID: "req_1",
-			ChatID:    "chat_1",
-			RunID:     "run_1",
-		},
-		runControl: contracts.NewRunControl(context.Background(), "run_1"),
-		execCtx: &contracts.ExecutionContext{
-			Budget: contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 30}},
-		},
-		checker: commandResultChecker{
-			results: map[string]hitl.InterceptResult{
-				"chmod 777 ~/a.sh": {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog"), Timeout: 40},
-					OriginalCommand: "chmod 777 ~/a.sh",
-				},
-				"chmod 777 ~/b.sh": {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 2, View: view.Builtin("confirm_dialog"), Timeout: 60},
-					OriginalCommand: "chmod 777 ~/b.sh",
-				},
-			},
-			tools: map[string]api.ToolDetailResponse{
-				strings.ToLower(bashToolDefinition().Name): bashToolDefinition(),
-			},
-		},
-		queuedToolCalls: []*preparedToolInvocation{
-			{toolID: "tool_1", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "a"}},
-			{toolID: "tool_2", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/b.sh", "description": "b"}},
-		},
-	}
-
-	if !stream.prepareQueuedBashApprovalBatch() {
-		t.Fatal("expected batch approval await to be prepared")
-	}
-	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
-	if !ok {
-		t.Fatalf("expected await ask delta, got %#v", stream.pending)
-	}
-	if ask.Timeout != 60 {
-		t.Fatalf("expected largest rule timeout 60, got %#v", ask)
-	}
-}
-
-func TestAwaitHITLApprovalBatchAndContinueUsesLargestRuleTimeout(t *testing.T) {
-	runControl := contracts.NewRunControl(context.Background(), "run_1")
-	stream := &llmRunStream{
-		ctx: context.Background(),
-		engine: &LLMAgentEngine{
-			tools: stubToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}},
-		},
-		session: contracts.QuerySession{
-			RequestID: "req_1",
-			ChatID:    "chat_1",
-			RunID:     "run_1",
-		},
-		runControl: runControl,
-		execCtx: &contracts.ExecutionContext{
-			Budget: contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 1}},
-		},
-		checker: commandResultChecker{
-			results: map[string]hitl.InterceptResult{
-				"chmod 777 ~/a.sh": {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog"), Timeout: 4},
-					OriginalCommand: "chmod 777 ~/a.sh",
-				},
-				"chmod 777 ~/b.sh": {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 2, View: view.Builtin("confirm_dialog"), Timeout: 10},
-					OriginalCommand: "chmod 777 ~/b.sh",
-				},
-			},
-			tools: map[string]api.ToolDetailResponse{
-				strings.ToLower(bashToolDefinition().Name): bashToolDefinition(),
-			},
-		},
-		queuedToolCalls: []*preparedToolInvocation{
-			{toolID: "tool_1", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "a"}},
-			{toolID: "tool_2", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/b.sh", "description": "b"}},
-		},
-	}
-
-	if !stream.prepareQueuedBashApprovalBatch() {
-		t.Fatal("expected batch approval await to be prepared")
-	}
-	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
-	if !ok {
-		t.Fatalf("expected await ask delta, got %#v", stream.pending)
-	}
-	if ask.Timeout != 10 {
-		t.Fatalf("expected largest rule timeout 10, got %#v", ask)
-	}
-	runControl.ExpectSubmit(contracts.AwaitingSubmitContext{
-		AwaitingID: ask.AwaitingID,
-		Mode:       "approval",
-		ItemCount:  2,
-	})
-
-	done := make(chan error, 1)
-	go func() {
-		done <- stream.awaitHITLApprovalBatchAndContinue()
-	}()
-
-	time.Sleep(120 * time.Millisecond)
-	ack := runControl.ResolveSubmit(api.SubmitRequest{
-		RunID:      "run_1",
-		AwaitingID: ask.AwaitingID,
-		Params: encodedSubmitParams(t, []map[string]any{
-			{"id": "tool_1", "decision": "approve"},
-			{"id": "tool_2", "decision": "reject", "reason": "风险过高"},
-		}),
-	})
-	if !ack.Accepted {
-		t.Fatalf("expected delayed batch submit to be accepted by rule timeout, got %#v", ack)
-	}
-
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("awaitHITLApprovalBatchAndContinue returned error: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatalf("timed out waiting for HITL approval batch path")
-	}
-
-	if stream.queuedToolCalls[0].hitlDecision == nil || stream.queuedToolCalls[0].hitlDecision.Decision != "approve" {
-		t.Fatalf("expected first delayed approval decision, got %#v", stream.queuedToolCalls[0].hitlDecision)
-	}
-	if stream.queuedToolCalls[1].hitlDecision == nil || stream.queuedToolCalls[1].hitlDecision.Decision != "reject" || stream.queuedToolCalls[1].hitlDecision.Reason != "风险过高" {
-		t.Fatalf("expected second delayed reject decision, got %#v", stream.queuedToolCalls[1].hitlDecision)
-	}
-	for _, invocation := range stream.queuedToolCalls {
-		if invocation.queuedResult != nil && invocation.queuedResult.Error == "hitl_timeout" {
-			t.Fatalf("did not expect timeout queued result for %#v", invocation)
-		}
-	}
-}
-
-func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewOutsideMergedApprovalAsk(t *testing.T) {
-	executor := &recordingToolExecutor{
-		defs: []api.ToolDetailResponse{
-			bashToolDefinition(),
-			backendToolDefinition("weather_tool"),
-		},
-		result: contracts.ToolExecutionResult{
-			Output:   "ok",
-			ExitCode: 0,
-		},
-	}
-	stream := &llmRunStream{
-		ctx: context.Background(),
-		engine: &LLMAgentEngine{
-			tools:        executor,
-			interactions: toolinteraction.NewDefaultRegistry(),
-		},
-		session: contracts.QuerySession{
-			RequestID: "req_1",
-			ChatID:    "chat_1",
-			RunID:     "run_1",
-		},
-		runControl: contracts.NewRunControl(context.Background(), "run_1"),
-		execCtx: &contracts.ExecutionContext{
-			Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
-		},
-		checker: commandResultChecker{
-			results: map[string]hitl.InterceptResult{
-				"chmod 777 ~/a.sh": {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog")},
-					OriginalCommand: "chmod 777 ~/a.sh",
-				},
-				sampleLeaveCommand(3): {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("platform_control_review")},
-					OriginalCommand: sampleLeaveCommand(3),
-					ParsedCommand: hitl.CommandComponents{
-						BaseCommand: "mock",
-						Tokens:      []string{"create-leave", "--payload", `{"applicant_id":"E1001","days":3,"department_id":"engineering","end_date":"2026-04-22","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20"}`},
-					},
-				},
-			},
-			tools: map[string]api.ToolDetailResponse{
-				strings.ToLower(bashToolDefinition().Name): bashToolDefinition(),
-			},
-		},
-		queuedToolCalls: []*preparedToolInvocation{
-			{toolID: "tool_1", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
-			{toolID: "tool_2", toolName: "bash", args: map[string]any{"command": sampleLeaveCommand(3), "description": "创建请假单"}},
-		},
-	}
-
-	if !stream.prepareQueuedBashApprovalBatch() {
-		t.Fatal("expected merged approval batch")
-	}
-	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
-	if !ok {
-		t.Fatalf("expected first pending delta to be await ask, got %#v", stream.pending)
-	}
-	if len(ask.Approvals) != 1 {
-		t.Fatalf("expected only builtin approval in merged ask, got %#v", ask)
-	}
-
-	ack := stream.runControl.ResolveSubmit(api.SubmitRequest{
-		RunID:      "run_1",
-		AwaitingID: ask.AwaitingID,
-		Params: encodedSubmitParams(t, []map[string]any{
-			{"id": "tool_1", "decision": "approve"},
-		}),
-	})
-	if !ack.Accepted {
-		t.Fatalf("expected submit to be accepted, got %#v", ack)
-	}
-	if err := stream.awaitHITLApprovalBatchAndContinue(); err != nil {
-		t.Fatalf("awaitHITLApprovalBatchAndContinue returned error: %v", err)
-	}
-
-	stream.activateNextToolCall()
-	if err := stream.invokeActiveToolCall(); err != nil {
-		t.Fatalf("invokeActiveToolCall returned error: %v", err)
-	}
-	stream.pending = withoutRunActivities(stream.pending)
-	stream.activateNextToolCall()
-	if err := stream.invokeActiveToolCall(); err != nil {
-		t.Fatalf("invokeActiveToolCall returned error: %v", err)
-	}
-	stream.pending = withoutRunActivities(stream.pending)
-
-	foundFormAsk := false
-	for _, delta := range stream.pending {
-		if typed, ok := delta.(contracts.DeltaAwaitAsk); ok && typed.Mode == "form" && typed.View.Key == "platform_control_review" {
-			foundFormAsk = true
-		}
-	}
-	if !foundFormAsk {
-		t.Fatalf("expected html invocation to emit its own form await, got %#v", stream.pending)
 	}
 }
 
@@ -6502,40 +6075,6 @@ func TestAppendOriginalToolResult_SpillsEligiblePreviewIntoMessages(t *testing.T
 	}
 }
 
-func TestPrepareQueuedBashApprovalBatch_SkipsWhitelistedRuleWithinRun(t *testing.T) {
-	stream := &llmRunStream{
-		session: contracts.QuerySession{RunID: "run_1"},
-		hitlRuleWhitelist: map[string]struct{}{
-			"dangerous::chmod::777::1::builtin::confirm_dialog": {},
-		},
-		checker: commandResultChecker{
-			results: map[string]hitl.InterceptResult{
-				"chmod 777 ~/d.sh": {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{RuleKey: "dangerous::chmod::777::1::builtin::confirm_dialog", Level: 1, View: view.Builtin("confirm_dialog")},
-					OriginalCommand: "chmod 777 ~/d.sh",
-				},
-			},
-		},
-		queuedToolCalls: []*preparedToolInvocation{
-			{toolID: "tool_4", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/d.sh", "description": "放开 d.sh 权限"}},
-		},
-	}
-
-	if stream.prepareQueuedBashApprovalBatch() {
-		t.Fatalf("expected whitelisted rule to skip approval batch, got %#v", stream.pending)
-	}
-	if decision := stream.queuedToolCalls[0].approvalDecision; decision != "approve_rule_run" {
-		t.Fatalf("expected invocation to inherit approve_rule_run, got %#v", stream.queuedToolCalls[0])
-	}
-	if stream.queuedToolCalls[0].hitlDecision == nil || stream.queuedToolCalls[0].hitlDecision.Scope != "run_rule" {
-		t.Fatalf("expected whitelisted invocation to record run_rule HITL metadata, got %#v", stream.queuedToolCalls[0])
-	}
-	if stream.queuedToolCalls[0].hitlDecision.Mode != "approval" {
-		t.Fatalf("expected whitelisted invocation to preserve approval mode, got %#v", stream.queuedToolCalls[0].hitlDecision)
-	}
-}
-
 func TestPrepareQueuedBashApprovalBatch_BlocksEntireTurnAndResumesInOriginalOrder(t *testing.T) {
 	executor := &recordingToolExecutor{
 		defs: []api.ToolDetailResponse{
@@ -6553,36 +6092,20 @@ func TestPrepareQueuedBashApprovalBatch_BlocksEntireTurnAndResumesInOriginalOrde
 			tools: executor,
 		},
 		session: contracts.QuerySession{
-			RequestID: "req_1",
-			ChatID:    "chat_1",
-			RunID:     "run_1",
+			WorkspaceRoot: t.TempDir(),
+			AccessLevel:   contracts.AccessLevelDefault,
+			RequestID:     "req_1",
+			ChatID:        "chat_1",
+			RunID:         "run_1",
 		},
 		runControl: contracts.NewRunControl(context.Background(), "run_1"),
 		execCtx: &contracts.ExecutionContext{
 			Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
 		},
-		checker: commandResultChecker{
-			results: map[string]hitl.InterceptResult{
-				"chmod 777 ~/a.sh": {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog")},
-					OriginalCommand: "chmod 777 ~/a.sh",
-				},
-				"chmod 777 ~/b.sh": {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog")},
-					OriginalCommand: "chmod 777 ~/b.sh",
-				},
-			},
-			tools: map[string]api.ToolDetailResponse{
-				strings.ToLower(bashToolDefinition().Name):                  bashToolDefinition(),
-				strings.ToLower(backendToolDefinition("weather_tool").Name): backendToolDefinition("weather_tool"),
-			},
-		},
 		queuedToolCalls: []*preparedToolInvocation{
-			{toolID: "tool_1", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
+			{toolID: "tool_1", toolName: "bash", args: map[string]any{"command": "chmod 777 /opt/demo/a.sh", "description": "放开 a.sh 权限"}},
 			{toolID: "tool_2", toolName: "weather_tool", args: map[string]any{"city": "Shanghai"}},
-			{toolID: "tool_3", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/b.sh", "description": "放开 b.sh 权限"}},
+			{toolID: "tool_3", toolName: "bash", args: map[string]any{"command": "chmod 777 /opt/demo/b.sh", "description": "放开 b.sh 权限"}},
 		},
 	}
 
@@ -6627,7 +6150,7 @@ func TestPrepareQueuedBashApprovalBatch_BlocksEntireTurnAndResumesInOriginalOrde
 	if len(executor.invocations) != 2 {
 		t.Fatalf("expected approved bash plus unblocked tool to execute, got %#v", executor.invocations)
 	}
-	if executor.invocations[0].name != "bash" || executor.invocations[0].args["command"] != "chmod 777 ~/a.sh" {
+	if executor.invocations[0].name != "bash" || executor.invocations[0].args["command"] != "chmod 777 /opt/demo/a.sh" {
 		t.Fatalf("expected first execution to be approved first bash, got %#v", executor.invocations)
 	}
 	if executor.invocations[1].name != "weather_tool" || executor.invocations[1].args["city"] != "Shanghai" {
@@ -6673,30 +6196,19 @@ func TestInvokeQueuedToolCallsAndPostHook_BlocksReadySiblingBeforeLaterApproval(
 			tools: executor,
 		},
 		session: contracts.QuerySession{
-			RequestID: "req_1",
-			ChatID:    "chat_1",
-			RunID:     "run_1",
+			WorkspaceRoot: t.TempDir(),
+			AccessLevel:   contracts.AccessLevelDefault,
+			RequestID:     "req_1",
+			ChatID:        "chat_1",
+			RunID:         "run_1",
 		},
 		runControl: contracts.NewRunControl(context.Background(), "run_1"),
 		execCtx: &contracts.ExecutionContext{
 			Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
 		},
-		checker: commandResultChecker{
-			results: map[string]hitl.InterceptResult{
-				"chmod 777 ~/a.sh": {
-					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, View: view.Builtin("confirm_dialog")},
-					OriginalCommand: "chmod 777 ~/a.sh",
-				},
-			},
-			tools: map[string]api.ToolDetailResponse{
-				strings.ToLower(bashToolDefinition().Name):                  bashToolDefinition(),
-				strings.ToLower(backendToolDefinition("weather_tool").Name): backendToolDefinition("weather_tool"),
-			},
-		},
 		queuedToolCalls: []*preparedToolInvocation{
 			{toolID: "tool_1", toolName: "weather_tool", args: map[string]any{"city": "Shanghai"}},
-			{toolID: "tool_2", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
+			{toolID: "tool_2", toolName: "bash", args: map[string]any{"command": "chmod 777 /opt/demo/a.sh", "description": "放开 a.sh 权限"}},
 		},
 	}
 
@@ -6739,7 +6251,7 @@ func TestInvokeQueuedToolCallsAndPostHook_BlocksReadySiblingBeforeLaterApproval(
 	if executor.invocations[0].name != "weather_tool" || executor.invocations[0].args["city"] != "Shanghai" {
 		t.Fatalf("expected ready sibling to resume first in original order, got %#v", executor.invocations)
 	}
-	if executor.invocations[1].name != "bash" || executor.invocations[1].args["command"] != "chmod 777 ~/a.sh" {
+	if executor.invocations[1].name != "bash" || executor.invocations[1].args["command"] != "chmod 777 /opt/demo/a.sh" {
 		t.Fatalf("expected approved bash to resume second, got %#v", executor.invocations)
 	}
 }
@@ -6770,7 +6282,6 @@ func TestAwaitHITLSubmitAndExecute_TimeoutEmitsTerminalAnswer(t *testing.T) {
 		hitlMatch: &hitl.InterceptResult{
 			Intercepted: true,
 			Rule: hitl.FlatRule{
-				Match: "rmi",
 				Level: 1,
 				View:  view.Builtin("confirm_dialog"),
 			},
@@ -6841,7 +6352,6 @@ func TestAwaitHITLSubmitAndExecute_FormTimeoutEmitsHITLMetadataAndSummary(t *tes
 		hitlMatch: &hitl.InterceptResult{
 			Intercepted: true,
 			Rule: hitl.FlatRule{
-				Match: "create-leave",
 				Level: 1,
 				View:  view.Builtin("platform_control_review"),
 			},
@@ -6886,202 +6396,6 @@ func TestAwaitHITLSubmitAndExecute_FormTimeoutEmitsHITLMetadataAndSummary(t *tes
 	noticeText, _ := stream.messages[len(stream.messages)-1].Content.(string)
 	if !strings.Contains(noticeText, `decision=reject reason="timeout"`) || strings.Contains(noticeText, "submitted_payload=") {
 		t.Fatalf("expected form timeout HITL audit notice without submitted payload, got %#v", stream.messages[len(stream.messages)-1])
-	}
-}
-
-func TestInvokeActiveToolCallUsesSkillScopedChecker(t *testing.T) {
-	executor := &recordingToolExecutor{
-		defs: []api.ToolDetailResponse{bashToolDefinition()},
-		result: contracts.ToolExecutionResult{
-			Output:   "executed",
-			ExitCode: 0,
-		},
-	}
-	runControl := contracts.NewRunControl(context.Background(), "run_1")
-	stream := &llmRunStream{
-		ctx: context.Background(),
-		engine: &LLMAgentEngine{
-			tools:        executor,
-			interactions: toolinteraction.NewDefaultRegistry(),
-		},
-		checker: stubChecker{
-			result: hitl.InterceptResult{
-				Intercepted: true,
-				Rule: hitl.FlatRule{
-					Match: "push",
-					Level: 1,
-					View:  view.Builtin("confirm_dialog"),
-				},
-				ParsedCommand: hitl.CommandComponents{
-					BaseCommand: "git",
-					Tokens:      []string{"push", "origin", "main"},
-				},
-			},
-		},
-		session: contracts.QuerySession{
-			RequestID: "req_1",
-			ChatID:    "chat_1",
-			RunID:     "run_1",
-		},
-		runControl: runControl,
-		execCtx: &contracts.ExecutionContext{
-			Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
-		},
-		activeToolCall: &preparedToolInvocation{
-			toolID:   "tool_1",
-			toolName: "bash",
-			args: map[string]any{
-				"command": "git push origin main",
-			},
-		},
-	}
-
-	if err := stream.invokeActiveToolCall(); err != nil {
-		t.Fatalf("invokeActiveToolCall returned error: %v", err)
-	}
-	stream.pending = withoutRunActivities(stream.pending)
-	if stream.hitlAwaitingID != buildHITLAwaitingID("tool_1") {
-		t.Fatalf("expected awaiting id, got %q", stream.hitlAwaitingID)
-	}
-	if len(executor.invocations) != 0 {
-		t.Fatalf("expected bash execution to wait for approval, got %#v", executor.invocations)
-	}
-}
-
-func TestExtractCommandPayload(t *testing.T) {
-	tests := []struct {
-		name     string
-		command  string
-		expected map[string]any
-	}{
-		{
-			name:     "mock command payload",
-			command:  sampleLeaveCommand(3),
-			expected: sampleLeavePayload(3),
-		},
-		{
-			name:     "non mock command payload",
-			command:  `demo submit-request --payload '{"request_id":"REQ-1","priority":"high"}'`,
-			expected: map[string]any{"request_id": "REQ-1", "priority": "high"},
-		},
-		{
-			name:    "payload file is ignored",
-			command: `mock create-leave --payload-file ./leave.json`,
-		},
-		{
-			name:    "missing payload value",
-			command: `mock create-leave --payload`,
-		},
-		{
-			name:    "invalid json payload",
-			command: `mock create-leave --payload '{invalid-json}'`,
-		},
-		{
-			name:    "payload must be object",
-			command: `mock create-leave --payload '["E1001"]'`,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			payload := extractCommandPayload(hitl.ParseCommandComponents(tc.command))
-			if !reflect.DeepEqual(payload, tc.expected) {
-				t.Fatalf("expected payload %#v, got %#v", tc.expected, payload)
-			}
-		})
-	}
-}
-
-func TestBuildFormApprovalArgsFallsBackToOriginalCommandPayload(t *testing.T) {
-	stream := &llmRunStream{
-		session: contracts.QuerySession{RunID: "run_1"},
-	}
-	args := stream.buildFormApprovalArgs(`mock create-leave --payload {"applicant_id":"E1001","department_id":"engineering","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip"}`, hitl.InterceptResult{
-		Rule: hitl.FlatRule{
-			View:  view.Builtin("platform_control_review"),
-			Title: "mock 请假申请",
-		},
-		ParsedCommand: hitl.CommandComponents{
-			BaseCommand: "mock",
-			Tokens:      []string{"create-leave", "--payload", "{applicant_id:E1001}"},
-		},
-		OriginalCommand: `mock create-leave --payload {"applicant_id":"E1001","department_id":"engineering","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip"}`,
-	})
-	form, ok := args["form"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected a single form in form approval args, got %#v", args)
-	}
-	payload, ok := form["data"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected form in form approval args, got %#v", args)
-	}
-	expected := sampleLeavePayload(3)
-	if !reflect.DeepEqual(payload, expected) {
-		t.Fatalf("expected payload %#v, got %#v", expected, payload)
-	}
-	if _, exists := payload["type"]; exists {
-		t.Fatalf("did not expect leave payload alias type, got %#v", payload)
-	}
-	if _, exists := payload["startDate"]; exists {
-		t.Fatalf("did not expect leave payload alias startDate, got %#v", payload)
-	}
-	if _, exists := payload["endDate"]; exists {
-		t.Fatalf("did not expect leave payload alias endDate, got %#v", payload)
-	}
-	if form["title"] != "mock 请假申请" {
-		t.Fatalf("expected title in form approval args, got %#v", args)
-	}
-}
-
-func TestReconstructCommandWithPayload(t *testing.T) {
-	tests := []struct {
-		name     string
-		command  string
-		payload  map[string]any
-		expected string
-	}{
-		{
-			name:     "leave",
-			command:  sampleLeaveCommand(3),
-			payload:  sampleLeavePayload(2),
-			expected: sampleLeaveCommand(2),
-		},
-		{
-			name:     "expense",
-			command:  sampleExpenseCommand(1280.5),
-			payload:  map[string]any{"employee": map[string]any{"id": "E1001", "name": "张三"}, "department": map[string]any{"code": "engineering", "name": "工程部"}, "expense_type": "travel", "currency": "CNY", "items": []any{map[string]any{"amount": 1280.5, "category": "transport", "description": "flight", "invoice_id": "INV-001", "occurred_on": "2026-04-10"}}, "submitted_at": "2026-04-14T10:30:00+08:00", "total_amount": 1280.5},
-			expected: canonicalExpenseCommand(1280.5),
-		},
-		{
-			name:     "procurement",
-			command:  sampleProcurementCommand("Shanghai"),
-			payload:  map[string]any{"requester_id": "E1001", "delivery_city": "Shanghai"},
-			expected: sampleProcurementCommand("Shanghai"),
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			rebuilt, err := reconstructCommandWithPayload(tc.command, tc.payload)
-			if err != nil {
-				t.Fatalf("reconstructCommandWithPayload returned error: %v", err)
-			}
-			if rebuilt != tc.expected {
-				t.Fatalf("expected %q, got %q", tc.expected, rebuilt)
-			}
-		})
-	}
-
-	if _, err := reconstructCommandWithPayload(`mock create-leave --payload-file ./leave.json`, sampleLeavePayload(3)); err == nil {
-		t.Fatal("expected command without --payload to fail reconstruction")
-	}
-
-	withQuote, err := reconstructCommandWithPayload(`mock create-leave --payload '{"reason":"o'\''hara"}'`, map[string]any{"reason": "o'hara"})
-	if err != nil {
-		t.Fatalf("reconstructCommandWithPayload returned error for apostrophe payload: %v", err)
-	}
-	if withQuote != `mock create-leave --payload '{"reason":"o'"'"'hara"}'` {
-		t.Fatalf("expected shell-safe quoted payload, got %q", withQuote)
 	}
 }
 
@@ -7130,125 +6444,6 @@ func TestHITLRejectedFormToolResultUsesRetryableFeedbackWhenPresent(t *testing.T
 	revisedForm, _ := diagnostics["revisedForm"].(map[string]any)
 	if diagnostics["reason"] != "风险过高" || revisedForm["days"] != 1 {
 		t.Fatalf("unexpected feedback diagnostics %#v", feedback.Structured)
-	}
-}
-
-func TestInvokeActiveToolCallAutoApprovesBuiltinLevelInCurrentRun(t *testing.T) {
-	executor := &recordingToolExecutor{
-		defs: []api.ToolDetailResponse{bashToolDefinition()},
-		result: contracts.ToolExecutionResult{
-			Output:   "executed",
-			ExitCode: 0,
-		},
-	}
-	stream := &llmRunStream{
-		ctx: context.Background(),
-		engine: &LLMAgentEngine{
-			tools:        executor,
-			interactions: toolinteraction.NewDefaultRegistry(),
-		},
-		checker: stubChecker{
-			result: hitl.InterceptResult{
-				Intercepted: true,
-				Rule: hitl.FlatRule{
-					Match: "push",
-					Level: 2, AutoApprove: []string{contracts.AccessLevelDefault},
-					View: view.Builtin("confirm_dialog"),
-				},
-			},
-		},
-		session: contracts.QuerySession{
-			RequestID: "req_1",
-			ChatID:    "chat_1",
-			RunID:     "run_1",
-		},
-		execCtx: &contracts.ExecutionContext{
-			Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
-		},
-		activeToolCall: &preparedToolInvocation{
-			toolID:   "tool_1",
-			toolName: "bash",
-			args: map[string]any{
-				"command": "git push origin main",
-			},
-		},
-	}
-
-	if err := stream.invokeActiveToolCall(); err != nil {
-		t.Fatalf("invokeActiveToolCall returned error: %v", err)
-	}
-	stream.pending = withoutRunActivities(stream.pending)
-	if len(executor.invocations) != 1 {
-		t.Fatalf("expected auto-approved command to execute once, got %#v", executor.invocations)
-	}
-	for _, delta := range stream.pending {
-		if _, ok := delta.(contracts.DeltaAwaitAsk); ok {
-			t.Fatalf("did not expect approval prompt when auto-approving, got %#v", stream.pending)
-		}
-	}
-}
-
-func TestInvokeActiveToolCallDoesNotAutoApproveHTMLView(t *testing.T) {
-	executor := &recordingToolExecutor{
-		defs: []api.ToolDetailResponse{bashToolDefinition()},
-		result: contracts.ToolExecutionResult{
-			Output:   "executed",
-			ExitCode: 0,
-		},
-	}
-	stream := &llmRunStream{
-		ctx: context.Background(),
-		engine: &LLMAgentEngine{
-			tools:        executor,
-			interactions: toolinteraction.NewDefaultRegistry(),
-		},
-		checker: stubChecker{
-			result: hitl.InterceptResult{
-				Intercepted: true,
-				Rule: hitl.FlatRule{
-					Match: "create-leave",
-					Level: 2,
-					View:  view.Builtin("platform_control_review"),
-				},
-				ParsedCommand: hitl.CommandComponents{
-					BaseCommand: "mock",
-					Tokens:      []string{"create-leave", "--payload", `{"applicant_id":"E1001","days":3,"department_id":"engineering","end_date":"2026-04-22","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20"}`},
-				},
-			},
-		},
-		session: contracts.QuerySession{
-			RequestID: "req_1",
-			ChatID:    "chat_1",
-			RunID:     "run_1",
-		},
-		runControl: contracts.NewRunControl(context.Background(), "run_1"),
-		execCtx: &contracts.ExecutionContext{
-			Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
-		},
-		activeToolCall: &preparedToolInvocation{
-			toolID:   "tool_1",
-			toolName: "bash",
-			args: map[string]any{
-				"command": sampleLeaveCommand(3),
-			},
-		},
-	}
-
-	if err := stream.invokeActiveToolCall(); err != nil {
-		t.Fatalf("invokeActiveToolCall returned error: %v", err)
-	}
-	stream.pending = withoutRunActivities(stream.pending)
-	if len(executor.invocations) != 0 {
-		t.Fatalf("expected html command to remain gated by form approval, got %#v", executor.invocations)
-	}
-	foundAwaitAsk := false
-	for _, delta := range stream.pending {
-		if _, ok := delta.(contracts.DeltaAwaitAsk); ok {
-			foundAwaitAsk = true
-		}
-	}
-	if !foundAwaitAsk {
-		t.Fatalf("expected html view to keep approval prompt, got %#v", stream.pending)
 	}
 }
 

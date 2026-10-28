@@ -16,7 +16,6 @@ import (
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
-	"agent-platform/internal/hitl"
 	"agent-platform/internal/httpclient"
 	"agent-platform/internal/modelclient"
 	. "agent-platform/internal/models"
@@ -294,24 +293,6 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		stream.runControl.EnableContextCompact()
 	}
 	stream.syncAccessLevelFromRunControl()
-	if len(session.SkillHookDirs) > 0 {
-		if e.llmConsoleEnabled(llmConsoleHitl) {
-			log.Printf("[llm][run:%s][hitl] creating SkillChecker hookDirs=%v", session.RunID, session.SkillHookDirs)
-		}
-		checker, err := hitl.NewSkillChecker(session.SkillHookDirs)
-		if err != nil {
-			log.Printf("[llm][run:%s][hitl][warning] failed to create SkillChecker hookDirs=%v err=%v", session.RunID, session.SkillHookDirs, err)
-			return nil, err
-		}
-		stream.checker = checker
-		if e.llmConsoleEnabled(llmConsoleHitl) {
-			log.Printf("[llm][run:%s][hitl] SkillChecker enabled hookDirCount=%d", session.RunID, len(session.SkillHookDirs))
-		}
-	} else {
-		if e.llmConsoleEnabled(llmConsoleHitl) {
-			log.Printf("[llm][run:%s][hitl] SkillChecker disabled hookDirCount=0", session.RunID)
-		}
-	}
 	if !stream.allowToolUse {
 		stream.toolSpecs = nil
 		stream.maxSteps = 1

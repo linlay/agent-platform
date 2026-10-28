@@ -76,7 +76,7 @@ func (s *Service) Execute(ctx context.Context, doc view.Document, name string, p
 	}
 	req := connectorops.Request{ConnectorID: doc.View.ConnectorID, Adapter: action.Adapter, IdempotencyKey: requestID}
 	if action.Adapter == "cli" {
-		req.Args, err = viewquery.CLIArgs(action.Args, values)
+		req.Args, err = view.CLIArgs(action.Args, values)
 		if action.StdinParam != "" {
 			value, ok := values[action.StdinParam].(map[string]any)
 			if !ok {

@@ -4,43 +4,15 @@ import (
 	"agent-platform/internal/view"
 )
 
-type SubcommandRule struct {
-	Mode        string          `yaml:"mode"`
-	View        *view.Reference `yaml:"view"`
-	Match       string          `yaml:"match"`
-	Level       int             `yaml:"level"`
-	Title       string          `yaml:"title"`
-	Timeout     int             `yaml:"timeout"`
-	AutoApprove []string        `yaml:"autoApprove"`
-}
-
-type CommandBlock struct {
-	Command          string           `yaml:"command"`
-	PassThroughFlags []string         `yaml:"passThroughFlags"`
-	Subcommands      []SubcommandRule `yaml:"subcommands"`
-}
-
-type RuleFile struct {
-	Key      string         `yaml:"key"`
-	Enabled  *bool          `yaml:"enabled"`
-	Commands []CommandBlock `yaml:"commands"`
-}
-
+// FlatRule describes why one tool call waits for a person: a built-in
+// approval (access policy, security review) or a connector VIEW form.
 type FlatRule struct {
-	Mode             string
-	View             *view.Reference
-	RuleKey          string
-	FileKey          string
-	SourcePath       string
-	Order            int
-	Command          string
-	Match            string
-	MatchTokens      []string
-	PassThroughFlags []string
-	Level            int
-	Title            string
-	Timeout          int
-	AutoApprove      []string
+	Mode    string
+	View    *view.Reference
+	RuleKey string
+	Level   int
+	Title   string
+	Timeout int
 }
 
 // Builtin HTML reviews default to form; other rules default to approval.
@@ -59,18 +31,23 @@ func (r FlatRule) IsBuiltinApproval() bool {
 	return r.EffectiveMode() == "approval" && (r.View == nil || (r.View.ConnectorID == "" && r.View.Renderer == "native"))
 }
 
-type CommandComponents struct {
-	BaseCommand string
-	Tokens      []string
-}
-
 type InterceptResult struct {
-	Requirements    []InterceptResult
+	// Conflict refuses the call outright with this reason.
 	Conflict        string
 	Intercepted     bool
 	Rule            FlatRule
-	ParsedCommand   CommandComponents
 	OriginalCommand string
 	MatchedCommand  string
 	MatchedWhole    bool
+	// Intercept binds a connector VIEW form to the command it reviews.
+	Intercept *ViewIntercept
+}
+
+// ViewIntercept is a connector command reviewed in its VIEW form. Prefix is
+// the entry as written; the command is rebuilt from it and the submitted
+// params through the action template.
+type ViewIntercept struct {
+	ConnectorID string
+	Prefix      []string
+	Action      view.InterceptAction
 }
