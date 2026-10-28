@@ -192,9 +192,6 @@ func ExecuteNative(params NativeOptions) Result {
 		},
 	})
 	MaybeBroadcastInterruptedAwaiting(params, tracker)
-	if params.Session.RuntimeComplete != nil {
-		params.Session.RuntimeComplete(params.Session.RunID, result.Completion.FinishReason, result.Completion.AssistantText, result.Persisted)
-	}
 	if params.StepWriter != nil {
 		params.StepWriter.Flush()
 	}
@@ -211,6 +208,10 @@ func ExecuteNative(params NativeOptions) Result {
 	}
 	if result.Persisted {
 		BroadcastCompletion(params, result.Completion)
+	}
+	// Mailbox hooks run after the ordinary finish path so it is unaffected.
+	if params.Session.RuntimeComplete != nil {
+		params.Session.RuntimeComplete(params.Session.RunID, result.Completion.FinishReason, result.Completion.AssistantText, result.Persisted)
 	}
 	if params.Session.RuntimeIdle != nil {
 		params.Session.RuntimeIdle()

@@ -27,12 +27,18 @@ type Service struct {
 	maxHops       int
 	ctx           context.Context
 	mu            sync.Mutex
-	chatLocks     map[string]*sync.Mutex
+	chatLocks     map[string]*chatLock
 	scopes        map[string]controlscope.Scope
 	notifications contracts.NotificationSink
 	wg            sync.WaitGroup
 	closed        bool
 	prepared      map[string]*preparedMail
+}
+
+// chatLock is dropped when no dispatch for its Chat is pending.
+type chatLock struct {
+	mu   sync.Mutex
+	refs int
 }
 
 type preparedMail struct {
@@ -46,7 +52,7 @@ func New(ctx context.Context, store *Store, root string, maxHops int, notificati
 	if maxHops <= 0 {
 		maxHops = 4
 	}
-	return &Service{Store: store, root: root, maxHops: maxHops, ctx: ctx, chatLocks: map[string]*sync.Mutex{}, scopes: map[string]controlscope.Scope{}, notifications: notifications}
+	return &Service{Store: store, root: root, maxHops: maxHops, ctx: ctx, chatLocks: map[string]*chatLock{}, scopes: map[string]controlscope.Scope{}, notifications: notifications}
 }
 func (s *Service) Bind(port Port) { s.port = port }
 func NewID(prefix string) string {
@@ -106,7 +112,28 @@ func (s *Service) scope(id string) (controlscope.Scope, bool) {
 	v, ok := s.scopes[id]
 	return v, ok
 }
+func (s *Service) dropScope(id string) {
+	s.mu.Lock()
+	delete(s.scopes, id)
+	s.mu.Unlock()
+}
+
+// change commits one row transition and publishes it. A callback returning
+// errStale leaves the row untouched.
+func (s *Service) change(id string, fn func(*Mail) error) (Mail, error) {
+	m, err := s.Store.Change(id, fn)
+	if err == nil {
+		s.changed(m)
+	}
+	return m, err
+}
+
+// changed publishes a transition and forgets the in-process delivery identity
+// once the row can never be delivered again.
 func (s *Service) changed(m Mail) {
+	if m.Terminal() {
+		s.dropScope(m.ID)
+	}
 	if s.notifications != nil {
 		s.notifications.Broadcast("mail.updated", map[string]any{"mailId": m.ID, "kind": m.Kind, "status": m.Status, "delivery": m.Delivery, "toAgentKey": m.ToAgentKey, "toChatId": m.ToChatID, "runId": m.RunID})
 	}
@@ -216,7 +243,7 @@ func (s *Service) finishAcceptance(ctx context.Context, m Mail) error {
 	if err := s.copyFiles(m); err != nil {
 		return err
 	}
-	updated, err := s.Store.Change(m.ID, func(row *Mail) error {
+	_, err := s.change(m.ID, func(row *Mail) error {
 		if row.Status != Accepting {
 			return errStale
 		}
@@ -226,9 +253,6 @@ func (s *Service) finishAcceptance(ctx context.Context, m Mail) error {
 		row.Error = nil
 		return nil
 	})
-	if err == nil {
-		s.changed(updated)
-	}
 	if errors.Is(err, errStale) {
 		return nil
 	}
@@ -254,16 +278,23 @@ func (s *Service) Kick(chatID string) {
 	}
 	lock := s.chatLocks[chatID]
 	if lock == nil {
-		lock = &sync.Mutex{}
+		lock = &chatLock{}
 		s.chatLocks[chatID] = lock
 	}
+	lock.refs++
 	s.wg.Add(1)
 	s.mu.Unlock()
 	go func() {
 		defer s.wg.Done()
-		lock.Lock()
-		defer lock.Unlock()
-		if err := s.dispatch(chatID); err != nil {
+		lock.mu.Lock()
+		err := s.dispatch(chatID)
+		lock.mu.Unlock()
+		s.mu.Lock()
+		if lock.refs--; lock.refs == 0 {
+			delete(s.chatLocks, chatID)
+		}
+		s.mu.Unlock()
+		if err != nil {
 			log.Printf("[mailbox] dispatch chat=%s: %v", chatID, err)
 		}
 	}()
@@ -279,19 +310,29 @@ func (s *Service) dispatch(chatID string) error {
 		}
 		scope, ok := s.scope(m.ID)
 		if !ok {
-			_, err = s.Store.Change(m.ID, func(row *Mail) error {
-				row.ResumePhase = row.Status
+			// A queued row was never handed to a Run in this attempt. Only a
+			// person can supply a delivery identity again.
+			_, err = s.change(m.ID, func(row *Mail) error {
+				if row.Status != Queued {
+					return errStale
+				}
+				row.ResumePhase = Queued
 				row.Status = Suspended
-				row.Evidence = "unknown"
+				row.Evidence = "none"
 				return nil
 			})
-			if err != nil {
+			if err != nil && !errors.Is(err, errStale) {
 				return err
 			}
 			continue
 		}
+		// Transient errors (I/O, shutdown) leave the queue in order; the next
+		// trigger retries and a restart suspends it for a person.
 		target, e := s.port.MailTarget(s.ctx, m)
 		if e != nil {
+			if !rejected(e) {
+				return e
+			}
 			s.fail(m, e)
 			continue
 		}
@@ -299,10 +340,13 @@ func (s *Service) dispatch(chatID string) error {
 			return nil
 		}
 		if e = s.verifyFiles(m); e != nil {
+			if !rejected(e) {
+				return e
+			}
 			s.fail(m, e)
 			continue
 		}
-		m, e = s.Store.Change(m.ID, func(row *Mail) error {
+		m, e = s.change(m.ID, func(row *Mail) error {
 			if row.Status != Queued {
 				return errStale
 			}
@@ -312,7 +356,7 @@ func (s *Service) dispatch(chatID string) error {
 			row.RunID = target.RunID
 			row.Delivery = "inserted"
 			if row.RunID == "" {
-				row.RunID = NewID("r")
+				row.RunID = chat.NewRunID()
 				row.Delivery = "started"
 			}
 			return nil
@@ -329,7 +373,7 @@ func (s *Service) dispatch(chatID string) error {
 			continue
 		}
 		if e != nil || !result.Accepted {
-			_, changeErr := s.Store.Change(m.ID, func(row *Mail) error {
+			_, changeErr := s.change(m.ID, func(row *Mail) error {
 				if row.Attempts != m.Attempts || row.Status != Inflight {
 					return errStale
 				}
@@ -361,7 +405,7 @@ func (s *Service) Consumed(input *queryinput.MailInput, runID string) error {
 	if input == nil {
 		return nil
 	}
-	m, err := s.Store.Change(input.ID, func(row *Mail) error {
+	_, err := s.change(input.ID, func(row *Mail) error {
 		if row.Attempts != input.Attempt || row.RunID != runID || row.Status != Inflight {
 			return errStale
 		}
@@ -372,13 +416,13 @@ func (s *Service) Consumed(input *queryinput.MailInput, runID string) error {
 	if errors.Is(err, errStale) {
 		return nil
 	}
-	if err == nil {
-		s.changed(m)
-	}
 	return err
 }
+
+// Reconcile suspends unsettled mail at startup. A Chat whose evidence cannot
+// be read is treated as ambiguous and never stops the Platform from starting.
 func (s *Service) Reconcile(consumed func(Mail) (bool, error)) error {
-	rows, err := s.all(Filter{AllSubjects: true})
+	rows, err := s.Store.Unsettled()
 	if err != nil {
 		return err
 	}
@@ -388,9 +432,10 @@ func (s *Service) Reconcile(consumed func(Mail) (bool, error)) error {
 		}
 		seen, e := consumed(m)
 		if e != nil {
-			return e
+			log.Printf("[mailbox] reconcile evidence mail=%s chat=%s: %v", m.ID, m.ToChatID, e)
+			seen = false
 		}
-		updated, e := s.Store.Change(m.ID, func(row *Mail) error {
+		_, e = s.change(m.ID, func(row *Mail) error {
 			if row.Kind == Notify || row.Kind == Ask {
 				row.Status = Withdrawn
 				return nil
@@ -415,9 +460,8 @@ func (s *Service) Reconcile(consumed func(Mail) (bool, error)) error {
 			return nil
 		})
 		if e != nil {
-			return e
+			log.Printf("[mailbox] reconcile mail=%s: %v", m.ID, e)
 		}
-		s.changed(updated)
 	}
 	return nil
 }
@@ -429,13 +473,18 @@ func (s *Service) Action(ctx context.Context, id, action, subject string, scope 
 	if m.Subject != subject {
 		return m, failure("mail_not_owned", "mail belongs to another principal")
 	}
-	if m.Status != Suspended || (m.Kind != Letter && m.Kind != Reply) || m.PurgedAt != 0 {
-		return m, failure("mail_state_conflict", "only suspended mail can be redelivered or discarded")
-	}
 	if action != "redeliver" && action != "discard" {
 		return m, failure("invalid_request", "action must be redeliver or discard")
 	}
-	m, err = s.Store.Change(id, func(row *Mail) error {
+	if m.Status != Suspended || (m.Kind != Letter && m.Kind != Reply) || m.PurgedAt != 0 {
+		return m, failure("mail_state_conflict", "only suspended mail can be redelivered or discarded")
+	}
+	if action == "redeliver" {
+		// Installed before the row leaves suspended so no dispatch sees it
+		// queued without an identity.
+		s.setScope(id, scope)
+	}
+	m, err = s.change(id, func(row *Mail) error {
 		if row.Status != Suspended {
 			return failure("mail_state_conflict", "mail state changed")
 		}
@@ -443,7 +492,6 @@ func (s *Service) Action(ctx context.Context, id, action, subject string, scope 
 			row.Status = Discarded
 			return nil
 		}
-		s.setScope(id, scope)
 		row.Status = Queued
 		if row.ResumePhase == Accepting {
 			row.Status = Accepting
@@ -456,7 +504,6 @@ func (s *Service) Action(ctx context.Context, id, action, subject string, scope 
 	if err != nil {
 		return m, err
 	}
-	s.changed(m)
 	if action == "discard" {
 		return m, nil
 	}
@@ -473,30 +520,39 @@ func (s *Service) Action(ctx context.Context, id, action, subject string, scope 
 	s.Kick(m.ToChatID)
 	return s.Store.Get(id)
 }
+
+// Header is generated at the model boundary and never persisted.
 func (s *Service) Header(id string) string {
 	m, err := s.Store.Get(id)
 	if err != nil {
 		return ""
 	}
 	name := strings.ToUpper(string(m.Kind[:1])) + string(m.Kind[1:])
-	header := "[" + name + " " + m.ID + " from agent " + strconv.Quote(m.FromAgentKey) + " (chat " + m.FromChatID + ")"
+	sender := "chat " + m.FromChatID
+	if m.Kind == Ask {
+		sender += ", run " + m.FromRunID
+	}
+	header := "[" + name + " " + m.ID + " from agent " + strconv.Quote(m.FromAgentKey) + " (" + sender + ")"
+	// A purged row no longer names the correspondence it belonged to.
+	related := m.PurgedAt == 0
 	switch m.Kind {
 	case Letter:
 		header += ". Your final answer in this run will be sent back as the reply."
 	case Reply:
-		rows, _ := s.all(Filter{AllSubjects: true})
-		var ids []string
-		for _, v := range rows {
-			if v.AnsweredBy == m.ID {
-				ids = append(ids, v.ID)
-			}
+		if ids, _ := s.Store.AnsweredLetters(m.ID); related && len(ids) > 0 {
+			header += ", answering your letters " + strings.Join(ids, ", ")
 		}
-		sort.Strings(ids)
-		header += ", answering your letters " + strings.Join(ids, ", ") + ": " + m.Outcome
+		header += ": " + m.Outcome
 	case Notify:
-		header += ", about your letter " + m.ParentID + ". No reply needed."
+		if related {
+			header += ", about your letter " + m.ParentID
+		}
+		header += ". No reply needed."
 	case Ask:
-		header += ", about your letter " + m.ParentID + ": " + m.AwaitingMode + " " + m.AwaitingID + ". Answer with chat_submit runId=" + strconv.Quote(m.FromRunID) + " awaitingId=" + strconv.Quote(m.AwaitingID) + "."
+		if related {
+			header += ", about your letter " + m.ParentID
+		}
+		header += ": " + m.AwaitingMode + " " + m.AwaitingID
 	}
 	header += "]\n"
 	if len(m.Files) > 0 {
@@ -511,39 +567,82 @@ func (s *Service) Header(id string) string {
 
 func (s *Service) fail(m Mail, err error) {
 	if m.Kind != Letter {
-		updated, changeErr := s.Store.Change(m.ID, func(row *Mail) error {
-			if !row.Terminal() {
-				row.Status = Withdrawn
-				if row.Kind == Reply {
-					row.ResumePhase = m.Status
-					row.Status = Suspended
-					row.Evidence = "none"
-				}
-				row.Error = errorData(err)
+		_, _ = s.change(m.ID, func(row *Mail) error {
+			if row.Terminal() {
+				return errStale
 			}
+			row.Status = Withdrawn
+			if row.Kind == Reply {
+				row.ResumePhase = m.Status
+				row.Status = Suspended
+				row.Evidence = "none"
+			}
+			row.Error = errorData(err)
 			return nil
 		})
-		if changeErr == nil {
-			s.changed(updated)
-		}
 		return
 	}
 	r := s.newReply(m, "letter:"+m.ID, "", fmt.Sprint(err), "failed")
-	if scope, ok := s.scope(m.ID); ok {
-		s.setScope(r.ID, scope)
-	}
 	m.Error = errorData(err)
-	if e := s.Store.Complete([]Mail{r}, []Mail{m}, true); e != nil {
-		log.Printf("[mailbox] fail %s: %v", m.ID, e)
-		return
+	s.settle([]Mail{r}, []Mail{m}, true)
+}
+
+// settle commits replies and their letters. Each reply inherits its letter's
+// delivery identity before commit so no dispatch can see it without one.
+func (s *Service) settle(replies, letters []Mail, failed bool) error {
+	for _, r := range replies {
+		for _, l := range letters {
+			if l.FromChatID == r.ToChatID && (!failed || r.ReplyKey == "letter:"+l.ID) {
+				if scope, ok := s.scope(l.ID); ok {
+					s.setScope(r.ID, scope)
+				}
+				break
+			}
+		}
 	}
-	s.changed(r)
-	s.Kick(r.ToChatID)
+	inserted, settled, err := s.Store.Complete(replies, letters, failed)
+	if err != nil {
+		for _, r := range replies {
+			s.dropScope(r.ID)
+		}
+		log.Printf("[mailbox] settle letters: %v", err)
+		return err
+	}
+	stored := map[string]bool{}
+	for _, r := range inserted {
+		stored[r.ID] = true
+	}
+	for _, r := range replies {
+		if !stored[r.ID] {
+			s.dropScope(r.ID)
+		}
+	}
+	for _, l := range settled {
+		s.changed(l)
+	}
+	for _, r := range inserted {
+		s.changed(r)
+		s.Kick(r.ToChatID)
+	}
+	return nil
 }
 func (s *Service) newReply(m Mail, key, runID, text, outcome string) Mail {
 	return Mail{ID: NewID("mail"), Kind: Reply, Status: Queued, CreatedAt: now(), UpdatedAt: now(), ToAgentKey: m.FromAgentKey, ToChatID: m.FromChatID,
 		OriginType: "agent", FromAgentKey: m.ToAgentKey, FromChatID: m.ToChatID, FromRunID: runID, Subject: m.Subject, Message: text, Hop: m.Hop + 1, ReplyKey: key, ReplyOfRun: runID, Outcome: outcome, AccessLevel: "default"}
 }
+
+// outcome maps a Run finish reason to the reply outcome.
+func outcome(reason string) string {
+	switch strings.ToLower(strings.TrimSpace(reason)) {
+	case "cancel", "cancelled", "canceled", "interrupted":
+		return "canceled"
+	case "error", "failed", "fail", "timeout":
+		return "failed"
+	}
+	return "completed"
+}
+
+// Completed runs once per finished Run; it reads only rows tied to that Run.
 func (s *Service) Completed(completion chat.RunCompletion, hop int) error {
 	s.mu.Lock()
 	for key := range s.prepared {
@@ -552,55 +651,65 @@ func (s *Service) Completed(completion chat.RunCompletion, hop int) error {
 		}
 	}
 	s.mu.Unlock()
-	rows, err := s.all(Filter{AllSubjects: true})
+	asks, err := s.Store.AsksFromRun(completion.RunID)
+	if err != nil {
+		return err
+	}
+	for _, m := range asks {
+		if m.Terminal() {
+			continue
+		}
+		if _, err := s.change(m.ID, func(row *Mail) error {
+			if row.Terminal() {
+				return errStale
+			}
+			row.Status = Withdrawn
+			return nil
+		}); err != nil && !errors.Is(err, errStale) {
+			return err
+		}
+	}
+	rows, err := s.Store.ByRun(completion.RunID)
 	if err != nil {
 		return err
 	}
 	groups := map[string][]Mail{}
 	for _, m := range rows {
-		if m.Kind == Ask && m.FromRunID == completion.RunID && !m.Terminal() {
-			updated, e := s.Store.Change(m.ID, func(row *Mail) error {
-				if !row.Terminal() {
-					row.Status = Withdrawn
-				}
-				return nil
-			})
-			if e != nil {
-				return e
-			}
-			s.changed(updated)
-		}
-		if m.RunID != completion.RunID {
-			continue
-		}
 		if m.Status == Inflight {
-			_, err = s.Store.Change(m.ID, func(row *Mail) error {
-				if row.Status == Inflight && row.Attempts == m.Attempts {
-					row.Status = Queued
-					row.RunID = ""
-					row.SteerID = ""
-					row.Delivery = ""
+			if m.Delivery == "started" {
+				// The Run opened for this mail ended before reading it; another
+				// attempt would open the same failing Run again.
+				s.fail(m, failure("mail_run_not_started", "the Run opened for this mail ended before reading it"))
+				continue
+			}
+			_, err = s.change(m.ID, func(row *Mail) error {
+				if row.Status != Inflight || row.Attempts != m.Attempts {
+					return errStale
 				}
+				row.Status = Queued
+				row.RunID = ""
+				row.SteerID = ""
+				row.Delivery = ""
 				return nil
 			})
-			if err != nil {
+			if err != nil && !errors.Is(err, errStale) {
 				return err
 			}
+			continue
 		}
 		if m.Kind == Letter && m.Status == Delivered && m.AnsweredBy == "" {
 			groups[m.FromChatID] = append(groups[m.FromChatID], m)
 		}
 	}
-	var replies, letters []Mail
-	outcome := "completed"
-	switch completion.FinishReason {
-	case "error":
-		outcome = "failed"
-	case "cancel", "interrupted", "canceled":
-		outcome = "canceled"
+	chatIDs := make([]string, 0, len(groups))
+	for chatID := range groups {
+		chatIDs = append(chatIDs, chatID)
 	}
-	for chatID, group := range groups {
-		r := s.newReply(group[0], "run:"+completion.RunID+":"+chatID, completion.RunID, completion.AssistantText, outcome)
+	sort.Strings(chatIDs)
+	var replies, letters []Mail
+	for _, chatID := range chatIDs {
+		group := groups[chatID]
+		r := s.newReply(group[0], "run:"+completion.RunID+":"+chatID, completion.RunID, completion.AssistantText, outcome(completion.FinishReason))
 		r.Hop = hop + 1
 		attachmentErr := s.replyFiles(&r)
 		if attachmentErr == nil {
@@ -614,20 +723,11 @@ func (s *Service) Completed(completion chat.RunCompletion, hop int) error {
 			r.Evidence = "none"
 			r.Error = errorData(attachmentErr)
 		}
-		if scope, ok := s.scope(group[0].ID); ok {
-			s.setScope(r.ID, scope)
-		}
 		replies = append(replies, r)
 		letters = append(letters, group...)
 	}
 	if len(replies) > 0 {
-		if err = s.Store.Complete(replies, letters, false); err != nil {
-			return err
-		}
-		for _, r := range replies {
-			s.changed(r)
-			s.Kick(r.ToChatID)
-		}
+		return s.settle(replies, letters, false)
 	}
 	return nil
 }

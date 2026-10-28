@@ -133,6 +133,81 @@ func update(tx *sql.Tx, m Mail) error {
 func (s *Store) Get(id string) (Mail, error) {
 	return scan(s.db.QueryRow("SELECT "+columns+" FROM mails WHERE id=?", id))
 }
+
+// Lifecycle hooks run for every Run, so they read only indexed slices.
+func (s *Store) query(where string, args ...any) ([]Mail, error) {
+	rows, err := s.db.Query("SELECT "+columns+" FROM mails WHERE "+where+" ORDER BY created_at,id", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Mail{}
+	for rows.Next() {
+		m, e := scan(rows)
+		if e != nil {
+			return nil, e
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+func (s *Store) exists(where string, args ...any) (bool, error) {
+	var one int
+	err := s.db.QueryRow("SELECT 1 FROM mails WHERE "+where+" LIMIT 1", args...).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+func (s *Store) ByRun(runID string) ([]Mail, error) {
+	return s.query("run_id=?", runID)
+}
+func (s *Store) AsksFromRun(runID string) ([]Mail, error) {
+	return s.query("kind='ask' AND from_run_id=?", runID)
+}
+func (s *Store) Ask(runID, awaitingID string) (Mail, error) {
+	return scan(s.db.QueryRow("SELECT "+columns+" FROM mails WHERE kind='ask' AND from_run_id=? AND awaiting_id=?", runID, awaitingID))
+}
+
+// StartedLetter is the letter that opened runID, if it is still being worked.
+func (s *Store) StartedLetter(runID string) (Mail, error) {
+	return scan(s.db.QueryRow("SELECT "+columns+" FROM mails WHERE run_id=? AND kind='letter' AND delivery='started' AND status IN ('delivered','inflight') ORDER BY created_at,id LIMIT 1", runID))
+}
+func (s *Store) AnsweredLetters(replyID string) ([]string, error) {
+	rows, err := s.db.Query("SELECT id FROM mails WHERE answered_by=? ORDER BY id", replyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// OwnsRun grants control only for a Run opened by the caller's own letter.
+func (s *Store) OwnsRun(runID, agentKey, subject string) (bool, error) {
+	return s.exists("run_id=? AND kind='letter' AND delivery='started' AND from_agent_key=? AND subject=?", runID, agentKey, subject)
+}
+func (s *Store) OpenedBy(chatID, agentKey, subject string) (bool, error) {
+	return s.exists("to_chat_id=? AND opened_chat=1 AND from_agent_key=? AND subject=?", chatID, agentKey, subject)
+}
+func (s *Store) OpenedChats(agentKey, subject string) ([]Mail, error) {
+	return s.query("from_agent_key=? AND subject=? AND opened_chat=1 AND purged_at=0", agentKey, subject)
+}
+func (s *Store) ForChat(chatID string) ([]Mail, error) {
+	return s.query("from_chat_id=? OR to_chat_id=?", chatID, chatID)
+}
+
+// Unsettled excludes the statuses that are terminal for every kind.
+func (s *Store) Unsettled() ([]Mail, error) {
+	return s.query("status NOT IN ('done','failed','discarded','withdrawn')")
+}
 func (s *Store) Invocation(runID, toolID string) (Mail, error) {
 	return scan(s.db.QueryRow("SELECT "+columns+" FROM mails WHERE from_run_id=? AND from_tool_id=?", runID, toolID))
 }
@@ -230,15 +305,17 @@ func (s *Store) List(f Filter) ([]Mail, error) {
 }
 
 // Complete atomically enqueues replies and marks only still-unanswered letters.
-// The deterministic reply key also survives repeated terminal callbacks.
-func (s *Store) Complete(replies []Mail, letters []Mail, failed bool) error {
+// The deterministic reply key also survives repeated terminal callbacks. It
+// returns the replies it inserted and the letters it settled.
+func (s *Store) Complete(replies []Mail, letters []Mail, failed bool) ([]Mail, []Mail, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tx, err := s.db.Begin()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	defer tx.Rollback()
+	var inserted, settled []Mail
 	for _, r := range replies {
 		var id string
 		err := tx.QueryRow("SELECT id FROM mails WHERE kind='reply' AND reply_key=?", r.ReplyKey).Scan(&id)
@@ -246,11 +323,12 @@ func (s *Store) Complete(replies []Mail, letters []Mail, failed bool) error {
 			continue
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
-			return err
+			return nil, nil, err
 		}
 		if err = insert(tx, r); err != nil {
-			return err
+			return nil, nil, err
 		}
+		inserted = append(inserted, r)
 	}
 	for _, m := range letters {
 		var replyID string
@@ -259,15 +337,23 @@ func (s *Store) Complete(replies []Mail, letters []Mail, failed bool) error {
 			key = "letter:" + m.ID
 		}
 		if err := tx.QueryRow("SELECT id FROM mails WHERE kind='reply' AND reply_key=?", key).Scan(&replyID); err != nil {
-			return err
+			return nil, nil, err
 		}
 		status := Done
 		if failed {
 			status = Failed
 		}
-		if _, err := tx.Exec("UPDATE mails SET answered_by=?,status=?,updated_at=?,error=? WHERE id=? AND answered_by='' AND status NOT IN ('discarded','withdrawn','done','failed')", replyID, status, now(), jsonText(m.Error), m.ID); err != nil {
-			return err
+		result, err := tx.Exec("UPDATE mails SET answered_by=?,status=?,updated_at=?,error=? WHERE id=? AND answered_by='' AND status NOT IN ('discarded','withdrawn','done','failed')", replyID, status, now(), jsonText(m.Error), m.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if n, _ := result.RowsAffected(); n > 0 {
+			row, err := scan(tx.QueryRow("SELECT "+columns+" FROM mails WHERE id=?", m.ID))
+			if err != nil {
+				return nil, nil, err
+			}
+			settled = append(settled, row)
 		}
 	}
-	return tx.Commit()
+	return inserted, settled, tx.Commit()
 }

@@ -5,6 +5,7 @@ package conversation
 import (
 	"agent-platform/internal/operationstate"
 	"errors"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -33,12 +34,16 @@ func NewService(chats chat.Store, archives *chat.ArchiveStore, archiver *chat.Ar
 	return &Service{Chats: chats, Archives: archives, Archiver: archiver, Runs: runs}
 }
 
+// DeleteChat reports only the Chat deletion. Mail cleanup is best effort: the
+// Chat is already gone, and a restart suspends any mail it left behind.
 func (s *Service) DeleteChat(chatID string) error {
 	if err := s.Chats.DeleteChat(chatID); err != nil {
 		return err
 	}
 	if s.MailboxPurge != nil {
-		return s.MailboxPurge(chatID)
+		if err := s.MailboxPurge(chatID); err != nil {
+			log.Printf("[conversation] purge mail for deleted chat=%s: %v", chatID, err)
+		}
 	}
 	return nil
 }

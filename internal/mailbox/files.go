@@ -3,6 +3,7 @@ package mailbox
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/chat"
+	"agent-platform/internal/contracts"
 )
 
 // chatPath rejects traversal and symlink escapes, including an escaped Chat
@@ -163,18 +165,26 @@ func attachmentDirectory(root, chatID, mailID string) (string, error) {
 	}
 	return dir, nil
 }
+
+// verifyFiles rejects a missing or changed copy; other read errors are
+// transient and leave the mail queued.
 func (s *Service) verifyFiles(m Mail) error {
 	for _, f := range m.Files {
 		p, err := s.chatPath(m.ToChatID, f.Path)
+		if err == nil {
+			var n int64
+			var h string
+			n, h, err = digestFile(p)
+			if err == nil && (n != f.Size || h != f.SHA256) {
+				err = failure("mail_attachment_changed", fmt.Sprintf("attachment %q changed", f.Name))
+			}
+		}
+		var definite *contracts.RunToolError
+		if errors.Is(err, os.ErrNotExist) || errors.As(err, &definite) {
+			return Reject(err)
+		}
 		if err != nil {
 			return err
-		}
-		n, h, err := digestFile(p)
-		if err != nil {
-			return err
-		}
-		if n != f.Size || h != f.SHA256 {
-			return failure("mail_attachment_changed", fmt.Sprintf("attachment %q changed", f.Name))
 		}
 	}
 	return nil

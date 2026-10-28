@@ -290,6 +290,9 @@ func (s *Service) StartRun(ctx context.Context, request contracts.RunStartReques
 		releaseQuery(prepared.Release)
 		return contracts.RunSnapshot{}, runNotStarted(mapRunStatusError(statusErr))
 	}
+	// A derived Run is one hop beyond its parent, so chat_start cannot reset
+	// the mailbox hop count.
+	registered.Control.RaiseMailHop(s.MailRunHop(parentRunID) + 1)
 	eventBus, ok := s.deps.Runs.EventBus(prepared.Req.RunID)
 	if !ok {
 		releaseQuery(prepared.Release)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"agent-platform/internal/contracts"
@@ -14,16 +15,11 @@ import (
 )
 
 func (s *Service) parent(runID string) (Mail, error) {
-	rows, err := s.all(Filter{Kind: Letter, AllSubjects: true})
-	if err != nil {
-		return Mail{}, err
+	m, err := s.Store.StartedLetter(runID)
+	if errors.Is(err, ErrNotFound) {
+		return Mail{}, failure("mail_parent_required", "this Run was not opened by a letter")
 	}
-	for _, m := range rows {
-		if m.RunID == runID && m.Delivery == "started" && (m.Status == Delivered || m.Status == Inflight) {
-			return m, nil
-		}
-	}
-	return Mail{}, failure("mail_parent_required", "this Run was not opened by a letter")
+	return m, err
 }
 func (s *Service) Notify(ctx context.Context, message string, files []string, origin contracts.RunOrigin, hop int) (Receipt, error) {
 	if origin.RunID == "" || origin.ToolID == "" {
@@ -70,17 +66,27 @@ func (s *Service) Notify(ctx context.Context, message string, files []string, or
 		return Receipt{}, err
 	}
 	s.setScope(m.ID, scope)
-	m, _, err = s.Store.Accept(m)
+	stored, inserted, err := s.Store.Accept(m)
+	if !inserted {
+		s.dropScope(m.ID)
+	}
 	if err != nil {
 		return Receipt{}, err
 	}
-	s.changed(m)
-	s.Kick(m.ToChatID)
-	return receipt(m), nil
+	s.changed(stored)
+	s.Kick(stored.ToChatID)
+	return receipt(stored), nil
 }
+
+// ObserveEvent runs for every event of every bound Run, so it reads only rows
+// tied to the Run's own identity.
 func (s *Service) ObserveEvent(runID string, event stream.EventData) {
 	switch event.Type {
 	case "awaiting.ask":
+		mode := event.String("mode")
+		if mode != "question" && mode != "form" && mode != "approval" {
+			return
+		}
 		parent, err := s.parent(runID)
 		if err != nil {
 			return
@@ -92,8 +98,8 @@ func (s *Service) ObserveEvent(runID string, event stream.EventData) {
 		if hop >= s.maxHops {
 			return
 		}
-		mode := event.String("mode")
-		if mode != "question" && mode != "form" && mode != "approval" {
+		scope, ok := s.scope(parent.ID)
+		if !ok {
 			return
 		}
 		source := "tool_approval"
@@ -106,12 +112,12 @@ func (s *Service) ObserveEvent(runID string, event stream.EventData) {
 			}
 		}
 		snapshot := contracts.CloneMap(event.Payload)
-		if source == "ask_user_form" {
-			form, _ := snapshot["form"].(map[string]any)
+		if form, _ := snapshot["form"].(map[string]any); form != nil {
 			data, _ := form["data"].(map[string]any)
-			fragment, _ := data["html"].(string)
-			if fields, e := formhtml.Describe(fragment); e == nil {
-				snapshot["fields"] = fields
+			if fragment, _ := data["html"].(string); fragment != "" {
+				if fields, e := formhtml.Describe(fragment); e == nil {
+					snapshot["fields"] = fields
+				}
 			}
 		}
 		m := s.newReply(parent, "", runID, jsonText(snapshot), "")
@@ -123,56 +129,49 @@ func (s *Service) ObserveEvent(runID string, event stream.EventData) {
 		m.AwaitingID = event.String("awaitingId")
 		m.AwaitingMode = mode
 		m.AwaitingSource = source
-		scope, ok := s.scope(parent.ID)
-		if !ok {
-			return
-		}
 		s.setScope(m.ID, scope)
-		m, _, err = s.Store.Accept(m)
-		if err != nil {
+		stored, inserted, err := s.Store.Accept(m)
+		if !inserted {
+			s.dropScope(m.ID)
+		}
+		if err != nil || !inserted {
 			return
 		}
-		s.changed(m)
-		s.Kick(m.ToChatID)
+		s.changed(stored)
+		s.Kick(stored.ToChatID)
 	case "awaiting.answer":
-		rows, err := s.all(Filter{Kind: Ask, AllSubjects: true})
+		m, err := s.Store.Ask(runID, event.String("awaitingId"))
 		if err != nil {
 			return
 		}
-		for _, m := range rows {
-			if m.FromRunID == runID && m.AwaitingID == event.String("awaitingId") {
-				updated, e := s.Store.Change(m.ID, func(row *Mail) error {
-					if row.Status == Delivered {
-						row.Status = Done
-					} else if !row.Terminal() {
-						row.Status = Withdrawn
-					}
-					return nil
-				})
-				if e == nil {
-					s.changed(updated)
-				}
+		_, _ = s.change(m.ID, func(row *Mail) error {
+			switch {
+			case row.Status == Delivered:
+				row.Status = Done
+			case !row.Terminal():
+				row.Status = Withdrawn
+			default:
+				return errStale
 			}
-		}
+			return nil
+		})
 	}
 }
 func (s *Service) Submit(ctx context.Context, req queryinput.SubmitRequest, exec *contracts.ExecutionContext) (queryinput.SubmitResponse, error) {
 	if exec == nil {
 		return queryinput.SubmitResponse{}, failure("run_context_required", "root Run required")
 	}
-	rows, err := s.all(Filter{ChatID: exec.Session.ChatID, Kind: Ask, Subject: exec.Session.Subject})
+	m, err := s.Store.Ask(req.RunID, req.AwaitingID)
+	if errors.Is(err, ErrNotFound) || err == nil && (m.ToChatID != exec.Session.ChatID || m.Subject != exec.Session.Subject) {
+		return queryinput.SubmitResponse{}, failure("mail_ask_not_owned", "no matching ask was delivered to this Chat")
+	}
 	if err != nil {
 		return queryinput.SubmitResponse{}, err
 	}
-	for _, m := range rows {
-		if m.FromRunID == req.RunID && m.AwaitingID == req.AwaitingID {
-			if m.Status != Delivered {
-				return queryinput.SubmitResponse{}, failure("already_resolved", "ask is no longer actionable")
-			}
-			return s.port.SubmitMail(ctx, m, req, exec)
-		}
+	if m.Status != Delivered {
+		return queryinput.SubmitResponse{}, failure("already_resolved", "ask is no longer actionable")
 	}
-	return queryinput.SubmitResponse{}, failure("mail_ask_not_owned", "no matching ask was delivered to this Chat")
+	return s.port.SubmitMail(ctx, m, req, exec)
 }
 func (s *Service) Owned(id, agentKey, subject string) (Mail, error) {
 	m, err := s.Store.Get(id)
@@ -185,26 +184,18 @@ func (s *Service) Owned(id, agentKey, subject string) (Mail, error) {
 	return m, nil
 }
 func (s *Service) OwnsRun(runID, agentKey, subject string) bool {
-	rows, err := s.all(Filter{Subject: subject})
-	if err != nil {
-		return false
-	}
-	for _, m := range rows {
-		if m.RunID == runID && m.FromAgentKey == agentKey && m.Delivery == "started" {
-			return true
-		}
-	}
-	return false
+	owned, err := s.Store.OwnsRun(runID, agentKey, subject)
+	return err == nil && owned
 }
 func (s *Service) OpenedChats(agentKey, subject string) ([]map[string]any, error) {
-	rows, err := s.all(Filter{Subject: subject})
+	rows, err := s.Store.OpenedChats(agentKey, subject)
 	if err != nil {
 		return nil, err
 	}
 	out := []map[string]any{}
 	seen := map[string]bool{}
 	for _, m := range rows {
-		if m.FromAgentKey != agentKey || !m.OpenedChat || seen[m.ToChatID] || m.PurgedAt != 0 {
+		if seen[m.ToChatID] {
 			continue
 		}
 		seen[m.ToChatID] = true
@@ -218,18 +209,15 @@ func (s *Service) OpenedChats(agentKey, subject string) ([]map[string]any, error
 	return out, nil
 }
 func (s *Service) PurgeChat(chatID string) error {
-	rows, err := s.all(Filter{AllSubjects: true})
+	rows, err := s.Store.ForChat(chatID)
 	if err != nil {
 		return err
 	}
 	for _, m := range rows {
-		if m.FromChatID != chatID && m.ToChatID != chatID {
-			continue
-		}
 		if m.Kind == Letter && !m.Terminal() && m.ToChatID == chatID {
 			s.fail(m, failure("chat_deleted", "receiving Chat was deleted"))
 		}
-		updated, e := s.Store.Change(m.ID, func(row *Mail) error {
+		if _, e := s.change(m.ID, func(row *Mail) error {
 			if !row.Terminal() {
 				if row.Kind == Letter {
 					row.Status = Failed
@@ -243,15 +231,16 @@ func (s *Service) PurgeChat(chatID string) error {
 			row.Files = nil
 			row.PurgedAt = now()
 			return nil
-		})
-		if e != nil {
+		}); e != nil {
 			return e
 		}
-		s.changed(updated)
 	}
 	return nil
 }
-func (s *Service) AskText(m Mail) string {
+
+// Body is the text delivered to the receiving Chat. An ask keeps its awaiting
+// snapshot in mail.db and is rendered here without form HTML.
+func (s *Service) Body(m Mail) string {
 	if m.Kind != Ask {
 		return m.Message
 	}
@@ -259,5 +248,88 @@ func (s *Service) AskText(m Mail) string {
 	if json.Unmarshal([]byte(m.Message), &snapshot) != nil {
 		return m.Message
 	}
-	return fmt.Sprintf("Waiting item (%s, source %s). Submit the matching param or params shape.\n%s", m.AwaitingMode, m.AwaitingSource, strings.TrimSpace(m.Message))
+	var b strings.Builder
+	switch m.AwaitingMode {
+	case "question":
+		for i, raw := range items(snapshot["questions"]) {
+			q := contracts.AnyMapNode(raw)
+			b.WriteString(strconv.Itoa(i+1) + ". " + contracts.AnyStringNode(q["question"]))
+			if labels := optionValues(q["options"], "label"); len(labels) > 0 {
+				prompt := "select"
+				if strings.EqualFold(contracts.AnyStringNode(q["type"]), "multi-select") {
+					prompt = "select one or more"
+				}
+				b.WriteString("  " + prompt + ": " + strings.Join(labels, " | "))
+			}
+			b.WriteString("\n")
+		}
+	case "approval":
+		decisions := []string{}
+		for _, raw := range items(snapshot["approvals"]) {
+			a := contracts.AnyMapNode(raw)
+			command := contracts.AnyStringNode(a["command"])
+			b.WriteString(contracts.AnyStringNode(a["toolName"]) + ": " + command)
+			if d := contracts.AnyStringNode(a["description"]); d != "" && d != command {
+				b.WriteString("  (" + d + ")")
+			}
+			b.WriteString("\n")
+			for _, d := range optionValues(a["options"], "decision") {
+				if !contains(decisions, d) {
+					decisions = append(decisions, d)
+				}
+			}
+		}
+		if !contains(decisions, "reject") {
+			decisions = append(decisions, "reject")
+		}
+		b.WriteString("Options: " + strings.Join(decisions, " | ") + ". Approval is accepted only if your own access level allows this operation.\n")
+	case "form":
+		form := contracts.AnyMapNode(snapshot["form"])
+		if title := contracts.AnyStringNode(form["title"]); title != "" {
+			b.WriteString(title + "\n")
+		}
+		var fields []formhtml.Field
+		if raw, err := json.Marshal(snapshot["fields"]); err == nil {
+			_ = json.Unmarshal(raw, &fields)
+		}
+		for _, f := range fields {
+			line := "- " + f.Name + " (" + f.Type
+			if f.Multiple {
+				line += ", multiple"
+			}
+			line += ")"
+			if len(f.Options) > 0 {
+				line += ": " + strings.Join(f.Options, " | ")
+			}
+			b.WriteString(line + "\n")
+		}
+		if m.AwaitingSource == "tool_approval" {
+			b.WriteString("Options: approve | reject. Approval is accepted only if your own access level allows this operation.\n")
+		} else {
+			b.WriteString("Options: approve with data | reject | dismiss.\n")
+		}
+	}
+	b.WriteString(fmt.Sprintf("Answer with chat_submit runId=%q awaitingId=%q, or ask the user if unsure.", m.FromRunID, m.AwaitingID))
+	return b.String()
+}
+func items(v any) []any {
+	list, _ := v.([]any)
+	return list
+}
+func optionValues(v any, key string) []string {
+	out := []string{}
+	for _, raw := range items(v) {
+		if value := strings.TrimSpace(contracts.AnyStringNode(contracts.AnyMapNode(raw)[key])); value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+func contains(list []string, value string) bool {
+	for _, v := range list {
+		if v == value {
+			return true
+		}
+	}
+	return false
 }

@@ -166,3 +166,25 @@ func TestChatPrimaryRejectsDuplicateChatAcrossAgents(t *testing.T) {
 		t.Fatal("duplicate chat id accepted")
 	}
 }
+
+func TestChatPrimaryBackfillNeverReplacesActivePointer(t *testing.T) {
+	s := newPrimaryTestStore(t)
+	change, err := s.SetChatPrimaryIfMissing("agent-a", "chat-01")
+	if err != nil || !change.Changed {
+		t.Fatalf("missing pointer must be filled: %+v %v", change, err)
+	}
+	change, err = s.SetChatPrimaryIfMissing("agent-a", "chat-02")
+	if err != nil || change.Changed || change.PreviousChatID != "chat-01" {
+		t.Fatalf("backfill replaced an active primary: %+v %v", change, err)
+	}
+	if id, _ := s.PrimaryChatID("agent-a"); id != "chat-01" {
+		t.Fatalf("primary = %q", id)
+	}
+	if err := s.DeleteChat("chat-01"); err != nil {
+		t.Fatal(err)
+	}
+	change, err = s.SetChatPrimaryIfMissing("agent-a", "chat-02")
+	if err != nil || !change.Changed {
+		t.Fatalf("a pointer to a deleted Chat counts as missing: %+v %v", change, err)
+	}
+}

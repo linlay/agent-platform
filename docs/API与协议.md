@@ -278,7 +278,7 @@ PUT/WS mutation 继续返回轻量 `sortMode/pinnedOrder/updatedAt`，不附带 
 - 新建：`/api/query`（HTTP/WS）带 `primary:true`，且本次请求创建该 Chat（省略 `chatId`、`chatId` 尚不存在，或是只有上传、尚未受理首条 query 的占位 Chat）。Chat 建立后指针随即切换；`chatId` 指向已有 Chat 时返回 400，侧通道（`lane` 非空）同样返回 400。`primary` 是调用方原样输入，只作用于这一次请求，计划批准后的执行 Run 与恢复不会重放它。
 - 设定：`PUT /api/chats/primary {chatId}`（WS 同路径同字段）把已发布的已有 Chat 设为其 owner Agent 的主要聊天；Chat 不存在返回 404，上传占位 Chat 或无 owner 的 Chat 返回 400；已是主要聊天时 `changed:false` 且不广播。
 - 互斥：当前主要聊天有活动 Run（含等待用户提问、审批的 Run）时，新建与设定都返回 409 `primary_chat_busy`，`data` 带当前主要聊天的 `chatId` 与 `runIds`。query 在创建 Chat 之前检查，被拒绝时不会留下新 Chat。
-- Mailbox 补缺：chat_send 省略 chatId/newChat 且主要指针缺失时，在会话 mutation 锁内补建并设为主要聊天；恢复 accepting 时重新仲裁已有指针。既有指针不切换。
+- Mailbox 补缺：chat_send 省略 chatId/newChat 且主要指针缺失时，在会话 mutation 锁内补建，并以“指针仍缺失才设置”的条件写入设为主要聊天；恢复 accepting 时重新仲裁已有指针。既有指针不切换；`primary:true` 的 query 不取该锁，期间若它先设置了指针，信留在新建的会话中。
 - 不切换指针的入口：普通 query、在历史聊天中续聊、Automation、`chat_start`、`/api/execute`、channel、derive 和归档恢复创建或继续的 Chat 都只是历史聊天。
 - 生命周期：归档或删除主要聊天时先清除指针，客户端由既有 `chat.archived` / `chat.deleted` 得知；恢复归档不恢复指针。没有指针的 Agent 视为没有主要聊天，升级后不迁移已有 Chat。
 - 列表：`/api/chats` 可选 `primary` 与其他筛选按 AND 组合，并在 `limit` 之前生效；`primary=true` 按指针 ID 直接读取，`agentKey=<key>&primary=false` 即该 Agent 的历史聊天。HTTP 只接受单个 `true`/`false`，WebSocket 使用 JSON boolean。

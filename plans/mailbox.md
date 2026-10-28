@@ -144,7 +144,7 @@ Mailbox 负责会话之间的三类往来：**信**（派活、补充，平台�
 
 跳数表示这件事离"人最近一次亲口说话"隔了多远，用来防止 Agent 之间没完没了地派活、通知和请示。
 
-1. 用户、Automation、`/api/execute` 的输入为 0 跳；`chat_start` 开出的 Run 按 1 跳计。
+1. 用户、Automation、`/api/execute` 的输入为 0 跳；`chat_start` 开出的 Run 为父 Run 当前跳数 + 1（用户直接开出的父 Run 即为 1）。
 2. Run 发出的内容（信、即时消息、请示，以及平台替它发的回信）在发出时记为 Run 当前跳数 + 1，记在这条 mail 的 `hop` 上。
 3. Run 的当前跳数：收到用户直接输入时归 0；收到 mail 时取 `max(当前跳数, mail.hop)`；被上级 `chat_submit` 答复时取 `max(当前跳数, 上级 Run 当前跳数 + 1)`。加一只在发出时算一次，接收时不再加。两次用户输入之间只升不降。
 4. 达到上限后：`chat_send`、`chat_notify` 返回 `mail_hop_limit`；请示不再发给上级，等待项只等用户；回信照常寄出。`chat_submit` 不受限。
@@ -216,7 +216,7 @@ Mailbox 负责会话之间的三类往来：**信**（派活、补充，平台�
 ## 新建会话与补建主要对话
 
 - 新开会话：在一个事务里写入信（`status = accepting`，预留 chatId，附件清单），按预留 ID 建会话（已存在就跳过），复制附件，转为 `queued`。同一调用重试时从断点继续；重启时 `accepting` 转为 `suspended`（证据为 `none`）。
-- 补建主要对话：在 Agent 级锁内完成"检查指针 → 预留 chatId 并写信 → 建会话 → 指针为空才设置"；该锁与 `PUT /api/chats/primary`、query `primary:true` 共用。从中断处恢复时重新仲裁：指针已被设置的，改投到该主要对话。
+- 补建主要对话：在会话 mutation 锁内完成"检查指针 → 预留 chatId 并写信 → 建会话 → 指针为空才设置"；该锁与 `PUT /api/chats/primary` 共用。query `primary:true` 的准入保持原样、不取该锁，因此最后一步是条件写入：指针已被它设置时不覆盖，信留在新建的会话。从中断处恢复时重新仲裁：指针已被设置的，改投到该主要对话。
 
 ## 重启与人工重投
 

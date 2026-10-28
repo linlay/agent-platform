@@ -48,13 +48,17 @@ func (s *Server) handleMailAction(w http.ResponseWriter, r *http.Request) {
 	}
 	m, err := s.deps.Mailbox.Action(r.Context(), input.MailID, input.Action, subject, httpControlScope(r.Context(), ""))
 	if err != nil {
-		code := 400
+		code := http.StatusInternalServerError
 		var failure *contracts.RunToolError
-		if errors.As(err, &failure) && failure.Code == "mail_not_owned" {
-			code = 403
-		}
-		if errors.Is(err, mailbox.ErrNotFound) {
-			code = 404
+		switch {
+		case errors.Is(err, mailbox.ErrNotFound):
+			code = http.StatusNotFound
+		case errors.As(err, &failure) && failure.Code == "mail_not_owned":
+			code = http.StatusForbidden
+		case errors.As(err, &failure) && failure.Code == "mail_state_conflict":
+			code = http.StatusConflict
+		case errors.As(err, &failure):
+			code = http.StatusBadRequest
 		}
 		writeJSON(w, code, api.Failure(code, err.Error()))
 		return

@@ -3,8 +3,10 @@ package mailbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +23,7 @@ type testPort struct {
 	mu         sync.Mutex
 	root       string
 	target     Target
+	targetErr  error
 	deliveries []Mail
 	callback   func(Mail) (DeliveryResult, error)
 }
@@ -38,7 +41,7 @@ func (p *testPort) EnsureMailChat(_ context.Context, m *Mail) error {
 func (p *testPort) MailTarget(context.Context, Mail) (Target, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.target, nil
+	return p.target, p.targetErr
 }
 func (p *testPort) DeliverMail(_ context.Context, m Mail, _ controlscope.Scope) (DeliveryResult, error) {
 	p.mu.Lock()
@@ -508,5 +511,140 @@ func TestAcceptedFailureStillReturnsDurableReceipt(t *testing.T) {
 	replay, err := s.Send(context.Background(), req)
 	if err != nil || replay.MailID != result.MailID {
 		t.Fatalf("failed receipt was not durable: %#v %v", replay, err)
+	}
+}
+
+func TestRunControlComesOnlyFromStartedLetters(t *testing.T) {
+	s, _ := testBox(t)
+	letter := sample("letter", Letter, Delivered)
+	letter.Delivery, letter.RunID = "started", "worker-run"
+	put(t, s.Store, letter)
+	reply := sample("reply", Reply, Delivered)
+	reply.FromAgentKey, reply.FromToolID, reply.ReplyKey = "worker", "", "run:x:sender"
+	reply.Delivery, reply.RunID = "started", "lead-run"
+	put(t, s.Store, reply)
+	if !s.OwnsRun("worker-run", "lead", "user") {
+		t.Fatal("letter sender lost control of the Run its letter opened")
+	}
+	if s.OwnsRun("lead-run", "worker", "user") || s.OwnsRun("worker-run", "lead", "other") {
+		t.Fatal("a reply sender or another principal gained Run control")
+	}
+}
+
+func TestTransientTargetErrorKeepsQueueAndRejectFails(t *testing.T) {
+	s, p := testBox(t)
+	m := sample("m1", Letter, Queued)
+	put(t, s.Store, m)
+	s.setScope(m.ID, controlscope.Scope{})
+	p.targetErr = errors.New("summary read failed")
+	s.Kick(m.ToChatID)
+	s.wg.Wait()
+	if got, _ := s.Store.Get(m.ID); got.Status != Queued {
+		t.Fatalf("transient error changed the letter: %s", got.Status)
+	}
+	p.mu.Lock()
+	p.targetErr = Reject(failure("agent_not_found", "gone"))
+	p.mu.Unlock()
+	s.Kick(m.ToChatID)
+	s.wg.Wait()
+	got, _ := s.Store.Get(m.ID)
+	if got.Status != Failed || got.AnsweredBy == "" {
+		t.Fatalf("definitive rejection: %#v", got)
+	}
+	if reply, err := s.Store.Get(got.AnsweredBy); err != nil || reply.ReplyKey != "letter:"+m.ID || reply.Outcome != "failed" {
+		t.Fatalf("failure reply: %#v %v", reply, err)
+	}
+}
+
+func TestStartedDeliveryUsesPlatformRunIDFormat(t *testing.T) {
+	s, p := testBox(t)
+	p.target = Target{}
+	m := sample("m1", Letter, Queued)
+	put(t, s.Store, m)
+	s.setScope(m.ID, controlscope.Scope{})
+	s.Kick(m.ToChatID)
+	s.wg.Wait()
+	got, _ := s.Store.Get(m.ID)
+	if got.Delivery != "started" {
+		t.Fatalf("delivery = %q", got.Delivery)
+	}
+	if _, err := strconv.ParseInt(got.RunID, 36, 64); err != nil {
+		t.Fatalf("run ID %q is not a base36 epoch-millisecond ID", got.RunID)
+	}
+	s.mu.Lock()
+	locks := len(s.chatLocks)
+	s.mu.Unlock()
+	if locks != 0 {
+		t.Fatalf("idle Chat kept %d dispatch locks", locks)
+	}
+}
+
+func TestStartedMailTheRunNeverReadFailsInsteadOfLooping(t *testing.T) {
+	s, _ := testBox(t)
+	m := sample("m1", Letter, Inflight)
+	m.Delivery, m.RunID, m.Attempts = "started", "dead-run", 1
+	put(t, s.Store, m)
+	s.setScope(m.ID, controlscope.Scope{})
+	if err := s.Completed(chat.RunCompletion{RunID: "dead-run", FinishReason: "error"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Store.Get(m.ID); got.Status != Failed {
+		t.Fatalf("unread started letter was %s", got.Status)
+	}
+	if _, ok := s.scope(m.ID); ok {
+		t.Fatal("a failed letter kept its delivery identity")
+	}
+}
+
+func TestQueuedMailWithoutIdentityIsSuspendedAsUndelivered(t *testing.T) {
+	s, _ := testBox(t)
+	m := sample("m1", Letter, Queued)
+	put(t, s.Store, m)
+	s.Kick(m.ToChatID)
+	s.wg.Wait()
+	got, _ := s.Store.Get(m.ID)
+	if got.Status != Suspended || got.Evidence != "none" || got.ResumePhase != Queued {
+		t.Fatalf("got %s/%s/%s", got.Status, got.Evidence, got.ResumePhase)
+	}
+}
+
+func TestReplyOutcomeCoversEveryFinishSpelling(t *testing.T) {
+	for reason, want := range map[string]string{"complete": "completed", "stop": "completed", "cancel": "canceled", "cancelled": "canceled", "interrupted": "canceled", "error": "failed", "failed": "failed", "timeout": "failed"} {
+		if got := outcome(reason); got != want {
+			t.Fatalf("%s -> %s, want %s", reason, got, want)
+		}
+	}
+}
+
+func TestAskBodyIsReadableAndOmitsFormHTML(t *testing.T) {
+	s, _ := testBox(t)
+	base := sample("q", Ask, Delivered)
+	base.FromRunID, base.AwaitingID = "r22", "a9"
+	question := base
+	question.AwaitingMode, question.AwaitingSource = "question", "ask_user_question"
+	question.Message = jsonText(map[string]any{"questions": []any{map[string]any{"question": "Which repo?", "type": "select", "options": []any{map[string]any{"label": "skip"}, map[string]any{"label": "wait"}}}}})
+	approval := base
+	approval.AwaitingMode, approval.AwaitingSource = "approval", "tool_approval"
+	approval.Message = jsonText(map[string]any{"approvals": []any{map[string]any{"toolName": "bash", "command": "rm -rf build/", "options": []any{map[string]any{"decision": "approve"}, map[string]any{"decision": "approve_rule_run"}}}}})
+	form := base
+	form.AwaitingMode, form.AwaitingSource = "form", "ask_user_form"
+	form.Message = jsonText(map[string]any{"form": map[string]any{"title": "Region", "data": map[string]any{"html": "<select name=region><option>cn</option></select>"}}, "fields": []any{map[string]any{"name": "region", "type": "select", "options": []any{"cn"}}}})
+	for _, tc := range []struct {
+		mail Mail
+		want []string
+	}{
+		{question, []string{"1. Which repo?  select: skip | wait"}},
+		{approval, []string{"bash: rm -rf build/", "Options: approve | approve_rule_run | reject.", "your own access level"}},
+		{form, []string{"Region", "- region (select): cn", "approve with data"}},
+	} {
+		body := s.Body(tc.mail)
+		if strings.Contains(body, "<select") || !strings.Contains(body, `chat_submit runId="r22" awaitingId="a9"`) {
+			t.Fatalf("%s body: %s", tc.mail.AwaitingMode, body)
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(body, want) {
+				t.Fatalf("%s body lacks %q: %s", tc.mail.AwaitingMode, want, body)
+			}
+		}
 	}
 }

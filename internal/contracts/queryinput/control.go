@@ -63,16 +63,6 @@ type SubmitRequest struct {
 	ContinuationState any          `json:"-"`
 }
 
-func (r *SubmitRequest) UnmarshalJSON(data []byte) error {
-	type plain SubmitRequest
-	var decoded plain
-	if err := DecodeStrictJSON(data, &decoded); err != nil {
-		return err
-	}
-	*r = SubmitRequest(decoded)
-	return nil
-}
-
 // Input returns the submitted answer in the shape its awaiting mode expects.
 func (r SubmitRequest) Input() any {
 	if r.Param != nil {

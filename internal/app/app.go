@@ -556,8 +556,10 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if err := queryService.Reconcile(); err != nil {
 		return nil, fmt.Errorf("reconcile persisted awaitings: %w", err)
 	}
+	// Mail recovery never blocks startup; unreconciled mail is suspended by
+	// dispatch once it finds no delivery identity.
 	if err := mailService.Reconcile(queryService.MailConsumedEvidence); err != nil {
-		return nil, fmt.Errorf("reconcile mailbox: %w", err)
+		log.Printf("[mailbox] reconcile: %v", err)
 	}
 
 	if err := toolExecutor.RegisterHandler(runops.NewToolHandler(runtimeService, runManager).WithMailbox(mailService)); err != nil {

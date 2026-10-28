@@ -114,7 +114,7 @@ func (s *Service) PrepareMail(ctx context.Context, req mailbox.Request) (mailbox
 		p.OpenedChat = p.Primary
 	}
 	if p.ChatID == "" {
-		p.ChatID = mailbox.NewID("c")
+		p.ChatID = newChatID()
 	}
 	if p.ChatID == r.Origin.ChatID {
 		return p, runToolError("mail_self_address", "mail cannot address the current Chat; use newChat for independent work")
@@ -143,16 +143,12 @@ func (s *Service) PrepareMail(ctx context.Context, req mailbox.Request) (mailbox
 				allowed = true
 			}
 		}
-		if s.mailbox != nil {
-			rows, e := s.mailbox.Store.List(mailbox.Filter{AgentKey: r.AgentKey, ChatID: p.ChatID, Subject: r.Origin.Subject, Limit: 1000})
+		if s.mailbox != nil && !allowed {
+			opened, e := s.mailbox.Store.OpenedBy(p.ChatID, r.Origin.AgentKey, r.Origin.Subject)
 			if e != nil {
 				return p, e
 			}
-			for _, m := range rows {
-				if m.OpenedChat && m.FromAgentKey == r.Origin.AgentKey {
-					allowed = true
-				}
-			}
+			allowed = opened
 		}
 		if !allowed {
 			content, e := s.deps.Chats.LoadJSONLContent(p.ChatID)
@@ -199,14 +195,10 @@ func (s *Service) mailChatOwned(summary chat.Summary, subject string, seen map[s
 		return false
 	}
 	seen[summary.ChatID] = true
+	// Mailbox creates Chats with a query:<subject> source, so ownership never
+	// depends on mail rows, which may be written before ownership is checked.
 	if owner, ok := strings.CutPrefix(summary.Source, "query:"); ok {
 		return owner == subject
-	}
-	if s.mailbox != nil {
-		rows, err := s.mailbox.Store.List(mailbox.Filter{ChatID: summary.ChatID, Subject: subject, Limit: 1})
-		if err == nil && len(rows) > 0 {
-			return true
-		}
 	}
 	if strings.HasPrefix(summary.Source, "run-query:") {
 		content, err := s.deps.Chats.LoadJSONLContent(summary.ChatID)
@@ -304,6 +296,10 @@ func (s *Service) BeginMailAcceptance(ctx context.Context, p mailbox.Prepared) (
 			release()
 			return ctx, p, func() {}, runToolError("mail_self_address", "primary Chat is the sending Chat")
 		}
+		if err := s.mailPrimaryOwned(current, p.Request.AgentKey, p.Request.Origin.Subject); err != nil {
+			release()
+			return ctx, p, func() {}, err
+		}
 		p.ChatID = current
 		p.OpenedChat = false
 		p.Request.ChatID = current
@@ -334,6 +330,12 @@ func (s *Service) EnsureMailChat(ctx context.Context, m *mailbox.Mail) error {
 			return err
 		}
 		if current != "" && current != m.ToChatID {
+			if current == m.FromChatID {
+				return runToolError("mail_self_address", "primary Chat is the sending Chat")
+			}
+			if err := s.mailPrimaryOwned(current, m.ToAgentKey, m.Subject); err != nil {
+				return err
+			}
 			m.ToChatID = current
 			m.OpenedChat = false
 			return nil
@@ -353,7 +355,15 @@ func (s *Service) EnsureMailChat(ctx context.Context, m *mailbox.Mail) error {
 		return runToolError("mail_not_owned", "reserved Chat identity is occupied by another owner")
 	}
 	if primary && s.deps.PrimaryChats != nil {
-		if err = s.deps.PrimaryChats.PublishPrimaryChat(m.ToAgentKey, m.ToChatID); err != nil {
+		// Only fills a missing pointer. A primary:true query does not take the
+		// mutation lock, so a pointer it set meanwhile is kept; the letter then
+		// stays in the Chat it opened.
+		if backfill, ok := s.deps.PrimaryChats.(interface{ BackfillPrimaryChat(string, string) error }); ok {
+			err = backfill.BackfillPrimaryChat(m.ToAgentKey, m.ToChatID)
+		} else {
+			err = s.deps.PrimaryChats.PublishPrimaryChat(m.ToAgentKey, m.ToChatID)
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -362,39 +372,81 @@ func (s *Service) EnsureMailChat(ctx context.Context, m *mailbox.Mail) error {
 	}
 	return ctx.Err()
 }
+
+// mailPrimaryOwned checks a primary pointer read after preparation, since the
+// pointer is per Agent rather than per principal.
+func (s *Service) mailPrimaryOwned(chatID, agentKey, subject string) error {
+	summary, err := s.deps.Chats.Summary(chatID)
+	if err != nil {
+		return err
+	}
+	if summary == nil {
+		return runToolError("chat_not_found", "target Chat is missing or archived")
+	}
+	if summary.AgentKey != agentKey || !s.mailChatOwned(*summary, subject, map[string]bool{}) {
+		return runToolError("mail_not_owned", "target Chat belongs to another Agent or principal")
+	}
+	return nil
+}
+
+// mailDefinitive separates admission and validation verdicts from I/O or
+// shutdown failures that a later attempt may not repeat.
+func mailDefinitive(err error) bool {
+	var tool *contracts.RunToolError
+	if errors.As(err, &tool) {
+		return tool.Code != "internal_error"
+	}
+	var request *runtimetypes.RequestError
+	if errors.As(err, &request) {
+		return request.Status < 500
+	}
+	return errors.Is(err, chat.ErrChatNotFound)
+}
+func mailRejectDefinitive(err error) error {
+	if err != nil && mailDefinitive(err) {
+		return mailbox.Reject(err)
+	}
+	return err
+}
+
+// MailTarget marks delivery-time check failures with mailbox.Reject; any other
+// error leaves the mail queued.
 func (s *Service) MailTarget(ctx context.Context, m mailbox.Mail) (mailbox.Target, error) {
 	if m.ToChatID == m.FromChatID {
-		return mailbox.Target{}, runToolError("mail_self_address", "mail cannot address the sending Chat")
+		return mailbox.Target{}, mailbox.Reject(runToolError("mail_self_address", "mail cannot address the sending Chat"))
 	}
 	def, team, release, ok := catalogview.AcquireRun(s.deps.Registry, m.ToAgentKey)
 	if release != nil {
 		defer release()
 	}
 	if !ok {
-		return mailbox.Target{}, runToolError("agent_not_found", "target Agent was removed")
+		return mailbox.Target{}, mailbox.Reject(runToolError("agent_not_found", "target Agent was removed"))
 	}
 	if team != nil {
 		if err := catalogview.ValidateTeamSnapshot(*team); err != nil {
-			return mailbox.Target{}, err
+			return mailbox.Target{}, mailbox.Reject(err)
 		}
 	}
 	if _, err := s.deps.Sessions.PrepareRunReferences(ctx, contracts.QuerySession{ChatID: m.ToChatID, AgentKey: m.ToAgentKey, Subject: m.Subject}, def, m.References, false, false, true); err != nil {
-		return mailbox.Target{}, err
+		if ctx.Err() != nil {
+			return mailbox.Target{}, err
+		}
+		return mailbox.Target{}, mailRejectDefinitive(err)
 	}
 	summary, err := s.deps.Chats.Summary(m.ToChatID)
 	if err != nil {
 		return mailbox.Target{}, err
 	}
 	if summary == nil {
-		return mailbox.Target{}, runToolError("chat_not_found", "target Chat is missing or archived")
+		return mailbox.Target{}, mailbox.Reject(runToolError("chat_not_found", "target Chat is missing or archived"))
 	}
 	if summary.AgentKey != m.ToAgentKey || !s.mailChatOwned(*summary, m.Subject, map[string]bool{}) {
-		return mailbox.Target{}, runToolError("mail_not_owned", "target owner changed")
+		return mailbox.Target{}, mailbox.Reject(runToolError("mail_not_owned", "target owner changed"))
 	}
 	if m.Model != nil {
 		copy := *m.Model
 		if err = s.ValidateQueryModelOptions(&copy, def); err != nil {
-			return mailbox.Target{}, err
+			return mailbox.Target{}, mailbox.Reject(err)
 		}
 	}
 	if runs, ok := s.deps.Runs.(interface{ ChatMaintenanceActive(string) bool }); ok && runs.ChatMaintenanceActive(m.ToChatID) {
@@ -420,8 +472,9 @@ func (s *Service) DeliverMail(ctx context.Context, m mailbox.Mail, scope control
 	}
 	origin := &queryinput.Origin{Type: queryinput.OriginAgent, AgentKey: m.FromAgentKey, ChatID: m.FromChatID, RunID: m.FromRunID, ToolID: m.FromToolID}
 	if m.Delivery == "inserted" {
-		req := queryinput.SteerRequest{ChatID: m.ToChatID, RunID: m.RunID, SteerID: m.SteerID, AgentKey: m.ToAgentKey, Message: m.Message, References: refs, Origin: origin, Mail: m.Metadata()}
-		req.ModelMessage = s.mailbox.Header(m.ID) + m.Message
+		body := s.mailbox.Body(m)
+		req := queryinput.SteerRequest{ChatID: m.ToChatID, RunID: m.RunID, SteerID: m.SteerID, AgentKey: m.ToAgentKey, Message: body, References: refs, Origin: origin, Mail: m.Metadata()}
+		req.ModelMessage = s.mailbox.Header(m.ID) + body
 		if response, statusErr, ok := s.deps.Proxy.Steer(req); ok {
 			if statusErr != nil {
 				return mailbox.DeliveryResult{Unknown: statusErr.OutcomeUnknown, Rejected: !statusErr.OutcomeUnknown}, statusErr
@@ -434,9 +487,10 @@ func (s *Service) DeliverMail(ctx context.Context, m mailbox.Mail, scope control
 		}
 		return mailbox.DeliveryResult{Accepted: ack.Accepted, RunID: m.RunID}, nil
 	}
-	input, _ := json.Marshal(map[string]any{"message": m.Message, "references": refs})
-	cmd := runtimetypes.QueryCommand{RunID: m.RunID, ChatID: m.ToChatID, AgentKey: m.ToAgentKey, Message: m.Message, References: refs, Origin: origin, Mail: m.Metadata(), AccessLevel: m.AccessLevel, AccessGrant: m.AccessGrant, Model: m.Model, OriginalQuery: input, SkipInteractionPolicy: true, Identity: &contracts.AuthIdentity{Subject: m.Subject}}
-	cmd.ModelMessage = s.mailbox.Header(m.ID) + m.Message
+	body := s.mailbox.Body(m)
+	input, _ := json.Marshal(map[string]any{"message": body, "references": refs})
+	cmd := runtimetypes.QueryCommand{RunID: m.RunID, ChatID: m.ToChatID, AgentKey: m.ToAgentKey, Message: body, References: refs, Origin: origin, Mail: m.Metadata(), AccessLevel: m.AccessLevel, AccessGrant: m.AccessGrant, Model: m.Model, OriginalQuery: input, SkipInteractionPolicy: true, Identity: &contracts.AuthIdentity{Subject: m.Subject}}
+	cmd.ModelMessage = s.mailbox.Header(m.ID) + body
 	ctx = controlscope.WithContext(s.backgroundCtx, scope)
 	_, err := s.StartQuery(ctx, cmd)
 	if err != nil {
@@ -444,7 +498,14 @@ func (s *Service) DeliverMail(ctx context.Context, m mailbox.Mail, scope control
 		if errors.As(err, &request) && (request.Code == activeRunConflictCode || request.Code == awaitingPendingCode || request.Code == "compact_in_progress") {
 			return mailbox.DeliveryResult{}, nil
 		}
-		return mailbox.DeliveryResult{Rejected: true}, err
+		// Once registered, a Run may already be working on this mail.
+		if _, registered := s.deps.Runs.RunStatus(m.RunID); registered {
+			return mailbox.DeliveryResult{Unknown: true}, err
+		}
+		if s.backgroundCtx.Err() == nil && mailDefinitive(err) {
+			return mailbox.DeliveryResult{Rejected: true}, err
+		}
+		return mailbox.DeliveryResult{}, err
 	}
 	return mailbox.DeliveryResult{Accepted: true, RunID: m.RunID}, nil
 }
@@ -492,7 +553,10 @@ func (s *Service) bindMailboxSession(req runtimetypes.QueryCommand, session *con
 		session.UserChatReferences = queryinput.ResourceIDs(req.References, "chat")
 	}
 	session.MailHeaders = s.mailbox.Header
-	if req.Mail != nil {
+	// Only a letter derives the Run from its sender. A reply, notification or
+	// ask wakes the receiving Chat's own Agent, which keeps its Chat tools and
+	// gives the sender no control over the Run.
+	if req.Mail != nil && req.Mail.Kind == string(mailbox.Letter) {
 		session.RunOrigin = &contracts.RunOrigin{AgentKey: req.Origin.AgentKey, ChatID: req.Origin.ChatID, RunID: req.Origin.RunID, ToolID: req.Origin.ToolID, Subject: session.Subject}
 	}
 	session.RuntimeEvent = func(event stream.EventData) {
@@ -505,9 +569,11 @@ func (s *Service) bindMailboxSession(req runtimetypes.QueryCommand, session *con
 		}
 		s.mailbox.ObserveEvent(req.RunID, event)
 	}
+	// Mail is answered from the in-memory completion even when the Chat summary
+	// could not be written; otherwise the sender would wait until a restart.
 	session.RuntimeComplete = func(runID, reason, text string, persisted bool) {
 		if !persisted {
-			return
+			log.Printf("[mailbox] run=%s completion was not persisted; answering mail from the in-memory result", runID)
 		}
 		hop := 0
 		if ctl, ok := s.deps.Runs.(interface {

@@ -30,11 +30,16 @@ func TestDelegatedApprovalRejectsMandatoryHumanReview(t *testing.T) {
 	}
 }
 func TestPublicSubmitCannotForgeDelegation(t *testing.T) {
-	var req queryinput.SubmitRequest
+	// Public submit decoding stays lenient; trusted delegation fields are never
+	// read from JSON.
 	for _, field := range []string{`"origin":{"type":"agent"}`, `"mailHop":0`, `"accessGrant":{}`} {
+		var req queryinput.SubmitRequest
 		body := `{"runId":"r","awaitingId":"q","params":[{"answer":"yes"}],` + field + `}`
-		if err := json.Unmarshal([]byte(body), &req); err == nil {
-			t.Fatal("forged trusted submit metadata accepted", field)
+		if err := json.Unmarshal([]byte(body), &req); err != nil {
+			t.Fatal(field, err)
+		}
+		if req.Origin != nil || req.MailHop != nil || req.AccessGrant != nil {
+			t.Fatal("forged trusted submit metadata decoded", field)
 		}
 	}
 	if !strings.Contains(mailModelInput(map[string]any{"role": "user", "content": "x"}, "m", contracts.QuerySession{MailHeaders: func(string) string { return "[Letter m]" }})["content"].(string), "Letter") {

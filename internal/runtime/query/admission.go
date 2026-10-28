@@ -590,12 +590,6 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 		}
 	}()
 	req := admission.Req
-	if req.Primary {
-		if locker, ok := s.deps.PrimaryChats.(interface{ LockMutation() func() }); ok {
-			release := locker.LockMutation()
-			defer release()
-		}
-	}
 	agentDef := admission.AgentDef
 	chatID := req.ChatID
 	agentKey := req.AgentKey

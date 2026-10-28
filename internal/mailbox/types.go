@@ -5,6 +5,7 @@ package mailbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -165,8 +166,26 @@ func receipt(m Mail) Receipt {
 func failure(code, message string) error {
 	return &contracts.RunToolError{Code: code, Message: message}
 }
+
+// Rejected marks a definitive delivery-time check failure. Any other error is
+// transient: the mail stays queued and a restart suspends it for a person.
+type Rejected struct{ Err error }
+
+func (r *Rejected) Error() string { return r.Err.Error() }
+func (r *Rejected) Unwrap() error { return r.Err }
+func Reject(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &Rejected{Err: err}
+}
+func rejected(err error) bool {
+	var r *Rejected
+	return errors.As(err, &r)
+}
 func errorData(err error) map[string]any {
-	if e, ok := err.(*contracts.RunToolError); ok {
+	var e *contracts.RunToolError
+	if errors.As(err, &e) {
 		return map[string]any{"code": e.Code, "message": e.Message}
 	}
 	return map[string]any{"code": "mail_delivery_failed", "message": fmt.Sprint(err)}

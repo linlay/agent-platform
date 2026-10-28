@@ -134,12 +134,6 @@ func (e *ProxyExecutor) execute(ctx context.Context, prepared runtimetypes.Prepa
 			bus.FreezeAndWait()
 		}
 		e.Runs.Finish(prepared.Req.RunID)
-		if prepared.Session.RuntimeComplete != nil {
-			prepared.Session.RuntimeComplete(prepared.Req.RunID, completion.FinishReason, completion.AssistantText, persisted)
-		}
-		if prepared.Session.RuntimeIdle != nil {
-			prepared.Session.RuntimeIdle()
-		}
 		status := "failed"
 		switch reason {
 		case "complete":
@@ -155,6 +149,13 @@ func (e *ProxyExecutor) execute(ctx context.Context, prepared runtimetypes.Prepa
 		})
 		if persisted {
 			BroadcastCompletion(NativeOptions{Chats: e.Chats, Notifications: e.Notifications, OnUnreadChanged: e.OnUnreadChanged}, completion)
+		}
+		// Mailbox hooks run after the ordinary finish path so it is unaffected.
+		if prepared.Session.RuntimeComplete != nil {
+			prepared.Session.RuntimeComplete(prepared.Req.RunID, completion.FinishReason, completion.AssistantText, persisted)
+		}
+		if prepared.Session.RuntimeIdle != nil {
+			prepared.Session.RuntimeIdle()
 		}
 	}()
 	e.Driver.Stream(ctx, prepared, route, &proxyEventSink{prepared.Req, recorder, bus}, startup)
