@@ -285,7 +285,7 @@ Action 使用与 Query 相同的结构化 cli/mcp 参数模板，当前不支持
 
 `POST /api/view/invoke`（WS 同路径）请求为 `{chatId,runId,view:{connectorId,key,hash},action,params,requestId}`。响应仍为 `{code,msg,data}`，成功 data 为 `{data,executedAt,invocationId,exitCode}`；CLI 业务错误保留原 JSON 和 exitCode，由模板识别 rejected/partial/unknown/applied，不将非零退出伪装成成功。非 JSON 输出按 `invocation_outcome_unknown` 处理。
 
-平台仅接受在线 Chat，校验当前查看者的 Chat 所有权、Run 属于该 Chat、快照身份以及当前 Agent 的有效和源码挂载。写入前及 connectorops 启动前复核当前安装包版本和动作声明；解除挂载、撤销或改变动作后旧快照不能继续写入。授权是当前用户的显式操作，不继承发布 Run 的自动审批等级，不创建模型 Run。连接器凭据仍只由 connectorops 在服务端注入。
+平台仅接受在线 Chat，校验当前查看者的 Chat 所有权、Run 属于该 Chat、快照身份以及当前 Agent 的有效和源码挂载。写入前及 connectorops 启动前复核当前安装包版本和动作声明；解除挂载、撤销或改变动作后旧快照不能继续写入。`intercept` 只决定 Agent 的 Bash 调用是否进表单审阅，不计入这次比较，开关它不会让已打开的页面失效。授权是当前用户的显式操作，不继承发布 Run 的自动审批等级，不创建模型 Run。连接器凭据仍只由 connectorops 在服务端注入。
 
 WebClient 为同一 Chat/Run/VIEW hash、动作和规范化参数在 sessionStorage 复用请求 ID；它是防止当前浏览器会话意外重发的辅助层，不是业务去重。服务端复用 connectorops 持久化 claim/result 收据，claim 在派发前落盘，包含用户、Chat、Run、Agent、VIEW、动作、参数和时间审计。stdin 同样进入参数摘要；既有无 stdin 收据的摘要保持兼容。未完成 claim（含进程崩溃、断线或超时）不重放，参数变化使用同一 ID 返回冲突。不能保证 Jira 远端 exactly-once，也不能根据相同参数推断不同浏览器的两次请求是否为同一业务操作。
 

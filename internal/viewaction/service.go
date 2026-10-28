@@ -51,7 +51,7 @@ func (s *Service) Execute(ctx context.Context, doc view.Document, name string, p
 		return Result{}, err
 	}
 	// Do not let historical HTML retain revoked or changed write capabilities.
-	expected, _ := json.Marshal(action)
+	expected := writeContract(action)
 	check := func() error {
 		if err := s.Authorize(ctx, actor, doc.View.ConnectorID); err != nil {
 			return ErrDenied
@@ -61,8 +61,7 @@ func (s *Service) Execute(ctx context.Context, doc view.Document, name string, p
 			return ErrUnavailable
 		}
 		current, ok := pkg.Views[doc.View.Key].Actions[name]
-		wire, _ := json.Marshal(current)
-		if !ok || pkg.Version != doc.View.Version || string(wire) != string(expected) {
+		if !ok || pkg.Version != doc.View.Version || writeContract(current) != expected {
 			return ErrStale
 		}
 		return nil
@@ -112,4 +111,12 @@ func (s *Service) Execute(ctx context.Context, doc view.Document, name string, p
 		return Result{}, &connectorops.Error{Code: "invocation_outcome_unknown", Status: 409}
 	}
 	return Result{Data: raw, ExecutedAt: time.Now().UnixMilli(), InvocationID: result.InvocationID, ExitCode: result.ExitCode}, nil
+}
+
+// writeContract is what a viewer write depends on. Intercept only routes an
+// Agent's Bash call to a form, so toggling it leaves rendered pages writable.
+func writeContract(action view.Action) string {
+	action.Intercept = false
+	wire, _ := json.Marshal(action)
+	return string(wire)
 }
