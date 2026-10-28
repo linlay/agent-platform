@@ -551,12 +551,12 @@ func (t *RuntimeToolExecutor) connectorCommandEnvironment(ctx context.Context, e
 		if binding.ID != id {
 			continue
 		}
-		values, err := connectorauth.ResolveEnvironment(ctx, binding, t.cfg.IdentityFile)
+		values, err := connectorauth.ResolveEnvironment(ctx, binding, t.cfg.SsoIdTokenFile)
 		if err != nil {
 			return nil, err
 		}
 		if binding.Mode == connector.AuthOneID {
-			identity, err := agentconfig.ReadIdentityEnvironment(t.cfg.IdentityFile)
+			identity, err := agentconfig.ReadIdentityEnvironment(t.cfg.SsoIdTokenFile)
 			if err != nil {
 				return nil, err
 			}

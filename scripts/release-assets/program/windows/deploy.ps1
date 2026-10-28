@@ -22,6 +22,7 @@ if (-not [string]::IsNullOrWhiteSpace($Script:DeployRuntimeResourceSource)) {
   Write-Host '[program-deploy] synchronizing Platform runtime resources'
   Invoke-ProgramRuntimeResourceSync
 }
+Convert-ProgramSsoProviderConfig
 if ($Script:DeployDesktopConfigReset) {
   Protect-ProgramConfigTree $Script:ConfigRoot
 }

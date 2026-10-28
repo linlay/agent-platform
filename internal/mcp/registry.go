@@ -130,7 +130,7 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 	baseURL := strings.TrimSpace(contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"]))
 	authToken := strings.TrimSpace(contracts.FirstNonEmptyString(root["authToken"], root["auth-token"]))
 	authSource := strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(root["authSource"], root["auth-source"])))
-	if authSource != "" && authSource != AuthSourceIdentityFile {
+	if authSource != "" && authSource != AuthSourceSsoIdTokenFile {
 		return ServerDefinition{}, fmt.Errorf("unsupported MCP authSource %q", authSource)
 	}
 	if authToken != "" && authSource != "" {
@@ -151,10 +151,10 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 		if hasAnyKey(root, "command", "args", "env", "workingDirectory", "working-directory") {
 			return ServerDefinition{}, fmt.Errorf("streamable-http MCP server cannot declare stdio fields")
 		}
-		if authSource == AuthSourceIdentityFile {
+		if authSource == AuthSourceSsoIdTokenFile {
 			parsedBaseURL, err := url.Parse(baseURL)
 			if err != nil || parsedBaseURL.Scheme != "https" || parsedBaseURL.Hostname() == "" || parsedBaseURL.User != nil {
-				return ServerDefinition{}, fmt.Errorf("identity-file MCP server requires a valid HTTPS baseUrl")
+				return ServerDefinition{}, fmt.Errorf("sso-id-token-file MCP server requires a valid HTTPS baseUrl")
 			}
 		}
 	} else {

@@ -16,7 +16,7 @@ $Script:PidFile = Join-Path $Script:RunDir 'agent-platform.pid'
 $Script:LogFile = Join-Path $Script:LogDir 'agent-platform.log'
 $Script:ErrorLogFile = Join-Path $Script:LogDir 'agent-platform.stderr.log'
 $Script:ProgramPort = ''
-$Script:IdentityFile = ''
+$Script:SsoIdTokenFile = ''
 $Script:RuntimeMode = 'standalone'
 $Script:DeployDocumentPreviewAPIBaseUrl = ''
 $Script:DeployDocumentPreviewPublicBaseUrl = ''
@@ -74,7 +74,7 @@ function Set-ProgramLayoutOption([string]$Name, [string]$Value) {
     '--state-dir' { $Script:RunDir = $Value }
     '--log-dir' { $Script:LogDir = $Value }
     '--port' { $Script:ProgramPort = $Value }
-    '--identity-file' { $Script:IdentityFile = $Value }
+    '--sso-id-token-file' { $Script:SsoIdTokenFile = $Value }
     '--runtime-mode' { $Script:RuntimeMode = $Value }
     default { Fail-Program "unsupported argument: $Name" }
   }
@@ -84,7 +84,7 @@ function Set-ProgramLayoutOption([string]$Name, [string]$Value) {
 function Set-ProgramLayoutArgs([string[]]$Arguments) {
   for ($i = 0; $i -lt $Arguments.Length; $i++) {
     $name = $Arguments[$i]
-    if (@('--config-dir', '--state-dir', '--log-dir', '--port', '--identity-file', '--runtime-mode') -notcontains $name) {
+    if (@('--config-dir', '--state-dir', '--log-dir', '--port', '--sso-id-token-file', '--runtime-mode') -notcontains $name) {
       Fail-Program "unsupported argument: $name"
     }
     if ($i + 1 -ge $Arguments.Length) {
@@ -158,7 +158,7 @@ function Set-ProgramDeployOption([string]$Name, [string]$Value) {
 function Set-ProgramDeployArgs([string[]]$Arguments) {
   for ($i = 0; $i -lt $Arguments.Length; $i++) {
     $name = $Arguments[$i]
-    if (@('--config-dir', '--state-dir', '--log-dir', '--port', '--identity-file', '--daemon') -contains $name) {
+    if (@('--config-dir', '--state-dir', '--log-dir', '--port', '--sso-id-token-file', '--daemon') -contains $name) {
       Reject-ProgramDeployStartArg $name
     }
     if ($name -eq '--force') {
@@ -667,8 +667,8 @@ function Start-ProgramBackend {
     if (-not [string]::IsNullOrWhiteSpace($Script:ProgramPort)) {
       $backendArgs += @('--port', $Script:ProgramPort)
     }
-    if (-not [string]::IsNullOrWhiteSpace($Script:IdentityFile)) {
-      $backendArgs += @('--identity-file', ('"{0}"' -f $Script:IdentityFile))
+    if (-not [string]::IsNullOrWhiteSpace($Script:SsoIdTokenFile)) {
+      $backendArgs += @('--sso-id-token-file', ('"{0}"' -f $Script:SsoIdTokenFile))
     }
     $proc = Start-Process -FilePath $Script:BackendBin -ArgumentList $backendArgs -WorkingDirectory $Script:BundleRoot -WindowStyle Hidden -RedirectStandardOutput $Script:LogFile -RedirectStandardError $Script:ErrorLogFile -PassThru
     $proc.Id | Set-Content -LiteralPath $Script:PidFile
@@ -687,8 +687,8 @@ function Start-ProgramBackend {
   if (-not [string]::IsNullOrWhiteSpace($Script:ProgramPort)) {
     $backendArgs += @('--port', $Script:ProgramPort)
   }
-  if (-not [string]::IsNullOrWhiteSpace($Script:IdentityFile)) {
-    $backendArgs += @('--identity-file', $Script:IdentityFile)
+  if (-not [string]::IsNullOrWhiteSpace($Script:SsoIdTokenFile)) {
+    $backendArgs += @('--sso-id-token-file', $Script:SsoIdTokenFile)
   }
   & $Script:BackendBin @backendArgs
 }
@@ -724,4 +724,26 @@ function Stop-ProgramBackend {
   }
 
   Fail-Program "process $($proc.Id) did not stop within 30s"
+}
+
+# DPAPI/Windows deployment uses the same provider-key migration as Unix deploy.
+function Convert-ProgramSsoProviderConfig {
+  $root = $Script:DeployApRuntimeDir
+  if ($root -eq '~') { $root = [Environment]::GetFolderPath('UserProfile') }
+  elseif ($root.StartsWith('~/') -or $root.StartsWith('~\')) {
+    $root = Join-Path ([Environment]::GetFolderPath('UserProfile')) $root.Substring(2)
+  }
+  elseif (-not [IO.Path]::IsPathRooted($root)) { $root = Join-Path $Script:ConfigRoot $root }
+  $providers = Join-Path $root 'registries/providers'
+  if (-not (Test-Path -LiteralPath $providers -PathType Container)) { return }
+  foreach ($file in Get-ChildItem -LiteralPath $providers -Recurse -File | Where-Object { $_.Extension -in @('.yml', '.yaml') }) {
+    $content = [IO.File]::ReadAllText($file.FullName)
+    if ($content -notmatch '(?m)^\s*useAccessToken\s*:') { continue }
+    if ($content -match '(?m)^\s*useSsoIdToken\s*:') { throw "Provider contains conflicting SSO keys: $($file.FullName)" }
+    $temporary = $file.FullName + '.sso.' + [Guid]::NewGuid().ToString('N')
+    try {
+      [IO.File]::WriteAllText($temporary, [regex]::Replace($content, '(?m)^([ \t]*)useAccessToken([ \t]*:)', '${1}useSsoIdToken${2}'), [Text.UTF8Encoding]::new($false))
+      [IO.File]::Replace($temporary, $file.FullName, $null)
+    } finally { if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force } }
+  }
 }

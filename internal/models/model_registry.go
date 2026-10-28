@@ -20,12 +20,12 @@ type ProviderDefinition struct {
 	Key     string
 	BaseURL string
 	APIKey  string
-	// UseAccessToken sends the Desktop identity token (--identity-file) as the
+	// UseSsoIdToken sends the Desktop identity token (--sso-id-token-file) as the
 	// bearer credential instead of apiKey; the file is read per request.
-	UseAccessToken  bool
-	AccessTokenFile string
-	DefaultModel    string
-	EndpointPath    string
+	UseSsoIdToken  bool
+	SsoIdTokenFile string
+	DefaultModel   string
+	EndpointPath   string
 	// RequestIDHeader names a relay's own request ID response header; it is
 	// read before the generic request ID headers for every protocol.
 	RequestIDHeader string
@@ -145,8 +145,8 @@ type ModelPricing struct {
 }
 
 type ModelRegistry struct {
-	root         string
-	identityFile string
+	root           string
+	ssoIdTokenFile string
 
 	mu        sync.RWMutex
 	providers map[string]ProviderDefinition
@@ -280,13 +280,13 @@ func IsTTSModel(model ModelDefinition) bool {
 }
 
 func LoadModelRegistry(registriesDir string) (*ModelRegistry, error) {
-	return LoadModelRegistryWithIdentityFile(registriesDir, "")
+	return LoadModelRegistryWithSsoIdTokenFile(registriesDir, "")
 }
 
-// LoadModelRegistryWithIdentityFile binds useAccessToken providers to the
+// LoadModelRegistryWithSsoIdTokenFile binds useSsoIdToken providers to the
 // shared Desktop identity file.
-func LoadModelRegistryWithIdentityFile(registriesDir, identityFile string) (*ModelRegistry, error) {
-	registry := &ModelRegistry{root: registriesDir, identityFile: strings.TrimSpace(identityFile)}
+func LoadModelRegistryWithSsoIdTokenFile(registriesDir, ssoIdTokenFile string) (*ModelRegistry, error) {
+	registry := &ModelRegistry{root: registriesDir, ssoIdTokenFile: strings.TrimSpace(ssoIdTokenFile)}
 	if err := registry.Reload(); err != nil {
 		return nil, err
 	}
@@ -303,7 +303,7 @@ func (r *ModelRegistry) Reload() error {
 // ReloadProviders reloads only provider definitions. Independent of models —
 // model definitions still resolve providers by key from the latest map.
 func (r *ModelRegistry) ReloadProviders() error {
-	providers, err := loadProviders(filepath.Join(r.root, "providers"), r.identityFile)
+	providers, err := loadProviders(filepath.Join(r.root, "providers"), r.ssoIdTokenFile)
 	if err != nil {
 		return err
 	}
@@ -591,18 +591,18 @@ func providerHasAPIKey(provider ProviderDefinition) bool {
 // HasCredential reports whether a credential source is configured without
 // reading secrets; an access token provider may still be signed out.
 func (p ProviderDefinition) HasCredential() bool {
-	return p.UseAccessToken || strings.TrimSpace(p.APIKey) != ""
+	return p.UseSsoIdToken || strings.TrimSpace(p.APIKey) != ""
 }
 
 // Credential resolves the secret for one outbound request. Access token
 // providers re-read the identity file on every call so Desktop renewals reach
 // running tasks without a provider reload.
 func (p ProviderDefinition) Credential() (string, error) {
-	if !p.UseAccessToken {
+	if !p.UseSsoIdToken {
 		// Static keys keep their existing callers' empty-key checks.
 		return strings.TrimSpace(p.APIKey), nil
 	}
-	token, err := agentconfig.ReadAccessTokenFile(p.AccessTokenFile)
+	token, err := agentconfig.ReadSsoIdTokenFile(p.SsoIdTokenFile)
 	if err != nil {
 		return "", apperrors.Wrap(apperrors.CodeProviderNotConfigured, fmt.Errorf("provider %s access token unavailable: %w", p.Key, err))
 	}
@@ -622,13 +622,13 @@ func (p ProviderDefinition) AuthHeader(apiKeyHeader string) (string, string, err
 	if err != nil {
 		return "", "", err
 	}
-	if apiKeyHeader != "" && !p.UseAccessToken {
+	if apiKeyHeader != "" && !p.UseSsoIdToken {
 		return apiKeyHeader, credential, nil
 	}
 	return "Authorization", "Bearer " + credential, nil
 }
 
-func loadProviders(dir, identityFile string) (map[string]ProviderDefinition, error) {
+func loadProviders(dir, ssoIdTokenFile string) (map[string]ProviderDefinition, error) {
 	result := map[string]ProviderDefinition{}
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
@@ -665,19 +665,22 @@ func loadProviders(dir, identityFile string) (map[string]ProviderDefinition, err
 			return nil, fmt.Errorf("load provider %s: %w", entry.Name(), err)
 		}
 		embeddingConfig := loadProviderEmbedding(values)
-		useAccessToken := parseTruthy(stringNode(values["useAccessToken"]))
-		accessTokenFile := ""
-		if useAccessToken {
+		if _, legacy := values["useAccessToken"]; legacy {
+			return nil, fmt.Errorf("load provider %s: useAccessToken was replaced by useSsoIdToken; run deploy migration", entry.Name())
+		}
+		useSsoIdToken := parseTruthy(stringNode(values["useSsoIdToken"]))
+		providerTokenFile := ""
+		if useSsoIdToken {
 			// apiKey is ignored so a stale registered key can never shadow the login identity.
 			apiKey = ""
-			accessTokenFile = identityFile
+			providerTokenFile = ssoIdTokenFile
 		}
 		result[key] = ProviderDefinition{
 			Key:             key,
 			BaseURL:         baseURL,
 			APIKey:          apiKey,
-			UseAccessToken:  useAccessToken,
-			AccessTokenFile: accessTokenFile,
+			UseSsoIdToken:   useSsoIdToken,
+			SsoIdTokenFile:  providerTokenFile,
 			DefaultModel:    strings.TrimSpace(stringNode(values["defaultModel"])),
 			EndpointPath:    resolveProviderEndpointPath(values, baseURL, "OPENAI"),
 			RequestIDHeader: requestIDHeader,

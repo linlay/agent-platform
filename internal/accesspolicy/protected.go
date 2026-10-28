@@ -18,9 +18,9 @@ import (
 // those only through surface_login, never by reading the files.
 func PlatformProtectedPaths(cfg config.Config) []string {
 	state := cfg.Paths.EffectiveStateDir()
-	identity := cfg.IdentityFile
+	identity := cfg.SsoIdTokenFile
 	if identity == "" && state != "" {
-		identity, _ = config.ResolveIdentityFile(state, "")
+		identity, _ = config.ResolveSsoIdTokenFile(state, "")
 	}
 	var paths []string
 	for _, p := range []string{state, identity, cfg.Paths.EffectiveRUPreviewsDir()} {

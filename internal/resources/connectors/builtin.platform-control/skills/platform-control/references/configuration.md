@@ -4,7 +4,7 @@ Use this reference for explicit requests to maintain Provider/Model YAML or exte
 
 ## Provider YAML
 
-Use providers_dir and models_dir. Existing definitions are .yml or .yaml files. Provider entries use key, baseUrl, apiKey, defaultModel and protocols; useAccessToken: true replaces apiKey with the Desktop login token and must not be added, removed or pointed at a new baseUrl unless the user explicitly asks. Protocol entries may contain endpointPath, headers and compat. Some definitions use provider embedding configuration; preserve it when unrelated to the requested change.
+Use providers_dir and models_dir. Existing definitions are .yml or .yaml files. Provider entries use key, baseUrl, apiKey, defaultModel and protocols; useSsoIdToken: true replaces apiKey with the Desktop login token and must not be added, removed or pointed at a new baseUrl unless the user explicitly asks. Protocol entries may contain endpointPath, headers and compat. Some definitions use provider embedding configuration; preserve it when unrelated to the requested change.
 
 - Keep the provider key stable unless the user requests a rename, and verify references before changing it. Do not infer a provider's identity from the display name or its endpoint.
 - Verify the intended model/protocol binding before changing defaultModel, baseUrl or a protocol endpointPath. Retain unrelated protocols and fields.

@@ -29,7 +29,7 @@ type Config struct {
 	KBX              KBXConfig
 	DocumentPreview  documentpreview.Config
 	HTTPProxy        httpclient.Config
-	IdentityFile     string
+	SsoIdTokenFile   string
 	RuntimeMode      RuntimeMode
 	Server           ServerConfig
 	Paths            PathsConfig
@@ -74,10 +74,10 @@ type Config struct {
 }
 
 type LoadOptions struct {
-	ConfigDir    string
-	Port         string
-	IdentityFile string
-	RuntimeMode  string
+	ConfigDir      string
+	Port           string
+	SsoIdTokenFile string
+	RuntimeMode    string
 	// IgnoreRemovedWorkingDirectoryForAudit is reserved for the read-only
 	// workspace/chat migration audit. Normal startup must leave it false.
 	IgnoreRemovedWorkingDirectoryForAudit bool
@@ -733,11 +733,11 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 	if err := cfg.normalize(options.ConfigDir); err != nil {
 		return Config{}, err
 	}
-	identityFile, err := ResolveIdentityFile(cfg.Paths.StateDir, options.IdentityFile)
+	ssoIdTokenFile, err := ResolveSsoIdTokenFile(cfg.Paths.StateDir, options.SsoIdTokenFile)
 	if err != nil {
 		return Config{}, err
 	}
-	cfg.IdentityFile = identityFile
+	cfg.SsoIdTokenFile = ssoIdTokenFile
 	if err := validateRemovedSkillsMarketRuntimeDirs(defaultRuntimeRoot(), cfg.Paths.SkillsCenterDir); err != nil {
 		return Config{}, err
 	}

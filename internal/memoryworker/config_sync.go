@@ -94,7 +94,7 @@ func connectionSnapshot(m models.ModelDefinition, p models.ProviderDefinition, t
 	if err != nil {
 		return nil, err
 	}
-	if p.UseAccessToken {
+	if p.UseSsoIdToken {
 		auth = "bearer"
 	}
 	if m.Timeout > 0 && m.Timeout < timeout {

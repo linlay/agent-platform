@@ -54,7 +54,7 @@ func TestDeletePackagePurgesPrivateStateAndInstallations(t *testing.T) {
 	kept := map[string]string{
 		filepath.Join(sources.StateRoot, "other", "oauth.json"):                    "other-connector-credential",
 		filepath.Join(sources.InstallRoot(), "other", "active.json"):               "other-connector-installation",
-		filepath.Join(filepath.Dir(sources.StateRoot), "identity", "access-token"): "desktop-sso",
+		filepath.Join(filepath.Dir(sources.StateRoot), "identity", "sso-id-token"): "desktop-sso",
 	}
 	for path, contents := range kept {
 		writeDeletionFixtureFile(t, path, contents)

@@ -16,7 +16,7 @@ LOG_DIR="$RUN_DIR"
 LOG_FILE="$LOG_DIR/$APP_NAME.log"
 PID_FILE="$RUN_DIR/$APP_NAME.pid"
 PROGRAM_PORT=""
-IDENTITY_FILE=""
+SSO_ID_TOKEN_FILE=""
 RUNTIME_MODE="standalone"
 BACKEND_ARGS=()
 DEPLOY_DOCUMENT_PREVIEW_API_BASE_URL=""
@@ -95,9 +95,9 @@ program_apply_layout_flags() {
         PROGRAM_PORT="$2"
         shift 2
         ;;
-      --identity-file)
-        [[ $# -ge 2 ]] || program_die "missing value for --identity-file"
-        IDENTITY_FILE="$2"
+      --sso-id-token-file)
+        [[ $# -ge 2 ]] || program_die "missing value for --sso-id-token-file"
+        SSO_ID_TOKEN_FILE="$2"
         shift 2
         ;;
       --runtime-mode)
@@ -264,7 +264,7 @@ program_apply_deploy_flags() {
         DEPLOY_DESKTOP_DEVICE_ID="$2"
         shift 2
         ;;
-      --config-dir|--state-dir|--log-dir|--port|--identity-file|--runtime-mode|--runtime-mode=*|--daemon)
+      --config-dir|--state-dir|--log-dir|--port|--sso-id-token-file|--runtime-mode|--runtime-mode=*|--daemon)
         program_reject_deploy_start_arg "$1"
         ;;
       --force)
@@ -725,8 +725,8 @@ program_update_backend_args() {
   if [[ -n "$PROGRAM_PORT" ]]; then
     BACKEND_ARGS+=(--port "$PROGRAM_PORT")
   fi
-  if [[ -n "$IDENTITY_FILE" ]]; then
-    BACKEND_ARGS+=(--identity-file "$IDENTITY_FILE")
+  if [[ -n "$SSO_ID_TOKEN_FILE" ]]; then
+    BACKEND_ARGS+=(--sso-id-token-file "$SSO_ID_TOKEN_FILE")
   fi
 }
 
@@ -819,4 +819,26 @@ program_exec_backend() {
 
 program_stop_backend() {
   program_stop_pid_file "$PID_FILE" "$APP_NAME"
+}
+
+# Service-owned migration; start.sh only consumes already deployed configuration.
+program_migrate_sso_provider_config() {
+  local root="$DEPLOY_AP_RUNTIME_DIR" file temporary
+  case "$root" in
+    '~') root="$HOME" ;;
+    '~/'*) root="$HOME/${root#'~/'}" ;;
+    /*) ;;
+    *) root="$CONFIG_ROOT/$root" ;;
+  esac
+  [[ -d "$root/registries/providers" ]] || return 0
+  while IFS= read -r -d '' file; do
+    if ! LC_ALL=C grep -qE '^[[:space:]]*useAccessToken[[:space:]]*:' "$file"; then continue; fi
+    if LC_ALL=C grep -qE '^[[:space:]]*useSsoIdToken[[:space:]]*:' "$file"; then
+      program_die "provider contains both useAccessToken and useSsoIdToken: $file"
+    fi
+    temporary="$(mktemp "${file}.sso.XXXXXX")"
+    sed -E 's/^([[:space:]]*)useAccessToken([[:space:]]*:)/\1useSsoIdToken\2/' "$file" > "$temporary"
+    chmod 600 "$temporary"
+    mv -f "$temporary" "$file"
+  done < <(find "$root/registries/providers" -type f \( -name '*.yml' -o -name '*.yaml' \) -print0)
 }

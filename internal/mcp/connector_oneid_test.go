@@ -51,14 +51,14 @@ func TestOneIDHTTPUsesCurrentEnvironmentAndBoundDestination(t *testing.T) {
 			}
 			original, _ := json.Marshal(pkg.MCP["main"])
 			definition, err := connectorServer(pkg, "main")
-			if err != nil || definition.SetupError != "" || definition.AuthSource != AuthSourceIdentityFile || !definition.ConnectorOneID {
+			if err != nil || definition.SetupError != "" || definition.AuthSource != AuthSourceSsoIdTokenFile || !definition.ConnectorOneID {
 				t.Fatal("oneid registry", err)
 			}
 			unchanged, _ := json.Marshal(pkg.MCP["main"])
 			if string(original) != string(unchanged) {
 				t.Fatal("rewrote package component")
 			}
-			file := filepath.Join(t.TempDir(), "sso-access-token.txt")
+			file := filepath.Join(t.TempDir(), "sso-id-token.txt")
 			expected := "private-token-a"
 			calls := 0
 			base := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
@@ -68,7 +68,7 @@ func TestOneIDHTTPUsesCurrentEnvironmentAndBoundDestination(t *testing.T) {
 				}
 				return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("{}"))}, nil
 			})
-			client := (&Client{httpClient: &http.Client{Transport: base}}).WithIdentityFile(file).httpClientForServer(definition)
+			client := (&Client{httpClient: &http.Client{Transport: base}}).WithSsoIdTokenFile(file).httpClientForServer(definition)
 			for _, value := range []string{"private-token-a", "private-token-b"} {
 				expected = value
 				if err := os.WriteFile(file, []byte(value), 0600); err != nil {
@@ -118,8 +118,8 @@ func TestOneIDStdioInjectionRotationAndLogout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	file := filepath.Join(t.TempDir(), "sso-access-token.txt")
-	client := NewClientWithGate(registry, nil, nil).WithIdentityFile(file)
+	file := filepath.Join(t.TempDir(), "sso-id-token.txt")
+	client := NewClientWithGate(registry, nil, nil).WithSsoIdTokenFile(file)
 	defer client.Close()
 	definition, _ := registry.Server("demo")
 	if _, err := client.CallTool(t.Context(), "demo", "check_identity", nil, nil); err == nil {
@@ -224,7 +224,7 @@ func TestOneIDLocalValidationAndLegacyClassification(t *testing.T) {
 			t.Fatal("invalid oneid configuration accepted")
 		}
 	}
-	// The former identity-file flag no longer turns another mode into OneID.
+	// The former sso-id-token-file flag no longer turns another mode into OneID.
 	root := t.TempDir()
 	pkg := writeOneIDFixture(t, root, map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp", "platform": map[string]any{"authSource": "identity-file"}})
 	os.WriteFile(filepath.Join(pkg.Dir, "connector.json"), []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"mcp","authMode":"self"}`), 0644)
@@ -233,6 +233,6 @@ func TestOneIDLocalValidationAndLegacyClassification(t *testing.T) {
 		t.Fatal("legacy identity flag changed the declared mode", err)
 	}
 	if _, err := connectorServer(loaded, "main"); err == nil {
-		t.Fatal("identity-file accepted without authMode oneid")
+		t.Fatal("sso-id-token-file accepted without authMode oneid")
 	}
 }

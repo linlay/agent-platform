@@ -176,7 +176,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 
 	modelRegistryStartedAt := time.Now()
-	modelRegistry, err := models.LoadModelRegistryWithIdentityFile(cfg.Paths.RegistriesDir, cfg.IdentityFile)
+	modelRegistry, err := models.LoadModelRegistryWithSsoIdTokenFile(cfg.Paths.RegistriesDir, cfg.SsoIdTokenFile)
 	if err != nil {
 		return nil, fmt.Errorf("load model registry (%s): %w", cfg.Paths.RegistriesDir, err)
 	}
@@ -221,7 +221,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		return nil, fmt.Errorf("load mcp registry: %w", err)
 	}
 	mcpGate := mcp.NewAvailabilityGate()
-	mcpClient := mcp.NewClientWithGate(mcpRegistry, nil, mcpGate).WithIdentityFile(cfg.IdentityFile)
+	mcpClient := mcp.NewClientWithGate(mcpRegistry, nil, mcpGate).WithSsoIdTokenFile(cfg.SsoIdTokenFile)
 	cleanupMCP := true
 	defer func() {
 		if cleanupMCP {
@@ -432,7 +432,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 	automationService := &automation.Service{Registry: automationRegistry, Orchestrator: automationOrchestrator, History: automationExecutionHistory, DefaultZoneID: cfg.Automation.DefaultZoneID}
 	controlHandler := platformcontrol.NewToolHandler(cfg, registry, conversationService).ConfigureControl(&adminsource.ControlService{Mutations: adminSourceService, Config: cfg, Registry: registry, Models: modelRegistry, Reload: reloader.Reload, Coordinate: reloader.WithCatalogDirectoryMutation, ValidateLibrary: kbasesService.ValidateBinding, LibraryDefinition: kbasesService.BindingDefinition}, conversationService, modelRegistry).ConfigureAutomation(automationService).ConfigureLibraries(kbasesService)
-	connectorAuth := connectorauth.New(backgroundCtx, cfg.Paths.ConnectorSources(), nil).WithInheritEnv(cfg.Bash.InheritEnv).WithPreparationReload(func(ctx context.Context) error { return reloader.Reload(ctx, "connectors") }).WithIdentityFile(cfg.IdentityFile).WithCredentialValidator(mcpClient.ValidateConnectorCredentials)
+	connectorAuth := connectorauth.New(backgroundCtx, cfg.Paths.ConnectorSources(), nil).WithInheritEnv(cfg.Bash.InheritEnv).WithPreparationReload(func(ctx context.Context) error { return reloader.Reload(ctx, "connectors") }).WithSsoIdTokenFile(cfg.SsoIdTokenFile).WithCredentialValidator(mcpClient.ValidateConnectorCredentials)
 	controlHandler.ConfigureConnectors(connectorAuth, mcp.NewConnectorChecker(cfg.Paths.ConnectorSources()))
 	controlHandler.RuntimeSnapshot = func() map[string]any {
 		statuses := []map[string]any{}

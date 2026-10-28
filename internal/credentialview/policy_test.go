@@ -9,7 +9,7 @@ import (
 
 func TestSourcesAndContent(t *testing.T) {
 	root := t.TempDir()
-	p := Policy{Providers: filepath.Join(root, "registries", "providers"), Connectors: filepath.Join(root, ".state", "connectors"), IdentityFile: filepath.Join(root, "custom-token")}
+	p := Policy{Providers: filepath.Join(root, "registries", "providers"), Connectors: filepath.Join(root, ".state", "connectors"), SsoIdTokenFile: filepath.Join(root, "custom-token")}
 	for _, tc := range []struct {
 		file, input, visible string
 		forbidden            []string
@@ -18,7 +18,7 @@ func TestSourcesAndContent(t *testing.T) {
 		{filepath.Join(p.Providers, "demo.yml"), "api-key: |\n  multiline-secret\nname: Demo\n", "name: Demo", []string{"multiline-secret"}},
 		{filepath.Join(p.Connectors, "demo", "oauth.json"), `{"config":{"ClientID":"public-client","ClientSecret":"client-secret"},"token":{"access_token":"access-secret"},"status":"ready"}`, "ready", []string{"client-secret", "access-secret"}},
 		{filepath.Join(p.Connectors, "demo", "credentials.json"), `{"CUSTOM_KEY":"arbitrary-secret"}`, "CUSTOM_KEY", []string{"arbitrary-secret"}},
-		{p.IdentityFile, "opaque-identity", Hidden, []string{"opaque-identity"}},
+		{p.SsoIdTokenFile, "opaque-identity", Hidden, []string{"opaque-identity"}},
 	} {
 		t.Run(filepath.Base(tc.file), func(t *testing.T) {
 			got := p.Text(tc.file, tc.input, false)
@@ -55,7 +55,7 @@ func TestSourcesAndContent(t *testing.T) {
 	}
 }
 func TestWindowsSources(t *testing.T) {
-	p := Policy{Providers: `C:\Users\Demo\registries\providers`, Connectors: `C:\Users\Demo\.state\connectors`, IdentityFile: `C:\Users\Demo\identity\access-token`}
+	p := Policy{Providers: `C:\Users\Demo\registries\providers`, Connectors: `C:\Users\Demo\.state\connectors`, SsoIdTokenFile: `C:\Users\Demo\identity\access-token`}
 	for _, tc := range []struct {
 		path string
 		want Source
