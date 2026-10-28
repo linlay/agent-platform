@@ -141,11 +141,11 @@ func TestSystemInitProfileBuilderUsesAutoToolChoiceForTeam(t *testing.T) {
 		AgentKey:     "__team__:research",
 		ModelKey:     "mock-model",
 		Mode:         agentteam.Mode,
-		ToolNames:    agentteam.DefaultToolNames(),
+		ToolNames:    []string{agentteam.ToolDelegate},
 		PromptAppend: contracts.DefaultPromptAppendConfig(),
 	}
-	toolDefs := make([]api.ToolDetailResponse, 0, len(agentteam.DefaultToolNames()))
-	for _, name := range agentteam.DefaultToolNames() {
+	toolDefs := make([]api.ToolDetailResponse, 0, len([]string{agentteam.ToolDelegate}))
+	for _, name := range []string{agentteam.ToolDelegate} {
 		toolDefs = append(toolDefs, api.ToolDetailResponse{
 			Name:        name,
 			Description: name,

@@ -13,8 +13,6 @@ const (
 	QueryRoleAutomation = "automation"
 	QueryRoleSystem     = "system"
 
-	QueryRoleValidationMessage = "role must be user, assistant, automation, or system"
-
 	ChatSourceQuery            = "query"
 	ChatSourceQueryPrefix      = "query:"
 	ChatSourceAutomationPrefix = "automation:"

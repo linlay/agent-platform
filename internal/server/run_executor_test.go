@@ -10,6 +10,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/llm"
 	"agent-platform/internal/runtime/adapter"
+	"agent-platform/internal/runtime/runexec"
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 )
@@ -57,7 +58,7 @@ func TestPersistRunCompletionInvokesOnPersisted(t *testing.T) {
 
 	var seen chat.RunCompletion
 	called := false
-	persisted, completion := persistRunCompletionWithReason(RunExecutorParams{
+	persisted, completion := persistRunCompletionWithReason(runexec.NativeOptions{
 		Request: runtimetypes.QueryCommand{
 			ChatID:   "chat-1",
 			RunID:    "run-1",
@@ -102,7 +103,7 @@ func TestPersistRunCompletionSkipsOnPersistedWhenNotSuccessful(t *testing.T) {
 	startServerFixtureRun(t, chats, "chat-1", "run-1", testEpochMillis)
 
 	called := false
-	persisted, completion := persistRunCompletionWithReason(RunExecutorParams{
+	persisted, completion := persistRunCompletionWithReason(runexec.NativeOptions{
 		Request: runtimetypes.QueryCommand{
 			ChatID:   "chat-1",
 			RunID:    "run-1",
@@ -142,7 +143,7 @@ func TestBroadcastRunCompletionEmitsUnreadBeforeChatUpdated(t *testing.T) {
 	}
 	startServerFixtureRun(t, chats, "chat-1", "run-1", testEpochMillis)
 
-	persisted, completion := persistRunCompletionWithReason(RunExecutorParams{
+	persisted, completion := persistRunCompletionWithReason(runexec.NativeOptions{
 		Request: runtimetypes.QueryCommand{
 			ChatID:   "chat-1",
 			RunID:    "run-1",
@@ -164,7 +165,7 @@ func TestBroadcastRunCompletionEmitsUnreadBeforeChatUpdated(t *testing.T) {
 
 	var order []string
 	notifications := &recordingNotificationSink{}
-	broadcastRunCompletion(RunExecutorParams{
+	runexec.BroadcastCompletion(runexec.NativeOptions{
 		Chats: chats,
 		OnUnreadChanged: func(summary chat.Summary) {
 			order = append(order, "chat.unread")
@@ -183,8 +184,8 @@ func TestBroadcastRunCompletionEmitsUnreadBeforeChatUpdated(t *testing.T) {
 
 func TestHandleAwaitingLifecycleBroadcastsViewMetadata(t *testing.T) {
 	notifications := &recordingNotificationSink{}
-	tracker := &awaitingTracker{}
-	handleAwaitingLifecycle(RunExecutorParams{
+	tracker := &runexec.AwaitingTracker{}
+	runexec.HandleAwaitingLifecycle(runexec.NativeOptions{
 		Session: QuerySession{
 			ChatID:   "chat-1",
 			RunID:    "run-1",
@@ -230,7 +231,7 @@ func TestHandleAwaitingLifecycleBroadcastsAwaitAskPushForApprovalAndPlan(t *test
 	for _, tc := range testCases {
 		t.Run(tc.mode, func(t *testing.T) {
 			notifications := &recordingNotificationSink{}
-			tracker := &awaitingTracker{}
+			tracker := &runexec.AwaitingTracker{}
 			eventPayload := map[string]any{
 				"awaitingId": tc.awaitingID,
 				"runId":      "run-1",
@@ -239,7 +240,7 @@ func TestHandleAwaitingLifecycleBroadcastsAwaitAskPushForApprovalAndPlan(t *test
 			if tc.expectTimeout {
 				eventPayload["timeout"] = tc.timeout
 			}
-			handleAwaitingLifecycle(RunExecutorParams{
+			runexec.HandleAwaitingLifecycle(runexec.NativeOptions{
 				Session: QuerySession{
 					ChatID:   "chat-1",
 					RunID:    "run-1",
@@ -318,7 +319,7 @@ func TestRunExecutorFinalizesAfterStreamDrain(t *testing.T) {
 			},
 		},
 	}
-	runExecutor(RunExecutorParams{
+	runExecutor(runexec.NativeOptions{
 		RunCtx:          context.Background(),
 		Request:         runtimetypes.QueryCommand{ChatID: "chat-1", RunID: "run-1", Message: "hello", AgentKey: "agent-a"},
 		Session:         QuerySession{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-a"},
@@ -379,7 +380,7 @@ func TestRunExecutorPublishesArtifactsWithoutObserverAndDoesNotNotifyOnReplay(t 
 	agent := &orchestratorAgentEngine{streams: []AgentStream{&stubOrchestratableStream{deltas: []AgentDelta{
 		DeltaArtifactPublish{ChatID: "chat-1", RunID: "run-1", ToolID: "tool-1", ArtifactCount: 2, Artifacts: items},
 	}}}}
-	result := runExecutor(RunExecutorParams{
+	result := runExecutor(runexec.NativeOptions{
 		RunCtx:          context.Background(),
 		Request:         runtimetypes.QueryCommand{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-a", Message: "hello"},
 		Session:         QuerySession{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-a"},
@@ -456,7 +457,7 @@ func TestCompactCheckpointPersistenceFailurePublishesFailureAndResolvesRequest(t
 		},
 	}
 
-	handleCompactCheckpointPersistenceFailure(RunExecutorParams{EventBus: bus, RunControl: control}, complete)
+	handleCompactCheckpointPersistenceFailure(runexec.NativeOptions{EventBus: bus, RunControl: control}, complete)
 
 	select {
 	case <-handle.Done():

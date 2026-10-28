@@ -27,9 +27,6 @@ func (r ReviewResult) AutoApprovedAtLevel(level string) bool {
 }
 
 const (
-	// RuleKeyRedirections is retained for sandbox override configuration; output
-	// redirection targets are reviewed by the access policy, not by bashsec.
-	RuleKeyRedirections           = "bashsec:redirections"
 	RuleKeyTooComplex             = "bashast:too_complex"
 	RuleKeyRuntimeWrapperXargs    = "bashsec:runtime_wrapper:xargs"
 	RuleKeyRuntimeWrapperFindExec = "bashsec:runtime_wrapper:find_exec"

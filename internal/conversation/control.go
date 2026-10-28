@@ -410,7 +410,7 @@ func (s *Service) ControlSearch(c ControlCaller, args map[string]any) (map[strin
 	}
 	archived := controlBool(args, "archived")
 	target := controlString(args, "chatId")
-	ids := []string{}
+	var ids []string
 	if target != "" {
 		ids = []string{target}
 	} else {

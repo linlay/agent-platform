@@ -276,39 +276,6 @@ func (c *Config) applyRuntimeDefaultsValues(defaults map[string]any) {
 	c.Defaults.CoderPlanning.MaxSteps = intValue(anyValue(planning["max-steps"], c.Defaults.CoderPlanning.MaxSteps), c.Defaults.CoderPlanning.MaxSteps)
 }
 
-func durationValue(value any, fallback time.Duration) time.Duration {
-	switch v := value.(type) {
-	case time.Duration:
-		if v > 0 {
-			return v
-		}
-	case int:
-		if v > 0 {
-			return time.Duration(v) * time.Second
-		}
-	case int64:
-		if v > 0 {
-			return time.Duration(v) * time.Second
-		}
-	case float64:
-		if v > 0 {
-			return time.Duration(v) * time.Second
-		}
-	case string:
-		text := strings.TrimSpace(v)
-		if text == "" {
-			return fallback
-		}
-		if parsed, err := time.ParseDuration(text); err == nil && parsed > 0 {
-			return parsed
-		}
-		if seconds := parseInt(text, 0); seconds > 0 {
-			return time.Duration(seconds) * time.Second
-		}
-	}
-	return fallback
-}
-
 func (c *Config) applyBillingValues(values map[string]any) {
 	c.Billing.Currency = strings.ToUpper(stringValue(anyValue(values["currency"], c.Billing.Currency), c.Billing.Currency))
 }

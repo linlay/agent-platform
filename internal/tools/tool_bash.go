@@ -460,11 +460,6 @@ func connectorBins(execCtx *ExecutionContext) []string {
 	return append(append([]string(nil), execCtx.Session.ConnectorBinDirs...), execCtx.Session.ConnectorInstallBinDirs...)
 }
 
-// mergeCommandEnv builds the host tool environment with the shipped inherit list.
-func mergeCommandEnv(execCtx *ExecutionContext) ([]string, error) {
-	return mergeCommandEnvWith(execCtx, nil)
-}
-
 // commandEnv is the single environment used for both access review and launch.
 func (t *RuntimeToolExecutor) commandEnv(execCtx *ExecutionContext) ([]string, error) {
 	return mergeCommandEnvWith(execCtx, t.cfg.Bash.InheritEnv)

@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 )
 
@@ -31,7 +29,7 @@ var desktopWebappPageOnlyActions = []string{
 
 // Desktop's WorkPanel and webpage actions belong to builtin.web-control. The
 // typed web-control tools either send them (webControlActionNames) or reach
-// the same executor through a CDP method, so desktop_action never exposes them.
+// the same executor through a CDP method, so desktop domain tools never expose them.
 var desktopActionsOwnedByWebControl = []string{
 	"desktop.credentials.fill",
 	"desktop.credentials.list",
@@ -57,24 +55,15 @@ var desktopActionsOwnedByWebControl = []string{
 	"desktop.workpanel.refreshWeb",
 }
 
-func TestDesktopActionRejectsWebappPageOnlyActions(t *testing.T) {
-	invoker := &routingClientRequestInvoker{}
-	executor := &RuntimeToolExecutor{
-		cfg:           config.Config{RuntimeMode: config.RuntimeModeDesktop},
-		clientRequest: invoker,
-		clientTargets: emptyRunClientTargetStore{},
-	}
+func TestDesktopDomainActionsExcludeWebappPageOnlyActions(t *testing.T) {
+	pageOnly := map[string]bool{}
 	for _, action := range desktopWebappPageOnlyActions {
-		t.Run(action, func(t *testing.T) {
-			result, err := executor.invokeDesktopAction(context.Background(), map[string]any{"action": action}, desktopActionTestExecutionContext())
-			if err != nil || result.Error != "unknown_action" {
-				t.Fatalf("page-only action result=%#v err=%v", result, err)
-			}
-		})
+		pageOnly[action] = true
 	}
-	_, requests := invoker.snapshots()
-	if len(requests) != 0 {
-		t.Fatalf("page-only actions reached Desktop: %#v", requests)
+	for _, a := range connector.ControlActions() {
+		if strings.HasPrefix(a.Tool, "desktop_") && pageOnly["desktop."+a.Action] {
+			t.Fatalf("%s exposes WebApp-page-only action desktop.%s", a.Tool, a.Action)
+		}
 	}
 }
 
@@ -161,4 +150,19 @@ func TestDesktopActionContractMatchesDesktopSource(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Platform must follow Desktop actions (excluding WebApp-page-only and web-control actions)\nDesktop: %v\nPlatform: %v", want, got)
 	}
+}
+
+// Reverse actions the web-control tools send. Desktop domain tools never
+// expose them.
+var webControlActionNames = [...]string{
+	"desktop.workpanel.getState",
+	"desktop.workpanel.openWeb",
+	"desktop.workpanel.openLocalFile",
+	"desktop.workpanel.refreshWeb",
+	"desktop.workpanel.activateTab",
+	"desktop.workpanel.closeTab",
+	"desktop.workpanel.closeWorkpanel",
+	"desktop.web.interactElement",
+	"desktop.credentials.list",
+	"desktop.credentials.fill",
 }

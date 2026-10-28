@@ -16,29 +16,6 @@ const CreatePrefix = "executor"
 // a configured Workspace only when agent.yml asks for it.
 const WorkspaceReadOnly = true
 
-var createToolNames = []string{
-	"datetime",
-	"file_read",
-	"file_write",
-	"file_edit",
-	"file_glob",
-	"file_grep",
-	"bash",
-	"plan_add_tasks",
-	"plan_update_task",
-	"plan_get_tasks",
-	"web_fetch",
-	"vision_recognize",
-	"result_submit",
-}
-
-// CreateToolNames lists recommended tools for clients creating an executor
-// agent. It is not a load-time default; clients submit their concrete tool
-// selection.
-func CreateToolNames() []string {
-	return append([]string(nil), createToolNames...)
-}
-
 func IsMode(mode string) bool {
 	return strings.EqualFold(strings.TrimSpace(mode), Mode)
 }

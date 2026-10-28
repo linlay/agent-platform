@@ -309,7 +309,7 @@ func TestBuildSystemPromptInjectsEmbeddedKBaseCapabilityOnce(t *testing.T) {
 		Mode:                  "REACT",
 		KBaseBindingLibraryID: "docs",
 		CapabilityPrompts:     []string{"Knowledge Base Capability\nconfigured rules"},
-		ToolNames:             knowledge.DefaultToolNames(),
+		ToolNames:             []string{knowledge.ToolList, knowledge.ToolSearch, knowledge.ToolFiles, knowledge.ToolRead, knowledge.ToolStatus, knowledge.ToolDatetime},
 	}, api.QueryRequest{}, "", PromptBuildOptions{})
 	if count := strings.Count(prompt, "Knowledge Base Capability"); count != 1 {
 		t.Fatalf("capability prompt count = %d, want 1; prompt=%q", count, prompt)

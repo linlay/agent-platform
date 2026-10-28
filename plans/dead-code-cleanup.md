@@ -391,3 +391,52 @@
 3. 2.3（涉及测试改入口和文档）。
 4. 2.1 最后做，单独提交并完整回归（提交、超时、计划审批相关的测试）。
 5. 全部做完后再跑一遍 deadcode 和对象分析，结果附在这份文档的末尾。
+
+---
+
+## 执行结果（2026-10-28）
+
+分支 `chore/dead-code-cleanup`，基于 `4799fce2`，共 10 个提交。
+
+| 提交 | 内容 | 生产 Go | 测试 Go | 其他 |
+|---|---|---|---|---|
+| `7b305a09` | 1.1/1.2 无调用函数与包级声明 | -635 | 0 | 0 |
+| `be4f567e` | 1.3 测试中的无用项 | -2 | -523 | 0 |
+| `ba612005` | 1.4 一次性文档、实验数据与脚本（含 `scripts/anthropic-cache-probe`） | -454 | 0 | -3,967 |
+| `e94afaf3` | 1.5 staticcheck 小项 | -3 | +3 | 0 |
+| `217442a0` | 2.2 旧稳定根发布 | -265 | -183 | 0 |
+| `302b205c` | 2.4 HookCommand | -68 | -3 | 0 |
+| `8c7c8760` | 2.5 server 测试专用壳 | -231 | +136 | 0 |
+| `062b8a39` | 2.6 只剩测试调用的便捷入口 | -122 | +78 | 0 |
+| `f79ccbc9` | 2.3 desktop_action 白名单残留 | -163 | -273 | -3 |
+| `5218ab6f` | 2.1 重启恢复等待项链路 | -461 | -300 | 0 |
+| 合计 | | **-2,404** | **-1,065** | **-3,970** |
+
+### 与计划的差异
+
+- 1.3：`runtime/session.ContainsString` 还被另一个测试别名 `containsString` 使用，没有变成死代码，保留。
+- 2.5：`server/push_payloads.go` 中仍在使用的 `catalogUpdatedPushPayload` 保留；run.started/run.finished 的测试迁到 `runtime/query`，测的是生产实际使用的那份实现。
+- 2.6 以下几项保留不动：
+  - `mcp.NewRegistryWithSources`、`modelclient.ResponseError/ClassifyResponseError`、`query.Admission`：跨包测试在用，生产没有等价的公开入口。
+  - `connector.ReadMount`：从 `8e7bf1a1` 引入时就只给测试用。生产的完整性校验走 `RuntimeFingerprint`，不是漏掉的校验。
+  - `catalog.skillPackageVersionDiagnostics`：调用方在 `87d96b77`（嵌套技能包重构）中被删，此后不再产出 `missing_skill_version`、`skill_package_version_mismatch` 诊断，**疑似重构遗漏，待确认是恢复调用还是删除**。
+- 2.1 补充：`ClaimAwaitingResolution` 改名为 `AwaitingResolutionOwner`，只返回状态；它和 `AwaitingHasLiveExecutor` 都去掉了不再使用的 `awaitingID` 参数。
+- 删除 server/query 里的 `var` 别名后，`runexec.IsDiscardIncompleteModelTurnRecovery` 只剩 server 测试的 collector 在用（以前靠别名显得"生产可达"）。跨包测试使用，保留。
+
+### 验证
+
+- 每个提交都在 darwin、linux、windows 上通过 `go build` 和 `go vet ./...`（含测试编译）。
+- 收尾时复跑 deadcode（三平台）和 staticcheck U1000：除三级的 hostshell 预制件和 `runops` 中作为编译期断言的 `func _` 外，没有完全无引用的函数，也没有 U1000 告警。
+- 完整 `go test ./...` 中出现的失败，都确认在单独运行或基线上同样存在，与本次清理无关：
+  - `hostenv.TestNPMDiscoveryRefreshAndIsolation`、`connectorauth.TestCLIOrderedAuthStepsAndJSONStatus`、`TestPreparationExternalCommandWithoutInit`：整套并发运行时超时，单独运行通过。
+  - `server.TestChatHistoryHonorsDetailLevel`：基线上 40 次失败 4 次，属于原本就有的时序竞争。
+  - `server.TestQuerySSEPersistsChatHistory`、`TestProxyQueryStreamingPersistsCapturedRunStartAndLifecyclePushTimes`：只在整套并发运行时偶发，基线和清理后各单独运行 40 次都通过。
+- 跨仓契约测试（需 `DESKTOP_SOURCE=…/zenmind-desktop`）在基线上就失败，见下一节。
+
+### 清理中发现、未在本次处理的问题
+
+1. `TestDesktopActionContractMatchesDesktopSource` 在基线上已失败：Desktop 上游删除了部分 page-only 动作（如 `desktop.capabilities.list`、`desktop.native.dialog.selectDirectory`），`desktopWebappPageOnlyActions` 需要同步。另外，测试按相邻目录 `../desktop` 查找，而本机 checkout 是 `zenmind-desktop`，默认会跳过。
+2. 上面列出的几个 server 测试存在时序竞争（`/api/chat` 在 Run 收尾落盘前读取）。
+3. EXECUTOR 模板的推荐工具列表（已删除的 `executor.CreateToolNames`）从未接入创建选项，`handler_agent_defaults.go` 只给 general、kbase、coder 提供 baseTools。
+4. `runtime/query/mailbox.go` 中 `DeliverMail` 收到的 `ctx` 在使用前就被覆盖（staticcheck SA4009）。
+5. `skillPackageVersionDiagnostics` 疑似重构遗漏（见上文）。

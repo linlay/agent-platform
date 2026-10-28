@@ -195,11 +195,6 @@ func (r *Registry) LookupBySourceChannel(sourceChannel string) (*Entry, bool) {
 	return nil, false
 }
 
-// Resolver 是按 chatId 查 gateway 的只读视图。artifactpusher / ws_routes 通过它解耦 Registry 内部。
-type Resolver interface {
-	Resolve(chatID string) (baseURL string, token string, ok bool)
-}
-
 // Resolve 按 chatId 前缀查对应 gateway 的 BaseURL 和 Token（路由 artifact 外推 / 文件下载）。
 // 查不到时 ok=false，调用方按"无对应 gateway"处理（pusher 跳过，download 返回错误）。
 func (r *Registry) Resolve(chatID string) (string, string, bool) {

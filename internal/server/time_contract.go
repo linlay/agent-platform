@@ -120,7 +120,6 @@ func timeContractStatusError(err error) *statusError {
 // invalid JSON record return the same public error without manufacturing a
 // current timestamp or a generic storage error.
 
-var errTimeContractViolation = runexec.ErrTimeContractViolation
 var timeContractErrorData = runexec.TimeContractErrorData
 var chatStorageSchemaErrorData = runexec.ChatStorageSchemaErrorData
 var isTimeContractViolation = runexec.IsTimeContractViolation

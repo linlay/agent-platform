@@ -15,12 +15,6 @@ const (
 	documentKindMarkdown = documentmeta.KindMarkdown
 	documentKindText     = documentmeta.KindText
 	documentKindCode     = documentmeta.KindCode
-	documentKindPDF      = documentmeta.KindPDF
-	documentKindOffice   = documentmeta.KindOffice
-	documentKindAudio    = documentmeta.KindAudio
-	documentKindVideo    = documentmeta.KindVideo
-	documentKindArchive  = documentmeta.KindArchive
-	documentKindBinary   = documentmeta.KindBinary
 )
 
 func normalizeDocumentMIME(value string) string {

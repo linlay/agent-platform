@@ -345,11 +345,6 @@ func toolInt64Arg(args map[string]any, key string) int64 {
 	}
 }
 
-func toolBoolArg(args map[string]any, key string) bool {
-	value, ok := args[key].(bool)
-	return ok && value
-}
-
 func searchHitSources(hits []SearchHit) []stream.Source {
 	if len(hits) == 0 {
 		return nil

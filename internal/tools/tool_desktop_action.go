@@ -15,7 +15,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -35,24 +34,12 @@ const (
 	desktopMaxDecodedResponseBytes  = 64 << 20
 )
 
-var (
-	desktopActionAllowlistOnce sync.Once
-	desktopActionAllowlist     map[string]bool
-	desktopActionAllowlistErr  error
-	desktopRequestSeq          atomic.Uint64
-)
+var desktopRequestSeq atomic.Uint64
 
 var desktopActionReservedArgFields = []string{
 	"source",
 	"confirmation" + "Summary",
 	"workspaceRoot",
-}
-
-func getDesktopActionAllowlist() (map[string]bool, error) {
-	desktopActionAllowlistOnce.Do(func() {
-		desktopActionAllowlist, desktopActionAllowlistErr = loadDesktopActionAllowlist()
-	})
-	return desktopActionAllowlist, desktopActionAllowlistErr
 }
 
 type desktopCDPRequest struct {
@@ -67,21 +54,6 @@ type desktopCDPSource struct {
 	RunID    string `json:"runId,omitempty"`
 	ChatID   string `json:"chatId,omitempty"`
 	AgentKey string `json:"agentKey,omitempty"`
-}
-
-func (t *RuntimeToolExecutor) invokeDesktopAction(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
-	action := strings.TrimSpace(stringArg(args, "action"))
-	if action == "" {
-		return desktopActionErrorResult("invalid_args", "action is required", nil), nil
-	}
-	allowlist, err := getDesktopActionAllowlist()
-	if err != nil {
-		return desktopActionErrorResult("desktop_action_allowlist_unavailable", "desktop action allowlist is unavailable", map[string]any{"error": err.Error()}), nil
-	}
-	if !allowlist[action] {
-		return desktopActionErrorResult("unknown_action", "desktop action is not allowlisted", map[string]any{"action": action}), nil
-	}
-	return t.dispatchDesktopAction(ctx, action, args, execCtx)
 }
 
 // dispatchDesktopAction sends an already admitted reverse action. Callers own

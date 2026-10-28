@@ -198,7 +198,6 @@ type TeamConfig = api.AgentTeamConfig
 
 const (
 	TeamRuntimeModeOrchestrated = "orchestrated"
-	TeamDefaultMaxParallel      = 5
 )
 
 // TeamOrchestratorConfig freezes the root Agent execution settings.
@@ -1039,13 +1038,6 @@ func containsString(values []string, needle string) bool {
 		}
 	}
 	return false
-}
-
-func defaultString(value string, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return value
 }
 
 func skillDisplayName(name string, description string, fallback string) string {

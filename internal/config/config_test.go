@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1051,7 +1052,7 @@ func TestLoadRejectsRemovedSkillsMarketPathKey(t *testing.T) {
 		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
 			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
 				_, err := Load()
-				if err == nil || !deprecation.Is(err) || !strings.Contains(err.Error(), "paths configuration was removed") {
+				if err == nil || !errors.Is(err, deprecation.ErrRemoved) || !strings.Contains(err.Error(), "paths configuration was removed") {
 					t.Fatalf("expected removed skills-market-dir error, got %v", err)
 				}
 			})
@@ -1076,7 +1077,7 @@ func TestLoadRejectsRemovedSkillsMarketRuntimeDirectory(t *testing.T) {
 				withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
 					withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
 						_, err := Load()
-						if err == nil || !deprecation.Is(err) || !strings.Contains(err.Error(), legacyDir) {
+						if err == nil || !errors.Is(err, deprecation.ErrRemoved) || !strings.Contains(err.Error(), legacyDir) {
 							t.Fatalf("expected removed runtime directory error, got %v", err)
 						}
 					})
@@ -1093,7 +1094,7 @@ func TestLoadRejectsRemovedSkillsMarketRuntimeDirectoryWithStateOverride(t *test
 		t.Fatal(err)
 	}
 	withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": runtimeRoot, "AP_RUNTIME_STATE_DIR": filepath.Join(t.TempDir(), "state")}, func() {
-		if _, err := Load(LoadOptions{ConfigDir: t.TempDir()}); err == nil || !deprecation.Is(err) || !strings.Contains(err.Error(), legacyDir) {
+		if _, err := Load(LoadOptions{ConfigDir: t.TempDir()}); err == nil || !errors.Is(err, deprecation.ErrRemoved) || !strings.Contains(err.Error(), legacyDir) {
 			t.Fatalf("expected legacy runtime directory error, got %v", err)
 		}
 	})
@@ -1111,7 +1112,7 @@ func TestLoadRejectsRuntimePathsFromYAML(t *testing.T) {
 				t.Fatal(err)
 			}
 			withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": filepath.Join(root, "runtime"), "AP_RUNTIME_STATE_DIR": filepath.Join(root, "env-state")}, func() {
-				if _, err := Load(LoadOptions{ConfigDir: root}); err == nil || !deprecation.Is(err) || !strings.Contains(err.Error(), "paths configuration was removed") {
+				if _, err := Load(LoadOptions{ConfigDir: root}); err == nil || !errors.Is(err, deprecation.ErrRemoved) || !strings.Contains(err.Error(), "paths configuration was removed") {
 					t.Fatalf("YAML override accepted: %v", err)
 				}
 			})
@@ -1124,7 +1125,7 @@ func TestLoadRejectsRuntimePathsFromYAML(t *testing.T) {
 				t.Fatal(err)
 			}
 			var cfg Config
-			if err := cfg.applyRuntimeFile(path); err == nil || !deprecation.Is(err) {
+			if err := cfg.applyRuntimeFile(path); err == nil || !errors.Is(err, deprecation.ErrRemoved) {
 				t.Fatalf("removed paths block accepted: %v", err)
 			}
 		})

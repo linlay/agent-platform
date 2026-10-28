@@ -658,13 +658,6 @@ const timeContractViolationMessage = "time contract violation"
 
 var ErrTimeContractViolation = errors.New("time contract violation")
 
-func LenAnyMap(value any) int {
-	if item, ok := value.(map[string]any); ok {
-		return len(item)
-	}
-	return 0
-}
-
 func ChatStorageSchemaErrorData(err error) map[string]any {
 	data := chat.JSONLSchemaErrorData(err)
 	data["category"] = string(apperrors.CategoryChatRun)

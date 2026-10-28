@@ -18,6 +18,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 )
 
 func TestInteractionSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
@@ -808,7 +809,7 @@ func TestQuestionSubmitRejectsMultiSelectAnswerAndAllowsRetry(t *testing.T) {
 		t.Fatalf("expected multi-select question with id, got %#v", question)
 	}
 
-	invalidParams, err := api.EncodeSubmitParams([]map[string]any{{"id": questionID, "answer": "A"}})
+	invalidParams, err := queryinput.EncodeSubmitParams([]map[string]any{{"id": questionID, "answer": "A"}})
 	if err != nil {
 		t.Fatalf("encode invalid submit params: %v", err)
 	}
@@ -842,7 +843,7 @@ func TestQuestionSubmitRejectsMultiSelectAnswerAndAllowsRetry(t *testing.T) {
 		t.Fatal("invalid submit must leave the awaiting item active")
 	}
 
-	validParams, err := api.EncodeSubmitParams([]map[string]any{{"id": questionID, "answers": []string{"A"}}})
+	validParams, err := queryinput.EncodeSubmitParams([]map[string]any{{"id": questionID, "answers": []string{"A"}}})
 	if err != nil {
 		t.Fatalf("encode valid submit params: %v", err)
 	}
@@ -1207,10 +1208,6 @@ type scriptedSandbox struct {
 	execute func(command string, cwd string, env map[string]string) contracts.SandboxExecutionResult
 }
 
-type recordingMCPClient struct {
-	commands []string
-}
-
 type stubMCPToolCatalog struct {
 	defs []api.ToolDetailResponse
 }
@@ -1258,18 +1255,6 @@ func (s *scriptedSandbox) Execute(_ context.Context, _ *contracts.ExecutionConte
 }
 
 func (s *scriptedSandbox) CloseQuietly(_ *contracts.ExecutionContext) {}
-
-func (m *recordingMCPClient) CallTool(_ context.Context, _ string, toolName string, args map[string]any, _ map[string]any) (any, error) {
-	command, _ := args["command"].(string)
-	m.commands = append(m.commands, command)
-	return map[string]any{
-		"structuredContent": map[string]any{
-			"tool":    toolName,
-			"command": command,
-			"status":  "ok",
-		},
-	}, nil
-}
 
 func (c stubMCPToolCatalog) Definitions() []api.ToolDetailResponse {
 	return append([]api.ToolDetailResponse(nil), c.defs...)
@@ -1541,49 +1526,6 @@ func extractRunIDFromStream(t *testing.T, body string) string {
 	return ""
 }
 
-func assertSpecificEventOrder(t *testing.T, messages []map[string]any, originalToolID string, awaitingID string) {
-	t.Helper()
-	originalStart := -1
-	awaitAsk := -1
-	requestSubmit := -1
-	awaitingAnswer := -1
-	originalResult := -1
-	for idx, message := range messages {
-		eventType, _ := message["type"].(string)
-		switch eventType {
-		case "tool.start":
-			if message["toolId"] == originalToolID {
-				originalStart = idx
-			}
-		case "awaiting.ask":
-			if message["awaitingId"] == awaitingID {
-				awaitAsk = idx
-			}
-		case "request.submit":
-			if message["awaitingId"] == awaitingID {
-				requestSubmit = idx
-			}
-		case "awaiting.answer":
-			if message["awaitingId"] == awaitingID {
-				awaitingAnswer = idx
-			}
-		case "tool.result":
-			if message["toolId"] == originalToolID {
-				originalResult = idx
-			}
-		}
-	}
-	if requestSubmit >= 0 {
-		if !(originalStart >= 0 && awaitAsk > originalStart && requestSubmit > awaitAsk && awaitingAnswer > requestSubmit && originalResult > awaitingAnswer) {
-			t.Fatalf("unexpected HITL event order: %#v", messages)
-		}
-		return
-	}
-	if !(originalStart >= 0 && awaitAsk > originalStart && awaitingAnswer > awaitAsk && originalResult > awaitingAnswer) {
-		t.Fatalf("unexpected HITL event order: %#v", messages)
-	}
-}
-
 func TestSubmitRejectsUnknownAwaiting(t *testing.T) {
 	fixture := newTestFixture(t)
 
@@ -1601,7 +1543,7 @@ func TestSubmitRejectsUnknownAwaiting(t *testing.T) {
 
 func mustEncodeSubmitParams(t *testing.T, value any) api.SubmitParams {
 	t.Helper()
-	params, err := api.EncodeSubmitParams(value)
+	params, err := queryinput.EncodeSubmitParams(value)
 	if err != nil {
 		t.Fatalf("encode submit params: %v", err)
 	}

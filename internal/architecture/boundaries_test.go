@@ -187,8 +187,8 @@ func TestServerDoesNotOwnNativeQueryBusiness(t *testing.T) {
 		"BuildQuerySession": true, "startPreparedLocalRun": true,
 		"localRunExecutorParams": true, "executePreparedLocalQuery": true,
 		"startAwaitingContinuation": true, "startAwaitingContinuationWithAdmission": true,
-		"startRunContinuation": true, "registerRecoveredAwaitingRun": true,
-		"resolveSubmit": true, "resolveDeferredSubmit": true, "hydrateDeferredAwaitings": true,
+		"startRunContinuation": true,
+		"resolveSubmit":        true, "resolveDeferredSubmit": true, "hydrateDeferredAwaitings": true,
 	}
 	entries, err := os.ReadDir(filepath.Join(root, "internal/server"))
 	if err != nil {

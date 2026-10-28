@@ -10,6 +10,7 @@ import (
 
 	"agent-platform/internal/api"
 	contracts "agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/toolinteraction"
 )
 
@@ -23,7 +24,7 @@ func interactionAwaitingContext(awaitingID string) contracts.AwaitingSubmitConte
 
 func interactionSubmitParams(t *testing.T, value any) api.SubmitParams {
 	t.Helper()
-	params, err := api.EncodeSubmitParams(value)
+	params, err := queryinput.EncodeSubmitParams(value)
 	if err != nil {
 		t.Fatalf("encode submit params: %v", err)
 	}

@@ -1409,3 +1409,8 @@ func mustMergeBashCommandEnv(t *testing.T, execCtx *contracts.ExecutionContext, 
 	}
 	return env
 }
+
+// mergeCommandEnv builds the host tool environment with the shipped inherit list.
+func mergeCommandEnv(execCtx *contracts.ExecutionContext) ([]string, error) {
+	return mergeCommandEnvWith(execCtx, nil)
+}

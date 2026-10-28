@@ -431,64 +431,6 @@ func TestManagerReaperTreatsMaxBackgroundDurationAsGlobalLimit(t *testing.T) {
 	}
 }
 
-func TestManagerRecoveredAwaitingIsAttachableAndClaimedOnce(t *testing.T) {
-	manager := newTestManager(t)
-	startedAt := time.Now().Add(-48 * time.Hour).UnixMilli()
-	recovered, err := manager.RegisterRecoveredAwaiting(context.Background(), contracts.QuerySession{
-		RunID: "run_recovered", ChatID: "chat_recovered", AgentKey: "agent_1",
-		RunOwner: contracts.AgentRunOwner("agent_1"), StartedAtMillis: startedAt,
-	}, "await_1", 29)
-	if err != nil {
-		t.Fatalf("register recovered awaiting: %v", err)
-	}
-	status, ok := manager.RunStatus("run_recovered")
-	if !ok || status.State != contracts.RunLoopStateWaitingSubmit || status.StartedAt != startedAt || status.LastSeq != 29 {
-		t.Fatalf("unexpected recovered status %#v", status)
-	}
-	observer, err := manager.AttachObserver("run_recovered", 29)
-	if err != nil {
-		t.Fatalf("attach recovered run: %v", err)
-	}
-	defer manager.DetachObserver("run_recovered", observer.ID)
-	if _, ok := manager.ResolveWebClientTarget("run_recovered"); ok {
-		t.Fatal("recovered awaiting run must initially allow a missing target")
-	}
-	recoveredTarget := contracts.WebClientTarget{SessionID: "ws-recovered"}
-	if !manager.BindWebClientTarget("run_recovered", recoveredTarget) {
-		t.Fatal("bind target after recovered awaiting attach")
-	}
-	if got, ok := manager.ResolveWebClientTarget("run_recovered"); !ok || got != recoveredTarget {
-		t.Fatalf("recovered awaiting target = %#v, %v, want %#v", got, ok, recoveredTarget)
-	}
-	claim, ok := manager.ClaimRecoveredAwaiting("run_recovered", "await_1")
-	if !ok || claim.Control != recovered.Control || claim.EventBus != recovered.EventBus || claim.InitialSeq != 29 {
-		t.Fatalf("unexpected recovered claim %#v ok=%v", claim, ok)
-	}
-	if _, duplicate := manager.ClaimRecoveredAwaiting("run_recovered", "await_1"); duplicate {
-		t.Fatal("recovered awaiting must be claimed once")
-	}
-	if !manager.ActivateRecoveredAwaiting("run_recovered", "await_1") || manager.IsRecoveredAwaiting("run_recovered", "await_1") {
-		t.Fatal("expected recovered awaiting to become a normal active run")
-	}
-}
-
-func TestManagerRecoveredAwaitingReaperStartsAtHydration(t *testing.T) {
-	manager := newTestManager(t)
-	manager.maxBackgroundDuration = time.Hour
-	_, err := manager.RegisterRecoveredAwaiting(context.Background(), contracts.QuerySession{
-		RunID: "run_old_recovered", ChatID: "chat_old_recovered", AgentKey: "agent_1",
-		RunOwner: contracts.AgentRunOwner("agent_1"), StartedAtMillis: time.Now().Add(-7 * 24 * time.Hour).UnixMilli(),
-	}, "await_old", 7)
-	if err != nil {
-		t.Fatalf("register recovered awaiting: %v", err)
-	}
-	manager.reapExpiredRuns()
-	status, ok := manager.RunStatus("run_old_recovered")
-	if !ok || status.State != contracts.RunLoopStateWaitingSubmit {
-		t.Fatalf("recovered run was reaped from persisted startedAt: %#v", status)
-	}
-}
-
 func mustReadEvent(t *testing.T, events <-chan stream.EventData) stream.EventData {
 	t.Helper()
 	select {

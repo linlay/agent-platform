@@ -344,7 +344,7 @@ func extractTarGz(archivePath, destination string) error {
 			if err := os.MkdirAll(targetPath, os.FileMode(header.Mode).Perm()); err != nil {
 				return err
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			if err := writeArchiveFile(targetPath, os.FileMode(header.Mode).Perm(), reader); err != nil {
 				return err
 			}

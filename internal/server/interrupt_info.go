@@ -14,19 +14,6 @@ func interruptRequestWithCause(req api.InterruptRequest, source string, reason s
 	return req
 }
 
-func interruptRequestForQuery(req api.QueryRequest, source string, reason string, detail string) api.InterruptRequest {
-	return interruptRequestWithCause(api.InterruptRequest{
-		RequestID: req.RequestID,
-		ChatID:    req.ChatID,
-		RunID:     req.RunID,
-		AgentKey:  req.AgentKey,
-	}, source, reason, detail)
-}
-
-func serverSetupInterruptRequest(req api.QueryRequest, reason string, detail string) api.InterruptRequest {
-	return interruptRequestForQuery(req, contracts.InterruptSourceServerSetup, reason, detail)
-}
-
 func httpAPIUserInterruptRequest(req api.InterruptRequest) api.InterruptRequest {
 	detail := firstNonBlank(req.Message, "interrupt requested by HTTP API")
 	return interruptRequestWithCause(req, contracts.InterruptSourceHTTPAPI, contracts.InterruptReasonUserCancelled, detail)

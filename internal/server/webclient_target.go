@@ -46,12 +46,3 @@ func bindRunWebClientTarget(runs contracts.RunManager, runID string, target cont
 	store, ok := runs.(contracts.WebClientTargetStore)
 	return ok && store.BindWebClientTarget(runID, target)
 }
-
-func resolveRunWebClientTarget(runs contracts.RunManager, runID string) contracts.WebClientTarget {
-	store, ok := runs.(contracts.WebClientTargetStore)
-	if !ok {
-		return contracts.WebClientTarget{}
-	}
-	target, _ := store.ResolveWebClientTarget(runID)
-	return target
-}

@@ -912,12 +912,3 @@ func (testCatalogRegistry) AgentDefinition(string) (catalog.AgentDefinition, boo
 func (testCatalogRegistry) Reload(context.Context, string) error { return nil }
 
 var _ catalog.Registry = testCatalogRegistry{}
-
-func testContextAgentSummaries() []api.AgentSummary {
-	return []api.AgentSummary{
-		{Key: "router", Name: "Router", Role: "route", Description: "routes work"},
-		{Key: "coder", Name: "Coder", Role: "code", Description: "writes code"},
-		{Key: "planner", Name: "Planner", Role: "plan", Description: "plans work"},
-		{Key: "customer-service", Name: "Customer Service", Role: "support", Description: "helps customers"},
-	}
-}

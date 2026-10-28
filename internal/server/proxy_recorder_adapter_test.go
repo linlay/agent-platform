@@ -15,8 +15,6 @@ import (
 // Keep API DTO conversion at the transport boundary during the remaining R18 work.
 type proxyEventRecorder = runexec.ProxyEventRecorder
 
-var newProxyUsageTracker = runexec.NewProxyUsageTracker
-
 func newProxyEventRecorder(req api.QueryRequest, startedAt int64, def catalog.AgentDefinition, chats chat.Store, writer *chat.StepWriter, control *contracts.RunControl, notifications contracts.NotificationSink, usage chat.UsageData, models *models.ModelRegistry, billing config.BillingConfig) *proxyEventRecorder {
 	return runexec.NewProxyEventRecorder(queryCommandFromAPI(req), startedAt, def, chats, writer, control, notifications, usage, models, billing)
 }

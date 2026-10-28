@@ -138,7 +138,7 @@ func TestDesktopInstallChatAliasDispatchWithoutWorkspace(t *testing.T) {
 	execCtx.Session.WebClientTarget = ClientTarget{SessionID: "desktop"}
 	execCtx.Session.WorkspaceRoot = ""
 	execCtx.Session.ChatRoot = chat
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{"action": "desktop.webapp.install", "args": map[string]any{"archivePath": "@chat/workbench.zip"}}, execCtx)
+	result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{"action": "desktop.webapp.install", "args": map[string]any{"archivePath": "@chat/workbench.zip"}}, execCtx)
 	if err != nil || result.ExitCode != 0 || invoker.calls != 1 {
 		t.Fatalf("not dispatched: %#v %v", result, err)
 	}
@@ -146,7 +146,7 @@ func TestDesktopInstallChatAliasDispatchWithoutWorkspace(t *testing.T) {
 	if invoker.request.Payload["archivePath"] != expected.Host || invoker.request.Source.WorkspaceRoot != "" {
 		t.Fatalf("alias or source changed: %#v", invoker.request)
 	}
-	rejected, err := executor.invokeDesktopAction(context.Background(), map[string]any{"action": "desktop.webapp.install", "args": map[string]any{"archivePath": "@chat/../outside.zip"}}, execCtx)
+	rejected, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{"action": "desktop.webapp.install", "args": map[string]any{"archivePath": "@chat/../outside.zip"}}, execCtx)
 	if err != nil || rejected.Error != "invalid_args" || invoker.calls != 1 {
 		t.Fatalf("invalid alias dispatched: %#v %v", rejected, err)
 	}
@@ -196,7 +196,7 @@ func TestDesktopActionAliasDispatch(t *testing.T) {
 	execCtx.Session.WebClientTarget = ClientTarget{SessionID: "desktop"}
 	execCtx.Session.WorkspaceRoot = root
 	execCtx.Session.ChatRoot = filepath.Join(root, "chat")
-	first, err := executor.invokeDesktopAction(context.Background(), map[string]any{"action": "desktop.webapp.package.init", "args": map[string]any{"projectPath": "@chat/webapps/demo/distribution", "key": "demo", "label": "Demo"}}, execCtx)
+	first, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{"action": "desktop.webapp.package.init", "args": map[string]any{"projectPath": "@chat/webapps/demo/distribution", "key": "demo", "label": "Demo"}}, execCtx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestDesktopActionAliasDispatch(t *testing.T) {
 	if invoker.request.Source == nil || invoker.request.Source.WorkspaceRoot != root {
 		t.Fatalf("source changed: %#v", invoker.request.Source)
 	}
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{"action": "desktop.webapp.package.init", "args": map[string]any{"projectPath": "@chat/../other"}}, execCtx)
+	result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{"action": "desktop.webapp.package.init", "args": map[string]any{"projectPath": "@chat/../other"}}, execCtx)
 	if err != nil || result.Error != "invalid_args" || invoker.calls != 1 {
 		t.Fatalf("invalid path dispatched: %#v %v", result, err)
 	}

@@ -52,10 +52,6 @@ type runStreamOptions struct {
 	PreserveSteersOnFinish bool
 }
 
-func NewLLMAgentEngine(cfg config.Config, models *ModelRegistry, tools ToolExecutor, interactions *toolinteraction.Registry, sandbox SandboxClient) *LLMAgentEngine {
-	return NewLLMAgentEngineWithHTTPClient(cfg, models, tools, interactions, sandbox, nil)
-}
-
 func NewLLMAgentEngineWithHTTPClient(cfg config.Config, models *ModelRegistry, tools ToolExecutor, interactions *toolinteraction.Registry, sandbox SandboxClient, httpClient *http.Client) *LLMAgentEngine {
 	if httpClient == nil {
 		httpClient = httpclient.NewClient(0)

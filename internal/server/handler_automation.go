@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/automation"
@@ -155,7 +154,6 @@ func (s *Server) writeAutomationHTTPResponse(w http.ResponseWriter, response any
 	writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 }
 
-func (s *Server) automationDepsReady() error { return s.automationService().AutomationDepsReady() }
 func (s *Server) listAutomations(req api.AutomationListRequest) (api.AutomationListResponse, error) {
 	return s.automationService().ListAutomations(req)
 }
@@ -183,23 +181,7 @@ func (s *Server) listAutomationExecutions(req api.AutomationExecutionsRequest) (
 func (s *Server) loadAutomationExecution(req api.AutomationExecutionRequest) (api.AutomationExecutionDetailResponse, error) {
 	return s.automationService().LoadAutomationExecution(req)
 }
-func (s *Server) automationExecutionHistoryStatus() api.AutomationExecutionHistoryStatus {
-	return s.automationService().AutomationExecutionHistoryStatus()
-}
-func (s *Server) findAutomation(id string) (automation.Definition, error) {
-	return s.automationService().FindAutomation(id)
-}
 func (s *Server) reloadAutomations() error { return s.automationService().ReloadAutomations() }
-func (s *Server) mapAutomationSummary(def automation.Definition, next *time.Time) (api.AutomationSummaryResponse, error) {
-	return s.automationService().MapAutomationSummary(def, next)
-}
-func (s *Server) automationDisplayLocation() *time.Location {
-	return s.automationService().AutomationDisplayLocation()
-}
-func (s *Server) nextAutomationID(name string) (string, error) {
-	return s.automationService().NextAutomationID(name)
-}
-
 func (s *Server) wsAutomations(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[api.AutomationListRequest](req)
 	if err != nil {

@@ -777,15 +777,6 @@ func sanitizedToolCalls(toolCalls []openAIToolCall, policies ...credentialview.P
 	return out
 }
 
-func sessionHasTool(session QuerySession, name string) bool {
-	for _, toolName := range session.ToolNames {
-		if strings.EqualFold(strings.TrimSpace(toolName), name) {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *llmRunStream) checkBudgetBeforeModelCall() map[string]any {
 	budget := NormalizeBudget(s.execCtx.Budget)
 	allowRunLimitFinalAnswer := s.runLimitFinalAnswerActive()

@@ -86,7 +86,6 @@ const (
 	ProtocolMiniMaxTTS   = "MINIMAX_TTS"
 	ProtocolDashScopeTTS = "DASHSCOPE_TTS"
 
-	PricingUnitPer1MTokens      = "per_1m_tokens"
 	PricingUnitPer10KCharacters = "per_10k_characters"
 )
 
@@ -272,11 +271,6 @@ func IsImageModel(model ModelDefinition) bool {
 func IsVLModel(model ModelDefinition) bool {
 	modelType, ok := NormalizeModelType(model.Type)
 	return ok && modelType == ModelTypeVL
-}
-
-func IsTTSModel(model ModelDefinition) bool {
-	modelType, ok := NormalizeModelType(model.Type)
-	return ok && modelType == ModelTypeTTS
 }
 
 func LoadModelRegistry(registriesDir string) (*ModelRegistry, error) {

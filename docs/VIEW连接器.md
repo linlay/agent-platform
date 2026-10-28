@@ -327,3 +327,5 @@ WebClient 为同一 Chat/Run/VIEW hash、动作和规范化参数在 sessionStor
 form 协议沿用 [WebClient 桥接](#webclient-桥接)：`form.title` 为 action 的 description，`form.data` 为 `{action, params}`；模板 collect 后回复 `{decision, data:{params}}`。form 用途的快照不含 queries 和 actions，页面只编辑参数、不自行写入。提交后服务端重新校验 schema，失败为 `tool_interaction_invalid_payload`；成功则重建为单条直接调用，经普通 Bash 执行路径运行（凭据注入、输出与审计不变），CLI 输出即这次 Bash 调用的结果。拒绝时模型收到拒绝原因与用户修改后的数据。表单始终人工提交，不受 access level 影响；不支持重启恢复。
 
 这是确认流程而非隔离边界：未标 `intercept` 的子命令照常执行，脚本内部调用 CLI 无法识别。需要审阅的写命令都应由连接器作者逐一声明。
+
+验证范围：自动化测试只覆盖 Host 路径（Container 共用同一识别代码）；尚未在真实连接器与运行中的 Platform/WebClient 上端到端验证。

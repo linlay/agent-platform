@@ -96,7 +96,7 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 
 ## WorkPanel 反向动作
 
-`desktop.workpanel.*` 是 Platform 发给客户端的反向动作，只操作当前 run 所属 Chat 的工作面板。模型不直接调用它们：`builtin.web-control` 的 `workpanel_state`、`workpanel_open`、`workpanel_close` 工具在 Platform 内映射到这些动作，`desktop_action` 的运行时白名单不再包含 `desktop.workpanel.*`。Platform 从 `ExecutionContext.Session` 生成可信顶层 `source`，模型不能覆盖，也不能通过参数改选所属 Chat。
+`desktop.workpanel.*` 是 Platform 发给客户端的反向动作，只操作当前 run 所属 Chat 的工作面板。模型不直接调用它们：`builtin.web-control` 的 `workpanel_state`、`workpanel_open`、`workpanel_close` 工具在 Platform 内映射到这些动作，Desktop 域工具不包含 `desktop.workpanel.*`。Platform 从 `ExecutionContext.Session` 生成可信顶层 `source`，模型不能覆盖，也不能通过参数改选所属 Chat。
 
 模型工具与反向动作的对应关系：
 
@@ -165,12 +165,12 @@ Platform 读取后保留原始 JSON 类型并发送 `params`，不再将字符�
 
 `platform_inspect.checkConnector` 是显式的 HTTP MCP 诊断动作，参数 `connectorId` 与可选 `component`（默认 main），仅普通 native 主 Run 可调用。检查使用保存的连接器配置和内部凭据、独立短期 MCP SDK 会话，分别返回包校验、授权发现（仅 mcp 模式缺少授权时）、初始化/协商版本、分页工具发现结果，远端阶段限时 30 秒。它不依赖 Agent 挂载、不改变运行时工具目录，也不执行业务工具或启动 stdio/CLI；支持 none/mcp/token（`oauth` 作为 `mcp` 别名读取）。需授权模式下，缺少授权、401 或明确的 insufficient_scope 返回 authorization_required 与现有详情页路径；mcp 授权发现失败时返回 failed 与 `authorization.code`，因为此时登录无法开始，用户登录后另轮回读和重试；no_auth 下的认证拒绝返回 authentication_mismatch，普通 403 返回 permission_denied，后续超时和网络失败保留真实分类。检查有意按只读诊断免审批，但会携带对应凭据联网，未增加网络目标白名单或内网隔离，完整权限边界见 [平台控制连接器](Platform控制工具设计.md)。查询连接器源码的授权快照和 runtimeStatus 保持本地/缓存读取，不隐式联网；HTTP 200/401 本身不能代替 MCP 协议验收。
 
-- Desktop 模式：`desktop_action` 与 `workpanel_*` 以具体 Action 名作为反向 request `type` 发给 Desktop Main Broker；`surface_*` 使用 `desktop.cdp.call`（`surface_element` 使用 `desktop.web.interactElement` 动作），`awcp_manual` / `awcp_invoke` 分别映射到 `desktop.awcp.manual` 与 `desktop.awcp.invoke`。Broker 分别调用普通 Action、AWCP 或 CDP 核心 handler。
+- Desktop 模式：Desktop 域工具与 `workpanel_*` 以具体 Action 名作为反向 request `type` 发给 Desktop Main Broker；`surface_*` 使用 `desktop.cdp.call`（`surface_element` 使用 `desktop.web.interactElement` 动作），`awcp_manual` / `awcp_invoke` 分别映射到 `desktop.awcp.manual` 与 `desktop.awcp.invoke`。Broker 分别调用普通 Action、AWCP 或 CDP 核心 handler。
 - Standalone 模式：只有 `desktop.workpanel.*`（不含 `openLocalFile`）与 `desktop.display` 具体类型发给当前 agent-webclient；其他 `desktop.*` 返回 `desktop_action_unsupported_runtime`。会话只暴露 `workpanel_*`，`surface_*` 与 `awcp_*` 不提供给模型，直接调用返回 `desktop_cdp_unsupported_runtime`。
 
-`desktop_action` 的动作名称跟随 `desktop/src/shared/desktop-actions.ts` 的 `DESKTOP_ACTION_DEFINITIONS`，排除 Desktop 明确限制为 WebApp page 调用的 11 个动作（`desktop.assistant.image/image.cancel`、`desktop.capabilities.list` 与八个 `desktop.native.*`），以及归 `builtin.web-control` 所有的 20 个 `desktop.workpanel.*` 与 `desktop.web.*` 页面动作（`desktop.web.exportArtifact` 仍属 `desktop_action`）。模型必须传递 Skill 中的具体动作名，通配符和未登记动作均在 Platform 分发前拒绝；参数校验、目标授权和确认仍由 Desktop 执行。两个旧 `desktop.webapp.manifest.*` 动作已删除，工程初始化使用 `desktop.webapp.package.init`。
+Desktop 域工具（`desktop_shell`、`desktop_settings`、`desktop_site`、`desktop_webapp`、`desktop_service`、`desktop_market`、`desktop_kanban`）的动作登记在 `internal/connector/control_actions.go`，跟随 `desktop/src/shared/desktop-actions.ts` 的 `DESKTOP_ACTION_DEFINITIONS`，排除 Desktop 明确限制为 WebApp page 调用的 11 个动作（`desktop.assistant.image/image.cancel`、`desktop.capabilities.list` 与八个 `desktop.native.*`），以及归 `builtin.web-control` 所有的 20 个 `desktop.workpanel.*` 与 `desktop.web.*` 页面动作（`desktop.web.exportArtifact` 仍属 Desktop 域工具）。模型必须传递所选工具登记的具体动作名，通配符、未登记动作和属于其他工具的动作均在 Platform 分发前拒绝；参数校验、目标授权和确认仍由 Desktop 执行。两个旧 `desktop.webapp.manifest.*` 动作已删除，工程初始化使用 `desktop.webapp.package.init`。
 
-本地存在相邻 `desktop` checkout 时，`go test ./internal/tools -run TestDesktopActionContractMatchesDesktopSource -count=1` 会直接核对上游定义。CI 或非相邻 checkout 可设置 `DESKTOP_SOURCE` 为 Desktop 仓库路径；显式配置路径缺失会失败，未配置且无相邻仓库时跳过这项跨仓检查。更新 Desktop 动作后需同步内部白名单、技能目录和契约测试；新增动作不需要向模型 Schema 添加枚举或业务域；契约测试同时核对归网页控制连接器所有的动作仍存在于 Desktop 定义中。Skill 负责操作帮助，不能授予权限；Standalone 限制、Run 来源校验、WebApp-page-only 排除及 Desktop 确认机制不变。内部白名单或内嵌工具 Schema 的变更需要重新构建并重启 Platform。
+本地存在相邻 `desktop` checkout 时，`go test ./internal/tools -run TestDesktopActionContractMatchesDesktopSource -count=1` 会直接核对上游定义。CI 或非相邻 checkout 可设置 `DESKTOP_SOURCE` 为 Desktop 仓库路径；显式配置路径缺失会失败，未配置且无相邻仓库时跳过这项跨仓检查。更新 Desktop 动作后需同步动作登记、技能目录和契约测试；新增动作不需要向模型 Schema 添加枚举或业务域；契约测试同时核对归网页控制连接器所有的动作仍存在于 Desktop 定义中。Skill 负责操作帮助，不能授予权限；Standalone 限制、Run 来源校验、WebApp-page-only 排除及 Desktop 确认机制不变。动作登记或内嵌工具 Schema 的变更需要重新构建并重启 Platform。
 
 Action 的工具 `requestId` 只映射到帧 `id`；帧顶层 `source` 只由可信 run context 生成，并保留实际调用 run 的 `runId/chatId` 与至多一个 `agentKey`，不借用父 run 身份；`payload` 始终是纯 Action 参数对象。`desktop.cdp.call` payload 继续为 `{requestId,method,params,surfaceId,source}`。小结果以标准 `response/error` 收口；大 JSON 通过 `desktop.bridge.response.delta` 分块，截图通过 `desktop.cdp.screenshot.delta` 分块，每个 chunk 不超过 256 KiB，解码后总量不超过 64 MiB。Platform 校验 streamId、连续 seq、编码、chunkCount、totalBytes 和最终响应；截图边收边写入当前 Chat 临时文件，成功后原子改名。超时或取消发送 `desktop.bridge.cancel`，迟到帧被丢弃且不会触发重发。
 
@@ -234,7 +234,7 @@ Qiuerscript 已按此方式迁移。`qs_read`、`qs_glob`、`qs_grep`、`qs_writ
 - MCP server 暂时不可用或协议版本不兼容时，调用返回结构化 MCP unavailable 错误。
 - MCP streamable HTTP 和 stdio session、ACP、Proxy、Channel、LSP、KBASE sidecar 与其他长期驻留服务不继承动态 run env。stdio MCP 子进程仍只使用 registry 启动时的静态 `env`；运行中 `run_env` 的 `set/unset/update` 不重启或修改已存在 session。
 - `qiuerscript-tool` 在 stdin 关闭后正常退出，不支持私有 `shutdown` RPC。
-- `desktop_action`、网页控制工具组及 Desktop Main Broker 反向 Action/AWCP/CDP 已闭环；这里的 Action 是 Desktop/WebClient 业务操作名，不是 Tool 类型，也不会生成 `action.*` run stream 事件。
+- Desktop 域工具、网页控制工具组及 Desktop Main Broker 反向 Action/AWCP/CDP 已闭环；这里的 Action 是 Desktop/WebClient 业务操作名，不是 Tool 类型，也不会生成 `action.*` run stream 事件。
 - `ask_user_question` 由 `internal/toolinteraction` 中明确注册的 handler 负责等待、submit 规范化和固定 QA 模型输出；没有通用 YAML 表单 fallback。
 - HITL view 细节见 [HITL协议](HITL协议.md)。
 

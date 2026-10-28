@@ -156,6 +156,10 @@ type DecodedFrame struct {
 	HasEvent bool
 }
 
+// DecodeFrameAt preserves JSON numeric syntax and validates every upstream
+// stream event before it can be forwarded or persisted. A malformed non-event
+// frame retains the historical "ignore it" behavior; a malformed timestamp is a
+// contract violation and must terminate the proxy run.
 func DecodeFrameAt(data []byte, eventLocation string) (DecodedFrame, bool, error) {
 	var raw map[string]any
 	decoder := json.NewDecoder(bytes.NewReader(data))

@@ -103,20 +103,3 @@ func ResolveEnvironmentWithRevision(ctx context.Context, d connector.CredentialE
 	}
 	return env, revision, nil
 }
-
-func ResolveEnvironments(ctx context.Context, bindings []connector.CredentialEnvironment, ssoIdTokenFile string) (map[string]string, error) {
-	result := map[string]string{}
-	for _, binding := range bindings {
-		env, err := ResolveEnvironment(ctx, binding, ssoIdTokenFile)
-		if err != nil {
-			return nil, err
-		}
-		for key, value := range env {
-			if _, exists := result[key]; exists {
-				return nil, fmt.Errorf("conflicting connector credential environment")
-			}
-			result[key] = value
-		}
-	}
-	return result, nil
-}

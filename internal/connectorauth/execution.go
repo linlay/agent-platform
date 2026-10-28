@@ -131,7 +131,3 @@ func executionCommand(ctx context.Context, entry string, args []string, dir stri
 	configureProcess(cmd)
 	return cmd, nil
 }
-
-func nodeShimScript(data string) (string, error) {
-	return connector.WindowsNodeShimScript(data)
-}

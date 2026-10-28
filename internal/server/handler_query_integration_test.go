@@ -29,6 +29,7 @@ import (
 	platformws "agent-platform/internal/ws"
 
 	"agent-platform/internal/contracts/queryinput"
+
 	gws "github.com/gorilla/websocket"
 )
 
@@ -94,7 +95,7 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	if len(chatsResp.Data) != 1 {
 		t.Fatalf("expected 1 chat, got %d", len(chatsResp.Data))
 	}
-	if chatsResp.Data[0].Source != api.ChatSourceQuery {
+	if chatsResp.Data[0].Source != queryinput.ChatSourceQuery {
 		t.Fatalf("expected query chat source, got %#v", chatsResp.Data[0])
 	}
 	chatID := chatsResp.Data[0].ChatID
@@ -133,7 +134,7 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat response: %v", err)
 	}
-	if chatResp.Data.Source != api.ChatSourceQuery {
+	if chatResp.Data.Source != queryinput.ChatSourceQuery {
 		t.Fatalf("expected /api/chat source, got %#v", chatResp.Data)
 	}
 	if len(chatResp.Data.Events) < 4 {
@@ -440,7 +441,7 @@ func TestExecuteInternalQueryPreservesTrustedChatSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("summary: %v", err)
 	}
-	if summary == nil || summary.Source != api.ChatSourceQuery {
+	if summary == nil || summary.Source != queryinput.ChatSourceQuery {
 		t.Fatalf("expected default internal query source, got %#v", summary)
 	}
 }

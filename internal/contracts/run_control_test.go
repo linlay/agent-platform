@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/contracts/queryinput"
 )
 
 func testAwaitingContext(awaitingID string) AwaitingSubmitContext {
@@ -19,7 +20,7 @@ func testAwaitingContext(awaitingID string) AwaitingSubmitContext {
 
 func testSubmitParams(t *testing.T, value any) api.SubmitParams {
 	t.Helper()
-	params, err := api.EncodeSubmitParams(value)
+	params, err := queryinput.EncodeSubmitParams(value)
 	if err != nil {
 		t.Fatalf("encode submit params: %v", err)
 	}

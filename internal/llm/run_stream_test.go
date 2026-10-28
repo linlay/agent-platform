@@ -32,7 +32,7 @@ import (
 
 func encodedSubmitParams(t *testing.T, value any) api.SubmitParams {
 	t.Helper()
-	params, err := api.EncodeSubmitParams(value)
+	params, err := queryinput.EncodeSubmitParams(value)
 	if err != nil {
 		t.Fatalf("encode submit params: %v", err)
 	}
@@ -70,14 +70,6 @@ func sampleLeaveCommand(days float64) string {
 	return `mock create-leave --payload '{"applicant_id":"E1001","days":3,"department_id":"engineering","end_date":"2026-04-22","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20"}'`
 }
 
-func sampleExpenseCommand(amount float64) string {
-	return fmt.Sprintf(`mock expense add --payload '{"employee":{"id":"E1001","name":"张三"},"department":{"code":"engineering","name":"工程部"},"expense_type":"travel","currency":"CNY","items":[{"amount":%v,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":%v}'`, amount, amount)
-}
-
-func canonicalExpenseCommand(amount float64) string {
-	return fmt.Sprintf(`mock expense add --payload '{"currency":"CNY","department":{"code":"engineering","name":"工程部"},"employee":{"id":"E1001","name":"张三"},"expense_type":"travel","items":[{"amount":%v,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":%v}'`, amount, amount)
-}
-
 type captureInteractionHandler struct {
 	timeout int64
 }
@@ -105,13 +97,6 @@ func (h *captureInteractionHandler) NormalizeSubmit(args map[string]any, params 
 
 func (h *captureInteractionHandler) FormatModelOutput(result contracts.ToolExecutionResult) string {
 	return result.Output
-}
-
-func sampleProcurementCommand(city string) string {
-	if city == "Hangzhou" {
-		return `mock procurement create --payload '{"delivery_city":"Hangzhou","requester_id":"E1001"}'`
-	}
-	return `mock procurement create --payload '{"delivery_city":"Shanghai","requester_id":"E1001"}'`
 }
 
 type stubToolExecutor struct {
@@ -1187,48 +1172,6 @@ func assertFileChange(t *testing.T, fileChange map[string]any, filePath string, 
 	if stats["addedLines"] != added || stats["deletedLines"] != deleted || stats["editedLines"] != edited {
 		t.Fatalf("expected lineStats +%d -%d edited=%d, got %#v", added, deleted, edited, stats)
 	}
-}
-
-type stubChecker struct {
-	result hitl.InterceptResult
-	tools  map[string]api.ToolDetailResponse
-}
-
-func (s stubChecker) Check(string, int) hitl.InterceptResult { return s.result }
-
-func (s stubChecker) Tool(name string) (api.ToolDetailResponse, bool) {
-	tool, ok := s.tools[strings.ToLower(strings.TrimSpace(name))]
-	return tool, ok
-}
-
-func (s stubChecker) Tools() []api.ToolDetailResponse {
-	items := make([]api.ToolDetailResponse, 0, len(s.tools))
-	for _, tool := range s.tools {
-		items = append(items, tool)
-	}
-	return items
-}
-
-type commandResultChecker struct {
-	results map[string]hitl.InterceptResult
-	tools   map[string]api.ToolDetailResponse
-}
-
-func (c commandResultChecker) Check(command string, _ int) hitl.InterceptResult {
-	return c.results[command]
-}
-
-func (c commandResultChecker) Tool(name string) (api.ToolDetailResponse, bool) {
-	tool, ok := c.tools[strings.ToLower(strings.TrimSpace(name))]
-	return tool, ok
-}
-
-func (c commandResultChecker) Tools() []api.ToolDetailResponse {
-	items := make([]api.ToolDetailResponse, 0, len(c.tools))
-	for _, tool := range c.tools {
-		items = append(items, tool)
-	}
-	return items
 }
 
 func bashToolDefinition() api.ToolDetailResponse {

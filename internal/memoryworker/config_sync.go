@@ -14,10 +14,6 @@ import (
 
 // ConfigSync supplies a complete connection snapshot; model work belongs to memx.
 type ConfigSync interface{ Sync(context.Context) error }
-type ConfigSyncFunc func(context.Context) error
-
-func (f ConfigSyncFunc) Sync(ctx context.Context) error { return f(ctx) }
-
 type ModelConfigSync struct {
 	Models         *models.ModelRegistry
 	ModelKey       string

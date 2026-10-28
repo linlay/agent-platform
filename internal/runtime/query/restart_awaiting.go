@@ -8,7 +8,6 @@ import (
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/runtime/runexec"
 	sessionbuild "agent-platform/internal/runtime/session"
 )
 
@@ -172,27 +171,18 @@ func (s *Service) LoadPersistedAwaitingStep(chatID string, awaitingID string) (*
 }
 
 func (s *Service) FinishTerminalAwaiting(item chat.PendingAwaitingWithChat, answer map[string]any, resolvedAt int64) (contracts.AwaitingResolutionState, error) {
-	state, claimed := contracts.ClaimAwaitingResolution(s.deps.Runs, item.RunID, item.AwaitingID)
-	if claimed == nil && state != contracts.AwaitingResolutionUnowned {
+	state := contracts.AwaitingResolutionOwner(s.deps.Runs, item.RunID)
+	if state != contracts.AwaitingResolutionUnowned {
 		return state, nil
 	}
 	if s.deferredAwaitings == nil {
-		if claimed != nil {
-			s.deps.Runs.(contracts.RecoveredAwaitingRunService).ReleaseRecoveredAwaiting(item.RunID, item.AwaitingID)
-		}
 		return state, fmt.Errorf("awaiting resolution coordinator is required")
 	}
 	unlock := s.deferredAwaitings.LockResolution(item.ChatID, item.RunID, item.AwaitingID)
 	defer unlock()
-	if claimed == nil {
-		// An earlier reconciler may have finished, or a continuation may now own it.
-		state, claimed = contracts.ClaimAwaitingResolution(s.deps.Runs, item.RunID, item.AwaitingID)
-		if claimed == nil && state != contracts.AwaitingResolutionUnowned {
-			return state, nil
-		}
-	}
-	if claimed != nil {
-		defer s.deps.Runs.(contracts.RecoveredAwaitingRunService).ReleaseRecoveredAwaiting(item.RunID, item.AwaitingID)
+	// An earlier reconciler may have finished, or a continuation may now own it.
+	if state = contracts.AwaitingResolutionOwner(s.deps.Runs, item.RunID); state != contracts.AwaitingResolutionUnowned {
+		return state, nil
 	}
 	// Never reuse a snapshot captured before acquiring ownership and the lock.
 	step, err := s.LoadPersistedAwaitingStep(item.ChatID, item.AwaitingID)
@@ -226,9 +216,6 @@ func (s *Service) FinishTerminalAwaiting(item chat.PendingAwaitingWithChat, answ
 	}
 	if err := s.persistTerminalAwaiting(item, step, answer, resolvedAt, latest != nil); err != nil {
 		return state, err
-	}
-	if claimed != nil {
-		s.publishRecoveredAwaitingTerminal(item, step, answer, resolvedAt, claimed)
 	}
 	return contracts.AwaitingResolutionFinished, nil
 }
@@ -281,20 +268,4 @@ func (s *Service) persistTerminalAwaiting(
 		})
 	}
 	return nil
-}
-
-func persistedAwaitingCanContinue(step *chat.PersistedAwaitingStep, publicAwaitingID string) bool {
-	if step == nil || step.Ask == nil || len(step.ToolCalls) == 0 {
-		return false
-	}
-	rawAwaitingID := strings.TrimSpace(publicAwaitingID)
-	if taskID := strings.TrimSpace(step.TaskID); taskID != "" {
-		rawAwaitingID = runexec.RawAwaitingIDForTask(taskID, rawAwaitingID)
-	}
-	for _, call := range step.ToolCalls {
-		if strings.TrimSpace(call.ID) == rawAwaitingID {
-			return strings.TrimSpace(call.Name) != ""
-		}
-	}
-	return len(step.ToolCalls) == 1 && strings.TrimSpace(step.ToolCalls[0].Name) != ""
 }

@@ -21,7 +21,6 @@ const (
 	CategoryAutomation Category = "automation"
 	CategorySystem     Category = "system"
 	CategoryTimeout    Category = "timeout"
-	CategoryInterrupt  Category = "interrupt"
 )
 
 const (

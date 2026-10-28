@@ -196,3 +196,13 @@ func TestStartupValidationDefersDesktopTokenUntilInvocation(t *testing.T) {
 		t.Fatal("invalid prompt accepted at startup")
 	}
 }
+
+// NewConfiguredLibraryEngine validates deployment defaults. Each child receives
+// a private library-specific configuration snapshot via --config.
+func NewConfiguredLibraryEngine(file string, registry *models.ModelRegistry, modelKey, prompt string) (*LibraryEngine, error) {
+	source := &ModelConfigSource{File: file, Registry: registry, ModelKey: modelKey, Prompt: prompt}
+	if _, err := source.Snapshot(); err != nil {
+		return nil, err
+	}
+	return NewLibraryEngineWithSource(source), nil
+}

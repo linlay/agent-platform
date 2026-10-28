@@ -20,7 +20,6 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/i18n"
 	"agent-platform/internal/observability"
-	"agent-platform/internal/stream"
 	"agent-platform/internal/ws"
 )
 
@@ -197,60 +196,6 @@ func createMultipartFilePart(writer *multipart.Writer, fieldName, fileName, mime
 func (s *Server) ResolveResourcePath(fileParam string) (string, error) {
 	return s.deps.ChatResources.ResolveResource(fileParam)
 }
-
-type sseInterceptor struct {
-	header  http.Header
-	buf     bytes.Buffer
-	onEvent func([]byte) error
-	err     error
-}
-
-func newSSEInterceptor(onEvent func([]byte) error) *sseInterceptor {
-	return &sseInterceptor{header: http.Header{}, onEvent: onEvent}
-}
-
-func (w *sseInterceptor) Header() http.Header { return w.header }
-
-func (w *sseInterceptor) WriteHeader(int) {}
-
-func (w *sseInterceptor) Write(p []byte) (int, error) {
-	n := len(p)
-	w.buf.Write(p)
-	for {
-		idx := bytes.Index(w.buf.Bytes(), []byte("\n\n"))
-		if idx < 0 {
-			break
-		}
-		frame := make([]byte, idx)
-		copy(frame, w.buf.Bytes()[:idx])
-		w.buf.Next(idx + 2)
-		var payload []byte
-		for _, line := range bytes.Split(frame, []byte("\n")) {
-			if bytes.HasPrefix(line, []byte("data:")) {
-				chunk := bytes.TrimPrefix(line, []byte("data:"))
-				chunk = bytes.TrimPrefix(chunk, []byte(" "))
-				if len(payload) > 0 {
-					payload = append(payload, '\n')
-				}
-				payload = append(payload, chunk...)
-			}
-		}
-		if len(payload) == 0 {
-			continue
-		}
-		if bytes.Equal(bytes.TrimSpace(payload), []byte(stream.DoneSentinel)) {
-			continue
-		}
-		if w.err == nil && w.onEvent != nil {
-			if err := w.onEvent(payload); err != nil {
-				w.err = err
-			}
-		}
-	}
-	return n, nil
-}
-
-func (w *sseInterceptor) Flush() {}
 
 func chatSourceFromContext(ctx context.Context) string {
 	if ctx == nil {

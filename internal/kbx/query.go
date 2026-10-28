@@ -301,13 +301,6 @@ func mapGraphExplanation(l library, input *graphExplanation) (*knowledge.GraphEx
 	}
 	return output, nil
 }
-func documentPath(uri string) (string, error) {
-	const prefix = "kbx://"
-	if !strings.HasPrefix(uri, prefix) {
-		return "", unavailable("KBX returned a document outside the library")
-	}
-	return relativePath(strings.TrimPrefix(uri, prefix))
-}
 func relativePath(p string) (string, error) {
 	if p == "" || strings.HasPrefix(p, "/") || strings.ContainsAny(p, "\\\x00") || strings.Contains(p, ":") {
 		return "", fmt.Errorf("path must be collection-relative")

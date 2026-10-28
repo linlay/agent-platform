@@ -12,6 +12,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/runtime/adapter"
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
@@ -165,7 +166,7 @@ func (p *teamHITLQueueProbe) emit(inputs ...stream.StreamInput) {
 
 func teamQuestionSubmit(t *testing.T, submitID string) func(stream.AwaitAsk) api.SubmitRequest {
 	return func(ask stream.AwaitAsk) api.SubmitRequest {
-		params, err := api.EncodeSubmitParams([]map[string]any{{"id": "q1", "answer": "answer for " + ask.TaskID}})
+		params, err := queryinput.EncodeSubmitParams([]map[string]any{{"id": "q1", "answer": "answer for " + ask.TaskID}})
 		if err != nil {
 			t.Fatalf("encode member submit: %v", err)
 		}
@@ -215,7 +216,7 @@ func TestFrameOrchestratorTeamDelegationPublishesMemberHITLOneAtATime(t *testing
 		if !ok || request.AwaitingID != "raw_await" || request.AgentKey != key || !strings.HasPrefix(request.SubmitID, "submit-") {
 			t.Fatalf("unexpected child submit for %s: %#v", key, request)
 		}
-		items, decodeErr := api.DecodeSubmitParams(request.Params)
+		items, decodeErr := queryinput.DecodeSubmitParams(request.Params)
 		if decodeErr != nil || len(items) != 1 || strings.TrimSpace(contracts.AnyStringNode(items[0]["answer"])) == "" {
 			t.Fatalf("child params for %s were not forwarded unchanged: %#v err=%v", key, items, decodeErr)
 		}
