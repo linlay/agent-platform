@@ -23,6 +23,10 @@ type Catalog struct {
 func Load(pkg connector.Package) (Catalog, error) {
 	revision, err := connector.RuntimeFingerprint(pkg.Dir)
 	c := Catalog{ConnectorID: pkg.ID, Revision: revision, Adapters: []string{}, Components: []string{}}
+	// OneID requires an identity context this execution path does not provide.
+	if pkg.AuthMode == connector.AuthOneID {
+		return c, err
+	}
 	if pkg.CLI != nil {
 		c.Adapters = append(c.Adapters, "cli")
 	}

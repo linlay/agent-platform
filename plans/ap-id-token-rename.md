@@ -62,7 +62,7 @@ CLI/stdio env 和普通动态 Header 保留原有字面前后缀组合能力；�
 
 通用 `mcp.NewOperationClient` 对 oneid 的拒绝保持不变，不向 connectorops 或 VIEW 增加身份能力。CLI 的公共/lifecycle 环境不改为自动注入身份。已有旧 manifest 结构的读取范围不扩展，但其中的身份模板也只允许新名。
 
-复核后明确 connectorops/VIEW 的 oneid CLI 边界：无论是否声明凭据模板、Desktop 是否登录，都在身份状态检查和创建幂等收据前返回 `connector_oneid_cli_unsupported`（HTTP 422）。这是对无模板时旧有无身份执行行为的显式调整，避免误报需要登录，也避免把确定未启动的写入记成结果未知。不清理已有未完成收据。
+复核后明确 connectorops/VIEW 的 oneid 边界：CLI、HTTP MCP 和 stdio MCP 无论是否声明凭据模板、Desktop 是否登录，都在配置、身份状态检查和创建幂等收据前返回 `connector_oneid_unsupported`（HTTP 422）。这是对 CLI 无模板时旧有无身份执行行为的显式调整，也把 MCP 原有的执行拒绝提前，避免误报需要登录或把确定未启动的写入记成结果未知。通用执行目录保留连接器 ID 与 revision，但 `adapters`、`components` 为空数组；Agent 直接 CLI 和已挂载 MCP 的身份链路保持原合同。不清理已有未完成收据。
 
 ## 4. 模块改动
 
@@ -147,7 +147,16 @@ CLI/stdio env 和普通动态 Header 保留原有字面前后缀组合能力；�
 2026-10-29 补齐 catalog 无模板 oneid CLI 绑定、connectorops 的显式拒绝及终端测试 gofmt 后，在当前工作区验证：
 
 - 新增 catalog 测试覆盖无模板、仅公开 env、凭据模板、纯 MCP 与非 oneid CLI；工具回归测试改用真实 catalog 生成的绑定，覆盖身份注入、缺身份拒绝启动和复合调用限制。新增测试在修复前复现缺陷，修复后通过。
-- connectorops 测试覆盖有无模板、Desktop 登录与未登录、无幂等键与重复写请求：统一返回 `connector_oneid_cli_unsupported`（422），没有生成写入收据；无执行权限时仍先返回权限错误。
+- connectorops 测试覆盖有无模板、Desktop 登录与未登录、无幂等键与重复写请求：统一返回不支持错误，没有生成写入收据；无执行权限时仍先返回权限错误。后续扩展到所有 adapter，当前统一错误码为 `connector_oneid_unsupported`（422）。
 - `go test ./internal/catalog ./internal/connectorops ./internal/connectorauth ./internal/viewquery ./internal/viewaction ./internal/tools ./internal/server` 全部通过。
 - `go vet ./internal/catalog ./internal/connectorops ./internal/tools ./internal/server` 通过；本轮涉及的 Go 文件均通过 gofmt 检查。
 - 提交前以 `99bd8543` 为基线，从暂存区导出仅包含 AP_ID_TOKEN 改名及本轮修复的独立源码快照；`go test -p 2 ./...` 全量通过，不依赖工作区未提交的 accessConfig 等其他功能改动。
+
+### 8.2 通用执行 oneid 边界补齐
+
+2026-10-29 将提前拒绝扩展到 MCP，统一错误码为 `connector_oneid_unsupported`（HTTP 422）；目录与 Describe 对 oneid 返回空的 `adapters`、`components`，保留 ID 和 revision。同步安装授权、执行协议与 VIEW 错误码表；不改变 Agent 的身份链路或包作者自定义 stdio env 映射。
+
+- 回归测试覆盖无模板 CLI、带模板 CLI、HTTP MCP、stdio MCP 和 CLI/MCP 混合包；登录前后、无幂等键与重复写请求均提前拒绝，不生成写入收据，权限检查保持优先。非 oneid 包仍声明原有 adapter 与组件。
+- 新增场景在修复前复现 MCP 的认证/不可用错误及能力声明不一致，修复后通过；VIEW 查询保留 422 和错误码，VIEW 写操作保留错误而不转换为结果未知。
+- `go test ./internal/connectorops ./internal/connectorauth ./internal/mcp ./internal/viewquery ./internal/viewaction ./internal/server` 全部通过。
+- `go vet ./internal/connectorops ./internal/viewaction ./internal/server`、本轮 Go 文件的 gofmt 和差异空白检查通过。
