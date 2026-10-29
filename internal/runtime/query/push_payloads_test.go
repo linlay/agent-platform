@@ -30,3 +30,13 @@ func TestRunFinishedPushPayloadMapsTerminalStatus(t *testing.T) {
 		t.Fatalf("missing finishReason must fail closed: %#v", payload)
 	}
 }
+
+func TestExecuteStartedPushCarriesCorrelationWithoutChangingOrdinaryRun(t *testing.T) {
+	payload := runStartedPushPayload("run-1", "chat-1", "agent-1", 1700000000001, "execute-request")
+	if payload["requestId"] != "execute-request" || payload["agentKey"] != "agent-1" || payload["runId"] != "run-1" {
+		t.Fatalf("missing canonical execute identity: %#v", payload)
+	}
+	if ordinary := runStartedPushPayload("run-2", "chat-2", "agent-1", 1700000000002); ordinary["requestId"] != nil {
+		t.Fatalf("ordinary Run changed: %#v", ordinary)
+	}
+}

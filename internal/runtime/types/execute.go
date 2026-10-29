@@ -37,3 +37,16 @@ type ExecuteResult struct {
 	Output map[string]any `json:"output,omitempty"`
 	Reason string         `json:"reason,omitempty"`
 }
+
+// A valid empty object is still a required success output; omitempty would lose it.
+func (r ExecuteResult) MarshalJSON() ([]byte, error) {
+	if r.Status == "success" {
+		return json.Marshal(struct {
+			ChatID string         `json:"chatId"`
+			Status string         `json:"status"`
+			Output map[string]any `json:"output"`
+		}{r.ChatID, r.Status, r.Output})
+	}
+	type result ExecuteResult
+	return json.Marshal(result(r))
+}

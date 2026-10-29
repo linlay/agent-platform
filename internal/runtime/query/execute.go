@@ -20,7 +20,12 @@ func (s *Service) LocalRunExecutorParams(
 ) runexec.NativeOptions {
 	execution := s.resolvedQueryExecution(prepared)
 	if !execution.HiddenRun {
-		s.broadcast("run.started", runStartedPushPayload(prepared.Req.RunID, prepared.Req.ChatID, prepared.Req.AgentKey, registered.StartedAtMillis))
+		payload := runStartedPushPayload(prepared.Req.RunID, prepared.Req.ChatID, prepared.Req.AgentKey, registered.StartedAtMillis)
+		// Correlate synchronous execute with its canonical Run without adding a stream.
+		if prepared.Req.ResultContract != nil && prepared.Req.RequestID != "" {
+			payload = runStartedPushPayload(prepared.Req.RunID, prepared.Req.ChatID, prepared.Req.AgentKey, registered.StartedAtMillis, prepared.Req.RequestID)
+		}
+		s.broadcast("run.started", payload)
 	}
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	contracts.BindContentViews(registered.RunCtx, mapper, &prepared.Session)

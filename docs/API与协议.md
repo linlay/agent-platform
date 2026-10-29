@@ -974,7 +974,7 @@ Desktop Action 的执行器错误由 Desktop Broker 转换为统一 error frame�
 | `connected` | `protocolVersion=2`、`sessionId`、`serverTime`、`liveness.heartbeatIntervalMs`、`liveness.silenceTimeoutMs` |
 | `heartbeat` | `sessionId`、单调递增 `sequence`、`timestamp` |
 | `auth.expiring` | `expiresAt` |
-| `run.started` | `runId`、`chatId`、`agentKey`、必填 `startedAt` |
+| `run.started` | `runId`、`chatId`、`agentKey`、必填 `startedAt`；带 requestId 的 execute 另含 requestId，仅用于取消关联，不去重 |
 | `run.finished` | `runId`、`chatId`、`status`、`finishReason`、必填 `finishedAt` |
 | `chat.created` | `chatId`、`chatName`、`agentKey`、`createdAt`、`source` |
 | `chat.updated` | `chatId`、`lastRunId`、`lastRunContent`、`updatedAt` |
