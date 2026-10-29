@@ -250,7 +250,7 @@ func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]a
 				return controlFail("approval_required", "explicit approval of this exact deletion is required", "authorization"), nil
 			}
 		}
-		value, err = h.conversations.ControlManage(controlCaller(e), action, p, revision)
+		value, err = h.conversations.ControlManage(ctx, controlCaller(e), action, p, revision)
 	case "platform_inspect":
 		if action == "checkConnector" {
 			value, err = h.checkConnector(ctx, p)
