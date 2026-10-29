@@ -54,7 +54,7 @@ func bashEnvironmentVariables(env []string) map[string]string {
 	vars := map[string]string{}
 	for _, entry := range env {
 		key, value, ok := strings.Cut(entry, "=")
-		if ok && !strings.EqualFold(key, agentconfig.EnvAccessToken) {
+		if ok && !strings.EqualFold(key, agentconfig.EnvIDToken) {
 			vars[key] = value
 		}
 	}

@@ -6,7 +6,7 @@ import "strings"
 // None of these channels may silently alter the program or shell being reviewed.
 func UnsafeOverride(name string) bool {
 	n := strings.ToUpper(strings.TrimSpace(name))
-	if Reserved(n) {
+	if n == EnvIDToken || Reserved(n) {
 		return true
 	}
 	if strings.HasPrefix(n, "LD_") || strings.HasPrefix(n, "DYLD_") || strings.HasPrefix(n, "GIT_CONFIG_") {

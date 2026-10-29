@@ -6,6 +6,10 @@ import "strings"
 
 const GitBashExecutable = "AP_GIT_BASH_EXE"
 
+// EnvIDToken is the invocation-local Desktop SSO identity variable. Ordinary
+// process environments must not inherit or override it.
+const EnvIDToken = "AP_ID_TOKEN"
+
 // Reserved prevents definitions and run.env from changing shell initialization
 // behind the access-policy review. HOME and temporary paths are also fixed by
 // the managed shell so expansion and native tools agree on their identities.

@@ -60,7 +60,7 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 	filteredEnv := launch.Env[:0]
 	for _, entry := range launch.Env {
 		name, _, _ := strings.Cut(entry, "=")
-		if !strings.EqualFold(name, agentconfig.EnvChatDir) && !strings.EqualFold(name, agentconfig.EnvAccessToken) {
+		if !strings.EqualFold(name, agentconfig.EnvChatDir) && !strings.EqualFold(name, agentconfig.EnvIDToken) {
 			filteredEnv = append(filteredEnv, entry)
 		}
 	}
@@ -115,7 +115,7 @@ func terminalEnvironment(def catalog.AgentDefinition, workspaceDir string) []str
 	}
 	for key := range env {
 		if strings.EqualFold(strings.TrimSpace(key), agentconfig.EnvChatDir) ||
-			strings.EqualFold(strings.TrimSpace(key), agentconfig.EnvAccessToken) {
+			strings.EqualFold(strings.TrimSpace(key), agentconfig.EnvIDToken) {
 			delete(env, key)
 		}
 	}

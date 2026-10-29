@@ -142,6 +142,11 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 	if err != nil {
 		return result, failure("connector_unavailable", 503)
 	}
+	// This caller-neutral path has no Desktop identity execution context.
+	// Reject before login checks or claiming a write that will never start.
+	if req.Adapter == "cli" && pkg.AuthMode == connector.AuthOneID {
+		return result, failure("connector_oneid_cli_unsupported", 422)
+	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err := connector.RequireConfigured(pkg.PersistentRoot(), pkg.ID, pkg.AuthMode); err != nil {

@@ -121,7 +121,7 @@ func TestConnectorZIPImportChecksExpectedIdentityBeforePublication(t *testing.T)
 }
 
 func TestOneIDConnectorZIPAuthorizationTemplateVariants(t *testing.T) {
-	for _, template := range []string{"Bearer ${ONEID_TOKEN}", "Bearer ${AP_ACCESS_TOKEN}", ""} {
+	for _, template := range []string{"Bearer ${AP_ID_TOKEN}", "", "Bearer ${AP_ACCESS_TOKEN}", "Bearer ${ONEID_TOKEN}"} {
 		t.Run(template, func(t *testing.T) {
 			fixture := setupAdminRegistriesFixture(t)
 			component := map[string]any{"type": "streamableHttp", "url": "https://example.test/mcp"}
@@ -155,6 +155,15 @@ func TestOneIDConnectorZIPAuthorizationTemplateVariants(t *testing.T) {
 			req.Header.Set("Content-Type", form.FormDataContentType())
 			rec := httptest.NewRecorder()
 			fixture.server.ServeHTTP(rec, req)
+			if template == "Bearer ${AP_ACCESS_TOKEN}" || template == "Bearer ${ONEID_TOKEN}" {
+				if rec.Code == http.StatusOK {
+					t.Fatal("retired identity template imported")
+				}
+				if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.EffectiveConnectorsCenterDir(), "oneid-templates")); !os.IsNotExist(err) {
+					t.Fatal("invalid identity package published")
+				}
+				return
+			}
 			if rec.Code != http.StatusOK {
 				t.Fatalf("import failed: %d %s", rec.Code, rec.Body.String())
 			}

@@ -4,13 +4,15 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
-	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/runtimeskills"
 )
 
 func TestRouterRejectsUnmountedToolBeforeBackend(t *testing.T) {
@@ -64,34 +66,65 @@ func TestSearchExcludesProtectedStateAndOtherChats(t *testing.T) {
 }
 
 func TestConnectorCredentialsReachOnlyVerifiedDirectChild(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX execution fixture")
+	}
 	root := t.TempDir()
-	bin := filepath.Join(root, "bin")
-	if err := os.Mkdir(bin, 0700); err != nil {
+	paths := config.PathsConfig{
+		AgentsDir: filepath.Join(root, "agents"), ConnectorsCenterDir: filepath.Join(root, "connectors"),
+		RUAgentsDir: filepath.Join(root, "ru-agents"), SkillsCenterDir: filepath.Join(root, "skills-center"),
+	}
+	pkgDir := filepath.Join(paths.ConnectorsCenterDir, "fixture")
+	bin := filepath.Join(pkgDir, "bin")
+	if err := os.MkdirAll(bin, 0700); err != nil {
 		t.Fatal(err)
 	}
 	entry := filepath.Join(bin, "credential-fixture")
-	if err := os.WriteFile(entry, []byte("#!/bin/sh\nprintf '%s' \"$AP_ACCESS_TOKEN\"\n"), 0700); err != nil {
+	if err := os.WriteFile(entry, []byte("#!/bin/sh\nprintf '%s' \"$AP_ID_TOKEN\"\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	entries, err := connector.SnapshotCLIEntries("fixture", root)
+	if err := os.MkdirAll(filepath.Join(paths.AgentsDir, "demo"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string]string{
+		filepath.Join(pkgDir, "connector.json"):             `{"id":"fixture","name":"Fixture","version":"1.0.0","type":"cli","authMode":"oneid"}`,
+		filepath.Join(pkgDir, "cli.json"):                   `{}`,
+		filepath.Join(paths.AgentsDir, "demo", "agent.yml"): "key: demo\nmode: GENERAL\nmodelConfig:\n  modelKey: test\nconnectorConfig:\n  connectors: [fixture]\n",
+	} {
+		if err := os.WriteFile(name, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		for _, dir := range []string{paths.RUAgentsDir, runtimeskills.Root(paths.RUAgentsDir)} {
+			if err := runtimeskills.Remove(dir); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	registry, err := catalog.NewFileRegistry(config.Config{Paths: paths}, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	def, ok := registry.AgentDefinition("demo")
+	if !ok || len(def.ConnectorCredentials) != 1 {
+		t.Fatal("catalog did not retain oneid CLI credentials without templates")
 	}
 	identity := filepath.Join(t.TempDir(), "identity")
 	if err := os.WriteFile(identity, []byte("synthetic-test-token\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	ctx := bashExecutionContext(t.TempDir())
-	ctx.Session.ConnectorDirs = map[string]string{"fixture": root}
-	ctx.Session.ConnectorBinDirs = []string{bin}
-	ctx.Session.ConnectorCLIEntries = entries
-	ctx.Session.ConnectorCredentials = []connector.CredentialEnvironment{{ID: "fixture", Mode: connector.AuthOneID}}
+	ctx.Session.ConnectorDirs = map[string]string{"fixture": def.ConnectorMounts[0].Dir}
+	ctx.Session.ConnectorBinDirs = def.ConnectorBinDirs
+	ctx.Session.ConnectorCLIEntries = def.ConnectorCLIEntries
+	ctx.Session.ConnectorCredentials = def.ConnectorCredentials
 	executor := &RuntimeToolExecutor{cfg: config.Config{SsoIdTokenFile: identity, Bash: config.BashConfig{AllowedCommands: []string{"*"}, ShellFeaturesEnabled: true}}}
 	t.Setenv("UNRELATED_SECRET", "never-inherit")
 	for _, tc := range []struct{ command, want, code string }{
 		{"credential-fixture", "synthetic-test-token", ""},
-		{"printenv AP_ACCESS_TOKEN UNRELATED_SECRET", "", ""},
-		{"credential-fixture; printenv AP_ACCESS_TOKEN", "", "connector_requires_direct_invocation"},
+		{"printenv AP_ID_TOKEN UNRELATED_SECRET", "", ""},
+		{"credential-fixture; printenv AP_ID_TOKEN", "", "connector_requires_direct_invocation"},
 	} {
 		result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": tc.command}, ctx)
 		if err != nil || result.Error != tc.code {
@@ -102,6 +135,32 @@ func TestConnectorCredentialsReachOnlyVerifiedDirectChild(t *testing.T) {
 		}
 		if tc.want == "" && (strings.Contains(result.Output, "synthetic-test-token") || strings.Contains(result.Output, "never-inherit")) {
 			t.Fatalf("credential escaped: %+v", result)
+		}
+	}
+	ctx.Session.ConnectorCredentials[0].Env = map[string]string{"SERVICE_TOKEN": "${AP_ID_TOKEN}"}
+	for _, token := range []string{"rotated-identity", ""} {
+		if err := os.WriteFile(identity, []byte(token), 0600); err != nil {
+			t.Fatal(err)
+		}
+		env, err := executor.connectorCommandEnvironment(context.Background(), ctx, "fixture", nil)
+		if token == "" {
+			if err == nil {
+				t.Fatal("empty identity accepted")
+			}
+			continue
+		}
+		if err != nil || !containsString(env, "AP_ID_TOKEN="+token) || !containsString(env, "SERVICE_TOKEN="+token) {
+			t.Fatal("direct child credentials do not match current identity", err)
+		}
+	}
+	if err := os.Remove(identity); err != nil {
+		t.Fatal(err)
+	}
+	for _, templates := range []map[string]string{nil, {"SERVICE_TOKEN": "${AP_ID_TOKEN}"}} {
+		ctx.Session.ConnectorCredentials[0].Env = templates
+		result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "credential-fixture"}, ctx)
+		if err != nil || result.Error != "connector_credentials_unavailable" || result.ExitCode != -1 {
+			t.Fatal("oneid child started without identity", err)
 		}
 	}
 }

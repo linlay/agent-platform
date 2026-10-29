@@ -510,7 +510,7 @@ func mergeCommandEnvWith(execCtx *ExecutionContext, inherit []string) ([]string,
 		// Skill PATH entries extend the search path; they never shadow system tools.
 		env = hostenv.AppendPath(env, execCtx.Session.PathAppend...)
 	}
-	return env, nil
+	return agentconfig.WithIdentityEnvironment(env, nil), nil
 }
 
 func mergeEnvironmentList(base []string, overrides map[string]string) []string {
@@ -549,13 +549,6 @@ func (t *RuntimeToolExecutor) connectorCommandEnvironment(ctx context.Context, e
 		values, err := connectorauth.ResolveEnvironment(ctx, binding, t.cfg.SsoIdTokenFile)
 		if err != nil {
 			return nil, err
-		}
-		if binding.Mode == connector.AuthOneID {
-			identity, err := agentconfig.ReadIdentityEnvironment(t.cfg.SsoIdTokenFile)
-			if err != nil {
-				return nil, err
-			}
-			values = agentconfig.Merge(values, identity)
 		}
 		env = mergeEnvironmentList(env, values)
 	}

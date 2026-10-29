@@ -901,7 +901,7 @@ func TestMergeBashCommandEnvNeverInheritsIdentityToken(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(ssoIdTokenFile), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("AP_ACCESS_TOKEN", "ambient-token")
+	t.Setenv("AP_ID_TOKEN", "ambient-token")
 	valuesFor := func(env []string) map[string]string {
 		t.Helper()
 		values := map[string]string{}
@@ -914,29 +914,51 @@ func TestMergeBashCommandEnvNeverInheritsIdentityToken(t *testing.T) {
 		return values
 	}
 	execCtx := &contracts.ExecutionContext{
-		StaticRuntimeEnv: map[string]string{"AP_ACCESS_TOKEN": "runtime-token"},
+		StaticRuntimeEnv: map[string]string{"AP_ID_TOKEN": "runtime-token"},
 	}
 
-	if _, ok := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvAccessToken]; ok {
+	if _, ok := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvIDToken]; ok {
 		t.Fatal("missing identity file must remove inherited and runtime access tokens")
 	}
 	if err := os.WriteFile(ssoIdTokenFile, []byte("token-a\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvAccessToken]; got != "" {
-		t.Fatalf("AP_ACCESS_TOKEN = %q, want no token", got)
+	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvIDToken]; got != "" {
+		t.Fatalf("AP_ID_TOKEN = %q, want no token", got)
 	}
 	if err := os.WriteFile(ssoIdTokenFile, []byte("token-b\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvAccessToken]; got != "" {
-		t.Fatalf("AP_ACCESS_TOKEN = %q, want no token", got)
+	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvIDToken]; got != "" {
+		t.Fatalf("AP_ID_TOKEN = %q, want no token", got)
 	}
 	if err := os.Remove(ssoIdTokenFile); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvAccessToken]; ok {
-		t.Fatal("removed identity file must remove AP_ACCESS_TOKEN from the next Host Bash")
+	if _, ok := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvIDToken]; ok {
+		t.Fatal("removed identity file must remove AP_ID_TOKEN from the next Host Bash")
+	}
+}
+
+func TestHostBashIdentityFilteringSurvivesWildcardInheritance(t *testing.T) {
+	t.Setenv("AP_ID_TOKEN", "ambient-token")
+	t.Setenv("ap_id_token", "ambient-lowercase-token")
+	execCtx := &contracts.ExecutionContext{StaticRuntimeEnv: map[string]string{"Ap_Id_Token": "runtime-token", "KEEP": "public"}}
+	for _, inherit := range [][]string{{"AP_ID_TOKEN"}, {"AP_*"}, {"*"}} {
+		env, err := mergeCommandEnvWith(execCtx, inherit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range env {
+			key, _, _ := strings.Cut(entry, "=")
+			if strings.EqualFold(key, agentconfig.EnvIDToken) {
+				t.Fatal("identity entered ordinary Host Bash")
+			}
+		}
+		vars := bashEnvironmentVariables([]string{"Ap_Id_Token=secret", "KEEP=public"})
+		if len(vars) != 1 || vars["KEEP"] != "public" {
+			t.Fatal("identity entered access review")
+		}
 	}
 }
 
@@ -970,7 +992,7 @@ func TestInvokeHostBashDoesNotExposeDefaultIdentityToken(t *testing.T) {
 
 	result, err := executor.invokeHostBash(
 		context.Background(),
-		map[string]any{"command": "printenv AP_ACCESS_TOKEN"},
+		map[string]any{"command": "printenv AP_ID_TOKEN"},
 		bashExecutionContext(root),
 	)
 	if err != nil {

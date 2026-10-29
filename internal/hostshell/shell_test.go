@@ -7,7 +7,18 @@ import (
 	"testing"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/contracts"
 )
+
+func TestKnownVariablesExcludeIdentityCaseVariants(t *testing.T) {
+	ctx := &contracts.ExecutionContext{StaticRuntimeEnv: map[string]string{
+		"AP_ID_TOKEN": "secret", "ap_id_token": "secret", "Ap_Id_Token": "secret", "KEEP": "public",
+	}}
+	vars := KnownVariables(ctx, config.BashConfig{}, "linux")
+	if len(vars) != 1 || vars["KEEP"] != "public" {
+		t.Fatal("identity entered diagnostic variables")
+	}
+}
 
 func TestManagedInvocationAndEnvironment(t *testing.T) {
 	root, temp := t.TempDir(), t.TempDir()

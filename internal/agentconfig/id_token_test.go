@@ -66,8 +66,8 @@ func TestReadSsoIdTokenFileReturnsErrorForUnreadableTarget(t *testing.T) {
 
 func TestIdentityEnvironmentIsFreshScopedAndRemovesInheritedValues(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "sso-id-token.txt")
-	t.Setenv(EnvAccessToken, "process-value")
-	original := []string{"KEEP=value", "ap_access_token=spoofed", "AP_ACCESS_TOKEN=stale"}
+	t.Setenv(EnvIDToken, "process-value")
+	original := []string{"KEEP=value", "ap_id_token=spoofed", "AP_ID_TOKEN=stale"}
 	for _, token := range []string{"first", "second", ""} {
 		if err := os.WriteFile(file, []byte(token), 0600); err != nil {
 			t.Fatal(err)
@@ -79,12 +79,12 @@ func TestIdentityEnvironmentIsFreshScopedAndRemovesInheritedValues(t *testing.T)
 		env := WithIdentityEnvironment(original, identity)
 		want := []string{"KEEP=value"}
 		if token != "" {
-			want = append(want, EnvAccessToken+"="+token)
+			want = append(want, EnvIDToken+"="+token)
 		}
 		if strings.Join(env, "|") != strings.Join(want, "|") {
 			t.Fatal("incorrect identity environment")
 		}
-		if original[1] != "ap_access_token=spoofed" || os.Getenv(EnvAccessToken) != "process-value" {
+		if original[1] != "ap_id_token=spoofed" || os.Getenv(EnvIDToken) != "process-value" {
 			t.Fatal("modified caller or process environment")
 		}
 	}

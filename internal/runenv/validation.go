@@ -12,7 +12,7 @@ import (
 var portableNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
 
 var hardDeniedNames = map[string]struct{}{
-	"AP_AGENT_CONFIG_HOME": {}, "AP_WORKSPACE_DIR": {}, "AP_CHAT_DIR": {}, "AP_ACCESS_TOKEN": {},
+	"AP_AGENT_CONFIG_HOME": {}, "AP_WORKSPACE_DIR": {}, "AP_CHAT_DIR": {}, shellenv.EnvIDToken: {},
 	"PATH": {}, "PATHEXT": {}, "COMSPEC": {}, "SYSTEMROOT": {}, "WINDIR": {},
 	"ENV": {}, "BASH_ENV": {}, "ZDOTDIR": {}, "SHELLOPTS": {}, "CDPATH": {}, "GLOBIGNORE": {},
 	"INPUTRC": {}, "HISTFILE": {}, "PS1": {}, "PS2": {}, "PS3": {}, "PS4": {}, "PROMPT": {}, "PROMPT_COMMAND": {},

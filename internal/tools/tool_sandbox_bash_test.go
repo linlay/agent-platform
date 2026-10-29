@@ -217,7 +217,7 @@ func TestInvokeSandboxBashRejectsInvalidEnvironment(t *testing.T) {
 }
 
 func TestInvokeSandboxBashRejectsReservedEnvironment(t *testing.T) {
-	for _, key := range []string{"AP_AGENT_CONFIG_HOME", "AP_WORKSPACE_DIR", "AP_CHAT_DIR", "AP_ACCESS_TOKEN"} {
+	for _, key := range []string{"AP_AGENT_CONFIG_HOME", "AP_WORKSPACE_DIR", "AP_CHAT_DIR", "AP_ID_TOKEN"} {
 		t.Run(key, func(t *testing.T) {
 			sandbox := &stubSandboxClient{}
 			executor := &RuntimeToolExecutor{sandbox: sandbox}

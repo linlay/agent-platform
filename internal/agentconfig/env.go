@@ -21,9 +21,9 @@ const (
 	// EnvChatDir is the current chat's writable runtime directory. Tools keep
 	// chat-scoped state below this directory.
 	EnvChatDir = "AP_CHAT_DIR"
-	// EnvAccessToken is the Desktop identity token injected into ordinary Agent
-	// Host Bash and explicitly mounted oneid-token stdio MCP processes.
-	EnvAccessToken = "AP_ACCESS_TOKEN"
+	// EnvIDToken is the Desktop SSO ID token supplied only to verified direct
+	// oneid CLI children and explicitly mounted oneid stdio MCP processes.
+	EnvIDToken = shellenv.EnvIDToken
 )
 
 // HostEnvironment returns the platform-owned environment for a host process.
@@ -98,7 +98,7 @@ func IsReserved(key string) bool {
 		return true
 	case strings.EqualFold(strings.TrimSpace(key), EnvChatDir):
 		return true
-	case strings.EqualFold(strings.TrimSpace(key), EnvAccessToken):
+	case strings.EqualFold(strings.TrimSpace(key), EnvIDToken):
 		return true
 	default:
 		return false

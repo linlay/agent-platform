@@ -426,7 +426,7 @@ func (c *Client) stdioIdentity(server ServerDefinition) (map[string]string, erro
 		return nil, nil
 	}
 	identity, err := agentconfig.ReadIdentityEnvironment(c.ssoIdTokenFile)
-	if err != nil || identity[agentconfig.EnvAccessToken] == "" {
+	if err != nil || identity[agentconfig.EnvIDToken] == "" {
 		return nil, fmt.Errorf("%w: Desktop SSO token is unavailable", contracts.ErrMCPCallFailed)
 	}
 	return identity, nil
@@ -454,7 +454,7 @@ func (c *Client) transportWithIdentity(server ServerDefinition, identity map[str
 			for key, value := range server.Env {
 				resolved, err := resolveConnectorCredential(connector.Package{Manifest: connector.Manifest{ID: server.ConnectorID}}, value, identity)
 				if err != nil {
-					return nil, fmt.Errorf("oneid environment requires AP_ACCESS_TOKEN")
+					return nil, fmt.Errorf("oneid environment requires AP_ID_TOKEN")
 				}
 				env[key] = resolved
 			}
@@ -631,7 +631,7 @@ func (t headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 		if err != nil {
 			return nil, fmt.Errorf("read identity file for MCP: %w", err)
 		}
-		token = identity[agentconfig.EnvAccessToken]
+		token = identity[agentconfig.EnvIDToken]
 		if token == "" {
 			return nil, fmt.Errorf("identity file token is unavailable")
 		}
@@ -650,7 +650,7 @@ func (t headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 			var err error
 			value, err = resolveConnectorCredential(connector.Package{}, value, identity)
 			if err != nil {
-				return nil, fmt.Errorf("oneid header requires AP_ACCESS_TOKEN")
+				return nil, fmt.Errorf("oneid header requires AP_ID_TOKEN")
 			}
 		}
 		cloned.Header.Set(key, value)
