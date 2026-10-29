@@ -16,9 +16,6 @@ type ConversationExportConfig struct {
 
 type Config struct {
 	ModeDefaultDetails map[string]string
-	// AnnounceHoldSeconds is how long an announcement of next steps at least
-	// stays a scope's progress line; 0 disables the hold.
-	AnnounceHoldSeconds int
 
 	Export           ConversationExportConfig
 	PresetTools      []string
@@ -861,15 +858,6 @@ type PlanningModeConfig struct {
 
 // DefaultPlanningModeConfig keeps planning free of local mutation and keeps
 // confirmed-plan execution from asking the user again.
-// DefaultAnnounceHoldSeconds is agent-settings.yml announce-hold-seconds when
-// omitted.
-const DefaultAnnounceHoldSeconds = 60
-
-// AnnounceHold returns the configured hold as a duration.
-func (c Config) AnnounceHold() time.Duration {
-	return time.Duration(c.AnnounceHoldSeconds) * time.Second
-}
-
 func DefaultPlanningModeConfig() PlanningModeConfig {
 	return PlanningModeConfig{
 		ExcludeTools: []string{

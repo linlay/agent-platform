@@ -3,7 +3,6 @@ package stream
 import (
 	"reflect"
 	"sync/atomic"
-	"time"
 
 	"agent-platform/internal/contracts/queryinput"
 )
@@ -44,9 +43,6 @@ type StreamRequest struct {
 	AccessGrant map[string]any
 	// PlanRunID links a Run started by approving a plan to its planning Run.
 	PlanRunID string
-	// AnnounceHold is how long an announcement at least holds the progress
-	// line; zero disables the hold.
-	AnnounceHold time.Duration
 }
 
 type SceneRef struct {
@@ -98,7 +94,7 @@ func NewAssembler(request StreamRequest) *StreamEventAssembler {
 	assembler := &StreamEventAssembler{
 		dispatcher: NewDispatcher(request),
 		normalizer: NewNormalizer(),
-		activities: NewActivityTracker(request.RunID, request.ChatID, request.AnnounceHold),
+		activities: NewActivityTracker(request.RunID, request.ChatID),
 		request:    request,
 	}
 	if request.InitialSeq > 0 {
@@ -312,7 +308,7 @@ func (a *StreamEventAssembler) emit(events []StreamEvent) []EventEmission {
 		var derived []StreamEvent
 		if visible {
 			var keep bool
-			keep, derived = a.activities.Track(event.Type, event.Timestamp, event.Payload)
+			keep, derived = a.activities.Track(event.Type, event.Payload)
 			if !keep {
 				continue
 			}

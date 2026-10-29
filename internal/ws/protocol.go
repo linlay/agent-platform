@@ -49,7 +49,7 @@ func (r RequestFrame) detailError() string {
 		return "detail is only accepted by /api/query and /api/chat"
 	}
 	if _, ok := stream.ParseDetailLevel(r.Detail); !ok {
-		return "detail must be summary, full or none"
+		return "detail must be summary or full"
 	}
 	return ""
 }

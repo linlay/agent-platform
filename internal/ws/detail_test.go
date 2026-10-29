@@ -16,6 +16,7 @@ func TestRequestFrameDetail(t *testing.T) {
 		{RequestFrame{Type: "/api/attach", Detail: "full"}, stream.DetailFull, true},
 		{RequestFrame{Type: "/api/chat", Detail: "summary"}, stream.DetailSummary, false},
 		{RequestFrame{Type: "/api/query", Detail: "verbose"}, "", true},
+		{RequestFrame{Type: "/api/query", Detail: "none"}, "", true},
 		{RequestFrame{Type: "/api/chats", Detail: "full"}, stream.DetailFull, true},
 	} {
 		if got := tc.frame.DetailLevel(); !tc.invalid && got != tc.level {

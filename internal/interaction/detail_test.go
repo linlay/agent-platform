@@ -12,12 +12,12 @@ func TestAgentDefaultDetailOverride(t *testing.T) {
 		if err != nil || c.DefaultDetail != "full" {
 			t.Fatalf("%s: %+v %v", mode, c, err)
 		}
-		c, err = ParseForEngine(mode, false, map[string]any{"defaultDetail": "none"})
-		if err != nil || c.DefaultDetail != "none" {
+		c, err = ParseForEngine(mode, false, map[string]any{"defaultDetail": "summary"})
+		if err != nil || c.DefaultDetail != "summary" {
 			t.Fatalf("%s: %+v %v", mode, c, err)
 		}
 	}
-	for _, raw := range []any{nil, true, "", "verbose"} {
+	for _, raw := range []any{nil, true, "", "verbose", "none"} {
 		if _, err := ParseForEngine("CODER", false, map[string]any{"defaultDetail": raw}); err == nil {
 			t.Fatalf("accepted %#v", raw)
 		}

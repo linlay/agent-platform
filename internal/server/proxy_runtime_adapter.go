@@ -19,7 +19,6 @@ func (s *Server) proxyExecutor() *runexec.ProxyExecutor {
 	return &runexec.ProxyExecutor{
 		BackgroundContext: s.backgroundCtx, Chats: s.deps.Chats, Runs: s.deps.Runs,
 		Models: s.deps.Models, Billing: s.deps.Config.Billing, Routes: s.proxyRuntime,
-		AnnounceHold:  s.deps.Config.AnnounceHold(),
 		Driver:        &proxy.Driver{Chats: s.deps.Chats, Tickets: s.ticketService, Channels: channels},
 		Notifications: s.deps.Notifications,
 		OnUnreadChanged: func(summary chat.Summary) {

@@ -340,7 +340,7 @@ name: file_write
 activityArgs: [description, filePath]
 ```
 
-`activityAnnounce` 与 `activityArgs` 互斥，取一个字符串参数名：该工具本身就是向用户公示下一步，参数值作为 `kind:"announce"` 的活动原样显示（压成单行，不加 label、不按 60 字符截断），同一回合中优先于第一个工具显示，并按 `announce-hold-seconds` 压住后续活动。内嵌的 `action_announce` 声明 `activityAnnounce: message`。
+`activityAnnounce` 与 `activityArgs` 互斥，取一个字符串参数名：该工具本身就是向用户公示下一步，参数值作为 `kind:"announce"` 的活动原样显示（压成单行，不加 label、不按 60 字符截断），同一回合中优先于第一个工具显示，summary 下保留至下一条公示、正文或计划开始及 Run 结束，不压住 full 的自动进度。内嵌的 `action_announce` 声明 `activityAnnounce: message`。
 
 内嵌配置：`bash`/`bash_sandbox`/`wait` 用 `description`，`file_write`/`file_edit` 用 `description, filePath`，`file_read` 用 `filePath`，`file_glob`/`file_grep` 用 `pattern`，`web_fetch`/`surface_navigate` 用 `url`，`kbase_search` 用 `query`，`kbase_read` 用 `path`。规则见 [细节等级与 run.activity](API与协议.md#细节等级与-runactivity)。
 

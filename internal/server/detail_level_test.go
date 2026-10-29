@@ -77,7 +77,7 @@ func TestQueryDefaultsToSummaryDetail(t *testing.T) {
 		lastSeq = seq
 	}
 	// Content clears the line with an empty message instead of "replying".
-	want := []string{"正在思考", "正在调用「日期时间」", "正在思考", ""}
+	want := []string{""}
 	if strings.Join(activities, "|") != strings.Join(want, "|") {
 		t.Fatalf("activities=%q want %q", activities, want)
 	}
@@ -96,6 +96,13 @@ func TestChatHistoryHonorsDetailLevel(t *testing.T) {
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"chat-detail","message":"现在几点？"}`)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("query: %d %s", rec.Code, rec.Body.String())
+	}
+	// Delivery can finish just before the runtime clears its active Run. Read
+	// history only after that boundary; an active full Run overrides read detail.
+	for _, event := range decodeSSEMessages(t, rec.Body.String()) {
+		if event["type"] == "run.start" {
+			waitRunTerminal(t, fixture.server, event["runId"].(string))
+		}
 	}
 	types := func(detail string) []string {
 		path := "/api/chat?chatId=chat-detail"
@@ -135,11 +142,13 @@ func TestDetailLevelRejectsUnknownValue(t *testing.T) {
 	fixture := newDatetimeToolLoopFixture(t)
 	for _, req := range []*http.Request{
 		httptest.NewRequest(http.MethodPost, "/api/query?detail=verbose", bytes.NewBufferString(`{"message":"hi"}`)),
+		httptest.NewRequest(http.MethodPost, "/api/query?detail=none", bytes.NewBufferString(`{"message":"hi"}`)),
 		httptest.NewRequest(http.MethodGet, "/api/chat?chatId=x&detail=verbose", nil),
+		httptest.NewRequest(http.MethodGet, "/api/chat?chatId=x&detail=none", nil),
 	} {
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, req)
-		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "detail must be summary, full or none") {
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "detail must be summary or full") {
 			t.Fatalf("%s: %d %s", req.URL, rec.Code, rec.Body.String())
 		}
 	}
@@ -289,9 +298,9 @@ func TestConfiguredAgentDetailAcrossHTTPAndWS(t *testing.T) {
 }
 
 func TestChatReadDetailFollowsActiveRun(t *testing.T) {
-	active := api.ChatDetailResponse{ActiveRun: &api.ActiveRunInfo{RunID: "run_1", Detail: stream.DetailNone}}
-	if got := chatReadDetail(active, stream.DetailFull); got != stream.DetailNone {
-		t.Fatalf("active Chat read at %q, want the Run's none", got)
+	active := api.ChatDetailResponse{ActiveRun: &api.ActiveRunInfo{RunID: "run_1", Detail: stream.DetailSummary}}
+	if got := chatReadDetail(active, stream.DetailFull); got != stream.DetailSummary {
+		t.Fatalf("active Chat read at %q, want the Run's summary", got)
 	}
 	if got := chatReadDetail(api.ChatDetailResponse{}, stream.DetailFull); got != stream.DetailFull {
 		t.Fatalf("idle Chat read at %q, want the requested full", got)

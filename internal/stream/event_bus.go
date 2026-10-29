@@ -73,7 +73,7 @@ func (o *Observer) Done() <-chan struct{} {
 type RunEventBus struct {
 	activeWaits           map[string]EventData
 	activities            map[string]EventData
-	announces             map[string]EventData
+	announcementStates    map[string]EventData
 	mu                    sync.RWMutex
 	events                []EventData
 	frozen                bool
@@ -129,24 +129,25 @@ func (b *RunEventBus) Publish(event EventData) {
 		if !IsProgressActivity(event.Type, event.Payload) {
 			break
 		}
-		// A clear is kept too: on attach it follows a resent announcement.
+		// Keep the last announcement or clear independently of automatic
+		// progress, so summary attach can restore its exact display state.
 		if b.activities == nil {
 			b.activities = map[string]EventData{}
 		}
 		b.activities[event.String("taskId")] = event
-		if IsAnnounceActivity(event.Type, event.Payload) {
-			if b.announces == nil {
-				b.announces = map[string]EventData{}
+		if IsAnnounceActivity(event.Type, event.Payload) || activityKind(event.Payload) == "idle" {
+			if b.announcementStates == nil {
+				b.announcementStates = map[string]EventData{}
 			}
-			b.announces[event.String("taskId")] = event
+			b.announcementStates[event.String("taskId")] = event
 		}
 	case "task.complete", "task.cancel", "task.error":
 		delete(b.activities, event.String("taskId"))
-		delete(b.announces, event.String("taskId"))
+		delete(b.announcementStates, event.String("taskId"))
 	case "run.complete", "run.cancel", "run.error":
 		b.activeWaits = nil
 		b.activities = nil
-		b.announces = nil
+		b.announcementStates = nil
 	}
 	// A Seq 0 event is a live projection: it reaches current observers but is
 	// not part of the replay log.
@@ -264,12 +265,12 @@ func (b *RunEventBus) Subscribe(afterSeq int64) (*Observer, error) {
 	}
 	// The current activity of each scope may predate afterSeq; resend it so
 	// a reattached viewer shows what the Run is doing now. The scope's last
-	// announcement goes first: a viewer that receives only announcements
-	// and clears (detail none) ends on it or its clear, any other ends on
-	// the current activity.
+	// announcement or clear goes first: summary ends on that state, while full
+	// ends on the current activity. Clears must survive later automatic progress
+	// so attach cannot resurrect a previous phase's announcement.
 	for scope, activity := range b.activities {
-		announce, announced := b.announces[scope]
-		if announced && !IsAnnounceActivity(activity.Type, activity.Payload) {
+		announce, announced := b.announcementStates[scope]
+		if announced && !IsAnnounceActivity(activity.Type, activity.Payload) && activityKind(activity.Payload) != "idle" {
 			replay = append(replay, activitySnapshot(announce))
 		}
 		if activity.String("message") == "" && !announced {

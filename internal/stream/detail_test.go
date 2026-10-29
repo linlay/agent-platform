@@ -3,12 +3,12 @@ package stream
 import "testing"
 
 func TestParseDetailLevel(t *testing.T) {
-	for raw, want := range map[string]DetailLevel{"": "", "summary": DetailSummary, "full": DetailFull, " full ": DetailFull, "none": DetailNone} {
+	for raw, want := range map[string]DetailLevel{"": "", "summary": DetailSummary, "full": DetailFull, " full ": DetailFull} {
 		if got, ok := ParseDetailLevel(raw); !ok || got != want {
 			t.Fatalf("ParseDetailLevel(%q)=%q,%v want %q", raw, got, ok, want)
 		}
 	}
-	for _, raw := range []string{"FULL", "detail", "debug"} {
+	for _, raw := range []string{"FULL", "detail", "debug", "none"} {
 		if _, ok := ParseDetailLevel(raw); ok {
 			t.Fatalf("ParseDetailLevel(%q) accepted", raw)
 		}
@@ -18,8 +18,8 @@ func TestParseDetailLevel(t *testing.T) {
 func TestDetailLevelActivities(t *testing.T) {
 	progress := newActivityEvent("run", "chat", "", map[string]any{"kind": "thinking"}).Payload
 	retry := newRetryActivityEvent("run", "chat", "", map[string]any{"attempt": 2}).Payload
-	if !DetailSummary.Allows("run.activity", progress) || DetailSummary.Allows("run.activity", retry) {
-		t.Fatal("summary must receive progress and never retries")
+	if DetailSummary.Allows("run.activity", progress) || DetailSummary.Allows("run.activity", retry) {
+		t.Fatal("summary must hide automatic progress and retries")
 	}
 	// full is a superset: one full stream serves viewers of either level.
 	if !DetailFull.Allows("run.activity", progress) || !DetailFull.Allows("run.activity", retry) {
@@ -27,15 +27,15 @@ func TestDetailLevelActivities(t *testing.T) {
 	}
 }
 
-func TestNoneDetailIsSummaryWithAnnouncementsOnly(t *testing.T) {
+func TestSummaryDetailHasAnnouncementsOnly(t *testing.T) {
 	for eventType := range summaryEventTypes {
-		if !DetailNone.Allows(eventType, map[string]any{}) {
-			t.Fatalf("none dropped %s", eventType)
+		if !DetailSummary.Allows(eventType, map[string]any{}) {
+			t.Fatalf("summary dropped %s", eventType)
 		}
 	}
 	for _, eventType := range []string{"tool.start", "reasoning.start", "usage.snapshot", "some.future.event"} {
-		if DetailNone.Allows(eventType, map[string]any{}) {
-			t.Fatalf("none leaked %s", eventType)
+		if DetailSummary.Allows(eventType, map[string]any{}) {
+			t.Fatalf("summary leaked %s", eventType)
 		}
 	}
 	for _, payload := range []map[string]any{
@@ -43,17 +43,28 @@ func TestNoneDetailIsSummaryWithAnnouncementsOnly(t *testing.T) {
 		newActivityEvent("run", "chat", "member", map[string]any{"kind": ActivityKindAnnounce, "text": "Next."}).Payload,
 		newActivityEvent("run", "chat", "", map[string]any{"kind": "idle"}).Payload,
 	} {
-		if !DetailNone.Allows("run.activity", payload) {
-			t.Fatalf("none dropped %#v", payload)
+		if !DetailSummary.Allows("run.activity", payload) {
+			t.Fatalf("summary dropped %#v", payload)
 		}
 	}
 	for _, payload := range []map[string]any{
 		newActivityEvent("run", "chat", "", map[string]any{"kind": "thinking"}).Payload,
+		newActivityEvent("run", "chat", "", map[string]any{"kind": "reasoning"}).Payload,
 		newActivityEvent("run", "chat", "", map[string]any{"kind": "tool_run", "toolName": "bash"}).Payload,
+		newActivityEvent("run", "chat", "member", map[string]any{"kind": "subtask"}).Payload,
+		newActivityEvent("run", "chat", "", map[string]any{"kind": "awaiting"}).Payload,
+		newActivityEvent("run", "chat", "", map[string]any{"kind": "compacting"}).Payload,
+		{"kind": "future_activity"},
 		newRetryActivityEvent("run", "chat", "", map[string]any{"attempt": 2}).Payload,
 	} {
-		if DetailNone.Allows("run.activity", payload) {
-			t.Fatalf("none leaked activity %#v", payload)
+		if DetailSummary.Allows("run.activity", payload) {
+			t.Fatalf("summary leaked activity %#v", payload)
+		}
+	}
+	// Proxy activities may already be rendered and have only a top-level kind.
+	for _, kind := range []string{ActivityKindAnnounce, "idle"} {
+		if !DetailSummary.Allows("run.activity", map[string]any{"kind": kind}) {
+			t.Fatalf("summary dropped rendered %s", kind)
 		}
 	}
 }
@@ -121,9 +132,9 @@ func TestResolveDetailLevel(t *testing.T) {
 		want         DetailLevel
 	}{
 		{"", "", DetailSummary},
-		{"", "none", DetailNone},
+		{"", "summary", DetailSummary},
 		{"", "verbose", DetailSummary},
-		{DetailFull, "none", DetailFull},
+		{DetailFull, "summary", DetailFull},
 	} {
 		if got := ResolveDetailLevel(tc.requested, tc.agentDefault); got != tc.want {
 			t.Fatalf("ResolveDetailLevel(%q, %q) = %q, want %q", tc.requested, tc.agentDefault, got, tc.want)

@@ -126,7 +126,6 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 		Origin:             prepared.Req.Origin,
 		AccessGrant:        prepared.Req.AccessGrant,
 		PlanRunID:          prepared.Req.PlanRunID,
-		AnnounceHold:       s.deps.Config.AnnounceHold(),
 	})
 	if s.deps.Tools != nil {
 		for _, toolDef := range s.deps.Tools.Definitions() {
