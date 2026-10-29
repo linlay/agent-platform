@@ -45,7 +45,7 @@ func TestChatStartSchemaOptionalFieldsSurviveProtocols(t *testing.T) {
 		}
 
 		enum, ok := properties["accessLevel"].(map[string]any)["enum"].([]any)
-		if !ok || len(enum) != 3 {
+		if !ok || len(enum) != 4 {
 			t.Fatalf("enum changed: %s", raw)
 		}
 	}

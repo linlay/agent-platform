@@ -29,9 +29,9 @@ func TestChildExecutorUsesOwnPermissionControlAndFrozenTeamDefault(t *testing.T)
 		name, parent, child string
 		team                bool
 	}{
-		{"ordinary lower", "full_access", "default", false},
-		{"ordinary higher", "default", "full_access", false},
-		{"frozen member", "default", "full_access", true},
+		{"ordinary lower", "full_access", "ask_for_approval", false},
+		{"ordinary higher", "ask_for_approval", "full_access", false},
+		{"frozen member", "ask_for_approval", "full_access", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			parent := contracts.NewRunControl(context.Background(), "root")

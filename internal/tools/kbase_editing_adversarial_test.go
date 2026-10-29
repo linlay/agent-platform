@@ -42,7 +42,7 @@ func TestKBaseEditingAdversarialWritesFollowCanonicalAccessPolicy(t *testing.T) 
 	assertApprovalThenWrite := func(t *testing.T, rawPath string, target string) {
 		t.Helper()
 		execCtx := cloneKBaseAdversarialContext(baseContext)
-		execCtx.Session.AccessLevel = contracts.AccessLevelDefault
+		execCtx.Session.AccessLevel = contracts.AccessLevelAskForApproval
 		args := map[string]any{
 			"filePath": rawPath,
 			"content":  "approved",
@@ -92,7 +92,7 @@ func TestKBaseEditingAdversarialWritesFollowCanonicalAccessPolicy(t *testing.T) 
 
 	t.Run("host_access_root", func(t *testing.T) {
 		execCtx := cloneKBaseAdversarialContext(baseContext)
-		execCtx.Session.AccessLevel = contracts.AccessLevelDefault
+		execCtx.Session.AccessLevel = contracts.AccessLevelAskForApproval
 		target := filepath.Join(hostAccess, "allowed.txt")
 		result, err := executor.Invoke(context.Background(), "file_write", map[string]any{
 			"filePath": target,
@@ -105,13 +105,13 @@ func TestKBaseEditingAdversarialWritesFollowCanonicalAccessPolicy(t *testing.T) 
 
 	t.Run("configured_write_root", func(t *testing.T) {
 		execCtx := cloneKBaseAdversarialContext(baseContext)
-		execCtx.Session.AccessLevel = contracts.AccessLevelDefault
+		execCtx.Session.AccessLevel = contracts.AccessLevelAskForApproval
 		execCtx.Session.RuntimeHostAccess = contracts.HostAccessRoots{}
-		level := executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault]
+		level := executor.cfg.AccessPolicy.Levels[contracts.AccessLevelAskForApproval]
 		level.WriteRoots = append(level.WriteRoots, outside)
 		configuredExecutor := fileToolExecutor(source, false)
 		configuredExecutor.cfg.FileTools.RequireReadBeforeWrite = false
-		configuredExecutor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault] = level
+		configuredExecutor.cfg.AccessPolicy.Levels[contracts.AccessLevelAskForApproval] = level
 		target := filepath.Join(outside, "configured-root.txt")
 		result, err := configuredExecutor.Invoke(context.Background(), "file_write", map[string]any{
 			"filePath": target,
@@ -148,11 +148,11 @@ func TestKBaseEditingAdversarialWritesFollowCanonicalAccessPolicy(t *testing.T) 
 
 	t.Run("administrator_block_remains_final", func(t *testing.T) {
 		blockedExecutor := fileToolExecutor(source, false)
-		level := blockedExecutor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault]
+		level := blockedExecutor.cfg.AccessPolicy.Levels[contracts.AccessLevelAskForApproval]
 		level.Approvals.WriteOutsideRoots = "block"
-		blockedExecutor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault] = level
+		blockedExecutor.cfg.AccessPolicy.Levels[contracts.AccessLevelAskForApproval] = level
 		execCtx := cloneKBaseAdversarialContext(baseContext)
-		execCtx.Session.AccessLevel = contracts.AccessLevelDefault
+		execCtx.Session.AccessLevel = contracts.AccessLevelAskForApproval
 		target := filepath.Join(outside, "blocked.txt")
 		result, err := blockedExecutor.Invoke(context.Background(), "file_write", map[string]any{
 			"filePath": target,
@@ -185,7 +185,7 @@ func TestKBaseEditingAdversarialExternalReadsRequireCommonPolicyApproval(t *test
 	for _, toolName := range []string{"file_read", "file_glob", "file_grep"} {
 		t.Run(toolName+"_without_approval", func(t *testing.T) {
 			execCtx := kbaseEditingExecutionContext(source)
-			execCtx.Session.AccessLevel = contracts.AccessLevelDefault
+			execCtx.Session.AccessLevel = contracts.AccessLevelAskForApproval
 			args := kbaseAdversarialReadArgs(toolName, outsideFile, outside)
 			result, err := executor.Invoke(context.Background(), toolName, args, execCtx)
 			if err != nil {
@@ -204,7 +204,7 @@ func TestKBaseEditingAdversarialExternalReadsRequireCommonPolicyApproval(t *test
 				requireRipgrep(t)
 			}
 			execCtx := kbaseEditingExecutionContext(source)
-			execCtx.Session.AccessLevel = contracts.AccessLevelDefault
+			execCtx.Session.AccessLevel = contracts.AccessLevelAskForApproval
 			args := kbaseAdversarialReadArgs(toolName, outsideFile, outside)
 			rawPath := outsideFile
 			if toolName != "file_read" {
@@ -248,7 +248,7 @@ func TestKBaseEditingAdversarialReadApprovalCannotBeReusedForWrite(t *testing.T)
 	executor := fileToolExecutor(source, false)
 	executor.cfg.FileTools.RequireReadBeforeWrite = false
 	execCtx := kbaseEditingExecutionContext(source)
-	execCtx.Session.AccessLevel = contracts.AccessLevelDefault
+	execCtx.Session.AccessLevel = contracts.AccessLevelAskForApproval
 	readPlan, err := filetools.BuildAccessPlanFromPolicy(
 		executor.cfg.AccessPolicy,
 		execCtx.Session,
@@ -333,7 +333,7 @@ func TestKBaseReadOnlySourceMutationGateCannotBeWidened(t *testing.T) {
 	baseExecutor.cfg.FileTools.RequireReadBeforeWrite = false
 	baseContext := kbaseExecutionContext(source, false)
 	baseContext.Session.RuntimeContext.LocalPaths.ChatDir = chatDir
-	baseContext.Session.AccessLevel = contracts.AccessLevelDefault
+	baseContext.Session.AccessLevel = contracts.AccessLevelAskForApproval
 
 	assertSourceGate := func(t *testing.T, executor *RuntimeToolExecutor, execCtx *contracts.ExecutionContext, toolName string, args map[string]any) {
 		t.Helper()
@@ -407,9 +407,9 @@ func TestKBaseReadOnlySourceMutationGateCannotBeWidened(t *testing.T) {
 	t.Run("configured_write_root", func(t *testing.T) {
 		executor := fileToolExecutor(source, false)
 		executor.cfg.FileTools.RequireReadBeforeWrite = false
-		level := executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault]
+		level := executor.cfg.AccessPolicy.Levels[contracts.AccessLevelAskForApproval]
 		level.WriteRoots = []string{source}
-		executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault] = level
+		executor.cfg.AccessPolicy.Levels[contracts.AccessLevelAskForApproval] = level
 		assertSourceGate(t, executor, cloneKBaseAdversarialContext(baseContext), "file_write", map[string]any{
 			"filePath": sourcePath,
 			"content":  "blocked",
@@ -419,9 +419,9 @@ func TestKBaseReadOnlySourceMutationGateCannotBeWidened(t *testing.T) {
 	t.Run("existing_approval", func(t *testing.T) {
 		executor := fileToolExecutor(source, false)
 		executor.cfg.FileTools.RequireReadBeforeWrite = false
-		level := executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault]
+		level := executor.cfg.AccessPolicy.Levels[contracts.AccessLevelAskForApproval]
 		level.WriteRoots = []string{}
-		executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault] = level
+		executor.cfg.AccessPolicy.Levels[contracts.AccessLevelAskForApproval] = level
 		execCtx := cloneKBaseAdversarialContext(baseContext)
 		plan, err := filetools.BuildAccessPlanFromPolicy(
 			executor.cfg.AccessPolicy,
@@ -460,9 +460,9 @@ func TestKBaseReadOnlySourceMutationGateCannotBeWidened(t *testing.T) {
 
 	t.Run("administrator_block_precedes_source_gate", func(t *testing.T) {
 		executor := fileToolExecutor(source, false)
-		level := executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault]
+		level := executor.cfg.AccessPolicy.Levels[contracts.AccessLevelAskForApproval]
 		level.ReadonlyRoots = append(level.ReadonlyRoots, "@workspace")
-		executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault] = level
+		executor.cfg.AccessPolicy.Levels[contracts.AccessLevelAskForApproval] = level
 		result, err := executor.Invoke(context.Background(), "file_write", map[string]any{
 			"filePath": sourcePath,
 			"content":  "blocked",

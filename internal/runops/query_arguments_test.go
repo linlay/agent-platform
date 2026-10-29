@@ -13,7 +13,7 @@ func TestChatStartOptionalArgumentsAndStrictValidation(t *testing.T) {
 		code  string
 	}{
 		{"omitted", nil, ""},
-		{"explicit default", map[string]any{"accessLevel": "default"}, ""},
+		{"explicit default", map[string]any{"accessLevel": "ask_for_approval"}, ""},
 		{"all optional", map[string]any{"accessLevel": "auto_approve", "chatName": "测试", "references": []any{map[string]any{"type": "skill", "id": "demo"}}}, ""},
 		{"empty skills", map[string]any{"references": []any{}}, ""},
 		{"model", map[string]any{"modelKey": " fast ", "reasoningEffort": "high"}, ""},

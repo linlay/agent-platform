@@ -209,7 +209,7 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 func EffectiveLevel(cfg config.AccessPolicyConfig, accessLevel string) Level {
 	normalized, ok := NormalizeAccessLevel(accessLevel)
 	if !ok {
-		normalized = AccessLevelDefault
+		normalized = AccessLevelAskForApproval
 	}
 	raw := resolveLevelConfig(cfg, normalized, map[string]bool{})
 	if normalized != AccessLevelFullAccess {
@@ -501,7 +501,7 @@ func defaultLevelConfig(name string) config.AccessPolicyLevelConfig {
 	if level, ok := levels[name]; ok {
 		return level
 	}
-	return levels[AccessLevelDefault]
+	return levels[AccessLevelAskForApproval]
 }
 
 func mergeLevelConfig(parent config.AccessPolicyLevelConfig, child config.AccessPolicyLevelConfig) config.AccessPolicyLevelConfig {
@@ -751,7 +751,7 @@ func IsExecutableConfigPath(path pathutil.Canonical) bool {
 func sessionAccessLevel(session QuerySession) string {
 	accessLevel, ok := NormalizeAccessLevel(session.AccessLevel)
 	if !ok {
-		return AccessLevelDefault
+		return AccessLevelAskForApproval
 	}
 	return accessLevel
 }

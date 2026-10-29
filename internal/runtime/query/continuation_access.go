@@ -10,10 +10,13 @@ import (
 )
 
 func (s *Service) continuationAccess(original *chat.QueryLine, sourceRunID string, def catalog.AgentDefinition, newExecution bool) (string, string, string) {
-	previous, requested := contracts.AccessLevelDefault, ""
+	previous, requested := contracts.AccessLevelAskForApproval, ""
 	if original != nil {
-		previous, _ = contracts.NormalizeAccessLevel(original.AccessLevel)
+		previous = contracts.StoredAccessLevel(original.AccessLevel)
 		requested, _ = original.Query["accessLevel"].(string)
+		if original.LegacyAccessLevel && strings.TrimSpace(requested) != "" && contracts.IsDefaultAccessLevelRequest(requested) {
+			requested = contracts.AccessLevelAskForApproval
+		}
 	}
 	if status, ok := s.deps.Runs.RunStatus(sourceRunID); ok {
 		previous = sessionbuildAccessLevel(status.AccessLevel)

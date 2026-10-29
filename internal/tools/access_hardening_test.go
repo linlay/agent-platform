@@ -183,9 +183,9 @@ func TestImageReferencesUseCanonicalAccessPolicy(t *testing.T) {
 	if err := os.Symlink(external, filepath.Join(chatDir, "linked.png")); err != nil {
 		t.Skip(err)
 	}
-	cfg := config.Config{Paths: config.PathsConfig{ChatsDir: chatRoot}, AccessPolicy: config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{AccessLevelDefault: {Approvals: config.AccessPolicyApprovalConfig{ReadOutsideRoots: "block"}}}}}
+	cfg := config.Config{Paths: config.PathsConfig{ChatsDir: chatRoot}, AccessPolicy: config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{AccessLevelAskForApproval: {Approvals: config.AccessPolicyApprovalConfig{ReadOutsideRoots: "block"}}}}}
 	executor := &RuntimeToolExecutor{cfg: cfg}
-	ctx := &ExecutionContext{Session: QuerySession{ChatID: "chat-a", ChatRoot: chatDir, WorkspaceRoot: workspace, TempRoot: temp, TempRoots: []string{temp}, AccessLevel: AccessLevelDefault}}
+	ctx := &ExecutionContext{Session: QuerySession{ChatID: "chat-a", ChatRoot: chatDir, WorkspaceRoot: workspace, TempRoot: temp, TempRoots: []string{temp}, AccessLevel: AccessLevelAskForApproval}}
 	for _, input := range []map[string]any{{"filePath": external}, {"referenceName": "linked.png"}} {
 		_, result, handled := executor.loadVisionImages(map[string]any{"images": []any{input}}, ctx, config.VisionRecognizeProfileConfig{})
 		if !handled || result.Error != "vision_file_path_blocked" {

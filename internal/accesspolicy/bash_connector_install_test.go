@@ -34,7 +34,7 @@ func TestInstalledConnectorEntryIsBoundToItsInstallationAndMount(t *testing.T) {
 		t.Fatal("installed entry not frozen", entries, err)
 	}
 	vars := map[string]string{"PATH": bin + string(os.PathListSeparator) + os.Getenv("PATH")}
-	session := QuerySession{AgentKey: "mounted", AccessLevel: AccessLevelDefault, WorkspaceRoot: t.TempDir(),
+	session := QuerySession{AgentKey: "mounted", AccessLevel: AccessLevelAskForApproval, WorkspaceRoot: t.TempDir(),
 		ConnectorDirs: map[string]string{"demo": t.TempDir()}, ConnectorInstallBinDirs: []string{bin}, ConnectorCLIEntries: entries}
 	if p := ReviewBashCommand(config.AccessPolicyConfig{}, session, "demo-cli docs list", "/", vars); p.Decision != DecisionAllow || !p.ConnectorOnly {
 		t.Fatalf("installed CLI not authorized: %+v", p)

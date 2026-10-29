@@ -30,8 +30,8 @@ func TestConnectorMountsGrantOnlySelectedReadonlyRoots(t *testing.T) {
 	if err := addConnectorAccessRoots(&roots, def); err != nil {
 		t.Fatal(err)
 	}
-	session := contracts.QuerySession{AccessLevel: contracts.AccessLevelDefault, RunAccessRoots: roots}
-	policy := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{contracts.AccessLevelDefault: {Approvals: config.AccessPolicyApprovalConfig{ReadOutsideRoots: "hitl", WriteOutsideRoots: "hitl"}}}}
+	session := contracts.QuerySession{AccessLevel: contracts.AccessLevelAskForApproval, RunAccessRoots: roots}
+	policy := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{contracts.AccessLevelAskForApproval: {Approvals: config.AccessPolicyApprovalConfig{ReadOutsideRoots: "hitl", WriteOutsideRoots: "hitl"}}}}
 	for _, file := range []string{selected, skill} {
 		plan, err := accesspolicy.BuildPathPlan(policy, session, accesspolicy.ReadAccess, file)
 		if err != nil || !plan.Allowed() {
@@ -42,7 +42,7 @@ func TestConnectorMountsGrantOnlySelectedReadonlyRoots(t *testing.T) {
 		if err != nil || !plan.Blocked() {
 			t.Fatalf("mounted write not blocked: %#v %v", plan, err)
 		}
-		session.AccessLevel = contracts.AccessLevelDefault
+		session.AccessLevel = contracts.AccessLevelAskForApproval
 	}
 	plan, err := accesspolicy.BuildPathPlan(policy, session, accesspolicy.ReadAccess, sibling)
 	if err != nil || plan.Decision != accesspolicy.DecisionRequiresApproval {

@@ -221,7 +221,7 @@ func TestDesktopReviewNeverPrefetchesDiagnosticsAndSkipsAutoApprovalReads(t *tes
 	e.CurrentToolID = "review"
 	executor.clientRequest = &awcpClientRequestInvoker{response: func(ClientRequest) map[string]any { t.Fatal("unexpected prefetch"); return nil }}
 	for _, tc := range []struct{ tool, action, level string }{
-		{"desktop_shell", "runtime.diagnostics", AccessLevelDefault},
+		{"desktop_shell", "runtime.diagnostics", AccessLevelAskForApproval},
 		{"desktop_settings", "theme.set", AccessLevelAutoApprove},
 		{"desktop_settings", "theme.set", AccessLevelFullAccess},
 		{"desktop_site", "site.setPinned", AccessLevelAutoApprove},

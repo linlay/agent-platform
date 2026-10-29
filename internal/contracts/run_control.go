@@ -237,7 +237,7 @@ func NewRunControl(parent context.Context, runID string) *RunControl {
 		awaitingSubmits:    map[string]AwaitingSubmitContext{},
 		awaitingAliases:    map[string]string{},
 		state:              RunLoopStateIdle,
-		accessLevel:        AccessLevelDefault,
+		accessLevel:        AccessLevelAskForApproval,
 		accessVersion:      1,
 		compactResults:     map[string]*compactControlState{},
 		accessLevelChanged: make(chan struct{}, 1),
@@ -854,7 +854,7 @@ func (c *RunControl) SetInitialAccessLevel(accessLevel string) {
 	}
 	normalized, ok := NormalizeAccessLevel(accessLevel)
 	if !ok {
-		normalized = AccessLevelDefault
+		normalized = AccessLevelAskForApproval
 	}
 	c.mu.Lock()
 	c.accessLevel = normalized
@@ -870,12 +870,12 @@ func (c *RunControl) UpdateAccessLevel(accessLevel string) (string, string, int6
 	}
 	normalized, ok := NormalizeAccessLevel(accessLevel)
 	if !ok {
-		normalized = AccessLevelDefault
+		normalized = AccessLevelAskForApproval
 	}
 	c.mu.Lock()
 	previous := c.accessLevel
 	if previous == "" {
-		previous = AccessLevelDefault
+		previous = AccessLevelAskForApproval
 	}
 	version := c.accessVersion
 	if version <= 0 {
@@ -913,7 +913,7 @@ func (c *RunControl) AcceptAtAccessLevel(accept func(accessLevel string, version
 	}
 	accessLevel := c.accessLevel
 	if accessLevel == "" {
-		accessLevel = AccessLevelDefault
+		accessLevel = AccessLevelAskForApproval
 	}
 	version := c.accessVersion
 	if version <= 0 {
@@ -924,13 +924,13 @@ func (c *RunControl) AcceptAtAccessLevel(accept func(accessLevel string, version
 
 func (c *RunControl) AccessLevelSnapshot() (string, int64) {
 	if c == nil {
-		return AccessLevelDefault, 0
+		return AccessLevelAskForApproval, 0
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	accessLevel := c.accessLevel
 	if accessLevel == "" {
-		accessLevel = AccessLevelDefault
+		accessLevel = AccessLevelAskForApproval
 	}
 	version := c.accessVersion
 	if version <= 0 {

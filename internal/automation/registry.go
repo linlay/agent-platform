@@ -764,9 +764,9 @@ func normalizeAutomationAccessLevel(value string) (string, error) {
 	if strings.TrimSpace(value) == "" {
 		return "", nil
 	}
-	level, ok := contracts.NormalizeAccessLevel(value)
+	level, ok := contracts.NormalizeRequestedAccessLevel(value)
 	if !ok {
-		return "", fmt.Errorf("invalid query.accessLevel: must be default, auto_approve, or full_access")
+		return "", fmt.Errorf("invalid query.accessLevel: must be default, ask_for_approval, auto_approve, or full_access")
 	}
 	return level, nil
 }

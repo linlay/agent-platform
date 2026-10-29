@@ -12,7 +12,7 @@ import (
 
 func TestCatalogAgentAccessChangesAlwaysRequireHuman(t *testing.T) {
 	const base = "key: worker\nname: Worker\nmodelConfig:\n  modelKey: test\n"
-	for _, level := range []string{"default", "auto_approve", "full_access"} {
+	for _, level := range []string{"ask_for_approval", "auto_approve", "full_access"} {
 		for _, tc := range []struct {
 			name, before, after string
 			manual              bool

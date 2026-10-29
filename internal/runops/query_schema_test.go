@@ -36,7 +36,7 @@ func TestChatStartSchemaKeepsNewArgumentsOptional(t *testing.T) {
 	}
 	level := properties["accessLevel"].(map[string]any)
 	enum, ok := level["enum"].([]any)
-	if !ok || len(enum) != 3 || enum[0] != "default" || enum[1] != "auto_approve" || enum[2] != "full_access" {
+	if !ok || len(enum) != 4 || enum[0] != "default" || enum[1] != "ask_for_approval" || enum[2] != "auto_approve" || enum[3] != "full_access" {
 		t.Fatalf("invalid accessLevel enum: %#v", level["enum"])
 	}
 	if schema["additionalProperties"] != false {

@@ -191,7 +191,7 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 	if session.Mode != catalog.AgentModeCoder {
 		t.Fatalf("mode = %q, want %q", session.Mode, catalog.AgentModeCoder)
 	}
-	if session.AccessLevel != contracts.AccessLevelDefault {
+	if session.AccessLevel != contracts.AccessLevelAskForApproval {
 		t.Fatalf("access level = %q, want default", session.AccessLevel)
 	}
 	if owner := contracts.ResolveRunOwner(session.RunOwner); owner.AgentKey != "coder-app" {

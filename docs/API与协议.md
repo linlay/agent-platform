@@ -373,7 +373,7 @@ Automation 的 `description` 和 `zoneId` 均可省略。Execution 的 `zoneId` 
 
 Automation 列表和详情固定返回 `executionHistory:{available,state,message?}`，其中 `state` 为 `initializing|ready|degraded|unavailable`。History 不可读不影响 Automation 配置 API；`/api/automation/executions` 和 `/api/automation/execution` 此时返回 `503`。
 
-Automation 创建、更新的 `query.accessLevel` 与详情中的同名字段支持 `default/auto_approve/full_access`，省略时执行权限为 `default`；更新省略整个 `query` 保留原值，提供 `query` 则整体替换，省略其中的档位恢复默认。非法值或错误类型返回 400。定时和手动触发均使用受理时的配置，不继承已有 Chat 的历史权限，也不经过 `chat_start` 的权限提升审批；目标交互准入及工具硬限制继续生效。
+Automation 创建、更新的 `query.accessLevel` 与详情中的同名字段支持 `ask_for_approval/auto_approve/full_access`，省略时执行权限为 `ask_for_approval`；更新省略整个 `query` 保留原值，提供 `query` 则整体替换，省略其中的档位恢复默认。非法值或错误类型返回 400。定时和手动触发均使用受理时的配置，不继承已有 Chat 的历史权限，也不经过 `chat_start` 的权限提升审批；目标交互准入及工具硬限制继续生效。
 
 `POST /api/automation/trigger` 是 HTTP-only 的原生手动触发入口。每次请求都会创建不同的 Execution，并与 Cron 执行共用全局 Automation 并发池；暂停状态也可触发，但不会扣减 `remainingRuns`、持久化 Automation 或改变 `nextFireAt`。成功响应保持统一 200 包装，例如 `data:{"accepted":true,"status":"accepted","automationId":"daily-report","executionId":"exec_xxx"}`。该响应只表示已受理，Query 准入、模型执行、HITL 或停止取消等后续结果通过 execution history 和 `automation.execution.*` push 反映。
 
@@ -1445,10 +1445,19 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 
 ## Agent 默认权限与来源
 
-Agent YAML 的 accessConfig.default 是默认值，使用目录 /api/agents、/api/agent 及对应 WS 返回有效 defaultAccessLevel。普通 /api/query、/api/execute 与 BTW/explain 在省略 accessLevel 时取目标冻结定义的默认，未配置为 default；显式请求优先。关闭 interactionConfig.accessLevel 时仅接受省略或等于 Agent 默认的显式值。活动 Run 当前档位与 Agent 默认分别展示，运行中切档不写回 YAML。
+Agent YAML 的 accessConfig.default 是默认值，使用目录 /api/agents、/api/agent 及对应 WS 返回有效 defaultAccessLevel。普通 /api/query、/api/execute 与 BTW/explain 在省略 accessLevel 时取目标冻结定义的默认，未配置为 ask_for_approval；显式请求优先。关闭 interactionConfig.accessLevel 时仅接受省略或等于 Agent 默认的显式值。活动 Run 当前档位与 Agent 默认分别展示，运行中切档不写回 YAML。
 
-Agent 发起 chat_start/chat_send 时，省略采用目标默认且可高于父 Run；显式高于父当前档位返回 run_start_access_level_exceeded，executionState=not_started。目标准备与准入快照变化返回可重试的 run_start_target_changed。Automation 省略仍固定 default。
+Agent 发起 chat_start/chat_send 时，省略采用目标默认且可高于父 Run；显式高于父当前档位返回 run_start_access_level_exceeded，executionState=not_started。目标准备与准入快照变化返回可重试的 run_start_target_changed。Automation 省略仍固定 ask_for_approval。
 
 JSONL query 原始输入不补默认。顶层 accessLevel 保存有效值，accessGrant.source 可为 explicit/agent_default/platform_default/automation_config/automation_default/continuation，目标 revision 与父基线在适用时一起冻结。旧 inherited/approved 历史继续读取，不按新配置重算。
 
 计划批准的 param 可带 executionAccessLevel（三个档位之一），用于确认等待期间升高的 Agent 默认。未确认升高返回 HTTP 409/plan_access_level_changed，data.executionAccessLevel 返回当前值，等待项不消费；客户端先刷新展示，再由用户重新确认。它不替代原始显式请求或规划期间用户切档。
+
+
+### 默认权限选择与具体档位
+
+Query、execute、side query 和子执行器的输入 `accessLevel: default`（或省略）表示由后台解析目标 Agent 的 `accessConfig.default`；Agent 未配置时使用 `ask_for_approval`。`default` 不再表示请求审批，也不是执行权限档位。用户显式选择使用 `ask_for_approval`（Ask for approval）、`auto_approve`（Auto-approve）或 `full_access`（Full access）。运行中的切档接口只接受这三个具体档位。
+
+Runtime 受理时冻结具体权限与来源，JSONL 顶层 `accessLevel`、Run 状态和权限事件使用具体档位；原始 query 保留请求中的 `default` 或省略，不改写。旧 JSONL 顶层 `default` 是旧版已冻结的请求审批决定，回读为 `ask_for_approval`，不依据当前 Agent 配置重算；旧规划记录中显式请求审批的执行续接也保留原权限。
+
+Automation 保持独立的场景默认：省略或 `default` 使用 `ask_for_approval`，不采用 Agent/Chat 的高权限默认。Gateway 与 Desktop WebApp execute 的固定低权限调用明确发送 `ask_for_approval`。Platform、WebClient、Desktop 和 Gateway 应同步升级，旧调用方若要明确请求审批，必须改发 `ask_for_approval`。

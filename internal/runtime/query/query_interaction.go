@@ -11,12 +11,12 @@ import (
 )
 
 func ValidateInteractionInput(config interaction.Config, req runtimetypes.QueryCommand, defaults ...string) error {
-	defaultLevel := "default"
+	defaultLevel := contracts.AccessLevelAskForApproval
 	if len(defaults) > 0 {
 		defaultLevel = defaults[0]
 	}
-	requested, _ := contracts.NormalizeAccessLevel(req.AccessLevel)
-	if !config.AccessLevel && strings.TrimSpace(req.AccessLevel) != "" && requested != defaultLevel {
+	requested, _ := contracts.NormalizeRequestedAccessLevel(req.AccessLevel)
+	if !config.AccessLevel && !contracts.IsDefaultAccessLevelRequest(req.AccessLevel) && requested != defaultLevel {
 		return queryReferenceStatusError(400, "interaction_disabled", "interactionConfig.accessLevel is disabled")
 	}
 	model := req.Model != nil && (strings.TrimSpace(req.Model.Key) != "" || strings.TrimSpace(req.Model.ReasoningEffort) != "" || strings.TrimSpace(req.Model.ServiceTier) != "")

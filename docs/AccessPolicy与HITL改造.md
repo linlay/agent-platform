@@ -68,4 +68,4 @@ Workspace 由 Agent `workspaceRoot` 决定；full_access 只把访问范围扩�
 
 受管 Agent/Automation 源码和 Agent 运行版本根（AgentsDir、AutomationsDir、RUAgentsDir）通过受信任只写保护拒绝普通文件工具及可分析 Bash mutation，优先于 writeRoots、hostAccess、审批收据与 full_access；包含祖先目录替换/删除。读取沿用普通策略，专用管理事务仍可写。ProtectedPaths 继续用于同时禁读禁写的身份/状态秘密，不混用。Host 任意脚本仍无 OS 级隔离，不能据此保证脚本内部无法访问源码。
 
-Run 默认权限来自 Agent accessConfig.default，未配置为 default；显式用户输入优先。子执行器使用自身默认，父 Run 降档不限制整条调用链；切档不写回 Agent 配置。Automation 省略仍固定 default。
+Run 默认权限来自 Agent accessConfig.default，未配置为 ask_for_approval；显式用户输入优先。子执行器使用自身默认，父 Run 降档不限制整条调用链；切档不写回 Agent 配置。Automation 省略仍固定 ask_for_approval。

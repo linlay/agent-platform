@@ -356,9 +356,9 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	}
 	req.Role = req.Origin.ExecutionRole()
 	req.ChatSource = runtimetypes.ChatSourceFromContext(ctx)
-	_, ok := contracts.NormalizeAccessLevel(req.AccessLevel)
+	_, ok := contracts.NormalizeRequestedAccessLevel(req.AccessLevel)
 	if !ok {
-		return queryAdmission{}, &statusError{Status: 400, Message: "accessLevel must be default, auto_approve, or full_access"}
+		return queryAdmission{}, &statusError{Status: 400, Message: "accessLevel must be default, ask_for_approval, auto_approve, or full_access"}
 	}
 
 	runID := strings.TrimSpace(req.RunID)

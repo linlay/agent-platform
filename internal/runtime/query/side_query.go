@@ -36,9 +36,9 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 	if input.SideID != "" && !chat.ValidSideID(input.SideID) {
 		return preparedQuery{}, btwStatusError(400, "invalid_side_id", "invalid sideId")
 	}
-	_, ok := contracts.NormalizeAccessLevel(input.AccessLevel)
+	_, ok := contracts.NormalizeRequestedAccessLevel(input.AccessLevel)
 	if !ok {
-		return preparedQuery{}, btwStatusError(400, "invalid_access_level", "accessLevel must be default, auto_approve, or full_access")
+		return preparedQuery{}, btwStatusError(400, "invalid_access_level", "accessLevel must be default, ask_for_approval, auto_approve, or full_access")
 	}
 
 	summary, err := s.deps.Chats.Summary(input.ChatID)

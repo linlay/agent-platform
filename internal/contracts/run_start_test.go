@@ -9,9 +9,9 @@ import (
 )
 
 func TestResolveRunStartAccessLevel(t *testing.T) {
-	levels := []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess}
+	levels := []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess}
 	for parentRank, parent := range levels {
-		if level, escalates := ResolveRunStartAccessLevel("", parent); level != AccessLevelDefault || escalates {
+		if level, escalates := ResolveRunStartAccessLevel("", parent); level != AccessLevelAskForApproval || escalates {
 			t.Fatalf("omitted must use platform default, parent=%s: %s %v", parent, level, escalates)
 		}
 		for requestedRank, requested := range levels {
@@ -29,7 +29,7 @@ func TestRunStartDigestsSeparateIdempotencyFromApproval(t *testing.T) {
 	for name, changed := range map[string]RunStartRequest{
 		"message":          {AgentKey: "a", Message: "other", References: queryinput.MakeReferences("skill", []string{"s"})},
 		"target":           {AgentKey: "b", Message: "m", References: queryinput.MakeReferences("skill", []string{"s"})},
-		"explicit default": {AgentKey: "a", Message: "m", References: queryinput.MakeReferences("skill", []string{"s"}), AccessLevel: AccessLevelDefault},
+		"explicit default": {AgentKey: "a", Message: "m", References: queryinput.MakeReferences("skill", []string{"s"}), AccessLevel: AccessLevelAskForApproval},
 		"chat":             {AgentKey: "a", Message: "m", References: queryinput.MakeReferences("skill", []string{"s"}), ChatID: "c"},
 		"skills":           {AgentKey: "a", Message: "m"},
 		"libraries":        {AgentKey: "a", Message: "m", References: append(queryinput.MakeReferences("skill", []string{"s"}), queryinput.MakeReferences("kbase", []string{"kb"})...)},
@@ -48,7 +48,7 @@ func TestRunStartDigestsSeparateIdempotencyFromApproval(t *testing.T) {
 	approval := RunStartApprovalDigest(request, AccessLevelAutoApprove, 3, AccessLevelFullAccess)
 	for _, other := range []string{
 		RunStartApprovalDigest(request, AccessLevelAutoApprove, 4, AccessLevelFullAccess),
-		RunStartApprovalDigest(request, AccessLevelDefault, 3, AccessLevelFullAccess),
+		RunStartApprovalDigest(request, AccessLevelAskForApproval, 3, AccessLevelFullAccess),
 		RunStartApprovalDigest(request, AccessLevelAutoApprove, 3, AccessLevelAutoApprove),
 		RunStartApprovalDigest("other", AccessLevelAutoApprove, 3, AccessLevelFullAccess),
 	} {

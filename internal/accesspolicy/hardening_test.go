@@ -12,7 +12,7 @@ import (
 func policyFixture(t *testing.T) QuerySession {
 	t.Helper()
 	root := t.TempDir()
-	s := QuerySession{AccessLevel: AccessLevelDefault, WorkspaceRoot: filepath.Join(root, "workspace"), TempRoot: filepath.Join(root, "temp")}
+	s := QuerySession{AccessLevel: AccessLevelAskForApproval, WorkspaceRoot: filepath.Join(root, "workspace"), TempRoot: filepath.Join(root, "temp")}
 	s.TempRoots = []string{s.TempRoot}
 	for _, dir := range []string{s.WorkspaceRoot, s.TempRoot} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
@@ -73,7 +73,7 @@ func TestPlatformStateHardBlockAcrossLevels(t *testing.T) {
 	s := policyFixture(t)
 	protected := filepath.Join(s.WorkspaceRoot, ".state")
 	s.ProtectedPaths = []string{protected}
-	for _, level := range []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		s.AccessLevel = level
 		for _, mode := range []AccessMode{ReadAccess, WriteAccess} {
 			p, err := BuildPathPlan(config.AccessPolicyConfig{}, s, mode, filepath.Join(protected, "identity", "token"))
@@ -131,7 +131,7 @@ func TestPreviewRecordsHardBlockAcrossLevels(t *testing.T) {
 	s.ProtectedPaths = PlatformProtectedPaths(config.Config{Paths: config.PathsConfig{
 		StateDir: filepath.Join(t.TempDir(), ".state"), RUPreviewsDir: preview,
 	}})
-	for _, level := range []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		s.AccessLevel = level
 		for _, mode := range []AccessMode{ReadAccess, WriteAccess} {
 			plan, err := BuildPathPlan(config.DefaultAccessPolicyConfig(), s, mode, record)
@@ -159,7 +159,7 @@ func TestDesktopSecretsHardBlockAcrossLevels(t *testing.T) {
 	}
 	cfg := config.Config{RuntimeMode: config.RuntimeModeDesktop, Paths: config.PathsConfig{StateDir: filepath.Join(runtimeRoot, ".state")}}
 	s.ProtectedPaths = PlatformProtectedPaths(cfg)
-	for _, level := range []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		s.AccessLevel = level
 		for _, mode := range []AccessMode{ReadAccess, WriteAccess} {
 			plan, err := BuildPathPlan(config.DefaultAccessPolicyConfig(), s, mode, vault)

@@ -43,8 +43,8 @@ func (s *Service) Execute(ctx context.Context, cmd runtimetypes.ExecuteCommand) 
 	if err := matchExecuteFiles(fileRefs, cmd.FileParts); err != nil {
 		return runtimetypes.ExecuteResult{}, executeRequestError(400, "invalid_request", err.Error(), "")
 	}
-	if _, ok := contracts.NormalizeAccessLevel(cmd.AccessLevel); !ok {
-		return runtimetypes.ExecuteResult{}, executeRequestError(400, "invalid_request", "accessLevel must be default, auto_approve or full_access", "")
+	if _, ok := contracts.NormalizeRequestedAccessLevel(cmd.AccessLevel); !ok {
+		return runtimetypes.ExecuteResult{}, executeRequestError(400, "invalid_request", "accessLevel must be default, ask_for_approval, auto_approve or full_access", "")
 	}
 	if err := s.checkExecuteTarget(agentKey); err != nil {
 		return runtimetypes.ExecuteResult{}, err

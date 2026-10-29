@@ -34,7 +34,7 @@ mail 发出时 hop=当前+1，接收取 max；用户直接输入归零；chat_su
 
 ## Agent 默认权限
 
-letter 在受理时、平台生成的 reply/notify/ask 在创建时，从收件 Agent 的 accessConfig.default 解析并保存权限，未配置为 default；letter 的显式档位不得超过发送 Run 受理时当前档位。权限来源、目标 revision 保存于 accessGrant，letter 另存父基线。平台生成邮件不要求原发送 Run 仍活动。接收 Agent 已不可用时，回信保留完整结果并挂起，不静默降为 default；人工重投时首次成功解析权限。已经冻结的权限不因收件 Agent 后续改默认、发送 Run 结束或重投而改变。inserted 仅给活动 Run 补消息，不改变其当前档位；letter/reply/notify/ask 的控制权边界保持原合同。
+letter 在受理时、平台生成的 reply/notify/ask 在创建时，从收件 Agent 的 accessConfig.default 解析并保存权限，未配置为 ask_for_approval；letter 的显式档位不得超过发送 Run 受理时当前档位。权限来源、目标 revision 保存于 accessGrant，letter 另存父基线。平台生成邮件不要求原发送 Run 仍活动。接收 Agent 已不可用时，回信保留完整结果并挂起，不静默降为 ask_for_approval；人工重投时首次成功解析权限。已经冻结的权限不因收件 Agent 后续改默认、发送 Run 结束或重投而改变。inserted 仅给活动 Run 补消息，不改变其当前档位；letter/reply/notify/ask 的控制权边界保持原合同。
 
 
 ## 存储命名与保留期

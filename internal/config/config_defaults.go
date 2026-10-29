@@ -238,7 +238,7 @@ func DefaultAccessPolicyConfig() AccessPolicyConfig {
 func defaultAccessPolicyConfig() AccessPolicyConfig {
 	return AccessPolicyConfig{
 		Levels: map[string]AccessPolicyLevelConfig{
-			"default": {
+			"ask_for_approval": {
 				ReadRoots:     []string{"@workspace", "@chat", "@agent", "@skills", "@temp"},
 				WriteRoots:    []string{"@chat", "@temp"},
 				ReadonlyRoots: []string{"@agent", "@skills"},
@@ -254,7 +254,7 @@ func defaultAccessPolicyConfig() AccessPolicyConfig {
 				},
 			},
 			"auto_approve": {
-				Inherit: "default",
+				Inherit: "ask_for_approval",
 				Approvals: AccessPolicyApprovalConfig{
 					ReadOutsideRoots:      "auto",
 					WriteOutsideRoots:     "hitl",
@@ -581,6 +581,19 @@ func normalizeSpeechGenerateConfig(cfg SpeechGenerateConfig) SpeechGenerateConfi
 }
 
 func normalizeAccessPolicyConfig(cfg AccessPolicyConfig) AccessPolicyConfig {
+	// Preserve deployed approval policy while default becomes a request selector.
+	if legacy, ok := cfg.Levels["default"]; ok {
+		if _, exists := cfg.Levels["ask_for_approval"]; !exists {
+			cfg.Levels["ask_for_approval"] = legacy
+		}
+		delete(cfg.Levels, "default")
+	}
+	for name, level := range cfg.Levels {
+		if strings.TrimSpace(level.Inherit) == "default" {
+			level.Inherit = "ask_for_approval"
+			cfg.Levels[name] = level
+		}
+	}
 	defaults := defaultAccessPolicyConfig()
 	if len(cfg.Levels) == 0 {
 		cfg.Levels = defaults.Levels
@@ -604,10 +617,10 @@ func normalizeAccessPolicyConfig(cfg AccessPolicyConfig) AccessPolicyConfig {
 		level.Approvals = normalizeAccessPolicyApprovals(level.Approvals)
 		normalizedLevels[normalizedName] = level
 	}
-	if level, ok := normalizedLevels["default"]; ok {
+	if level, ok := normalizedLevels["ask_for_approval"]; ok {
 		level.ReadRoots = appendAccessPolicyRoot(level.ReadRoots, "@temp")
 		level.WriteRoots = appendAccessPolicyRoot(level.WriteRoots, "@temp")
-		normalizedLevels["default"] = level
+		normalizedLevels["ask_for_approval"] = level
 	}
 	cfg.Levels = normalizedLevels
 	return cfg

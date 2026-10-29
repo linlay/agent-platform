@@ -27,7 +27,7 @@ func TestChatStartOptionalSettings(t *testing.T) {
 	bindTestRunControl(t, fixture.server, "parent", "ws", "desktop")
 	_, parent, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", AccessLevel: "full_access"})
 	defer fixture.runs.Finish("parent")
-	for _, level := range []string{"", "default", "auto_approve", "full_access"} {
+	for _, level := range []string{"", "ask_for_approval", "auto_approve", "full_access"} {
 		req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "run message", AccessLevel: level, ChatName: "自定义名称 " + level, Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "tool"}, References: queryinput.MakeReferences("skill", []string{"mock-skill"})}
 		req.Input = map[string]any{"message": "run message", "chatName": req.ChatName, "references": []any{map[string]any{"type": "skill", "id": "mock-skill"}}}
 		if level != "" {
@@ -39,7 +39,7 @@ func TestChatStartOptionalSettings(t *testing.T) {
 		}
 		expected := level
 		if expected == "" {
-			expected = "default"
+			expected = "ask_for_approval"
 		}
 		if started.AccessLevel != expected {
 			t.Fatalf("started=%#v", started)
@@ -75,7 +75,7 @@ func TestChatStartOptionalSettings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if continued.AccessLevel != "default" {
+		if continued.AccessLevel != "ask_for_approval" {
 			t.Fatalf("continuation did not use target default: %#v", continued)
 		}
 		waitRunTerminal(t, fixture.server, continued.RunID)
@@ -113,7 +113,7 @@ func requireNoChatStarted(t *testing.T, fixture testFixture, err error, code str
 // Runtime itself refuses every start above the parent level that carries no
 // consumable approval, whoever the caller is.
 func TestChatStartPermissionMatrixWithoutApproval(t *testing.T) {
-	levels := []string{"default", "auto_approve", "full_access"}
+	levels := []string{"ask_for_approval", "auto_approve", "full_access"}
 	for pi, parentLevel := range levels {
 		for ri, requested := range levels {
 			t.Run(parentLevel+"/"+requested, func(t *testing.T) {
@@ -143,7 +143,7 @@ func TestChatStartPermissionMatrixWithoutApproval(t *testing.T) {
 }
 
 func TestChatStartLegacyApprovalCannotOverrideCeiling(t *testing.T) {
-	for _, parentLevel := range []string{"default", "auto_approve", "full_access"} {
+	for _, parentLevel := range []string{"ask_for_approval", "auto_approve", "full_access"} {
 		t.Run(parentLevel, func(t *testing.T) {
 			fixture, _ := chatStartFixture(t, parentLevel)
 			consumed := false
@@ -217,9 +217,9 @@ func TestChatStartTargetAdmissionForOptions(t *testing.T) {
 		request contracts.RunStartRequest
 		level   string
 	}{
-		{contracts.RunStartRequest{AccessLevel: "default"}, "default"},
-		{contracts.RunStartRequest{}, "default"},
-		{contracts.RunStartRequest{References: queryinput.MakeReferences("skill", []string{"mock-skill"})}, "default"},
+		{contracts.RunStartRequest{AccessLevel: "ask_for_approval"}, "ask_for_approval"},
+		{contracts.RunStartRequest{}, "ask_for_approval"},
+		{contracts.RunStartRequest{References: queryinput.MakeReferences("skill", []string{"mock-skill"})}, "ask_for_approval"},
 		{contracts.RunStartRequest{AccessLevel: "auto_approve", ModelKey: "mock-model", ReasoningEffort: "LOW"}, "auto_approve"},
 	} {
 		tc.request.AgentKey, tc.request.Message = "mock-agent", "test"
@@ -243,11 +243,11 @@ func TestChatStartDefaultDoesNotInheritLiveParentAccessLevel(t *testing.T) {
 	}, testFixtureOptions{})
 	bindTestRunControl(t, fixture.server, "parent", "ws", "desktop")
 	_, parent, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{
-		RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", AccessLevel: "default",
+		RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", AccessLevel: "ask_for_approval",
 	})
 	defer fixture.runs.Finish("parent")
 	var chatID string
-	for _, level := range []string{"default", "auto_approve", "full_access", "default"} {
+	for _, level := range []string{"ask_for_approval", "auto_approve", "full_access", "ask_for_approval"} {
 		parent.UpdateAccessLevel(level)
 		started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
 			AgentKey: "mock-agent", ChatID: chatID, Message: "inherit current permission",
@@ -256,12 +256,12 @@ func TestChatStartDefaultDoesNotInheritLiveParentAccessLevel(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if started.AccessLevel != "default" {
+		if started.AccessLevel != "ask_for_approval" {
 			t.Fatalf("want %s, got %#v", level, started)
 		}
 		parent.UpdateAccessLevel("auto_approve")
 		finished := waitRunTerminal(t, fixture.server, started.RunID)
-		if finished.AccessLevel != "default" {
+		if finished.AccessLevel != "ask_for_approval" {
 			t.Fatalf("child permission changed with parent: %#v", finished)
 		}
 		chatID = started.ChatID
@@ -304,7 +304,7 @@ func TestChatStartParentLoweredBeforeAcceptance(t *testing.T) {
 	if _, err := fixture.server.PrepareRunStart(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
-	parent.UpdateAccessLevel("default")
+	parent.UpdateAccessLevel("ask_for_approval")
 	_, err := fixture.server.StartRun(context.Background(), req)
 	requireNoChatStarted(t, fixture, err, "run_start_access_level_exceeded")
 }
@@ -340,7 +340,7 @@ func TestChatStartAuditUsesAcceptedParentBaseline(t *testing.T) {
 	fixture, parent := chatStartFixture(t, "auto_approve")
 	fixture.server.deps.Registry = &chatStartSwitchRegistry{Registry: fixture.server.deps.Registry, parent: parent}
 	bindTestRuntime(fixture.server)
-	started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", AccessLevel: "default", Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "audit-call"}})
+	started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", AccessLevel: "ask_for_approval", Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "audit-call"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +355,7 @@ func TestChatStartAuditUsesAcceptedParentBaseline(t *testing.T) {
 		t.Fatal(err)
 	}
 	level, version := parent.AccessLevelSnapshot()
-	if level != "full_access" || audit["parentAccessLevel"] != level || audit["parentAccessVersion"] != float64(version) || audit["accessLevel"] != "default" {
+	if level != "full_access" || audit["parentAccessLevel"] != level || audit["parentAccessVersion"] != float64(version) || audit["accessLevel"] != "ask_for_approval" {
 		t.Fatalf("accepted parent=%s/v%d, persisted=%v", level, version, audit)
 	}
 }
@@ -368,7 +368,7 @@ func TestChatStartRefusesRunManagerWithoutAtomicAcceptance(t *testing.T) {
 	fixture, _ := chatStartFixture(t, "auto_approve")
 	fixture.server.deps.Runs = narrowRunManager{fixture.runs}
 	bindTestRuntime(fixture.server)
-	for _, level := range []string{"", "default", "auto_approve"} {
+	for _, level := range []string{"", "ask_for_approval", "auto_approve"} {
 		_, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", AccessLevel: level, Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "narrow-" + level}})
 		requireNoChatStarted(t, fixture, err, "run_start_authorization_unavailable")
 	}
@@ -393,7 +393,7 @@ func TestChatStartDefaultAgentStartAndContinuation(t *testing.T) {
 	}
 	waitRunTerminal(t, fixture.server, started.RunID)
 	continued, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{Message: "continue", ChatID: started.ChatID, Origin: req.Origin})
-	if err != nil || continued.ChatID != started.ChatID || continued.AgentKey != "mock-agent" || continued.AccessLevel != "default" {
+	if err != nil || continued.ChatID != started.ChatID || continued.AgentKey != "mock-agent" || continued.AccessLevel != "ask_for_approval" {
 		t.Fatalf("%+v %v", continued, err)
 	}
 	waitRunTerminal(t, fixture.server, continued.RunID)

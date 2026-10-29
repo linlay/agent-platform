@@ -63,7 +63,7 @@ func TestBuildContinuationRequestPreservesOriginalAndAppliesIdentityPrecedence(t
 	if req.AgentKey != "submit-agent" {
 		t.Fatalf("unexpected resolved identity: %#v", req)
 	}
-	if req.Role != api.QueryRoleSystem || req.PlanningMode == nil || *req.PlanningMode || req.AccessLevel != contracts.AccessLevelDefault {
+	if req.Role != api.QueryRoleSystem || req.PlanningMode == nil || *req.PlanningMode || req.AccessLevel != contracts.AccessLevelAskForApproval {
 		t.Fatalf("unexpected continuation controls: %#v", req)
 	}
 	if req.Stream != &stream || !req.IncludeUsage || req.Params["keep"] != true {

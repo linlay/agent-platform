@@ -42,7 +42,7 @@ func review(f capabilityFixture, command string, ctx ...*ExecutionContext) BashP
 }
 
 func TestWorkspaceEditingCapabilityIsIndependentOfAccessLevel(t *testing.T) {
-	for _, level := range []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		f := newCapabilityFixture(t, level)
 		if p := review(f, "touch notes.txt"); !p.Allowed() || p.AutoApproved() {
 			t.Fatalf("%s editing=true: ordinary workspace write must be allowed: %+v", level, p)
@@ -75,7 +75,7 @@ func TestExecutableGitConfigurationRequiresApproval(t *testing.T) {
 	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
 		targets = append(targets, ".GIT/hooks/pre-commit", ".Git/Config")
 	}
-	for _, level := range []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		f := newCapabilityFixture(t, level)
 		if err := os.MkdirAll(filepath.Join(f.workspace, ".git", "hooks"), 0o755); err != nil {
 			t.Fatal(err)
@@ -97,7 +97,7 @@ func TestExecutableGitConfigurationRequiresApproval(t *testing.T) {
 }
 
 func TestDestructiveAndRemoteActionsFollowLevelApprovals(t *testing.T) {
-	for _, level := range []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		f := newCapabilityFixture(t, level)
 		for _, command := range []string{"rm -rf build", "find . -name '*.tmp' -delete", "curl -d a=1 https://example.invalid", "curl -X DELETE https://example.invalid/x"} {
 			p := review(f, command)
@@ -140,7 +140,7 @@ func TestAuthoredScriptExemptionRequiresChatLocationAndProof(t *testing.T) {
 	if _, ok := systemExecutables["sh"]; !ok {
 		t.Skip("system sh unavailable")
 	}
-	f := newCapabilityFixture(t, AccessLevelDefault)
+	f := newCapabilityFixture(t, AccessLevelAskForApproval)
 	ctx := &ExecutionContext{Session: f.session}
 	ctx.AuthoredScripts = scriptstate.New(ctx.ScriptOwner())
 	write := func(path string, record bool) {
@@ -181,7 +181,7 @@ func TestAuthoredScriptExemptionRequiresChatLocationAndProof(t *testing.T) {
 }
 
 func TestUnresolvedAliasProtectsNothingAndBareWordsAreNotPaths(t *testing.T) {
-	f := newCapabilityFixture(t, AccessLevelDefault)
+	f := newCapabilityFixture(t, AccessLevelAskForApproval)
 	f.session.RuntimeContext.LocalPaths.AgentDir = ""
 	f.session.RuntimeContext.LocalPaths.SkillsDir = ""
 	if p := BuildSubtreePlan(config.AccessPolicyConfig{}, f.session, WriteAccess, f.workspace); p.Blocked() {
@@ -212,7 +212,7 @@ func TestGitReadAndWriteDependOnRepositoryState(t *testing.T) {
 	if !ok || gitPath == "" {
 		t.Skip("system git unavailable")
 	}
-	f := newCapabilityFixture(t, AccessLevelDefault)
+	f := newCapabilityFixture(t, AccessLevelAskForApproval)
 	home := t.TempDir()
 	vars := map[string]string{"HOME": home, "PATH": os.Getenv("PATH"), "XDG_CONFIG_HOME": filepath.Join(home, ".config")}
 	run := func(args ...string) {

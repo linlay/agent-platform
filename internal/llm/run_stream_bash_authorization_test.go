@@ -81,7 +81,7 @@ func newApprovedBashStream(t *testing.T, count int) (*llmRunStream, *approvedBas
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
-	session := QuerySession{RunID: "approved_batch", ChatID: "chat", WorkspaceRoot: root, AccessLevel: AccessLevelDefault}
+	session := QuerySession{RunID: "approved_batch", ChatID: "chat", WorkspaceRoot: root, AccessLevel: AccessLevelAskForApproval}
 	e := &approvedBashExecutor{started: make(chan approvedBashStart, 10), release: map[string]chan struct{}{}}
 	s := &llmRunStream{ctx: ctx, session: session, engine: &LLMAgentEngine{cfg: e.cfg, tools: e}, runControl: NewRunControl(ctx, session.RunID),
 		execCtx: &ExecutionContext{Session: session, StartedAt: time.Now(), Budget: Budget{Tool: RetryPolicy{MaxCalls: 100, Timeout: 60}}}}

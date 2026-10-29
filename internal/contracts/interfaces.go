@@ -20,9 +20,11 @@ import (
 )
 
 const (
-	AccessLevelDefault     = "default"
-	AccessLevelAutoApprove = "auto_approve"
-	AccessLevelFullAccess  = "full_access"
+	// AccessLevelDefault is a request selector, never an effective Run level.
+	AccessLevelDefault        = "default"
+	AccessLevelAskForApproval = "ask_for_approval"
+	AccessLevelAutoApprove    = "auto_approve"
+	AccessLevelFullAccess     = "full_access"
 )
 
 const (
@@ -31,6 +33,30 @@ const (
 
 func IsReadOnlyToolExecutionPolicy(value string) bool {
 	return strings.EqualFold(strings.TrimSpace(value), ToolExecutionPolicyReadOnly)
+}
+
+// NormalizeRequestedAccessLevel preserves the backend-default selector.
+func NormalizeRequestedAccessLevel(value string) (string, bool) {
+	if IsDefaultAccessLevelRequest(value) {
+		return AccessLevelDefault, true
+	}
+	return NormalizeAccessLevel(value)
+}
+
+func IsDefaultAccessLevelRequest(value string) bool {
+	return strings.TrimSpace(value) == "" || strings.EqualFold(strings.TrimSpace(value), AccessLevelDefault)
+}
+
+// StoredAccessLevel reads old frozen decisions without re-resolving an Agent.
+func StoredAccessLevel(value string) string {
+	if IsDefaultAccessLevelRequest(value) {
+		return AccessLevelAskForApproval
+	}
+	level, ok := NormalizeAccessLevel(value)
+	if !ok {
+		return AccessLevelAskForApproval
+	}
+	return level
 }
 
 const (
@@ -44,10 +70,10 @@ func IsFinalizePlanningToolName(name string) bool {
 func NormalizeAccessLevel(value string) (string, bool) {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	if normalized == "" {
-		return AccessLevelDefault, true
+		return AccessLevelAskForApproval, true
 	}
 	switch normalized {
-	case AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess:
+	case AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess:
 		return normalized, true
 	default:
 		return "", false

@@ -26,9 +26,9 @@ func TestContinuationAccessKeepsLivePermissionAndResolvesNewExecution(t *testing
 	if level != "full_access" || source != "agent_default" {
 		t.Fatalf("new execution: %s %s", level, source)
 	}
-	control.UpdateAccessLevel("default")
+	control.UpdateAccessLevel("ask_for_approval")
 	level, _, _ = s.continuationAccess(original, "plan", def, true)
-	if level != "default" {
+	if level != "ask_for_approval" {
 		t.Fatal("user's planning override was lost")
 	}
 }
@@ -44,9 +44,9 @@ func (s accessContinuationStore) LoadRunQuery(string, string) (*chat.QueryLine, 
 
 func TestPlanPermissionIncreaseMustBeConfirmedBeforeAnswerIsConsumed(t *testing.T) {
 	runs := runstate.NewManager()
-	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{RunID: "plan", ChatID: "chat", AccessLevel: "default"})
+	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{RunID: "plan", ChatID: "chat", AccessLevel: "ask_for_approval"})
 	defer runs.Finish("plan")
-	original := &chat.QueryLine{AccessLevel: "default", Query: map[string]any{"message": "task"}}
+	original := &chat.QueryLine{AccessLevel: "ask_for_approval", Query: map[string]any{"message": "task"}}
 	s := NewService(Dependencies{Runs: runs, Chats: accessContinuationStore{line: original}})
 	admission := awaitingContinuationAdmission{AgentDef: catalog.AgentDefinition{AccessConfig: contracts.AgentAccessConfig{Default: "full_access"}}}
 	req := queryinput.SubmitRequest{RunID: "plan", ChatID: "chat", Param: queryinput.SubmitParam{"decision": "approve"}}
@@ -56,5 +56,24 @@ func TestPlanPermissionIncreaseMustBeConfirmedBeforeAnswerIsConsumed(t *testing.
 	req.Param["executionAccessLevel"] = "full_access"
 	if err := s.preparePlanExecutionAccess(req, &admission); err != nil || !admission.Frozen || admission.AccessLevel != "full_access" {
 		t.Fatalf("confirmed admission=%+v err=%v", admission, err)
+	}
+}
+
+func TestLegacyPlanDefaultRemainsExplicitApproval(t *testing.T) {
+	runs := runstate.NewManager()
+	s := NewService(Dependencies{Runs: runs})
+	def := catalog.AgentDefinition{AccessConfig: contracts.AgentAccessConfig{Default: "full_access"}}
+	for _, legacy := range []bool{true, false} {
+		for _, requested := range []string{"default", " DEFAULT "} {
+			line := &chat.QueryLine{AccessLevel: "ask_for_approval", LegacyAccessLevel: legacy, Query: map[string]any{"accessLevel": requested}}
+			level, source, _ := s.continuationAccess(line, "not-active", def, true)
+			want, wantSource := "full_access", "agent_default"
+			if legacy {
+				want, wantSource = "ask_for_approval", "explicit"
+			}
+			if level != want || source != wantSource {
+				t.Fatalf("legacy=%t: %s %s", legacy, level, source)
+			}
+		}
 	}
 }

@@ -12,7 +12,7 @@ import (
 func TestSnapshotAwaitingSummarySurvivesEventEviction(t *testing.T) {
 	manager := NewManager()
 	manager.eventBusMaxEvents = 1
-	_, control, _ := manager.Register(context.Background(), contracts.QuerySession{RunID: "r", ChatID: "c", AccessLevel: "default"})
+	_, control, _ := manager.Register(context.Background(), contracts.QuerySession{RunID: "r", ChatID: "c", AccessLevel: "ask_for_approval"})
 	defer control.Finish()
 	summaries, truncated := contracts.SummarizeApprovals([]any{
 		map[string]any{"toolName": "bash", "description": strings.Repeat("删", 201), "policy": map[string]any{"reason": "destructive"}, "command": "secret"},

@@ -29,7 +29,7 @@ func skillFixture(t *testing.T) (*ExecutionContext, string) {
 	return ctx, file
 }
 func TestSkillExecutionFormsAndLevels(t *testing.T) {
-	for _, level := range []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		for _, form := range []string{"sh selected/scripts/task.sh", "bash selected/scripts/task.sh", "./selected/scripts/task.sh", "env sh selected/scripts/task.sh"} {
 			t.Run(level+"/"+form, func(t *testing.T) {
 				ctx, _ := skillFixture(t)
@@ -66,7 +66,7 @@ func TestSkillDoesNotGrantOtherRequirements(t *testing.T) {
 	if !p.Blocked() {
 		t.Fatalf("readonly lost: %+v", p)
 	}
-	cfg := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{AccessLevelDefault: {Approvals: config.AccessPolicyApprovalConfig{BashOpaqueCommand: "block"}}}}
+	cfg := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{AccessLevelAskForApproval: {Approvals: config.AccessPolicyApprovalConfig{BashOpaqueCommand: "block"}}}}
 	if p := ReviewBashCommand(cfg, ctx.Session, "sh selected/scripts/task.sh", "", nil, ctx); !p.Blocked() {
 		t.Fatalf("admin block lost: %+v", p)
 	}

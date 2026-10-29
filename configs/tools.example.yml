@@ -5,7 +5,7 @@ access-policy:
   # GENERAL default to editing=true, KBASE to false), not by write-roots: no
   # approval or access level can mutate a read-only Workspace.
   levels:
-    default:
+    ask_for_approval:
       read-roots:
         - "@workspace"
         - "@chat"
@@ -32,7 +32,7 @@ access-policy:
         remote-mutation: hitl
 
     auto_approve:
-      inherit: default
+      inherit: ask_for_approval
       approvals:
         read-outside-roots: auto
         write-outside-roots: hitl

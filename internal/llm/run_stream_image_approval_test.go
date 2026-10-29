@@ -54,7 +54,7 @@ func newImageApprovalStream(t *testing.T, tool string, args map[string]any) (*ll
 		t.Fatal(err)
 	}
 	executor := &imageApprovalExecutor{ToolRouter: router, t: t}
-	session := QuerySession{RunID: "images-run", WorkspaceRoot: t.TempDir(), AccessLevel: AccessLevelDefault}
+	session := QuerySession{RunID: "images-run", WorkspaceRoot: t.TempDir(), AccessLevel: AccessLevelAskForApproval}
 	invocation := &preparedToolInvocation{toolID: "images-tool", toolName: tool, args: args}
 	stream := &llmRunStream{ctx: context.Background(), session: session, engine: &LLMAgentEngine{cfg: cfg, tools: executor}, execCtx: &ExecutionContext{Session: session}, activeToolCall: invocation}
 	return stream, invocation, executor

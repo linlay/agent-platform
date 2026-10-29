@@ -277,9 +277,9 @@ func TestChatStartEscalationRequiresManualOneShotApproval(t *testing.T) {
 		parent, requested string
 		review            bool
 	}{
-		{"default", "", false}, {"default", "default", false}, {"default", "auto_approve", true}, {"default", "full_access", true},
-		{"auto_approve", "", false}, {"auto_approve", "default", false}, {"auto_approve", "auto_approve", false}, {"auto_approve", "full_access", true},
-		{"full_access", "", false}, {"full_access", "default", false}, {"full_access", "auto_approve", false}, {"full_access", "full_access", false},
+		{"ask_for_approval", "", false}, {"ask_for_approval", "ask_for_approval", false}, {"ask_for_approval", "auto_approve", true}, {"ask_for_approval", "full_access", true},
+		{"auto_approve", "", false}, {"auto_approve", "ask_for_approval", false}, {"auto_approve", "auto_approve", false}, {"auto_approve", "full_access", true},
+		{"full_access", "", false}, {"full_access", "ask_for_approval", false}, {"full_access", "auto_approve", false}, {"full_access", "full_access", false},
 	} {
 		t.Run(tc.parent+"/"+tc.requested, func(t *testing.T) {
 			service := newFakeRunToolService()
@@ -366,7 +366,7 @@ func TestChatStartIdempotencyDistinguishesOutcomes(t *testing.T) {
 			t.Fatalf("result=%#v starts=%d", result, service.starts)
 		}
 		// Omitted and explicit default are different requests.
-		result, _ = handler.Invoke(context.Background(), StartToolName, map[string]any{"agentKey": "worker", "message": "do it", "accessLevel": "default"}, execCtx)
+		result, _ = handler.Invoke(context.Background(), StartToolName, map[string]any{"agentKey": "worker", "message": "do it", "accessLevel": "ask_for_approval"}, execCtx)
 		if result.Error != "idempotency_conflict" {
 			t.Fatalf("result=%#v", result)
 		}

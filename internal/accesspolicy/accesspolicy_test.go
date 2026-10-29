@@ -15,12 +15,12 @@ import (
 func TestTempRootIsEffectiveForFileAndSimpleBashPaths(t *testing.T) {
 	workspace := t.TempDir()
 	session := withSystemTempRoots(contracts.QuerySession{
-		AccessLevel:   contracts.AccessLevelDefault,
+		AccessLevel:   contracts.AccessLevelAskForApproval,
 		WorkspaceRoot: workspace,
 	})
 	cfg := config.AccessPolicyConfig{
 		Levels: map[string]config.AccessPolicyLevelConfig{
-			contracts.AccessLevelDefault: {
+			contracts.AccessLevelAskForApproval: {
 				ReadRoots:  []string{"@workspace"},
 				WriteRoots: []string{"@workspace"},
 				Approvals: config.AccessPolicyApprovalConfig{
@@ -114,7 +114,7 @@ func TestChatAndTempScriptExecutionRespectsAccessLevel(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			defaultSession := baseSession
-			defaultSession.AccessLevel = contracts.AccessLevelDefault
+			defaultSession.AccessLevel = contracts.AccessLevelAskForApproval
 			defaultSession.AgentHasRuntimeSandbox = test.sandbox
 			var environment *BashEnvironment
 			if test.sandbox {
@@ -147,7 +147,7 @@ func TestChatAndTempScriptExecutionRespectsAccessLevel(t *testing.T) {
 func TestTempScriptExecutionExceptionIsNarrow(t *testing.T) {
 	root := t.TempDir()
 	session := contracts.QuerySession{
-		AccessLevel:   contracts.AccessLevelDefault,
+		AccessLevel:   contracts.AccessLevelAskForApproval,
 		WorkspaceRoot: filepath.Join(root, "workspace"),
 		TempRoot:      filepath.Join(root, "temp"),
 		TempRoots:     []string{filepath.Join(root, "temp")},
@@ -176,11 +176,11 @@ func TestTempScriptExecutionExceptionIsNarrow(t *testing.T) {
 func TestTempRootReadonlyAndSymlinkEscapeRemainBlocked(t *testing.T) {
 	workspace := t.TempDir()
 	session := withSystemTempRoots(contracts.QuerySession{
-		AccessLevel:   contracts.AccessLevelDefault,
+		AccessLevel:   contracts.AccessLevelAskForApproval,
 		WorkspaceRoot: workspace,
 	})
 	readonlyCfg := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
-		contracts.AccessLevelDefault: {ReadonlyRoots: []string{"@temp"}},
+		contracts.AccessLevelAskForApproval: {ReadonlyRoots: []string{"@temp"}},
 	}}
 	readonly, err := BuildPathPlan(readonlyCfg, session, WriteAccess, "@temp/readonly.txt")
 	if err != nil {
@@ -237,7 +237,7 @@ func TestDefaultPolicyAllowsSkillCreationButProtectsSelectedSkill(t *testing.T) 
 	if err := os.MkdirAll(selected, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, level := range []string{contracts.AccessLevelDefault, contracts.AccessLevelAutoApprove} {
+	for _, level := range []string{contracts.AccessLevelAskForApproval, contracts.AccessLevelAutoApprove} {
 		t.Run(level, func(t *testing.T) {
 			session := contracts.QuerySession{
 				AccessLevel:   level,
@@ -258,7 +258,7 @@ func TestDefaultPolicyAllowsSkillCreationButProtectsSelectedSkill(t *testing.T) 
 				t.Fatalf("selected skill must remain readonly: plan=%#v err=%v", protected, err)
 			}
 			cfg.Levels = map[string]config.AccessPolicyLevelConfig{
-				contracts.AccessLevelDefault: {ReadonlyRoots: []string{"@skills-center"}},
+				contracts.AccessLevelAskForApproval: {ReadonlyRoots: []string{"@skills-center"}},
 			}
 			explicit, err := BuildPathPlan(cfg, session, WriteAccess, "@skills-center/new-skill/SKILL.md")
 			if err != nil || !explicit.Blocked() {
@@ -279,7 +279,7 @@ func TestReadonlyRootsBlockWritesBeforeOutsideApprovalOrHostAccess(t *testing.T)
 	}
 	target := filepath.Join(readonly, "blocked.txt")
 	cfg := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
-		contracts.AccessLevelDefault: {
+		contracts.AccessLevelAskForApproval: {
 			ReadRoots:     []string{"@workspace"},
 			WriteRoots:    []string{"@workspace"},
 			ReadonlyRoots: []string{readonly},
@@ -290,9 +290,9 @@ func TestReadonlyRootsBlockWritesBeforeOutsideApprovalOrHostAccess(t *testing.T)
 	}}
 
 	for _, session := range []contracts.QuerySession{
-		{AccessLevel: contracts.AccessLevelDefault, WorkspaceRoot: workspace},
+		{AccessLevel: contracts.AccessLevelAskForApproval, WorkspaceRoot: workspace},
 		{
-			AccessLevel:   contracts.AccessLevelDefault,
+			AccessLevel:   contracts.AccessLevelAskForApproval,
 			WorkspaceRoot: workspace,
 			RuntimeHostAccess: contracts.HostAccessRoots{
 				WriteRoots: []string{readonly},
@@ -328,7 +328,7 @@ func TestRunAccessRootsAllowOnlySelectedSkillReadsAndRemainReadonly(t *testing.T
 		}
 	}
 	cfg := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
-		contracts.AccessLevelDefault: {
+		contracts.AccessLevelAskForApproval: {
 			ReadRoots:     []string{"@workspace"},
 			WriteRoots:    []string{"@workspace"},
 			ReadonlyRoots: []string{},
@@ -339,7 +339,7 @@ func TestRunAccessRootsAllowOnlySelectedSkillReadsAndRemainReadonly(t *testing.T
 		},
 	}}
 	session := contracts.QuerySession{
-		AccessLevel:   contracts.AccessLevelDefault,
+		AccessLevel:   contracts.AccessLevelAskForApproval,
 		WorkspaceRoot: workspace,
 		RuntimeContext: contracts.RuntimeRequestContext{LocalPaths: contracts.LocalPaths{
 			WorkspaceDir:    workspace,
@@ -410,7 +410,7 @@ func TestRunAccessRootDoesNotFollowSelectedSkillSymlinkEscape(t *testing.T) {
 		RunAccessRoots: contracts.RunAccessRoots{ReadRoots: []string{selected}, ReadonlyRoots: []string{selected}},
 	}
 	cfg := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
-		contracts.AccessLevelDefault: {ReadRoots: []string{}, Approvals: config.AccessPolicyApprovalConfig{ReadOutsideRoots: "hitl"}},
+		contracts.AccessLevelAskForApproval: {ReadRoots: []string{}, Approvals: config.AccessPolicyApprovalConfig{ReadOutsideRoots: "hitl"}},
 	}}
 	plan, err := BuildPathPlan(cfg, session, ReadAccess, "@skills-center/selected/escape.txt")
 	if err != nil {
@@ -459,7 +459,7 @@ func TestDefaultLevelAllowsWorkspaceAgentAndSkillsRead(t *testing.T) {
 	skills := filepath.Join(agent, "skills")
 	center := filepath.Join(root, "skills-center")
 	session := contracts.QuerySession{
-		AccessLevel:   contracts.AccessLevelDefault,
+		AccessLevel:   contracts.AccessLevelAskForApproval,
 		WorkspaceRoot: workspace,
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{
@@ -506,7 +506,7 @@ func TestDefaultLevelAllowsChatReadWriteWithExplicitWorkspace(t *testing.T) {
 		t.Fatalf("mkdir chat dir: %v", err)
 	}
 	session := contracts.QuerySession{
-		AccessLevel:   contracts.AccessLevelDefault,
+		AccessLevel:   contracts.AccessLevelAskForApproval,
 		WorkspaceRoot: workspace,
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{
@@ -612,7 +612,7 @@ func TestBuildPathPlanCanonicalKeysStableAcrossEquivalentForms(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	session := contracts.QuerySession{
-		AccessLevel:   contracts.AccessLevelDefault,
+		AccessLevel:   contracts.AccessLevelAskForApproval,
 		WorkspaceRoot: workspace,
 	}
 
@@ -646,7 +646,7 @@ func TestSessionHostAccessRootsAllowOwnerReadWrite(t *testing.T) {
 		t.Fatalf("mkdir owner: %v", err)
 	}
 	session := contracts.QuerySession{
-		AccessLevel:   contracts.AccessLevelDefault,
+		AccessLevel:   contracts.AccessLevelAskForApproval,
 		WorkspaceRoot: workspace,
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{
@@ -754,7 +754,7 @@ func TestBashAccessPolicyWorkspaceCwdAndPathDecisions(t *testing.T) {
 	if err := os.MkdirAll(outside, 0o755); err != nil {
 		t.Fatalf("mkdir outside: %v", err)
 	}
-	session := contracts.QuerySession{AccessLevel: contracts.AccessLevelDefault, WorkspaceRoot: workspace}
+	session := contracts.QuerySession{AccessLevel: contracts.AccessLevelAskForApproval, WorkspaceRoot: workspace}
 	cfg := config.AccessPolicyConfig{}
 
 	allowed := ReviewBashCommand(cfg, session, "cat ./notes.txt", workspace, nil)
@@ -792,7 +792,7 @@ func TestBashAccessPolicyAllowsChatWriteRoot(t *testing.T) {
 		t.Fatalf("mkdir chat dir: %v", err)
 	}
 	session := contracts.QuerySession{
-		AccessLevel:   contracts.AccessLevelDefault,
+		AccessLevel:   contracts.AccessLevelAskForApproval,
 		WorkspaceRoot: workspace,
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{
@@ -833,7 +833,7 @@ func TestBashAccessPolicyDevNullRedirectionIsNeutral(t *testing.T) {
 		"cat <<< 'literal text'",
 		"cat <<EOF\n" + outside + "\nEOF",
 	} {
-		session := contracts.QuerySession{AccessLevel: contracts.AccessLevelDefault, WorkspaceRoot: workspace}
+		session := contracts.QuerySession{AccessLevel: contracts.AccessLevelAskForApproval, WorkspaceRoot: workspace}
 		plan := ReviewBashCommand(cfg, session, command, workspace, nil)
 		if !plan.Allowed() || plan.RequiresApproval() {
 			t.Fatalf("expected neutral redirection allowed for %q, got %#v", command, plan)
@@ -841,7 +841,7 @@ func TestBashAccessPolicyDevNullRedirectionIsNeutral(t *testing.T) {
 	}
 
 	readCommand := "find " + outside + ` -maxdepth 1 -name "*.md" -type f 2>/dev/null`
-	defaultSession := contracts.QuerySession{AccessLevel: contracts.AccessLevelDefault, WorkspaceRoot: workspace}
+	defaultSession := contracts.QuerySession{AccessLevel: contracts.AccessLevelAskForApproval, WorkspaceRoot: workspace}
 	defaultPlan := ReviewBashCommand(cfg, defaultSession, readCommand, workspace, nil)
 	if !defaultPlan.RequiresApproval() || !strings.Contains(defaultPlan.RuleKey, "access-read") {
 		t.Fatalf("expected default outside read approval, got %#v", defaultPlan)
@@ -873,7 +873,7 @@ func TestBashAccessPolicyComplexAndOpaqueLevels(t *testing.T) {
 	workspace := t.TempDir()
 	cfg := config.AccessPolicyConfig{}
 
-	defaultSession := contracts.QuerySession{AccessLevel: contracts.AccessLevelDefault, WorkspaceRoot: workspace}
+	defaultSession := contracts.QuerySession{AccessLevel: contracts.AccessLevelAskForApproval, WorkspaceRoot: workspace}
 	complex := ReviewBashCommand(cfg, defaultSession, "cat $TARGET", workspace, nil)
 	if !complex.RequiresApproval() || complex.RuleKey != "bash-access:complex" {
 		t.Fatalf("expected complex bash approval, got %#v", complex)
@@ -906,7 +906,7 @@ func TestBashAccessPolicyComplexAndOpaqueLevels(t *testing.T) {
 
 func TestBashWriteInWriteRootsApprovalAction(t *testing.T) {
 	workspace := t.TempDir()
-	session := contracts.QuerySession{AccessLevel: contracts.AccessLevelDefault, WorkspaceRoot: workspace}
+	session := contracts.QuerySession{AccessLevel: contracts.AccessLevelAskForApproval, WorkspaceRoot: workspace}
 
 	defaultPlan := ReviewBashCommand(config.AccessPolicyConfig{}, session, "touch ./created.txt", workspace, nil)
 	if !defaultPlan.Allowed() || defaultPlan.AutoApproved() {
@@ -915,7 +915,7 @@ func TestBashWriteInWriteRootsApprovalAction(t *testing.T) {
 
 	cfg := config.AccessPolicyConfig{
 		Levels: map[string]config.AccessPolicyLevelConfig{
-			contracts.AccessLevelDefault: {
+			contracts.AccessLevelAskForApproval: {
 				ReadRoots:  []string{"@workspace"},
 				WriteRoots: []string{"@workspace"},
 				Approvals: config.AccessPolicyApprovalConfig{
@@ -933,7 +933,7 @@ func TestBashWriteInWriteRootsApprovalAction(t *testing.T) {
 		t.Fatalf("expected write-root bash approval, got %#v", approvalPlan)
 	}
 
-	cfg.Levels[contracts.AccessLevelDefault] = config.AccessPolicyLevelConfig{
+	cfg.Levels[contracts.AccessLevelAskForApproval] = config.AccessPolicyLevelConfig{
 		ReadRoots:  []string{"@workspace"},
 		WriteRoots: []string{"@workspace"},
 		Approvals: config.AccessPolicyApprovalConfig{

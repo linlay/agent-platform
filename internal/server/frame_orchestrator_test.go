@@ -1003,7 +1003,7 @@ func TestFrameOrchestratorBuildsChildRequestFromExplicitAllowlist(t *testing.T) 
 		IncludeUsage:               true,
 		IncludeFullText:            true,
 		PlanningMode:               &planningFlag,
-		AccessLevel:                contracts.AccessLevelDefault,
+		AccessLevel:                contracts.AccessLevelAskForApproval,
 		Model:                      &api.QueryModelOptions{Key: "parent-model"},
 		SyntheticQueryBootstrapped: true,
 		ChatSource:                 "parent-source",
@@ -1035,7 +1035,7 @@ func TestFrameOrchestratorBuildsChildRequestFromExplicitAllowlist(t *testing.T) 
 	if childRequest.AgentKey != "writer" {
 		t.Fatalf("child routing fields = %#v", childRequest)
 	}
-	if childRequest.AccessLevel != contracts.AccessLevelDefault {
+	if childRequest.AccessLevel != contracts.AccessLevelAskForApproval {
 		t.Fatalf("child accessLevel = %q", childRequest.AccessLevel)
 	}
 	if childDefinition.Mode != "REACT" {

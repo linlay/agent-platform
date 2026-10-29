@@ -64,7 +64,7 @@ func TestProxyQueryDoesNotForwardHostWorkspaceAsCWD(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","accessLevel":"default","params":{"channel":"desktop"}}`)
+	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","accessLevel":"ask_for_approval","params":{"channel":"desktop"}}`)
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -80,7 +80,7 @@ func TestProxyQueryDoesNotForwardHostWorkspaceAsCWD(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected params object, got %#v", payload["params"])
 	}
-	if payload["accessLevel"] != "default" {
+	if payload["accessLevel"] != "ask_for_approval" {
 		t.Fatalf("expected upstream accessLevel default, got %#v", payload)
 	}
 	if params["channel"] != "desktop" {
@@ -1215,7 +1215,7 @@ func TestProxyQueryPayloadWithWorkspaceDoesNotExposeHostCWD(t *testing.T) {
 		ChatID:      "chat-1",
 		AgentKey:    "proxy-agent",
 		Message:     "hello",
-		AccessLevel: "default",
+		AccessLevel: "ask_for_approval",
 
 		PlanningMode: func() *bool {
 			v := false
@@ -1236,7 +1236,7 @@ func TestProxyQueryPayloadWithWorkspaceDoesNotExposeHostCWD(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected params object, got %#v", inner["params"])
 	}
-	if inner["accessLevel"] != "default" {
+	if inner["accessLevel"] != "ask_for_approval" {
 		t.Fatalf("expected websocket accessLevel default, got %#v", inner["accessLevel"])
 	}
 	if inner["planningMode"] != false {

@@ -1076,7 +1076,7 @@ func TestFinishCurrentTurnEstimatesFileWriteChangeOnToolEnd(t *testing.T) {
 
 func accessPolicyAllowingRoot(root string) config.AccessPolicyConfig {
 	return config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
-		contracts.AccessLevelDefault: {
+		contracts.AccessLevelAskForApproval: {
 			ReadRoots:  []string{root},
 			WriteRoots: []string{root},
 		},
@@ -3972,14 +3972,14 @@ func TestPendingFileReadApprovalResolvesAfterAccessLevelUpdate(t *testing.T) {
 	outside := t.TempDir()
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinition("file_read")}}
 	control := contracts.NewRunControl(context.Background(), "run_1")
-	control.SetInitialAccessLevel(contracts.AccessLevelDefault)
+	control.SetInitialAccessLevel(contracts.AccessLevelAskForApproval)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	session := contracts.QuerySession{
 		RequestID:   "req_1",
 		ChatID:      "chat_1",
 		RunID:       "run_1",
-		AccessLevel: contracts.AccessLevelDefault,
+		AccessLevel: contracts.AccessLevelAskForApproval,
 	}
 	stream := &llmRunStream{
 		ctx:        ctx,
@@ -3988,10 +3988,10 @@ func TestPendingFileReadApprovalResolvesAfterAccessLevelUpdate(t *testing.T) {
 		engine:     &LLMAgentEngine{tools: executor},
 		execCtx: &contracts.ExecutionContext{
 			Session: contracts.QuerySession{
-				AccessLevel:   contracts.AccessLevelDefault,
+				AccessLevel:   contracts.AccessLevelAskForApproval,
 				WorkspaceRoot: root,
 			},
-			AccessLevel: contracts.AccessLevelDefault,
+			AccessLevel: contracts.AccessLevelAskForApproval,
 			RunControl:  control,
 		},
 		activeToolCall: &preparedToolInvocation{
@@ -4309,7 +4309,7 @@ func TestPendingOpaqueScriptApprovalResolvesAfterAccessLevelUpdate(t *testing.T)
 		RequestID:     "req_dynamic",
 		ChatID:        "chat_1",
 		RunID:         "run_dynamic",
-		AccessLevel:   contracts.AccessLevelDefault,
+		AccessLevel:   contracts.AccessLevelAskForApproval,
 		WorkspaceRoot: workspace,
 		ChatRoot:      chatDir,
 		RuntimeContext: contracts.RuntimeRequestContext{LocalPaths: contracts.LocalPaths{
@@ -4322,7 +4322,7 @@ func TestPendingOpaqueScriptApprovalResolvesAfterAccessLevelUpdate(t *testing.T)
 		bashToolDefinition(),
 	}}
 	control := contracts.NewRunControl(context.Background(), session.RunID)
-	control.SetInitialAccessLevel(contracts.AccessLevelDefault)
+	control.SetInitialAccessLevel(contracts.AccessLevelAskForApproval)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	stream := &llmRunStream{
@@ -4332,7 +4332,7 @@ func TestPendingOpaqueScriptApprovalResolvesAfterAccessLevelUpdate(t *testing.T)
 		engine:     &LLMAgentEngine{tools: executor},
 		execCtx: &contracts.ExecutionContext{
 			Session:     session,
-			AccessLevel: contracts.AccessLevelDefault,
+			AccessLevel: contracts.AccessLevelAskForApproval,
 			RunControl:  control,
 		},
 	}
@@ -4802,7 +4802,7 @@ func TestKBaseReadOnlySourceMutationSkipsMeaninglessHITLPreflight(t *testing.T) 
 		RunID:         "run_1",
 		Mode:          agentkbase.Mode,
 		WorkspaceRoot: source,
-		AccessLevel:   contracts.AccessLevelDefault,
+		AccessLevel:   contracts.AccessLevelAskForApproval,
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{WorkspaceDir: source},
 		},
@@ -4813,7 +4813,7 @@ func TestKBaseReadOnlySourceMutationSkipsMeaninglessHITLPreflight(t *testing.T) 
 		engine: &LLMAgentEngine{cfg: config.Config{
 			AccessPolicy: config.AccessPolicyConfig{
 				Levels: map[string]config.AccessPolicyLevelConfig{
-					contracts.AccessLevelDefault: {
+					contracts.AccessLevelAskForApproval: {
 						WriteRoots: []string{},
 						Approvals: config.AccessPolicyApprovalConfig{
 							WriteOutsideRoots: "hitl",
@@ -5553,7 +5553,7 @@ func TestAwaitHITLApprovalBatchAndContinue_HostUsesUnifiedBashToolName(t *testin
 		},
 		session: contracts.QuerySession{
 			WorkspaceRoot:          t.TempDir(),
-			AccessLevel:            contracts.AccessLevelDefault,
+			AccessLevel:            contracts.AccessLevelAskForApproval,
 			RequestID:              "req_1",
 			ChatID:                 "chat_1",
 			RunID:                  "run_1",
@@ -5642,7 +5642,7 @@ func TestPrepareQueuedBashApprovalBatch_AppendsSingleSummaryAfterAllApprovedResu
 		},
 		session: contracts.QuerySession{
 			WorkspaceRoot: t.TempDir(),
-			AccessLevel:   contracts.AccessLevelDefault,
+			AccessLevel:   contracts.AccessLevelAskForApproval,
 			RequestID:     "req_1",
 			ChatID:        "chat_1",
 			RunID:         "run_1",
@@ -5746,7 +5746,7 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 		},
 		session: contracts.QuerySession{
 			WorkspaceRoot: t.TempDir(),
-			AccessLevel:   contracts.AccessLevelDefault,
+			AccessLevel:   contracts.AccessLevelAskForApproval,
 			RequestID:     "req_1",
 			ChatID:        "chat_1",
 			RunID:         "run_1",
@@ -6036,7 +6036,7 @@ func TestPrepareQueuedBashApprovalBatch_BlocksEntireTurnAndResumesInOriginalOrde
 		},
 		session: contracts.QuerySession{
 			WorkspaceRoot: t.TempDir(),
-			AccessLevel:   contracts.AccessLevelDefault,
+			AccessLevel:   contracts.AccessLevelAskForApproval,
 			RequestID:     "req_1",
 			ChatID:        "chat_1",
 			RunID:         "run_1",
@@ -6140,7 +6140,7 @@ func TestInvokeQueuedToolCallsAndPostHook_BlocksReadySiblingBeforeLaterApproval(
 		},
 		session: contracts.QuerySession{
 			WorkspaceRoot: t.TempDir(),
-			AccessLevel:   contracts.AccessLevelDefault,
+			AccessLevel:   contracts.AccessLevelAskForApproval,
 			RequestID:     "req_1",
 			ChatID:        "chat_1",
 			RunID:         "run_1",

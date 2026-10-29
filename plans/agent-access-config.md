@@ -8,9 +8,9 @@
 
 建议实施 `accessConfig.default`，但必须把它作为一次权限来源调整，而非单纯增加 YAML 字段。
 
-核心规则：**显式请求优先；省略时采用目标 Agent 的默认值；Agent 没配置时采用平台固定兜底 `default`。子 Agent 的默认值不受父 Run 档位裁剪。**
+核心规则：**显式请求优先；省略时采用目标 Agent 的默认值；Agent 没配置时采用平台固定兜底 `ask_for_approval`。子 Agent 的默认值不受父 Run 档位裁剪。**
 
-这个设计意味着：管理员给一个公开 Agent 配置 `full_access`，就授权了能够调用它的 Agent 在省略档位时启动高档位工作。即使父 Run 只有 `default`，结果也一样。这是已提出需求的直接语义，不能同时宣称“父 Run 降档约束整个调用链”或“子任务绝不高于父任务”。
+这个设计意味着：管理员给一个公开 Agent 配置 `full_access`，就授权了能够调用它的 Agent 在省略档位时启动高档位工作。即使父 Run 只有 `ask_for_approval`，结果也一样。这是已提出需求的直接语义，不能同时宣称“父 Run 降档约束整个调用链”或“子任务绝不高于父任务”。
 
 交付必须同时包含：
 
@@ -32,14 +32,14 @@
 | Mailbox 是独立受理链路 | `internal/runtime/query/mailbox.go` 的 AcceptMail 再次调用上述解析；DeliverMail 的新 Run 使用邮件已冻结的 AccessLevel。只改 chat_start 不够。 |
 | 子任务实现目录已变化 | 当前是 `internal/runtime/orchestration/coordinator.go`、`internal/runtime/session/session_builder.go`，原稿中无 runtime 前缀的路径已过时。 |
 | 仅改子 Session 会失效 | Coordinator 的请求和 Team 控制器都取父 Session 档位；没有提供子控制器时 childRunCtx 沿用父上下文。`internal/llm/run_stream_access_level.go` 会从 RunControl 反写 session/execCtx。 |
-| side query 不是服务端自动继承父 Run | `internal/runtime/query/side_query.go` 直接归一化输入档位，没有读取父 Run 当前档位；省略时为 default。原稿“继承所在 Run”的说法不准确，客户端传入值不能等同于服务端继承。 |
+| side query 不是服务端自动继承父 Run | `internal/runtime/query/side_query.go` 直接归一化输入档位，没有读取父 Run 当前档位；省略时为 ask_for_approval。原稿“继承所在 Run”的说法不准确，客户端传入值不能等同于服务端继承。 |
 | 计划续接还有独立兜底 | `internal/agent/planmode/continuation.go` 的两个请求构造器把空档位补成 default；批准执行不能只从原始 query 推断本次有效档位。 |
 | apply 的自动审批确实存在 | `internal/platformcontrol/control_handler.go` 对 apply 设置 AllowAutoApprove；`internal/llm/run_stream_tool_approval.go` 在 auto_approve/full_access 下自动消费精确审批。 |
 | isProject 不构成独立旁路 | `internal/adminsource/control.go` 的 Prepare 同时处理 IsProject，并要求它只用于 Agent 主定义 apply；应在这个统一事务内提取权限差异。 |
 | 工具导入当前不支持 Agent | `internal/platformcontrol/control_validation.go` 的 import 仅允许 Skill/Connector；管理端 Agent 导入仍需使用相同配置校验。 |
 | protected 路径同时禁读禁写 | `internal/accesspolicy/accesspolicy.go` 在区分 ReadAccess/WriteAccess 前检查 ProtectedPaths。因此不应直接把 AgentsDir 加进现有 secrets 保护集合。 |
 | @agent 指向运行快照 | `internal/runtime/session/session_builder.go` 将 LocalPaths.AgentDir 设为 agentDef.RuntimeDir。不能把 @agent 的只读规则误当成对 `agents/<key>` 源码目录的保护。 |
-| 档位是固定枚举 | 虽然 tools.yml 的 levels 使用 map，公开契约和排序只识别 default/auto_approve/full_access；有效策略会合并内置默认。不应只校验“键是否存在于原始 tools.yml”。 |
+| 档位是固定枚举 | 虽然 tools.yml 的 levels 使用 map，公开契约和排序只识别 ask_for_approval/auto_approve/full_access；有效策略会合并内置默认。不应只校验“键是否存在于原始 tools.yml”。 |
 | WebClient 无条件传档位 | `src/features/composer/components/ComposerArea.tsx` 的两处入口在选择器禁用时仍传 default；`composerAccessLevel.ts` 省略状态也兜底 default。 |
 | WebClient 还会自动写入选择状态 | `hooks/useMessageActions.ts` 的 initializeChatAccess 将 accessLevel 或 default 写入新 Chat 的存储；只去掉发送端字段，仍会在下一次请求重新出现覆盖。 |
 | 普通 Bash 不直接获得身份 token | 仓库约束和现有测试均要求移除普通 Shell 的 AP_ACCESS_TOKEN；验证的 oneid CLI/MCP 可即时获得身份。管理路由只接受有效身份这一点，不足以证明所有连接器进程都无法调用管理接口。 |
@@ -61,11 +61,11 @@ interactionConfig:
   accessLevel: true
 ```
 
-推荐字段名为 `default`。块名已经给出 access 语境，无需再使用 defaultLevel；对外只有一种拼写，不同时兼容两个新名字。
+推荐字段名为 `ask_for_approval`。块名已经给出 access 语境，无需再使用 defaultLevel；对外只有一种拼写，不同时兼容两个新名字。
 
 规则：
 
-- 缺少 accessConfig 或 `accessConfig: {}`：有效默认值为 default。
+- 缺少 accessConfig 或 `accessConfig: {}`：有效默认值为 ask_for_approval。
 - 声明 default 时必须是三个标准小写枚举之一。
 - 显式 null、空字符串、非字符串、数组，以及整个块为 null/标量，均报配置错误，不静默回落。
 - 块内未知字段报错，包括 defaultLevel、cap 和大小写变体。以后实现 cap 再正式开放。
@@ -83,7 +83,7 @@ interactionConfig:
 | 父 Agent 显式请求超过父当前档位 | 直接拒绝 | 落实“不得超过”的字面要求；不保留旧的人工提档放行分支。父 Run 可由用户先切档，再重新调用。 |
 | 子 Agent 默认值超过父档位 | 允许 | 保留已明确的目标行为，不采用 min(parent, child)。审计记录这是目标默认值。 |
 | interactionConfig.accessLevel=false | 使用 Agent 默认值 | 它限制用户选择，不应否定管理员配置。显式不同值拒绝；同值可接受。 |
-| Automation 省略档位 | 本期继续固定 default | 自动化是持久独立任务，保持现有仓库合同，避免改 Agent 默认值即改变旧任务权限。后续如统一，需要单独设计来源与迁移。 |
+| Automation 省略档位 | 本期继续固定 ask_for_approval | 自动化是持久独立任务，保持现有仓库合同，避免改 Agent 默认值即改变旧任务权限。后续如统一，需要单独设计来源与迁移。 |
 | ACP / PROXY / CHANNEL | 本地 Run 同样解析并透传 | 统一入口语义；不将远端桥的实际权限执行效果当作本地保证，需分别联调。 |
 | 全局默认 / cap | 本期不引入 | 三个档位的内容已由 tools.yml 控制；cap 是另一个权限治理需求。 |
 | 切档是否写回 | 不写回 | 当前 Run、客户端显式偏好、Agent 持久默认是三个不同状态。 |
@@ -93,7 +93,7 @@ interactionConfig:
 | Agent 源码保护 | 新增仅写保护，列为同批加固 | 不复用禁读禁写的 secrets 集合，不声称能隔离任意 Host 脚本。 |
 | automation_manage 越级 | 同批收紧 | 阻止通过持久任务显式设置高于调用方当前档位的执行权限。 |
 
-用户指示“开始吧”后，实施采用本表推荐决策，包括“显式越级直接拒绝”和“Automation 维持固定 default”；以后如调整需同步权限矩阵与迁移规则。
+用户指示“开始吧”后，实施采用本表推荐决策，包括“显式越级直接拒绝”和“Automation 维持固定 ask_for_approval”；以后如调整需同步权限矩阵与迁移规则。
 
 ### 3.3 interactionConfig 的精确定义
 
@@ -128,7 +128,7 @@ AuthorizeAgentExplicitStart(requested, parentCurrent):
 
 父档位只参与 Agent **显式选择**的授权，不参与目标默认值计算。不要把两者合并成带隐式继承的 resolver。
 
-输入兼容继续沿用当前 API 对空字符串的处理；“省略”与字面 `default` 必须始终可区分。原始请求由 OriginalQuery 保存。若未来要拒绝空字符串，单独修改 HTTP/WS 输入合同。
+输入兼容继续沿用当前 API 对空字符串的处理；“省略”与字面 `ask_for_approval` 必须始终可区分。原始请求由 OriginalQuery 保存。若未来要拒绝空字符串，单独修改 HTTP/WS 输入合同。
 
 已冻结的内部权限通过不参与 JSON 解码的类型字段传递，标记来源和关联版本；外部调用方不能通过 accessGrant、origin.role 或布尔开关伪造受信任授权。
 
@@ -148,8 +148,8 @@ AuthorizeAgentExplicitStart(requested, parentCurrent):
 | Team agent_delegate | 成员 Agent 默认 | 不新增参数 | 根 Run 已冻结的成员定义 |
 | 同一 Run 内续接、压缩 | 保留该执行器当前有效值 | 不重读默认 | 原 Run 的控制状态 |
 | 计划批准后的新执行 Run | 当前 Agent 已发布默认 | 原始用户显式值仍优先；见 6.4 | 批准时当前发布版本 |
-| Automation 定时触发、HTTP trigger | 固定 default | 保存的 query.accessLevel 优先 | 本次任务定义快照 |
-| automation_manage create/update/启用/trigger | 固定 default | 需要检查执行档位与调用方当前档位 | 任务 revision + 调用方受理临界区 |
+| Automation 定时触发、HTTP trigger | 固定 ask_for_approval | 保存的 query.accessLevel 优先 | 本次任务定义快照 |
+| automation_manage create/update/启用/trigger | 固定 ask_for_approval | 需要检查执行档位与调用方当前档位 | 任务 revision + 调用方受理临界区 |
 | ACP/Proxy 转发 | 使用前述本地已解析值 | 下游不能因为省略而再次选默认 | 本地 Run 冻结后透传 |
 
 这里的“当前发布默认”不等于每次工具调用重新读取文件；运行中的 Agent 仍使用租约绑定的快照。
@@ -201,7 +201,7 @@ Agent 主定义且 AccessConfigChange.changed → false
 其他 apply → 保持现有规则
 ```
 
-- default、auto_approve、full_access 下都必须等待人类。
+- ask_for_approval、auto_approve、full_access 下都必须等待人类。
 - Mailbox 请示代批也不能放宽这个限制。现有 DelegateApproval 会重新评估 AllowAutoApprove，应补回归测试。
 - 保持禁止调用方 apply 自己以及 SameFile 防护。
 - permissionFields 增加 accessConfig；表单直接展示变更前后**有效默认档位**与“必须人工确认”原因。
@@ -273,7 +273,7 @@ Session builder 消费解析结果；为直接调用 builder 的内部路径统�
 
 为此增加内部 continuation 权限输入，明确保存显式选择意图及最后有效值。计划确认前若默认档位升高，要刷新确认展示；确认绑定的目标版本变化则重新确认，不允许无提示升档。不要用原始 query 的空值或历史旧行推测用户意图。
 
-`internal/agent/planmode` 的请求构造器不能继续自行把空值补为 default；由 Runtime 传入已决定的权限。新执行 Run 的 OriginalQuery 仍保存调用方原样输入，平台决定与 planRunId 写顶层。
+`internal/agent/planmode` 的请求构造器不能继续自行把空值补为 ask_for_approval；由 Runtime 传入已决定的权限。新执行 Run 的 OriginalQuery 仍保存调用方原样输入，平台决定与 planRunId 写顶层。
 
 Platform 重启仍取消未完成 Run，不新增跨重启恢复能力。旧历史缺少意图信息时保守使用已记录有效档位，并标记为历史来源未知，不重新套用现行默认。
 
@@ -293,7 +293,7 @@ Platform 重启仍取消未完成 Run，不新增跨重启恢复能力。旧历�
 
 ### 7.1 推荐保留当前省略合同
 
-Automation 的权限来自保存的 query.accessLevel，省略固定 default，且不继承 Chat 历史权限。显式在任务里写入 full_access 才能使它以该档位运行。
+Automation 的权限来自保存的 query.accessLevel，省略固定 ask_for_approval，且不继承 Chat 历史权限。显式在任务里写入 full_access 才能使它以该档位运行。
 
 这是对原待定问题的明确建议：本期不用“Agent 默认值改变所有旧定时任务”的动态语义。普通 admission 新增 Agent 默认后，Automation dispatcher 必须在**内部解析层**补入 default 并标记 automation_default，避免省略被普通准入重新解释。不得为了补内部值而篡改保存的原始 query。
 
@@ -491,7 +491,7 @@ Server 层不实现 YAML 差异、父子权限决策或 Automation 业务授权�
 
 ### 11.5 Automation 与客户端
 
-- HTTP/YAML/工具创建的 Automation 省略档位均仍为 default，不受 Agent 默认改变影响。
+- HTTP/YAML/工具创建的 Automation 省略档位均仍为 ask_for_approval，不受 Agent 默认改变影响。
 - auto_approve 创建 disabled/full_access 任务也拒绝；更新补丁省略 accessLevel、启用、trigger 高档位任务仍不能绕过。
 - 停用已有高档位任务保持可操作；delete 仍人工。
 - JSONL 原始 query 没被内部 default 补值污染。
@@ -564,3 +564,27 @@ adminsource 在同一次准备事务中比较原始权限块，新增/修改/删
 - WebClient 本次相关 12 组、272 个测试通过。全量 500 组中 496 组通过，4282 个用例中 4250 通过、32 失败；其中 30 个 EventPopover/TopNav 语言文案断言已在 HEAD 原始源码归档单独复现，另外 2 个是同时调整的 detail 协议相关断言（eventDetailLevel、generated Agent WebClient bridge mirror），不将前端全量写成通过。
 - Desktop 现有显式 accessLevel 透传定向用例通过；未设置时省略字段的实现保持现状。
 - 两个仓库的 `git diff --check` 通过。共享工作区中的其他改动保持原状，未提交或部署本次功能。
+
+
+## 默认选择器改造与验证
+
+本轮将请求选择器与实际执行权限分开：`default` 或省略表示由后台解析目标 Agent 的 `accessConfig.default`；目标未配置时使用 `ask_for_approval`。具体执行档位为 `ask_for_approval`（Ask for approval）、`auto_approve`（Auto-approve）和 `full_access`（Full access）。Runtime、顶层 JSONL 决策及权限事件只保存具体值，原始 query 保留调用方的 default/省略。
+
+Composer 和 Execute 测试面板只显示三个具体档位，删除“跟随 Agent 默认”入口。未明确选择时请求发送 default，按钮依据后台默认元数据展示；Run 启动后显示冻结的实际权限，运行观察不转成显式偏好，用户明确选择后发送具体值。编辑器的默认配置与本次请求权限分离，运行切档不保存 Agent 源码。
+
+兼容范围：旧顶层 JSONL default 仍按已冻结的请求审批决定读取，不查询当前 Agent 配置；旧规划原始输入中的显式 default（含大小写与空格变体）续接时保留原来的请求审批。旧 Agent 配置 accessConfig.default: default、旧 tools 策略 levels.default/inherit 在内存读取时映射到 ask_for_approval；旧前端 v2 显式 default 偏好迁至 v3 的 ask_for_approval。没有改写部署配置、历史 JSONL 或真实凭据。新请求中的 default 使用新契约，相关消费者应同步升级。
+
+Automation 保持原来的场景默认：default/省略均请求审批；Gateway 和 Desktop WebApp execute 的固定低权限路径明确发送 ask_for_approval。Desktop bridge、Kanban 参数校验接受新的具体值。Codex/Claude ACP bridge 接受 Platform 已解析的 ask_for_approval 并映射为各自交互审批策略；直接 bridge 老调用方的 default 仍只表示旧审批语义，bridge 不负责读取 Agent 默认配置。
+
+改动覆盖 agent-platform、agent-webclient、zenmind-desktop、agent-gateway、codex-acp-bridge、claude-acp-bridge。相邻仓库和本仓库原有的无关工作区改动保留。
+
+验证结果：
+
+- Platform：`go test -p 2 ./...`、`go vet ./...` 与 `CGO_ENABLED=0` 主程序构建通过；补充历史大小写变体测试后 Runtime 权限定向测试通过。contracts/query/session 三个包的 race 测试通过。
+- WebClient：typecheck、i18n、feature boundaries、Desktop contract mirror 检查和生产构建通过；相关 14 套、253 个用例通过。全量 503 套中 499 套通过，4297 个用例通过；剩余 4 套、32 个失败在未改动的 HEAD 源码副本中逐项复现，失败集合完全一致，涉及既有界面语言、生成契约 hash 断言及旧 detail=none 断言。
+- Desktop：主进程编译、renderer 类型检查与架构检查通过；assistant bridge（包含 default 与三个具体档位透传）、WebApp execute 和 Kanban 共 117 个用例通过。
+- Gateway：make fmt/test/vet/build 通过，新增固定具体审批档位测试，防止采用目标 Agent 的高权限默认。
+- Codex/Claude ACP bridge：各自全量测试、go vet 与 CGO_ENABLED=0 构建通过，新增请求审批策略映射用例。
+- 修改文件格式与 git diff --check 通过。测试阶段未重启运行服务或发布远端产物；后续提交与推送结果以 Git 记录为准。ACP 检查使用本地测试后端，不代表真实账号的 Codex/Claude CLI 业务验收。
+
+提交前补验：按任务范围拆分暂存后，分别导出 Platform 与 Gateway 的独立暂存快照，两者全量测试均通过；Platform 的诊断命令和 Gateway 的 detail 透传等其他工作区改动未纳入本轮提交。

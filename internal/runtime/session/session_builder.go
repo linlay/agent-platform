@@ -488,7 +488,7 @@ func ProjectPromptFiles(files []catalog.AgentProjectPromptFile) []agentbuiltin.P
 func NormalizedAccessLevel(value string) string {
 	normalized, ok := contracts.NormalizeAccessLevel(value)
 	if !ok {
-		return contracts.AccessLevelDefault
+		return contracts.AccessLevelAskForApproval
 	}
 	return normalized
 }

@@ -20,7 +20,7 @@ func TestInteractionAdmission(t *testing.T) {
 		req    api.QueryRequest
 		denied bool
 	}{
-		{"default", api.QueryRequest{AccessLevel: "default"}, false},
+		{"default", api.QueryRequest{AccessLevel: "ask_for_approval"}, false},
 		{"model", api.QueryRequest{Model: &api.QueryModelOptions{Key: "model"}}, true},
 		{"reasoning", api.QueryRequest{Model: &api.QueryModelOptions{ReasoningEffort: "HIGH"}}, true},
 		{"empty model", api.QueryRequest{Model: &api.QueryModelOptions{}}, false},

@@ -78,7 +78,7 @@ func TestInterceptedConnectorCallWaitsForItsViewForm(t *testing.T) {
 	call := s.queuedToolCalls[0]
 	call.args["command"] = entry + ` issue worklog add-batch --payload '{"entries":[{"key":"DEMO-1"}]}'`
 	// A person always reviews the form, whatever the access level.
-	for _, level := range []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		s.execCtx.AccessLevel = level
 		s.execCtx.Session.AccessLevel = level
 		got := s.checkBashHITL(call)

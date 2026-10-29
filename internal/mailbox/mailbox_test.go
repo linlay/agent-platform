@@ -29,15 +29,15 @@ type testPort struct {
 }
 
 func (p *testPort) MailDefaultAccess(agentKey string) (Grant, error) {
-	return Grant{AccessLevel: "default", AccessGrant: map[string]any{"source": "default", "agentKey": agentKey, "agentRevision": "test"}}, nil
+	return Grant{AccessLevel: "ask_for_approval", AccessGrant: map[string]any{"source": "default", "agentKey": agentKey, "agentRevision": "test"}}, nil
 }
 
 func (p *testPort) PrepareMail(_ context.Context, r Request) (Prepared, error) {
 	r.Start.AgentKey = "worker"
-	return Prepared{Request: r.Start, Plan: contracts.RunStartPlan{AccessLevel: "default"}, ChatID: "receiver", OpenedChat: true}, nil
+	return Prepared{Request: r.Start, Plan: contracts.RunStartPlan{AccessLevel: "ask_for_approval"}, ChatID: "receiver", OpenedChat: true}, nil
 }
 func (p *testPort) AcceptMail(_ context.Context, _ Request, _ Prepared, save func(Grant) error) error {
-	return save(Grant{AccessLevel: "default", Scope: controlscope.Scope{Transport: "ws", Subject: "user", Lane: "main"}})
+	return save(Grant{AccessLevel: "ask_for_approval", Scope: controlscope.Scope{Transport: "ws", Subject: "user", Lane: "main"}})
 }
 func (p *testPort) EnsureMailChat(_ context.Context, m *Mail) error {
 	return os.MkdirAll(filepath.Join(p.root, m.ToChatID), 0755)
@@ -80,7 +80,7 @@ func testBox(t *testing.T) (*Service, *testPort) {
 	return s, p
 }
 func sample(id string, kind Kind, status Status) Mail {
-	return Mail{ID: id, Kind: kind, Status: status, CreatedAt: now(), UpdatedAt: now(), ToAgentKey: "worker", ToChatID: "receiver", OriginType: "agent", FromAgentKey: "lead", FromChatID: "sender", FromRunID: "parent-run", FromToolID: id, Subject: "user", Message: "work", Hop: 1, AccessLevel: "default", RequestDigest: id}
+	return Mail{ID: id, Kind: kind, Status: status, CreatedAt: now(), UpdatedAt: now(), ToAgentKey: "worker", ToChatID: "receiver", OriginType: "agent", FromAgentKey: "lead", FromChatID: "sender", FromRunID: "parent-run", FromToolID: id, Subject: "user", Message: "work", Hop: 1, AccessLevel: "ask_for_approval", RequestDigest: id}
 }
 func put(t *testing.T, s *Store, m Mail) {
 	t.Helper()

@@ -49,15 +49,15 @@ func TestPublicSubmitCannotForgeDelegation(t *testing.T) {
 
 func TestDelegatedToolApprovalReevaluatesLiveLevel(t *testing.T) {
 	for _, allow := range []bool{false, true} {
-		for _, level := range []string{"default", "auto_approve", "full_access"} {
+		for _, level := range []string{"ask_for_approval", "auto_approve", "full_access"} {
 			t.Run(level+"/auto="+fmt.Sprint(allow), func(t *testing.T) {
 				executor := &exactApprovalExecutor{allowAutoApprove: allow}
-				session := contracts.QuerySession{RunID: "child", ChatID: "child-chat", AgentKey: "worker", AccessLevel: "default"}
-				s := &llmRunStream{ctx: context.Background(), session: session, engine: &LLMAgentEngine{tools: executor}, execCtx: &contracts.ExecutionContext{Session: session, AccessLevel: "default"}}
+				session := contracts.QuerySession{RunID: "child", ChatID: "child-chat", AgentKey: "worker", AccessLevel: "ask_for_approval"}
+				s := &llmRunStream{ctx: context.Background(), session: session, engine: &LLMAgentEngine{tools: executor}, execCtx: &contracts.ExecutionContext{Session: session, AccessLevel: "ask_for_approval"}}
 				call := &preparedToolInvocation{toolID: "frozen-call", toolName: "catalog_manage", args: map[string]any{"action": "apply"}}
 				delegation := s.mailApprovalDelegator(call)
 				err := delegation(context.Background(), level, queryinput.SubmitRequest{Param: queryinput.SubmitParam{"decision": "approve", "data": map[string]any{}}})
-				wantApproval := allow && level != "default"
+				wantApproval := allow && level != "ask_for_approval"
 				if (err == nil) != wantApproval {
 					t.Fatalf("allowed=%v level=%s: %v", allow, level, err)
 				}

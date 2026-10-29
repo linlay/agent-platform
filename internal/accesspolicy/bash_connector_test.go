@@ -48,7 +48,7 @@ func TestMountedConnectorAllOperationsAndAccessLevels(t *testing.T) {
 		"env -C / wecom-cli send",
 		"wecom-cli auth show --status && wecom-cli message aibot sessions list",
 	}
-	for _, level := range []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		session.AccessLevel = level
 		for _, command := range commands {
 			t.Run(level+"/"+command, func(t *testing.T) {

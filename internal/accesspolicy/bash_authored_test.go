@@ -30,7 +30,7 @@ func authoredFixture(t *testing.T) (*ExecutionContext, string) {
 	return ctx, p
 }
 func TestAuthoredExecutionFormsAndLevels(t *testing.T) {
-	for _, level := range []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		for _, authored := range []bool{true, false} {
 			for _, form := range []string{"bash './task with space.sh'", "sh './task with space.sh'", "'./task with space.sh'", "absolute"} {
 				t.Run(fmt.Sprintf("%s/%t/%s", level, authored, form), func(t *testing.T) {
@@ -44,7 +44,7 @@ func TestAuthoredExecutionFormsAndLevels(t *testing.T) {
 					}
 					got := ReviewBashCommand(config.AccessPolicyConfig{}, ctx.Session, form, "", nil, ctx)
 					want := DecisionAllow
-					if level == AccessLevelDefault {
+					if level == AccessLevelAskForApproval {
 						want = DecisionRequiresApproval
 					}
 					if level == AccessLevelAutoApprove {
@@ -146,7 +146,7 @@ func TestAuthoredReadonlyAndHardBlockPriority(t *testing.T) {
 	if err := os.Mkdir(readonly, 0700); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{AccessLevelDefault: {ReadonlyRoots: []string{readonly}}}}
+	cfg := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{AccessLevelAskForApproval: {ReadonlyRoots: []string{readonly}}}}
 	for _, command := range []string{"sh './task with space.sh' > readonly/result", "sh './task with space.sh'; touch readonly/result", "> readonly/result", "sh foreign.sh > readonly/result"} {
 		got := ReviewBashCommand(cfg, ctx.Session, command, "", nil, ctx)
 		RegisterExactApproval(ctx, got.Fingerprint)
@@ -159,7 +159,7 @@ func TestAuthoredReadonlyAndHardBlockPriority(t *testing.T) {
 	if got := ReviewBashCommand(cfg, ctx.Session, wrapper, readonly, nil, ctx); !got.Blocked() {
 		t.Fatalf("wrapper redirected under inner rather than outer cwd: %+v", got)
 	}
-	blockOpaque := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{AccessLevelDefault: {Approvals: config.AccessPolicyApprovalConfig{BashOpaqueCommand: "block"}}}}
+	blockOpaque := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{AccessLevelAskForApproval: {Approvals: config.AccessPolicyApprovalConfig{BashOpaqueCommand: "block"}}}}
 	if got := ReviewBashCommand(blockOpaque, ctx.Session, "sh './task with space.sh'", "", nil, ctx); !got.Blocked() {
 		t.Fatalf("explicit opaque block bypassed: %+v", got)
 	}
@@ -292,7 +292,7 @@ func TestMixedRunRuleAndExactApprovalAudit(t *testing.T) {
 	first := BashPlan{Decision: DecisionRequiresApproval, RuleKey: "first", Fingerprint: "1"}
 	second := BashPlan{Decision: DecisionRequiresApproval, RuleKey: "second", Fingerprint: "2"}
 	third := BashPlan{Decision: DecisionRequiresApproval, RuleKey: "third", Fingerprint: "3"}
-	combined := combineBashPlans("three commands", AccessLevelDefault, []BashPlan{first, second, third})
+	combined := combineBashPlans("three commands", AccessLevelAskForApproval, []BashPlan{first, second, third})
 	RegisterRuleApproval(ctx, first.RuleKey)
 	pending := PendingBashPlan(ctx, combined)
 	RegisterExactApproval(ctx, pending.Fingerprint)

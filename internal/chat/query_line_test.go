@@ -36,7 +36,7 @@ func TestQueryLineKeepsCallerInputAndPlatformDecisionsApart(t *testing.T) {
 	const raw = `{"message":"hello","stream":false,"detached":null,"planningMode":false,"references":[],"params":{"big":9007199254740993},"sourceUser":"remote"}`
 	line := writeClientQueryForTest(t, store, "chat-raw", raw, map[string]any{
 		"requestId": "run-1", "runId": "run-1", "chatId": "chat-raw", "agentKey": "agent", "message": "hello",
-		"params": map[string]any{"big": json.Number("9007199254740993")}, "accessLevel": "default", "editingMode": true,
+		"params": map[string]any{"big": json.Number("9007199254740993")}, "accessLevel": "ask_for_approval", "editingMode": true,
 		"model":  map[string]any{"key": "model-a"},
 		"origin": (&queryinput.Origin{Type: queryinput.OriginUser, UserID: "alice"}).Payload(),
 	})
@@ -52,7 +52,7 @@ func TestQueryLineKeepsCallerInputAndPlatformDecisionsApart(t *testing.T) {
 	if err != nil || !strings.Contains(persisted, `"big":9007199254740993`) {
 		t.Fatalf("large integers keep their exact digits: %v %s", err, persisted)
 	}
-	for key, value := range map[string]any{"requestId": "run-1", "agentKey": "agent", "accessLevel": "default", "editingMode": true} {
+	for key, value := range map[string]any{"requestId": "run-1", "agentKey": "agent", "accessLevel": "ask_for_approval", "editingMode": true} {
 		if !reflect.DeepEqual(line[key], value) {
 			t.Fatalf("top-level %s = %#v, want %#v in %#v", key, line[key], value, line)
 		}
@@ -67,7 +67,7 @@ func TestQueryLineKeepsCallerInputAndPlatformDecisionsApart(t *testing.T) {
 	}
 
 	payload := requestPayloadFromLine(line)
-	if payload["message"] != "hello" || payload["agentKey"] != "agent" || payload["editingMode"] != true || payload["accessLevel"] != "default" {
+	if payload["message"] != "hello" || payload["agentKey"] != "agent" || payload["editingMode"] != true || payload["accessLevel"] != "ask_for_approval" {
 		t.Fatalf("projection lost platform decisions: %#v", payload)
 	}
 	for _, key := range []string{"stream", "detached", "sourceUser", "planningMode"} {

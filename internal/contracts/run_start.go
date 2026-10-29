@@ -53,7 +53,7 @@ func NormalizeRunStartRequest(request RunStartRequest) (RunStartRequest, error) 
 	return request, nil
 }
 
-// AccessLevelRank orders default < auto_approve < full_access.
+// AccessLevelRank orders ask_for_approval < auto_approve < full_access.
 func AccessLevelRank(level string) int {
 	switch normalized, _ := NormalizeAccessLevel(level); normalized {
 	case AccessLevelFullAccess:
@@ -69,8 +69,8 @@ func AccessLevelRank(level string) int {
 // Deprecated: use ResolveInitialAccessLevel plus ValidateExplicitRunAccess.
 func ResolveRunStartAccessLevel(requested string, parent string) (string, bool) {
 	parent, _ = NormalizeAccessLevel(parent)
-	if strings.TrimSpace(requested) == "" {
-		return AccessLevelDefault, false
+	if IsDefaultAccessLevelRequest(requested) {
+		return AccessLevelAskForApproval, false
 	}
 	level, _ := NormalizeAccessLevel(requested)
 	return level, AccessLevelRank(level) > AccessLevelRank(parent)

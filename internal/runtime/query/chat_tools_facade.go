@@ -63,8 +63,8 @@ func (s *Service) PrepareRunStart(ctx context.Context, request contracts.RunStar
 	fail := func(code string, message string) (contracts.RunStartPlan, error) {
 		return contracts.RunStartPlan{}, runNotStarted(runToolError(code, message))
 	}
-	if _, valid := contracts.NormalizeAccessLevel(request.AccessLevel); !valid {
-		return fail("invalid_request", "accessLevel must be default, auto_approve, or full_access")
+	if _, valid := contracts.NormalizeRequestedAccessLevel(request.AccessLevel); !valid {
+		return fail("invalid_request", "accessLevel must be default, ask_for_approval, auto_approve, or full_access")
 	}
 	chatID := strings.TrimSpace(request.ChatID)
 	if strings.TrimSpace(request.ChatName) != "" && chatID != "" {

@@ -73,7 +73,7 @@ func TestSandboxTemporarySymlinkEscapeCannotBeApproved(t *testing.T) {
 	ctx := fileToolExecutionContext(dir)
 	ctx.Session.AgentHasRuntimeSandbox = true
 	ctx.Session.RuntimeContext.SandboxPaths.WorkspaceDir = "/workspace"
-	for _, level := range []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		ctx.Session.AccessLevel = level
 		ctx.AccessLevel = level
 		for _, command := range []string{"python3 /tmp/escape.py", "/tmp/escape"} {

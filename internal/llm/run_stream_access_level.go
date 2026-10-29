@@ -16,7 +16,7 @@ func (s *llmRunStream) syncAccessLevelFromRunControl() bool {
 	accessLevel, version := s.runControl.AccessLevelSnapshot()
 	normalized, ok := NormalizeAccessLevel(accessLevel)
 	if !ok {
-		normalized = AccessLevelDefault
+		normalized = AccessLevelAskForApproval
 	}
 	if version == s.accessLevelVersion && strings.EqualFold(strings.TrimSpace(s.session.AccessLevel), normalized) {
 		return false

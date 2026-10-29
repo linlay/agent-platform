@@ -151,7 +151,7 @@ func (s *Service) prepareControl(action string, args map[string]any, key string)
 	// The effective zone in After is bound to approval separately below.
 	def.Query.AccessLevel, _ = normalizeAutomationAccessLevel(def.Query.AccessLevel)
 	if def.Query.AccessLevel == "" {
-		def.Query.AccessLevel = "default"
+		def.Query.AccessLevel = contracts.AccessLevelAskForApproval
 	}
 	p.Definition = def
 	if def.Query.RequestID != "" || len(def.Query.References) > 0 || def.Query.Scene != nil {

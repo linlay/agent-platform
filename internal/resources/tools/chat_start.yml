@@ -29,9 +29,10 @@ inputSchema:
       type: string
       enum:
         - default
+        - ask_for_approval
         - auto_approve
         - full_access
-      description: "Omit for target default. Explicit levels cannot exceed the calling Run level."
+      description: "Default/omit uses target default; concrete levels cannot exceed caller."
     references:
       type: array
       description: "Resources selected for this task. Each item must be used; no tools or unrelated permissions are added."

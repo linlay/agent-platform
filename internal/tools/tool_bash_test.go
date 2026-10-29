@@ -365,7 +365,7 @@ func TestInvokeHostBashSuccessWithStderrReturnsStructuredJSON(t *testing.T) {
 		cfg: config.Config{
 			AccessPolicy: config.AccessPolicyConfig{
 				Levels: map[string]config.AccessPolicyLevelConfig{
-					contracts.AccessLevelDefault: {
+					contracts.AccessLevelAskForApproval: {
 						Approvals: config.AccessPolicyApprovalConfig{
 							BashOpaqueCommand: "allow",
 						},
@@ -1020,7 +1020,7 @@ func TestInvokeHostBashRedirectIntoWorkspaceNeedsNoShellApproval(t *testing.T) {
 func softSecurityExecutor() *RuntimeToolExecutor {
 	allow := config.AccessPolicyApprovalConfig{ReadOutsideRoots: "allow", WriteOutsideRoots: "allow", BashComplexFilesystem: "allow", BashOpaqueCommand: "allow", BashWriteInWriteRoots: "allow"}
 	return &RuntimeToolExecutor{cfg: config.Config{
-		AccessPolicy: config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{contracts.AccessLevelDefault: {Approvals: allow}}},
+		AccessPolicy: config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{contracts.AccessLevelAskForApproval: {Approvals: allow}}},
 		Bash:         config.BashConfig{AllowedCommands: []string{"printf", "xargs"}, ShellFeaturesEnabled: true, ShellExecutable: "bash", MaxCommandChars: 16000},
 	}}
 }
@@ -1084,7 +1084,7 @@ func TestInvokeHostBashAccessPolicyRequiresApprovalForOutsidePath(t *testing.T) 
 		},
 	}
 	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
-		AccessLevel:   contracts.AccessLevelDefault,
+		AccessLevel:   contracts.AccessLevelAskForApproval,
 		WorkspaceRoot: root,
 	}}
 
@@ -1178,7 +1178,7 @@ func TestInvokeHostBashAppliesChatAndTempScriptApprovalRules(t *testing.T) {
 		expectAudit bool
 	}{
 		{name: "auto-approved chat python", interpreter: "python3", cwd: "@chat", script: "task.py", accessLevel: contracts.AccessLevelAutoApprove, expectAudit: true},
-		{name: "default temp node", interpreter: "node", cwd: "@temp", script: "task.js", accessLevel: contracts.AccessLevelDefault},
+		{name: "default temp node", interpreter: "node", cwd: "@temp", script: "task.js", accessLevel: contracts.AccessLevelAskForApproval},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1203,7 +1203,7 @@ func TestInvokeHostBashAppliesChatAndTempScriptApprovalRules(t *testing.T) {
 			if err != nil {
 				t.Fatalf("invokeHostBash returned error: %v", err)
 			}
-			if test.accessLevel == contracts.AccessLevelDefault {
+			if test.accessLevel == contracts.AccessLevelAskForApproval {
 				if result.Error != "bash_access_approval_required" {
 					t.Fatalf("default temporary script bypass: %+v", result)
 				}

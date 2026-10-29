@@ -700,7 +700,7 @@ func TestImageGenerateFilePathOutsideReadRootsRequiresHITL(t *testing.T) {
 	writeImageGenerateTestPNG(t, externalImage, 1, 1, []color.NRGBA{{A: 255}})
 	executor := imageGenerateTestExecutor(defaultImageGenerateTestConfig(), registry, filepath.Dir(chatDir))
 	executor.cfg.AccessPolicy = config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
-		contracts.AccessLevelDefault: {
+		contracts.AccessLevelAskForApproval: {
 			ReadRoots: []string{"@chat"},
 			Approvals: config.AccessPolicyApprovalConfig{ReadOutsideRoots: "hitl"},
 		},

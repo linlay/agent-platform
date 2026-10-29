@@ -197,7 +197,7 @@ func (s *llmRunStream) tryResolvePendingAccessLevelApproval(invocation *prepared
 
 func (s *llmRunStream) currentAccessLevel() string {
 	if s == nil {
-		return AccessLevelDefault
+		return AccessLevelAskForApproval
 	}
 	accessLevel := ""
 	if s.execCtx != nil {
@@ -211,7 +211,7 @@ func (s *llmRunStream) currentAccessLevel() string {
 	}
 	normalized, ok := NormalizeAccessLevel(accessLevel)
 	if !ok {
-		return AccessLevelDefault
+		return AccessLevelAskForApproval
 	}
 	return normalized
 }

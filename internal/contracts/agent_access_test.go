@@ -8,7 +8,7 @@ func TestAgentAccessConfigValidationAndResolution(t *testing.T) {
 			t.Fatalf("accepted %#v", raw)
 		}
 	}
-	for _, configured := range []string{"", AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+	for _, configured := range []string{"", AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		definition := map[string]any{}
 		if configured != "" {
 			definition["accessConfig"] = map[string]any{"default": configured}
@@ -17,10 +17,10 @@ func TestAgentAccessConfigValidationAndResolution(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, requested := range []string{"", AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+		for _, requested := range []string{"", AccessLevelDefault, AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 			level, source, err := ResolveInitialAccessLevel(requested, c)
 			want, wantSource := requested, "explicit"
-			if requested == "" {
+			if IsDefaultAccessLevelRequest(requested) {
 				want, wantSource = c.EffectiveDefault(), "agent_default"
 				if configured == "" {
 					wantSource = "platform_default"
@@ -36,5 +36,28 @@ func TestAgentAccessConfigValidationAndResolution(t *testing.T) {
 	}
 	if err := ValidateExplicitRunAccess("", "default"); err != nil {
 		t.Fatal("omitted target default was capped", err)
+	}
+}
+
+func TestDefaultSelectorNeverBecomesAnEffectivePermission(t *testing.T) {
+	if _, ok := NormalizeAccessLevel(AccessLevelDefault); ok {
+		t.Fatal("request selector accepted as a concrete execution level")
+	}
+	for _, requested := range []string{"", "default", " DEFAULT "} {
+		level, source, err := ResolveInitialAccessLevel(requested, AgentAccessConfig{Default: AccessLevelFullAccess})
+		if err != nil || level != AccessLevelFullAccess || source != "agent_default" {
+			t.Fatalf("selector %q: %s %s %v", requested, level, source, err)
+		}
+		level, source, err = ResolveInitialAccessLevel(requested, AgentAccessConfig{})
+		if err != nil || level != AccessLevelAskForApproval || source != "platform_default" {
+			t.Fatalf("unconfigured selector %q: %s %s %v", requested, level, source, err)
+		}
+		if err := ValidateExplicitRunAccess(requested, AccessLevelAskForApproval); err != nil {
+			t.Fatal("default selector was treated as an explicit escalation", err)
+		}
+	}
+	c, err := ParseAgentAccessConfig(map[string]any{"accessConfig": map[string]any{"default": "default"}})
+	if err != nil || c.Default != AccessLevelAskForApproval {
+		t.Fatal("legacy Agent config changed permission", c, err)
 	}
 }

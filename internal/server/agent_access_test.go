@@ -36,7 +36,7 @@ func accessDefaultFixture(t *testing.T, defaultLevel string) testFixture {
 func TestMailboxFreezesTargetDefaultBeforeDelayedDelivery(t *testing.T) {
 	f := accessDefaultFixture(t, "full_access")
 	bindTestRunControl(t, f.server, "parent", "ws", "desktop")
-	_, _, _ = f.runs.Register(context.Background(), contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", AccessLevel: "default"})
+	_, _, _ = f.runs.Register(context.Background(), contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", AccessLevel: "ask_for_approval"})
 	defer f.runs.Finish("parent")
 	store, err := mailbox.Open(f.cfg.Paths.ChatsDir)
 	if err != nil {
@@ -86,7 +86,7 @@ func TestMailboxFreezesTargetDefaultBeforeDelayedDelivery(t *testing.T) {
 func TestAgentDefaultAccessAdmissionPreservesRawInput(t *testing.T) {
 	fixture := accessDefaultFixture(t, "full_access")
 	for _, tc := range []struct{ extra, level, source string }{
-		{"", "full_access", "agent_default"}, {`,"accessLevel":"default"`, "default", "explicit"},
+		{"", "full_access", "agent_default"}, {`,"accessLevel":"default"`, "full_access", "agent_default"}, {`,"accessLevel":"ask_for_approval"`, "ask_for_approval", "explicit"},
 	} {
 		req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"agentKey":"mock-agent","message":"hello"`+tc.extra+`}`))
 		prepared, err := prepareQueryForTest(fixture.server, req)
@@ -112,7 +112,7 @@ func TestAgentDefaultAccessAdmissionPreservesRawInput(t *testing.T) {
 func TestChatStartTargetDefaultCanExceedParentAndRemainsIndependent(t *testing.T) {
 	fixture := accessDefaultFixture(t, "full_access")
 	bindTestRunControl(t, fixture.server, "parent", "ws", "desktop")
-	_, parent, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", AccessLevel: "default"})
+	_, parent, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", AccessLevel: "ask_for_approval"})
 	defer fixture.runs.Finish("parent")
 	req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", Input: map[string]any{"agentKey": "mock-agent", "message": "task"}, Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "default-call"}}
 	started, err := fixture.server.StartRun(context.Background(), req)
@@ -125,7 +125,7 @@ func TestChatStartTargetDefaultCanExceedParentAndRemainsIndependent(t *testing.T
 	parent.UpdateAccessLevel("auto_approve")
 	waitRunTerminal(t, fixture.server, started.RunID)
 	line, err := fixture.chats.LoadRunQuery(started.ChatID, started.RunID)
-	if err != nil || line.AccessGrant["source"] != "agent_default" || line.AccessGrant["parentAccessLevel"] != "default" {
+	if err != nil || line.AccessGrant["source"] != "agent_default" || line.AccessGrant["parentAccessLevel"] != "ask_for_approval" {
 		t.Fatalf("audit=%+v err=%v", line, err)
 	}
 	if _, exists := line.Query["accessLevel"]; exists {
@@ -152,7 +152,7 @@ func TestGeneratedMailboxAccessFrozenFromReceivingAgent(t *testing.T) {
 	defer func() { cancel(); box.Close() }()
 	q := testQueryService(f.server)
 	q.BindMailbox(box)
-	parent := mailbox.Mail{ID: "opening", Kind: mailbox.Letter, Status: mailbox.Delivered, ToAgentKey: "mock-agent", ToChatID: "worker", FromAgentKey: "mock-agent", FromChatID: "lead", FromRunID: "lead-run", FromToolID: "send", RunID: "worker-run", Delivery: "started", Hop: 1, AccessLevel: "default", Subject: "alice", Message: "task"}
+	parent := mailbox.Mail{ID: "opening", Kind: mailbox.Letter, Status: mailbox.Delivered, ToAgentKey: "mock-agent", ToChatID: "worker", FromAgentKey: "mock-agent", FromChatID: "lead", FromRunID: "lead-run", FromToolID: "send", RunID: "worker-run", Delivery: "started", Hop: 1, AccessLevel: "ask_for_approval", Subject: "alice", Message: "task"}
 	if _, _, err := store.Accept(parent); err != nil {
 		t.Fatal(err)
 	}
