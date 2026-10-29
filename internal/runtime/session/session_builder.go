@@ -353,6 +353,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		}
 		req.References = grant.References
 	}
+	s.inheritChatSkills(ctx, session, req, agentDef, options)
 	session.RuntimeContext.References = req.References
 	bScripts := !options.DisableSkillScriptGrants
 	s.BindReferencePreparer(&session, agentDef, bScripts)

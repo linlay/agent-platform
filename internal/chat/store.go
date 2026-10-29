@@ -122,6 +122,12 @@ type TeamCoordinatorHistoryReader interface {
 	LoadTeamCoordinatorRawMessages(chatID string, k int) ([]map[string]any, error)
 }
 
+// SkillReferenceReader lists skills selected on the main lane by earlier Runs.
+// It reads trusted structured fields, independent of model history compaction.
+type SkillReferenceReader interface {
+	PriorSkillReferenceIDs(chatID, excludeRunID string, limit int) ([]string, error)
+}
+
 type FileStore struct {
 	root        string
 	mu          sync.Mutex
