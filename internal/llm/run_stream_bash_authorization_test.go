@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"agent-platform/internal/view"
 	"context"
 	"fmt"
 	"os"
@@ -16,7 +15,6 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
-	"agent-platform/internal/hitl"
 )
 
 type approvedBashStart struct {
@@ -142,7 +140,7 @@ func drainApprovedBashBatch(t *testing.T, s *llmRunStream) {
 }
 
 func TestHostBashApprovalConcurrent(t *testing.T) {
-	for _, mode := range []string{"approve", "approve_rule_run", "auto_approve", "security_and_access", "builtin_hitl"} {
+	for _, mode := range []string{"approve", "approve_rule_run", "auto_approve", "security_and_access"} {
 		t.Run(mode, func(t *testing.T) {
 			s, e, _ := newApprovedBashStream(t, 2)
 			if mode == "security_and_access" {
@@ -151,16 +149,8 @@ func TestHostBashApprovalConcurrent(t *testing.T) {
 					call.args["command"] = "printf x | xargs " + mapStringArg(call.args, "command")
 				}
 			}
-			if mode == "builtin_hitl" {
-				command := mapStringArg(s.queuedToolCalls[0].args, "command")
-				// Keep this test focused on the independent builtin HITL gate.
-				s.execCtx.AccessLevel = AccessLevelFullAccess
-				s.session.AccessLevel = AccessLevelFullAccess
-				s.runControl.SetInitialAccessLevel(AccessLevelFullAccess)
-				s.checker = commandResultChecker{results: map[string]hitl.InterceptResult{command: {Intercepted: true, OriginalCommand: command, Rule: hitl.FlatRule{RuleKey: "mock-login", View: view.Builtin("approval"), Level: 1}}}}
-			}
 			decision := mode
-			if mode == "security_and_access" || mode == "builtin_hitl" {
+			if mode == "security_and_access" {
 				decision = "approve"
 			}
 			if mode == "auto_approve" {

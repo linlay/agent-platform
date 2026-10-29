@@ -29,6 +29,7 @@ import (
 	platformws "agent-platform/internal/ws"
 
 	"agent-platform/internal/contracts/queryinput"
+
 	gws "github.com/gorilla/websocket"
 )
 
@@ -94,7 +95,7 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	if len(chatsResp.Data) != 1 {
 		t.Fatalf("expected 1 chat, got %d", len(chatsResp.Data))
 	}
-	if chatsResp.Data[0].Source != api.ChatSourceQuery {
+	if chatsResp.Data[0].Source != queryinput.ChatSourceQuery {
 		t.Fatalf("expected query chat source, got %#v", chatsResp.Data[0])
 	}
 	chatID := chatsResp.Data[0].ChatID
@@ -133,7 +134,7 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat response: %v", err)
 	}
-	if chatResp.Data.Source != api.ChatSourceQuery {
+	if chatResp.Data.Source != queryinput.ChatSourceQuery {
 		t.Fatalf("expected /api/chat source, got %#v", chatResp.Data)
 	}
 	if len(chatResp.Data.Events) < 4 {
@@ -440,7 +441,7 @@ func TestExecuteInternalQueryPreservesTrustedChatSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("summary: %v", err)
 	}
-	if summary == nil || summary.Source != api.ChatSourceQuery {
+	if summary == nil || summary.Source != queryinput.ChatSourceQuery {
 		t.Fatalf("expected default internal query source, got %#v", summary)
 	}
 }
@@ -980,9 +981,6 @@ func TestQueryExtraReferencedSkillAddsCenterContextAndReadonlyMount(t *testing.T
 		setupRuntime: func(_ string, cfg *config.Config) {
 			writeTestSkill(t, cfg.Paths.SkillsCenterDir, "center-extra")
 			extraDir := filepath.Join(cfg.Paths.SkillsCenterDir, "center-extra")
-			if err := os.MkdirAll(filepath.Join(extraDir, ".bash-hooks"), 0o755); err != nil {
-				t.Fatalf("mkdir extra skill hooks: %v", err)
-			}
 			if err := os.WriteFile(filepath.Join(extraDir, ".runtime-env.json"), []byte(`{"CENTER_EXTRA":"must-not-merge"}`), 0o644); err != nil {
 				t.Fatalf("write extra skill env: %v", err)
 			}
@@ -1029,11 +1027,6 @@ func TestQueryExtraReferencedSkillAddsCenterContextAndReadonlyMount(t *testing.T
 	}
 	if _, exists := prepared.Session.StaticRuntimeEnv["CENTER_EXTRA"]; exists {
 		t.Fatalf("extra skill runtime env must not be merged: %#v", prepared.Session.StaticRuntimeEnv)
-	}
-	for _, hookDir := range prepared.Session.SkillHookDirs {
-		if strings.Contains(hookDir, "center-extra") {
-			t.Fatalf("extra skill bash hooks must not be merged: %#v", prepared.Session.SkillHookDirs)
-		}
 	}
 	if strings.Contains(prepared.Session.SkillCatalogPrompt, "center-extra") || strings.Contains(prepared.Session.SkillCatalogPrompt, "[References]") {
 		t.Fatalf("selected resources entered system catalog: %s", prepared.Session.SkillCatalogPrompt)

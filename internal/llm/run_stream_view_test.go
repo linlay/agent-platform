@@ -10,11 +10,11 @@ import (
 	"agent-platform/internal/view"
 )
 
-func TestViewFormDoesNotJoinBuiltinApprovalOrAutoApprove(t *testing.T) {
+func TestViewFormDoesNotJoinBuiltinApproval(t *testing.T) {
 	rule := hitl.FlatRule{Mode: "form", View: &view.Reference{ConnectorID: "forms", Key: "edit"}, Level: 1}
 	match := hitl.InterceptResult{Intercepted: true, Rule: rule}
 	s := &llmRunStream{session: contracts.QuerySession{RunID: "run"}, execCtx: &contracts.ExecutionContext{}}
-	if rule.IsBuiltinApproval() || approvalRequestCanJoinBatch(approvalRequest{result: match}) || s.shouldAutoApproveHITL(match) {
+	if rule.IsBuiltinApproval() || approvalRequestCanJoinBatch(approvalRequest{result: match}) {
 		t.Fatal("connector form treated as builtin approval")
 	}
 	args := s.buildHITLArgs(&preparedToolInvocation{args: map[string]any{"command": `command --payload '{"name":"original"}'`}}, match)

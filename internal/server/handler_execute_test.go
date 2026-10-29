@@ -64,14 +64,6 @@ func newExecuteFixture(t *testing.T, model func(call int32, request executeModel
 			if err := os.WriteFile(filepath.Join(cfg.Paths.AgentsDir, executeTestAgent, "agent.yml"), []byte(content), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			hooks := filepath.Join(cfg.Paths.SkillsCenterDir, "mock-skill", ".bash-hooks")
-			if err := os.MkdirAll(hooks, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			rules := "commands:\n  - command: docker\n    subcommands:\n      - match: rmi\n        level: 1\n        view: {key: confirm_dialog}\n        ruleKey: dangerous-commands::docker-rmi\n"
-			if err := os.WriteFile(filepath.Join(hooks, "dangerous.yml"), []byte(rules), 0o644); err != nil {
-				t.Fatal(err)
-			}
 		},
 	})
 	router, ok := fixture.tools.(*tools.ToolRouter)
@@ -306,9 +298,9 @@ func TestExecuteFailsInsteadOfWaitingForApproval(t *testing.T) {
 			t.Fatalf("the Run continued after an approval was needed: call %d", call)
 		}
 		writeProviderSSE(t, w, providerToolCallFrame(t, "tool_bash", "bash", map[string]any{
-			"command":     "docker rmi nginx:latest",
-			"description": "删除镜像",
-			"cwd":         "/workspace",
+			"command":     "rm -r old-images",
+			"description": "删除旧镜像目录",
+			"cwd":         "@chat",
 		}), `[DONE]`)
 	})
 	status, response := postExecute(t, fixture.server, map[string]any{"agentKey": executeTestAgent, "message": "清理镜像", "outputSchema": executeTestSchema})

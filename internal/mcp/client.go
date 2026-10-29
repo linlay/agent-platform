@@ -34,11 +34,11 @@ import (
 )
 
 type Client struct {
-	registry     *Registry
-	httpClient   *http.Client
-	gate         *AvailabilityGate
-	identityFile string
-	sdk          *sdkmcp.Client
+	registry       *Registry
+	httpClient     *http.Client
+	gate           *AvailabilityGate
+	ssoIdTokenFile string
+	sdk            *sdkmcp.Client
 
 	mu     sync.Mutex
 	slots  map[string]*sessionSlot
@@ -83,8 +83,8 @@ func NewClientWithGate(registry *Registry, httpClient *http.Client, gate *Availa
 	}
 }
 
-func (c *Client) WithIdentityFile(filePath string) *Client {
-	c.identityFile = strings.TrimSpace(filePath)
+func (c *Client) WithSsoIdTokenFile(filePath string) *Client {
+	c.ssoIdTokenFile = strings.TrimSpace(filePath)
 	return c
 }
 
@@ -280,7 +280,7 @@ func (c *Client) ensureSession(ctx context.Context, server ServerDefinition) (*m
 		identity, identityErr = connectorauth.ResolveEnvironment(ctx, connector.CredentialEnvironment{
 			Root: server.ConnectorAuthRoot, ID: server.ConnectorID, Mode: server.ConnectorAuthMode,
 			Resource: server.ConnectorOAuthResource, Destination: server.ConnectorOAuthResource, Env: server.ConnectorCredentialEnv,
-		}, c.identityFile)
+		}, c.ssoIdTokenFile)
 	}
 	if identityErr != nil {
 		if slot.current != nil {
@@ -425,7 +425,7 @@ func (c *Client) stdioIdentity(server ServerDefinition) (map[string]string, erro
 	if !server.ConnectorOneID || server.Transport != TransportStdio {
 		return nil, nil
 	}
-	identity, err := agentconfig.ReadIdentityEnvironment(c.identityFile)
+	identity, err := agentconfig.ReadIdentityEnvironment(c.ssoIdTokenFile)
 	if err != nil || identity[agentconfig.EnvAccessToken] == "" {
 		return nil, fmt.Errorf("%w: Desktop SSO token is unavailable", contracts.ErrMCPCallFailed)
 	}
@@ -569,14 +569,14 @@ func (c *Client) httpClientForServer(server ServerDefinition) *http.Client {
 			}
 		}
 	}
-	if server.AuthSource == AuthSourceIdentityFile {
+	if server.AuthSource == AuthSourceSsoIdTokenFile {
 		if parsed, err := url.Parse(server.BaseURL); err == nil {
 			configuredHost = parsed.Hostname()
 		}
 	}
 	cloned.Transport = headerRoundTripper{
 		base: transport, headers: headers, authToken: server.AuthToken,
-		authSource: server.AuthSource, identityFile: c.identityFile, configuredHost: configuredHost,
+		authSource: server.AuthSource, ssoIdTokenFile: c.ssoIdTokenFile, configuredHost: configuredHost,
 		closeTimeout: sessionCloseTimeout, cancellationTimeout: cancellationNotificationTimeout,
 		oneID: server.ConnectorOneID, identityResource: server.ResolvedURL(),
 	}
@@ -599,7 +599,7 @@ type headerRoundTripper struct {
 	headers             map[string]string
 	authToken           string
 	authSource          string
-	identityFile        string
+	ssoIdTokenFile      string
 	configuredHost      string
 	oneID               bool
 	identityResource    string
@@ -625,9 +625,9 @@ func (t headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 	cloned.Header = req.Header.Clone()
 	token := strings.TrimSpace(t.authToken)
 	var identity map[string]string
-	if t.authSource == AuthSourceIdentityFile {
+	if t.authSource == AuthSourceSsoIdTokenFile {
 		var err error
-		identity, err = agentconfig.ReadIdentityEnvironment(t.identityFile)
+		identity, err = agentconfig.ReadIdentityEnvironment(t.ssoIdTokenFile)
 		if err != nil {
 			return nil, fmt.Errorf("read identity file for MCP: %w", err)
 		}
@@ -635,7 +635,7 @@ func (t headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 		if token == "" {
 			return nil, fmt.Errorf("identity file token is unavailable")
 		}
-		if err := validateIdentityFileRequest(cloned.URL, t.configuredHost); err != nil {
+		if err := validateSsoIdTokenFileRequest(cloned.URL, t.configuredHost); err != nil {
 			return nil, err
 		}
 		if t.oneID {
@@ -676,13 +676,13 @@ func isCancellationNotification(req *http.Request) bool {
 	return json.NewDecoder(body).Decode(&envelope) == nil && envelope.Method == "notifications/cancelled"
 }
 
-func validateIdentityFileRequest(requestURL *url.URL, configuredHost string) error {
+func validateSsoIdTokenFileRequest(requestURL *url.URL, configuredHost string) error {
 	configuredHost = strings.TrimSpace(configuredHost)
 	if requestURL == nil || requestURL.Scheme != "https" || requestURL.User != nil || (requestURL.Port() != "" && requestURL.Port() != "443") {
-		return fmt.Errorf("identity-file MCP request requires HTTPS on the configured MCP host")
+		return fmt.Errorf("sso-id-token-file MCP request requires HTTPS on the configured MCP host")
 	}
 	if configuredHost == "" || !strings.EqualFold(requestURL.Hostname(), configuredHost) {
-		return fmt.Errorf("identity-file MCP request left the configured MCP host")
+		return fmt.Errorf("sso-id-token-file MCP request left the configured MCP host")
 	}
 	return nil
 }

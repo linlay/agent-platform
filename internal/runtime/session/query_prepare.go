@@ -20,17 +20,16 @@ func RuntimeAgentEnv(value any) map[string]string {
 	}
 }
 
-func ResolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, centerDir string, skillIDs []string, agents ...catalog.AgentDefinition) ([]string, map[string]string, error) {
+func ResolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, centerDir string, skillIDs []string, agents ...catalog.AgentDefinition) (map[string]string, error) {
 	_ = centerDir
 	runtimeEnv := contracts.CloneStringMap(agentEnv)
 	if err := agentconfig.ValidateUserEnvironment(runtimeEnv); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if len(skillIDs) == 0 {
-		return nil, runtimeEnv, nil
+		return runtimeEnv, nil
 	}
 	seen := map[string]struct{}{}
-	var hookDirs []string
 	for _, raw := range skillIDs {
 		skillID := strings.ToLower(strings.TrimSpace(raw))
 		if skillID == "" {
@@ -46,14 +45,11 @@ func ResolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, ce
 		}
 		def, ok, err := agent.ResolveSkillDefinition(skillID)
 		if err != nil {
-			return nil, nil, fmt.Errorf("resolve skill runtime %q: %w", skillID, err)
+			return nil, fmt.Errorf("resolve skill runtime %q: %w", skillID, err)
 		}
 		if !ok {
 			log.Printf("[server][skill-runtime][warn] skill definition not found id=%s", skillID)
 			continue
-		}
-		if strings.TrimSpace(def.BashHooksDir) != "" {
-			hookDirs = append(hookDirs, def.BashHooksDir)
 		}
 		for key, value := range def.RuntimeEnv {
 			if runtimeEnv == nil {
@@ -62,7 +58,7 @@ func ResolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, ce
 			runtimeEnv[key] = value
 		}
 	}
-	return hookDirs, runtimeEnv, nil
+	return runtimeEnv, nil
 }
 
 func SortedStringKeys(values map[string]string) []string {

@@ -11,10 +11,6 @@ import (
 
 const parseTimeout = 50 * time.Millisecond
 
-func ParseForSecurity(command string) ParseResult {
-	return ParseForSecurityWithKnownVariables(command, nil)
-}
-
 func ParseForSecurityWithKnownVariables(command string, variables map[string]string) ParseResult {
 	if ok, reason := runPrechecks(command); !ok {
 		return ParseResult{Kind: TooComplex, Reason: reason, NodeType: "precheck"}

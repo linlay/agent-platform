@@ -2,13 +2,16 @@
 
 `vision_recognize` 和 `image_generate` 的多个参考图及 mask 共用图片读取审批项，卡片列出每个越界来源的精确路径。一次批准只供当前 toolID 消费，重复来源按次数分配；等待期间目标变化会拒绝执行并要求新的调用。硬拒绝不提供普通审批解除。
 
-## 技能业务 Hook 的权限语义
+## 连接器命令的 VIEW 拦截审阅
 
-Hook 是技能 `.bash-hooks/*.yml` 声明的执行前业务规则；`&&` 只是 Shell 的条件连接符。匹配覆盖已挂载连接器，解析已知包装命令、Windows `.exe` 名称和 Git 全局参数，并收集全部匹配来源，不能只保留最高级的一条。
+技能 `.bash-hooks` 已删除，技能目录出现该目录即加载失败。连接器 CLI 的业务确认改由 `view.json` 中标了 `intercept: true` 的 action 声明：Agent 在 Bash 里直接调用该命令时，平台按 action 参数模板反解出参数，放进同一 VIEW 的 form 让用户审阅；提交后按模板重建命令执行，不经模型。只能拦截已挂载连接器自己的 CLI，删除、Git 配置、远端修改等通用风险仍归平台 Shell 分析与 AccessPolicy。声明与反解规则见 [VIEW连接器](VIEW连接器.md#cli-拦截审阅)。
 
-每条规则可声明 `autoApprove: [auto_approve, full_access]`，仅在所列 access level 自动批准内置 confirmation；省略即三档均须确认，form 始终人工提交。旧内部 `HITLLevel/AutoApproveLevels` 已移除。Bash security 的软要求按当前 access level 判定，hard block 不可自动批准。
+- 拦截表单始终人工提交，不受 `auto_approve` / `full_access` 影响，也不能由 Mailbox 上级代批；命中后不再叠加普通 Bash 审批。
+- `form.data` 为 `{action, params}`；提交 `param:{decision:"approve", data:{params}}`，服务端按 action 的 `paramsSchema` 校验后重建命令。校验失败写入 `tool_interaction_invalid_payload`，命令不执行。拒绝回给模型拒绝原因与用户修改后的数据。
+- 缺少 required 参数的调用照常打开表单由用户补齐；命令命中拦截子命令但无法按模板完整反解（未声明参数、重复选项、多余位置参数、类型不符），或执行了声明拦截的连接器却不是单条直接调用（管道、包装、重定向、变量赋值或展开），一律以 `view_intercept_rejected` 拒绝，不弹表单也不执行。
+- 这是确认流程而非隔离边界：未声明 `intercept` 的子命令照常执行，脚本内部调用 CLI 无法识别。
 
-同一命令的多个 builtin confirmation 合成一个包含全部 `requirements` 的冻结请求；本轮复用绑定该命令和要求集合。多个匹配项中含可重写命令的 form 时，当前返回 `hitl_hook_conflict`，不丢弃其他规则也不直接执行；需拆分操作或调整互斥的 form 匹配。这不是多表单顺序编排的完成实现。
+Bash security 的软要求按当前 access level 判定，hard block 不可自动批准。
 
 审批项可增加 `policy`（路径/脚本执行范围）和 `requirements`（业务/安全原因）；`description` 是模型提供的补充说明。复杂 Shell 或远端 mutation 不下发 `approve_rule_run`，服务端也拒绝提交未展示的本轮批准选项。Question/planning 的恢复和 approval/form 不恢复的既有状态机保持不变。
 
@@ -39,9 +42,9 @@ assistant tool_calls[]
 三态语义：
 
 - `question`：来自 `ask_user_question`，`params` 每项提交 `answer` 或 `answers`。
-- `approval`：来自 Bash HITL 或文件工具越权路径审批，用户只能 approve / approve_rule_run / reject，不能修改命令内容。
+- `approval`：来自 Bash 访问策略/安全审查或文件工具越权路径审批，用户只能 approve / approve_rule_run / reject，不能修改命令内容。
 - `run_env` 的 set/unset/update 不增加专用 HITL；它们是 operation-aware barrier，执行时校验 key、value、最终状态限额、revision 与有界幂等收据。
-- `form`：用于 HTML 表单。独立 `ask_user_form` 仅收集输入，VIEW 为 `builtin/ask_user_form`，回答不授予权限、不重写工具调用；它使用单对象 `param:{decision,data?,reason?}`，approve 必须有 data，跨进程重启同其他 form 一样写入 `runtime_restarted` 而不恢复。Bash HITL 表单 approve 时用提交的 `data` 重建命令；工具审阅表单只批准后端冻结的调用，不使用返回的 data 改写参数。reject 可带 `reason`。
+- `form`：用于 HTML 表单。独立 `ask_user_form` 仅收集输入，VIEW 为 `builtin/ask_user_form`，回答不授予权限、不重写工具调用；它使用单对象 `param:{decision,data?,reason?}`，approve 必须有 data，跨进程重启同其他 form 一样写入 `runtime_restarted` 而不恢复。连接器拦截表单 approve 时用提交的 `data.params` 按 action 模板重建命令；工具审阅表单只批准后端冻结的调用，不使用返回的 data 改写参数。reject 可带 `reason`。
 - `planning`：wire-format 中来自 CODER 的 planning confirmation，`awaiting.ask.planning` 是单个对象；用户只能 `approve` 或 `reject`，reject 可带 `reason`。它不是 `plan_*` / plan-tasks 的执行任务计划。
 
 原生 Agent（GENERAL/CODER/KBASE）planningMode 的 `planning approve` 有独立 run 边界：后端先在当前 planning run 中记录 `request.submit` / `awaiting.answer` / `finalize_planning` tool result，并发布当前 run 的 `run.complete`；旧 live stream 随后以 `reason:"done"` 正常结束，不再追加新 run 的 `run.start`。旧 run 完成后，服务端启动新的 execute run，并通过 WebSocket push `run.started { runId, chatId, agentKey, startedAt }` 暴露新 `runId`；`startedAt` 等于该 run 注册时捕获的 epoch milliseconds。webclient 应在旧 stream done 后 attach 新 `runId` 获取执行流。新 run 自己的 stream 首部为 execution run bootstrap `request.query`，包含标准 query 字段 `requestId` / `runId` / `chatId` / `role` / `message`，然后是新 run 的 `run.start`。`planning reject` 不启动新 run，仍留在当前 planning run 中生成下一版 planning 或结束。
@@ -54,7 +57,7 @@ steer 准入与 planning submit 使用同一临界区：steer 先被接受，旧
 
 Host Bash 的 builtin 审批准备与命令启动分离：`approve`（仅本次批准）、`approve_rule_run`（本轮批准）和自动批准在完成授权校验后均可进入现有并发调度。同批符合并发条件的独立命令可以同时启动；本轮规则复用也不会因曾经需要审批而被强制串行。一次性授权绑定对应 `toolID`，不复制给兄弟调用；同规则的兄弟调用获批也不能覆盖显式拒绝。写文件与 Bash 同批、`run.env` 等控制操作屏障仍按原顺序执行；Container Bash、表单与 planning 保持原调度规则。
 
-Host Bash 同一命令同时命中 access/security 和 builtin 技能 hook 时，首次确认冻结全部待批准要求，主规则和 timeout 保持原检查优先级，不将 hook 提升为主规则。多个 access 要求时展示首个待批准规则。`approve` 只授予当前 toolID 一次性许可；`approve_rule_run` 也只有公开 `ruleKey` 对应的主规则可在本 Run 复用，其余要求仍为一次性许可。后续调用再次命中 secondary hook 时仍需确认。当前已批准调用重新比较完整工具参数及 access 指纹，即使已有本轮许可，命令/cwd/脚本内容变化也不能覆盖原快照；新增未授权 hook 同样返回未执行的审批变化错误，不重排已回答的 batch。硬禁止优先，表单不参与合并。审批摘要增加可选 `reviewedRuleKeys`（本次检查的规则）和 `runRuleKeys`（实际登记的本轮规则，最多一个），拒绝不产生本轮规则。现场案例见 [Bash审批卡住排查](Bash审批卡住排查.md)。
+Host Bash 同一命令同时命中 access 与 security 要求时，首次确认冻结全部待批准要求，主规则保持原检查优先级。多个 access 要求时展示首个待批准规则。`approve` 只授予当前 toolID 一次性许可；`approve_rule_run` 也只有公开 `ruleKey` 对应的主规则可在本 Run 复用，其余要求仍为一次性许可。当前已批准调用重新比较完整工具参数及 access 指纹，即使已有本轮许可，命令/cwd/脚本内容变化也不能覆盖原快照；新增未授权要求同样返回未执行的审批变化错误，不重排已回答的 batch。硬禁止优先，VIEW 拦截表单不参与合并。审批摘要增加可选 `reviewedRuleKeys`（本次检查的规则）和 `runRuleKeys`（实际登记的本轮规则，最多一个），拒绝不产生本轮规则。现场案例见 [Bash审批卡住排查](Bash审批卡住排查.md)。
 
 并发调用的 `tool.output` 按各自 `toolID` 和递增 `chunkIndex` 发送，`tool.result` 按实际完成时间实时发布；模型消息和审批摘要仍按原始调用顺序整理，每个调用只有一个最终结果。提交审批和模型一次生成多个调用都不能单独证明命令已并发启动，应以实际过程输出和执行时序验证。
 
@@ -96,6 +99,7 @@ Platform 重启统一取消所有未完成 Run，包括 question、planning、ap
 - run owner 统一校验根 `agentKey`；成员事件 key 不能用于控制总控 Run。
 - `approval.options[]` 与 `planning.options[]` 的内置动作只下发 `decision` code，按钮文案由 webclient 按当前语言本地化。两类选项协议均不含 `description`，Approval 选项说明由 webclient 按 `decision` 本地生成；Platform 在原生、代理和回放的统一流事件边界移除 `approvals[].options[].description` 与 `planning.options[].description`，不改写历史文件。审批项级 `approval.description` 仍用于审批标题；`question.options[].description` 仍用于答案提示，`question.options[].label` 仍是用户可见答案文本与答案匹配值，`form.title/form` 仍是业务或工具内容。
 - Bash 的 `approval.description` 使用工具调用传入的描述，缺省时沿用命令摘要兜底；后端不追加安全检查、路径/脚本审批原因或 cwd 说明。审批项仍保留原始 `command` 和 `ruleKey`，内部冻结的审批要求、审计及授权范围不因描述精简而改变。
+- 审批提交后的 `awaiting.answer.approvals[]` 由后端从原审批项带回可选 `description`，与 `command`、`decision`、可选 `reason` 一起下发并持久化；客户端提交参数不增加描述字段。已提交回答按描述、命令和审批结果展示，描述缺失或与命令相同时不重复展示；旧事件可从原审批项补齐描述。
 - 对 `question` / `approval` / `form`，`awaiting.ask.timeout == 0` 表示无限等待、不自动超时；`timeout > 0` 表示后端从发出等待项开始按真实时间独立倒计时。planning confirmation 的 `mode:"planning"` 永远省略该字段，含义同样是永久等待；前端不得为它显示倒计时。observer / attach / detach 状态不会暂停或延长后端超时。
 - `awaiting.answer.error.code == "timeout"` 时，`error.message` 会包含超时秒数与详细原因，并可携带 `timeoutSeconds`、`elapsedSeconds`、`reason:"submit_not_received_before_timeout"`。
 - `/api/submit` 对已自动终态或已经由其他提交处理的 known awaiting 返回 HTTP 409：`awaiting_expired`、`awaiting_interrupted` 或 `already_resolved`。响应 `data` 携带 `chatId/runId/awaitingId/status/errorCode` 和结构化 `error`；真正不存在或 `chatId/runId/awaitingId` 身份不匹配时返回 HTTP 400 `unknown_awaiting`。
@@ -127,7 +131,7 @@ Platform 重启统一取消所有未完成 Run，包括 question、planning、ap
 
 ## VIEW 连接器表单
 
-新表单采用显式 `mode: form` 与 `view: {connectorId,key}`，renderer 不决定 HITL 语义。`awaiting.ask.view` 提供版本与快照 hash，失败保留等待和拒绝入口。Team 成员的表单是独立的 `awaiting.ask`，引用就在它自己的 `view`。旧 viewport 字段已退役，输入出现即报错。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。
+连接器表单来自 `view.json` 的拦截 action，`awaiting.ask` 带 `mode: form` 与 `view: {connectorId,key}`，renderer 不决定 HITL 语义。`awaiting.ask.view` 提供版本与快照 hash，失败保留等待和拒绝入口。Team 成员的表单是独立的 `awaiting.ask`，引用就在它自己的 `view`。旧 viewport 字段已退役，输入出现即报错。完整定义、隔离和迁移步骤见 [VIEW连接器](VIEW连接器.md)。
 
 ## Steer selection 与控制归属
 
@@ -142,7 +146,7 @@ HITL Submit 可从其他已认证设备或 HTTP/WS 通道提交，不比较创�
 
 ### 工具执行前确认界面配置
 
-工具 YML 顶层的 `confirmationRules` 为业务 Handler 已要求的一次性确认选择 HTML form，不自行产生审批要求，也不修改授权策略。现已接入 `catalog_manage.apply/delete`、`chat_manage.delete`、`chat_start`（权限高于调用方 Run 当前档位时）及外观偏好、网站条目、看板、WebApp 日常管理、导出和诊断的 Desktop 动作；其他操作只有实现 `ToolApprovalPlanner` 后才能使用此配置。Bash 技能 HITL form 继续使用已有规则，Desktop 重影响动作的确认继续由 Desktop 执行端负责。
+工具 YML 顶层的 `confirmationRules` 为业务 Handler 已要求的一次性确认选择 HTML form，不自行产生审批要求，也不修改授权策略。现已接入 `catalog_manage.apply/delete`、`chat_manage.delete`、`chat_start`（权限高于调用方 Run 当前档位时）及外观偏好、网站条目、看板、WebApp 日常管理、导出和诊断的 Desktop 动作；其他操作只有实现 `ToolApprovalPlanner` 后才能使用此配置。连接器 CLI 的确认由 VIEW 拦截 action 负责，Desktop 重影响动作的确认继续由 Desktop 执行端负责。
 
 ```yaml
 confirmationRules:
@@ -191,3 +195,7 @@ Desktop 对已接管的日常动作通过内部 agentPlatform 上下文及固定
 内置 view 加载入口为所有 HTML 统一注入 `shared/resize.js`，不依赖具体审阅组件，也不需要模板逐一接入；新增内置 HTML 自动覆盖。尺寸桥接通过 `ResizeObserver` 测量自然正文高度，在正文展开、收起、详情浮层开关或宽度变化时向宿主发送 `awaiting_resize`，包含当前 `runId`、`awaitingId`、`formId` 和 `height`（CSS 像素）。WebClient 仅接收当前 iframe 与表单对应的有限正数高度，短内容收缩，长内容受宿主整体最大高度约束并在 iframe 内滚动；不支持上报的模板保留默认尺寸。该消息只影响布局，不参与 collect、批准或拒绝。
 
 同一入口为只读内置 HTML 注入 `shared/focus.js`，`ask_user_form` 含真实输入控件，不注入。用户点击非交互区域且没有选中文本时，页面向宿主发送 `awaiting_focus_release`，包含当前 `runId` 与 `awaitingId`；点击按钮、链接和可聚焦元素不发送，选中文本时保留焦点以便复制。宿主收到后取回键盘焦点，使“提交 / 拒绝”的数字快捷键继续生效。该消息只移动焦点，不参与 collect、批准或拒绝。
+
+## Mailbox 会话投递
+
+Mailbox 的 ask 镜像由 letter 开出的 Run 的等待项，问题、表单、工具审批按 awaiting_source 区分；审批即便 mode=form 也不能作为普通填表批准。chat_submit 先到先得，并在分身冻结环境用上级当前档位重新评估审批；强制人工、readonly 和 hard block 不放宽。submit 写入代答者 origin 与权限 accessGrant。详见 [Mailbox](Mailbox.md#请示与跳数)。

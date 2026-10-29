@@ -36,6 +36,7 @@ import (
 	"agent-platform/internal/knowledge"
 	"agent-platform/internal/llm"
 	"agent-platform/internal/lsp"
+	"agent-platform/internal/mailbox"
 	"agent-platform/internal/mcp"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/memoryworker"
@@ -69,6 +70,7 @@ import (
 )
 
 type App struct {
+	mailbox                *mailbox.Service
 	nativeConnectorRelease func()
 	Config                 config.Config
 	RuntimeEnv             runtimeenv.Info
@@ -174,7 +176,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 
 	modelRegistryStartedAt := time.Now()
-	modelRegistry, err := models.LoadModelRegistryWithIdentityFile(cfg.Paths.RegistriesDir, cfg.IdentityFile)
+	modelRegistry, err := models.LoadModelRegistryWithSsoIdTokenFile(cfg.Paths.RegistriesDir, cfg.SsoIdTokenFile)
 	if err != nil {
 		return nil, fmt.Errorf("load model registry (%s): %w", cfg.Paths.RegistriesDir, err)
 	}
@@ -219,7 +221,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		return nil, fmt.Errorf("load mcp registry: %w", err)
 	}
 	mcpGate := mcp.NewAvailabilityGate()
-	mcpClient := mcp.NewClientWithGate(mcpRegistry, nil, mcpGate).WithIdentityFile(cfg.IdentityFile)
+	mcpClient := mcp.NewClientWithGate(mcpRegistry, nil, mcpGate).WithSsoIdTokenFile(cfg.SsoIdTokenFile)
 	cleanupMCP := true
 	defer func() {
 		if cleanupMCP {
@@ -406,6 +408,19 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	chatResourceService := chatresource.NewService(chatStore)
 	terminalManager := terminal.NewManager()
 	conversationService := conversation.NewService(chatStore, archiveStore, archiver, runManager)
+	mailStore, err := mailbox.Open(cfg.Paths.ChatsDir)
+	if err != nil {
+		return nil, fmt.Errorf("initialize mailbox: %w", err)
+	}
+	mailService := mailbox.New(backgroundCtx, mailStore, cfg.Paths.ChatsDir, cfg.Mail.MaxHops, notifications)
+	cleanupMail := true
+	defer func() {
+		if cleanupMail {
+			_ = mailService.Close()
+		}
+	}()
+	conversationService.MailboxPurge = mailService.PurgeChat
+	conversationService.MailboxOpened = mailService.OpenedChats
 	conversationService.ExportMaxBytes = cfg.Export.MaxSnapshotBytes
 	conversationService.Notifications = notifications
 	conversationService.ControlReceipts = &operationstate.Receipts[conversation.ControlReceipt]{}
@@ -417,7 +432,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 	automationService := &automation.Service{Registry: automationRegistry, Orchestrator: automationOrchestrator, History: automationExecutionHistory, DefaultZoneID: cfg.Automation.DefaultZoneID}
 	controlHandler := platformcontrol.NewToolHandler(cfg, registry, conversationService).ConfigureControl(&adminsource.ControlService{Mutations: adminSourceService, Config: cfg, Registry: registry, Models: modelRegistry, Reload: reloader.Reload, Coordinate: reloader.WithCatalogDirectoryMutation, ValidateLibrary: kbasesService.ValidateBinding, LibraryDefinition: kbasesService.BindingDefinition}, conversationService, modelRegistry).ConfigureAutomation(automationService).ConfigureLibraries(kbasesService)
-	connectorAuth := connectorauth.New(backgroundCtx, cfg.Paths.ConnectorSources(), nil).WithInheritEnv(cfg.Bash.InheritEnv).WithPreparationReload(func(ctx context.Context) error { return reloader.Reload(ctx, "connectors") }).WithIdentityFile(cfg.IdentityFile).WithCredentialValidator(mcpClient.ValidateConnectorCredentials)
+	connectorAuth := connectorauth.New(backgroundCtx, cfg.Paths.ConnectorSources(), nil).WithInheritEnv(cfg.Bash.InheritEnv).WithPreparationReload(func(ctx context.Context) error { return reloader.Reload(ctx, "connectors") }).WithSsoIdTokenFile(cfg.SsoIdTokenFile).WithCredentialValidator(mcpClient.ValidateConnectorCredentials)
 	controlHandler.ConfigureConnectors(connectorAuth, mcp.NewConnectorChecker(cfg.Paths.ConnectorSources()))
 	controlHandler.RuntimeSnapshot = func() map[string]any {
 		statuses := []map[string]any{}
@@ -513,6 +528,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Runtime:                runtimeService,
 		ProxyRuntime:           proxyRuntime,
 		Conversation:           conversationService,
+		Mailbox:                mailService,
 		Project:                projectService,
 		DeferredAwaitings:      deferredAwaitings,
 		GatewayResolver:        gatewayResolver,
@@ -535,12 +551,18 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		PrimaryChats: conversationService,
 	})
 	runtimeService.Bind(queryService)
+	queryService.BindMailbox(mailService)
 	runtimeToolExecutor.WithWaitConditionProvider(waitEventProvider{runs: runops.NewToolHandler(runtimeService, runManager), auth: srv})
 	if err := queryService.Reconcile(); err != nil {
 		return nil, fmt.Errorf("reconcile persisted awaitings: %w", err)
 	}
+	// Mail recovery never blocks startup; unreconciled mail is suspended by
+	// dispatch once it finds no delivery identity.
+	if err := mailService.Reconcile(queryService.MailConsumedEvidence); err != nil {
+		log.Printf("[mailbox] reconcile: %v", err)
+	}
 
-	if err := toolExecutor.RegisterHandler(runops.NewToolHandler(runtimeService, runManager)); err != nil {
+	if err := toolExecutor.RegisterHandler(runops.NewToolHandler(runtimeService, runManager).WithMailbox(mailService)); err != nil {
 		return nil, fmt.Errorf("register run tools: %w", err)
 	}
 	log.Printf("server dependencies wired in %s", startupElapsed(serverStartedAt))
@@ -586,8 +608,10 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	cleanupBackground = false
 	cleanupMCP = false
 	cleanupNative = false
+	cleanupMail = false
 
 	return &App{
+		mailbox:                mailService,
 		nativeConnectorRelease: nativeRelease,
 		Config:                 cfg,
 		RuntimeEnv:             hostEnv,
@@ -617,6 +641,11 @@ func (a *App) Close() error {
 	// restarting the process after shutdown has begun.
 	if a.backgroundCancel != nil {
 		a.backgroundCancel()
+	}
+	if a.mailbox != nil {
+		if err := a.mailbox.Close(); err != nil {
+			log.Printf("close mailbox: %v", err)
+		}
 	}
 	if a.memoryWorker != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

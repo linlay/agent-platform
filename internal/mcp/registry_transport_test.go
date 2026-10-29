@@ -62,7 +62,7 @@ func TestRegistryDefaultsToStreamableHTTP(t *testing.T) {
 	}
 }
 
-func TestRegistryLoadsIdentityFileAuthSource(t *testing.T) {
+func TestRegistryLoadsSsoIdTokenFileAuthSource(t *testing.T) {
 	root := t.TempDir()
 	writeMCPRegistryFile(t, filepath.Join(root, "http.yml"), "serverKey: demo\nbaseUrl: https://mcp.example.test\nauthSource: identity-file\n")
 	registry, err := NewRegistry(root)
@@ -70,7 +70,7 @@ func TestRegistryLoadsIdentityFileAuthSource(t *testing.T) {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 	server, ok := registry.Server("demo")
-	if !ok || server.AuthSource != AuthSourceIdentityFile || server.AuthToken != "" {
+	if !ok || server.AuthSource != AuthSourceSsoIdTokenFile || server.AuthToken != "" {
 		t.Fatalf("unexpected identity file auth source: %#v", server)
 	}
 }

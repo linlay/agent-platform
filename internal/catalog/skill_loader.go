@@ -152,9 +152,8 @@ func loadSkillDefinitionFromDir(skillDir, skillID string, maxPromptChars int) (S
 	}
 	truncated := maxPromptChars > 0 && len(prompt) > maxPromptChars
 
-	bashHooksDir, err := resolveSkillBashHooksDir(skillDir)
-	if err != nil {
-		return SkillDefinition{}, false, fmt.Errorf("skill %s .bash-hooks: %w", skillID, err)
+	if err := rejectSkillBashHooks(skillDir); err != nil {
+		return SkillDefinition{}, false, fmt.Errorf("skill %s: %w", skillID, err)
 	}
 	runtimeEnv, pathAppend, err := loadSkillRuntimeEnv(skillDir)
 	if err != nil {
@@ -171,26 +170,23 @@ func loadSkillDefinitionFromDir(skillDir, skillID string, maxPromptChars int) (S
 		Version:         version,
 		Prompt:          prompt,
 		PromptTruncated: truncated,
-		BashHooksDir:    bashHooksDir,
 		RuntimeEnv:      runtimeEnv,
 		Dir:             skillDir,
 		PathAppend:      pathAppend,
 	}, true, nil
 }
 
-func resolveSkillBashHooksDir(skillDir string) (string, error) {
-	path := filepath.Join(skillDir, ".bash-hooks")
-	info, err := os.Stat(path)
+// Command confirmations moved to connector VIEW actions; a leftover hook
+// directory would otherwise silently stop confirming anything.
+func rejectSkillBashHooks(skillDir string) error {
+	_, err := os.Lstat(filepath.Join(skillDir, ".bash-hooks"))
 	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
+		return nil
 	}
 	if err != nil {
-		return "", err
+		return err
 	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("not a directory")
-	}
-	return filepath.Abs(path)
+	return fmt.Errorf(".bash-hooks is no longer supported; declare an intercepted action in a connector view.json instead")
 }
 
 // loadSkillRuntimeEnv reads .runtime-env.json. PATH is not an override: its

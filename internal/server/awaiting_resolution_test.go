@@ -19,7 +19,6 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/stream"
 )
 
 // Barriers stop the writer outside FileStore's mutex so reads can observe the
@@ -81,7 +80,7 @@ func TestLiveApprovalTimeoutKeepsSingleBatchResultsAndValidContinuation(t *testi
 		}
 		if call == 1 {
 			calls := []providerToolCallSpec{}
-			for i, cmd := range []string{"docker rmi image-a", "docker rmi image-b", "ls /workspace/a", "ls /workspace/b", "ls /workspace/c"} {
+			for i, cmd := range []string{"rm -r /workspace/old-a", "rm -r /workspace/old-b", "ls /workspace/a", "ls /workspace/b", "ls /workspace/c"} {
 				calls = append(calls, providerToolCallSpec{ID: fmt.Sprintf("tool_%d", i), Name: "bash", Args: map[string]any{"command": cmd, "cwd": "/workspace"}})
 			}
 			writeProviderSSE(t, w, providerToolCallsFrame(t, calls), "[DONE]")
@@ -90,7 +89,7 @@ func TestLiveApprovalTimeoutKeepsSingleBatchResultsAndValidContinuation(t *testi
 		writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"inventory complete"},"finish_reason":"stop"}]}`, "[DONE]")
 	}, testFixtureOptions{
 		sandbox: &scriptedSandbox{execute: func(command, cwd string, _ map[string]string) contracts.SandboxExecutionResult {
-			if strings.HasPrefix(command, "docker rmi") {
+			if strings.HasPrefix(command, "rm -r") {
 				t.Errorf("timed out command executed: %s", command)
 			}
 			return contracts.SandboxExecutionResult{Stdout: "executed: " + command, Cwd: cwd}
@@ -103,14 +102,6 @@ func TestLiveApprovalTimeoutKeepsSingleBatchResultsAndValidContinuation(t *testi
 			}
 			data = bytes.ReplaceAll(data, []byte("  hitl:\n    timeout: 210"), []byte("  hitl:\n    timeout: 1"))
 			if err := os.WriteFile(agentPath, data, 0600); err != nil {
-				t.Fatal(err)
-			}
-			hooks := filepath.Join(cfg.Paths.SkillsCenterDir, "mock-skill", ".bash-hooks")
-			if err := os.MkdirAll(hooks, 0700); err != nil {
-				t.Fatal(err)
-			}
-			rule := "commands:\n  - command: docker\n    subcommands:\n      - match: rmi\n        level: 1\n        view: {key: confirm_dialog}\n        ruleKey: test-docker-rmi\n"
-			if err := os.WriteFile(filepath.Join(hooks, "approval.yml"), []byte(rule), 0600); err != nil {
 				t.Fatal(err)
 			}
 		},
@@ -283,65 +274,6 @@ func TestAcceptedSubmitRetainsExecutorUntilResultsPersist(t *testing.T) {
 	}
 }
 
-func TestRecoveredAwaitingClaimBlocksConcurrentTimeoutReadAndSubmit(t *testing.T) {
-	fixture := newTestFixture(t)
-	const chatID, runID, awaitingID = "chat-claim-race", "run-claim-race", "await-claim-race"
-	createdAt := time.Now().UnixMilli() - 2000
-	seedDeferredAwaiting(t, fixture.chats, chatID, runID, awaitingID, "question", 1, createdAt)
-	item := chat.PendingAwaitingWithChat{ChatID: chatID, RunID: runID, AwaitingID: awaitingID, Mode: "question", CreatedAt: createdAt}
-	step, err := fixture.server.loadPersistedAwaitingStep(chatID, awaitingID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	recovered, err := fixture.server.registerRecoveredAwaitingRun(item)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.server.deferredAwaitings.Register(DeferredAwaiting{ChatID: chatID, RunID: runID, AwaitingID: awaitingID, Mode: "question", CreatedAt: createdAt, Ask: step.Ask})
-	observer, err := recovered.EventBus.Subscribe(0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer observer.MarkDone()
-	ready, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	unblock := sync.OnceFunc(func() { close(release) })
-	defer unblock()
-	fixture.server.deps.Chats = &awaitingBarrierStore{awaitingReconcileFailureStore: &awaitingReconcileFailureStore{Store: fixture.chats}, beforeAnswer: func() { close(ready); <-release }}
-	bindTestRuntime(fixture.server)
-	var finishErr error
-	go func() {
-		defer close(done)
-		_, finishErr = fixture.server.finishTerminalAwaiting(item, contracts.AwaitingTimeoutAnswer("question", 1, 2), time.Now().UnixMilli())
-	}()
-	defer func() { unblock(); waitAwaitingSignal(t, done) }()
-	waitAwaitingSignal(t, ready)
-	detail, err := fixture.server.loadChatDetail(context.Background(), chatID, false)
-	if err != nil || detail.Awaiting == nil {
-		t.Fatalf("claimed pending lost: %#v %v", detail.Awaiting, err)
-	}
-	state, err := fixture.server.finishTerminalAwaiting(item, contracts.AwaitingTimeoutAnswer("question", 1, 2), time.Now().UnixMilli())
-	if err != nil || state != contracts.AwaitingResolutionOwned {
-		t.Fatalf("competing timeout took ownership: %v %v", state, err)
-	}
-	assertAwaitingSubmitConflict(t, fixture.server, chatID, runID, awaitingID, 409, "already_resolved", "already_resolved")
-	if latest, err := fixture.chats.LoadLatestAwaitingSubmit(chatID, awaitingID); err != nil || latest != nil {
-		t.Fatalf("loser wrote answer: %#v %v", latest, err)
-	}
-	unblock()
-	waitAwaitingSignal(t, done)
-	if finishErr != nil {
-		t.Fatal(finishErr)
-	}
-	assertRestartTerminalizedAwaiting(t, fixture.chats, chatID, runID, awaitingID, "timeout")
-	events := []stream.EventData{}
-	for event := range observer.Events {
-		events = append(events, event)
-	}
-	if len(events) != 3 || events[0].Type != "awaiting.answer" || events[1].Type != "tool.result" || events[2].Type != "run.cancel" {
-		t.Fatalf("duplicate/missing terminal events: %#v", events)
-	}
-}
-
 func TestUnownedAwaitingConcurrentReconciliationIsIdempotent(t *testing.T) {
 	fixture := newTestFixture(t)
 	const chatID, runID, awaitingID = "chat-orphan-race", "run-orphan-race", "await-orphan-race"
@@ -363,75 +295,6 @@ func TestUnownedAwaitingConcurrentReconciliationIsIdempotent(t *testing.T) {
 	unlock()
 	wg.Wait()
 	assertRestartTerminalizedAwaiting(t, fixture.chats, chatID, runID, awaitingID, "timeout")
-}
-
-func TestRecoveredAwaitingSubmitWinsConcurrentExpiredRead(t *testing.T) {
-	fixture := newTestFixture(t)
-	const chatID, runID, awaitingID = "chat-submit-wins", "run-submit-wins", "await-submit-wins"
-	createdAt := time.Now().UnixMilli()
-	seedDeferredAwaiting(t, fixture.chats, chatID, runID, awaitingID, "question", 60, createdAt)
-	item := chat.PendingAwaitingWithChat{ChatID: chatID, RunID: runID, AwaitingID: awaitingID, Mode: "question", CreatedAt: createdAt}
-	step, err := fixture.server.loadPersistedAwaitingStep(chatID, awaitingID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fixture.server.registerRecoveredAwaitingRun(item); err != nil {
-		t.Fatal(err)
-	}
-	fixture.server.deferredAwaitings.Register(DeferredAwaiting{ChatID: chatID, RunID: runID, AwaitingID: awaitingID, Mode: "question", CreatedAt: createdAt, Ask: step.Ask})
-	ready, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	unblock := sync.OnceFunc(func() { close(release) })
-	defer unblock()
-	var writes atomic.Int32
-	fixture.server.deps.Chats = &awaitingBarrierStore{awaitingReconcileFailureStore: &awaitingReconcileFailureStore{Store: fixture.chats}, beforeAnswer: func() {
-		if writes.Add(1) == 1 {
-			close(ready)
-			<-release
-		}
-	}}
-	bindTestRuntime(fixture.server)
-	rec := httptest.NewRecorder()
-	go func() {
-		defer close(done)
-		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/submit", strings.NewReader(`{"agentKey":"mock-agent","chatId":"`+chatID+`","runId":"`+runID+`","awaitingId":"`+awaitingID+`","submitId":"winning-submit","params":[{"id":"q1","answer":"continue"}]}`)))
-	}()
-	defer func() { unblock(); waitAwaitingSignal(t, done) }()
-	waitAwaitingSignal(t, ready)
-	// Advance the persisted deadline after submit has already claimed the shell.
-	if err := fixture.chats.SetPendingAwaiting(chatID, chat.PendingAwaiting{RunID: runID, AwaitingID: awaitingID, Mode: "question", CreatedAt: createdAt - 61000}); err != nil {
-		t.Fatal(err)
-	}
-	detail, err := fixture.server.loadChatDetail(context.Background(), chatID, false)
-	if err != nil || detail.Awaiting == nil {
-		t.Fatalf("submit lost pending ownership: %#v %v", detail.Awaiting, err)
-	}
-	assertAwaitingSubmitConflict(t, fixture.server, chatID, runID, awaitingID, 409, "already_resolved", "already_resolved")
-	if writes.Load() != 1 {
-		t.Fatalf("competing terminal writes: %d", writes.Load())
-	}
-	unblock()
-	waitAwaitingSignal(t, done)
-	if rec.Code != 200 {
-		t.Fatalf("winning submit failed: %d %s", rec.Code, rec.Body.String())
-	}
-	latest, err := fixture.chats.LoadLatestAwaitingSubmit(chatID, awaitingID)
-	if err != nil || latest == nil || latest.Answer["status"] != "answered" {
-		t.Fatalf("user answer replaced: %#v %v", latest, err)
-	}
-	// The continuation may still be streaming; wait for its real completion.
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if status, ok := fixture.runs.RunStatus(runID); ok && status.CompletedAt > 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("submitted continuation did not finish")
-		}
-		time.Sleep(time.Millisecond)
-	}
-	if writes.Load() != 1 {
-		t.Fatalf("duplicate answer writes: %d", writes.Load())
-	}
 }
 
 func TestUnownedAwaitingRetryAfterPartialWrite(t *testing.T) {

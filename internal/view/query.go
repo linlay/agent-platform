@@ -46,12 +46,14 @@ type Query struct {
 // QueryArg is one CLI argv item: a literal string, or an object that inserts
 // a param as a positional value ({param}), an option with a value
 // ({opt, param}) or a flag present only when the param is true ({flag, param}).
+// JSON passes an object or array param as one compact JSON value.
 // An omitted or null param drops the whole item.
 type QueryArg struct {
 	Literal string `json:"-"`
 	Param   string `json:"param,omitempty"`
 	Opt     string `json:"opt,omitempty"`
 	Flag    string `json:"flag,omitempty"`
+	JSON    bool   `json:"json,omitempty"`
 }
 
 func (a QueryArg) MarshalJSON() ([]byte, error) {
@@ -104,6 +106,20 @@ func validateQueries(key string, d Definition) error {
 		if err := validateFixedArguments(q); err != nil {
 			return fmt.Errorf("%w: query %s of %s: %v", ErrInvalid, name, key, err)
 		}
+		if err := validateJSONArgs(q); err != nil {
+			return fmt.Errorf("%w: query %s of %s: %v", ErrInvalid, name, key, err)
+		}
+	}
+	return nil
+}
+
+// validateJSONArgs requires a JSON arg to carry an object or array param.
+func validateJSONArgs(q Query) error {
+	types := propertyTypes(q.ParamsSchema)
+	for _, arg := range q.Args {
+		if arg.JSON && types[arg.Param] != "object" && types[arg.Param] != "array" {
+			return fmt.Errorf("json arg %s requires an object or array param", arg.Param)
+		}
 	}
 	return nil
 }
@@ -149,6 +165,9 @@ func validateQueryArg(arg QueryArg) error {
 	}
 	if arg.Opt != "" && arg.Flag != "" {
 		return fmt.Errorf("arg %s uses both opt and flag", arg.Param)
+	}
+	if arg.JSON && arg.Flag != "" {
+		return fmt.Errorf("arg %s cannot be both json and a flag", arg.Param)
 	}
 	if option := arg.Opt + arg.Flag; option != "" && !optionPattern.MatchString(option) {
 		return fmt.Errorf("arg %s option %q must look like -x or --name", arg.Param, option)

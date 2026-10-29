@@ -38,7 +38,8 @@ func Snapshot(runs contracts.RunManager, chats chat.Store, runID string) (contra
 			waiters := lister.ActiveAwaitings(runID)
 			sort.Slice(waiters, func(i, j int) bool { return publicAwaitingID(waiters[i]) < publicAwaitingID(waiters[j]) })
 			snapshot.AwaitingCount = len(waiters)
-			for _, awaiting := range waiters {
+			if len(waiters) > 0 {
+				awaiting := waiters[0]
 				publicID := strings.TrimSpace(awaiting.PublicAwaitingID)
 				if publicID == "" {
 					publicID = strings.TrimSpace(awaiting.AwaitingID)
@@ -53,7 +54,6 @@ func Snapshot(runs contracts.RunManager, chats chat.Store, runID string) (contra
 				if awaiting.Mode == "question" {
 					snapshot.Awaiting.Questions = append([]any(nil), awaiting.Questions...)
 				}
-				break
 			}
 		}
 	}

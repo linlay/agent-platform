@@ -4,7 +4,7 @@ i18n:
     label: "Steer Chat Run"
   zh-CN:
     label: "调整会话运行目标"
-description: "Steer an independent run started by chat_start. Read the task-control skill before use."
+description: "Steer an independent run started by chat_start. Prefer chat_send for durable correspondence. Read the task-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: false

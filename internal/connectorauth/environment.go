@@ -47,15 +47,15 @@ func cliOAuthComponent(pkg connector.Package) (connector.Package, error) {
 	return OAuthComponent(pkg, "")
 }
 
-func ResolveEnvironment(ctx context.Context, d connector.CredentialEnvironment, identityFile string) (map[string]string, error) {
-	env, _, err := ResolveEnvironmentWithRevision(ctx, d, identityFile)
+func ResolveEnvironment(ctx context.Context, d connector.CredentialEnvironment, ssoIdTokenFile string) (map[string]string, error) {
+	env, _, err := ResolveEnvironmentWithRevision(ctx, d, ssoIdTokenFile)
 	return env, err
 }
 
 // ResolveEnvironmentWithRevision also returns the token revision read together
 // with the values, so a caller can bind a request to the account it executes.
 // Other modes return an empty revision.
-func ResolveEnvironmentWithRevision(ctx context.Context, d connector.CredentialEnvironment, identityFile string) (map[string]string, string, error) {
+func ResolveEnvironmentWithRevision(ctx context.Context, d connector.CredentialEnvironment, ssoIdTokenFile string) (map[string]string, string, error) {
 	if len(d.Env) == 0 {
 		return nil, "", nil
 	}
@@ -86,7 +86,7 @@ func ResolveEnvironmentWithRevision(ctx context.Context, d connector.CredentialE
 		values["ACCESS_TOKEN"] = token
 	case connector.AuthOneID:
 		var err error
-		values, err = agentconfig.ReadIdentityEnvironment(identityFile)
+		values, err = agentconfig.ReadIdentityEnvironment(ssoIdTokenFile)
 		if err != nil {
 			return nil, "", fmt.Errorf("Desktop SSO is unavailable")
 		}
@@ -102,21 +102,4 @@ func ResolveEnvironmentWithRevision(ctx context.Context, d connector.CredentialE
 		env[name] = value
 	}
 	return env, revision, nil
-}
-
-func ResolveEnvironments(ctx context.Context, bindings []connector.CredentialEnvironment, identityFile string) (map[string]string, error) {
-	result := map[string]string{}
-	for _, binding := range bindings {
-		env, err := ResolveEnvironment(ctx, binding, identityFile)
-		if err != nil {
-			return nil, err
-		}
-		for key, value := range env {
-			if _, exists := result[key]; exists {
-				return nil, fmt.Errorf("conflicting connector credential environment")
-			}
-			result[key] = value
-		}
-	}
-	return result, nil
 }

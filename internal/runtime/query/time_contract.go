@@ -27,10 +27,5 @@ const timeContractViolationMessage = "time contract violation"
 
 const chatStorageSchemaViolationMessage = "chat storage schema violation"
 
-var errTimeContractViolation = runexec.ErrTimeContractViolation
 var timeContractErrorData = runexec.TimeContractErrorData
-var chatStorageSchemaErrorData = runexec.ChatStorageSchemaErrorData
 var isTimeContractViolation = runexec.IsTimeContractViolation
-var contractViolationMessage = runexec.ContractViolationMessage
-var localTimeContractRunErrorEvent = runexec.LocalTimeContractRunErrorEvent
-var nextLocalTimeContractErrorSeq = runexec.NextLocalTimeContractErrorSeq

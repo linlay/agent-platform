@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -233,7 +234,11 @@ func TestAbsoluteResourceEnforcesWorkspaceChatOwnerAndTeamBoundaries(t *testing.
 	// Use an existing toolchain file, not this checkout: the checkout itself
 	// may be under an allowed temporary root. Validate the fixture so none of
 	// the external-path assertions silently lose coverage.
-	outsidePath := filepath.Join(runtime.GOROOT(), "src", "runtime", "runtime.go")
+	goroot, err := exec.Command("go", "env", "GOROOT").Output()
+	if err != nil {
+		t.Fatalf("go env GOROOT: %v", err)
+	}
+	outsidePath := filepath.Join(strings.TrimSpace(string(goroot)), "src", "runtime", "runtime.go")
 	if info, err := os.Stat(outsidePath); err != nil || !info.Mode().IsRegular() {
 		t.Fatalf("outside fixture must be an existing regular file: %q: %v", outsidePath, err)
 	}

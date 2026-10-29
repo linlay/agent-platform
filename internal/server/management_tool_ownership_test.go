@@ -76,7 +76,7 @@ func TestConnectorCatalogIncludesHiddenChatToolDescriptions(t *testing.T) {
 				continue
 			}
 			found = true
-			if len(c.Tools) != 8 {
+			if len(c.Tools) != 11 {
 				t.Fatalf("task tools: %+v", c.Tools)
 			}
 			for _, tool := range c.Tools {

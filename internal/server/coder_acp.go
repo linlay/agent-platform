@@ -5,10 +5,8 @@ import (
 	"strings"
 
 	agentbuiltin "agent-platform/internal/agent/builtin"
-	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
-	"agent-platform/internal/contracts"
 )
 
 func (s *Server) applyProxyRoutingConfig(def *catalog.AgentDefinition) *statusError {
@@ -94,15 +92,4 @@ func (s *Server) applyChannelImportRoutingConfig(def *catalog.AgentDefinition) *
 		Timeout:      300,
 	}
 	return nil
-}
-
-func (s *Server) acpCoderModelOptions(session contracts.QuerySession, existing *api.QueryModelOptions) *api.QueryModelOptions {
-	return agentbuiltin.CoderResolveACPModelOptions(session.Mode, session.ModelKey, existing, func(modelKey string) string {
-		if s != nil && s.deps.Models != nil {
-			if model, err := s.deps.Models.GetModel(modelKey); err == nil && strings.TrimSpace(model.ModelID) != "" {
-				return strings.TrimSpace(model.ModelID)
-			}
-		}
-		return ""
-	})
 }

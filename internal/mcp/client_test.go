@@ -377,11 +377,11 @@ func TestSanitizeSyncErrorRedactsConfiguredSecrets(t *testing.T) {
 	}
 }
 
-func TestHeaderRoundTripperReadsIdentityFileOnEveryRequest(t *testing.T) {
-	identityFile := filepath.Join(t.TempDir(), "sso-access-token.txt")
+func TestHeaderRoundTripperReadsSsoIdTokenFileOnEveryRequest(t *testing.T) {
+	ssoIdTokenFile := filepath.Join(t.TempDir(), "sso-id-token.txt")
 	tokenA := unsignedJWTWithIssuer(t, "https://eiam.example.test/auth/oidc/dev", "subject-a")
 	tokenB := unsignedJWTWithIssuer(t, "https://eiam.example.test/auth/oidc/dev", "subject-b")
-	if err := writeConnectorFixture(identityFile, []byte(tokenA+"\n"), 0o600); err != nil {
+	if err := writeConnectorFixture(ssoIdTokenFile, []byte(tokenA+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var authorizations []string
@@ -395,8 +395,8 @@ func TestHeaderRoundTripperReadsIdentityFileOnEveryRequest(t *testing.T) {
 				Request:    request,
 			}, nil
 		}),
-		authSource:     AuthSourceIdentityFile,
-		identityFile:   identityFile,
+		authSource:     AuthSourceSsoIdTokenFile,
+		ssoIdTokenFile: ssoIdTokenFile,
 		configuredHost: "example.test",
 	}
 	request, err := http.NewRequest(http.MethodPost, "https://example.test/mcp", nil)
@@ -406,7 +406,7 @@ func TestHeaderRoundTripperReadsIdentityFileOnEveryRequest(t *testing.T) {
 	if _, err := transport.RoundTrip(request); err != nil {
 		t.Fatalf("first request: %v", err)
 	}
-	if err := writeConnectorFixture(identityFile, []byte(tokenB+"\n"), 0o600); err != nil {
+	if err := writeConnectorFixture(ssoIdTokenFile, []byte(tokenB+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := transport.RoundTrip(request); err != nil {
@@ -417,9 +417,9 @@ func TestHeaderRoundTripperReadsIdentityFileOnEveryRequest(t *testing.T) {
 	}
 }
 
-func TestHeaderRoundTripperRejectsIdentityFileOutsideConfiguredMCPHost(t *testing.T) {
-	identityFile := filepath.Join(t.TempDir(), "sso-access-token.txt")
-	if err := writeConnectorFixture(identityFile, []byte("identity-token\n"), 0o600); err != nil {
+func TestHeaderRoundTripperRejectsSsoIdTokenFileOutsideConfiguredMCPHost(t *testing.T) {
+	ssoIdTokenFile := filepath.Join(t.TempDir(), "sso-id-token.txt")
+	if err := writeConnectorFixture(ssoIdTokenFile, []byte("identity-token\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	transport := headerRoundTripper{
@@ -427,7 +427,7 @@ func TestHeaderRoundTripperRejectsIdentityFileOutsideConfiguredMCPHost(t *testin
 			t.Fatalf("untrusted request reached base transport: %s", request.URL)
 			return nil, nil
 		}),
-		authSource: AuthSourceIdentityFile, identityFile: identityFile, configuredHost: "api.resource.test",
+		authSource: AuthSourceSsoIdTokenFile, ssoIdTokenFile: ssoIdTokenFile, configuredHost: "api.resource.test",
 	}
 	request, err := http.NewRequest(http.MethodPost, "https://attacker.test/mcp", nil)
 	if err != nil {

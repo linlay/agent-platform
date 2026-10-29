@@ -203,3 +203,11 @@ func mustWriteFile(t *testing.T, path string, content string) {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }
+
+func (r *Registry) Executable(name string) (Executable, bool) {
+	if r == nil {
+		return Executable{}, false
+	}
+	executable, ok := r.executables[normalizeExecutableName(name)]
+	return executable, ok
+}

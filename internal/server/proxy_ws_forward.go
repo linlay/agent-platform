@@ -10,13 +10,7 @@ import (
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/catalog"
 	runtimeproxy "agent-platform/internal/runtime/proxy"
-	"agent-platform/internal/runtime/runexec"
-	"agent-platform/internal/stream"
 )
-
-func proxyWebSocketTarget(proxy *catalog.ProxyConfig) (string, http.Header, error) {
-	return runtimeproxy.WebSocketTarget(proxy)
-}
 
 func proxyUpstreamTransport(proxy *catalog.ProxyConfig) string {
 	return runtimeproxy.UpstreamTransport(proxy)
@@ -28,52 +22,6 @@ func proxyRouteRequestType(route *proxyRunRoute, name string) string {
 
 func proxyProtocol(proxy *catalog.ProxyConfig) string {
 	return runtimeproxy.Protocol(proxy)
-}
-
-func proxyQueryPayloadWithWorkspace(req api.QueryRequest, proxy *catalog.ProxyConfig, references []api.Reference, workspaceRoot string) map[string]any {
-	return runtimeproxy.QueryPayloadWithWorkspace(queryCommandFromAPI(req), proxy, runtimeReferencesFromAPI(references), workspaceRoot)
-}
-
-func proxyForwardParams(req api.QueryRequest, proxy *catalog.ProxyConfig, workspaceRoot string) map[string]any {
-	return runtimeproxy.ForwardParams(queryCommandFromAPI(req), proxy, workspaceRoot)
-}
-
-func proxyRequestHasReservedCWD(params map[string]any) bool {
-	return runtimeproxy.RequestHasReservedCWD(params)
-}
-
-func proxyAgentKey(proxy *catalog.ProxyConfig, fallback string) string {
-	return runtimeproxy.AgentKey(proxy, fallback)
-}
-
-type proxyDecodedFrame = runtimeproxy.DecodedFrame
-
-// decodeProxyFrameAt preserves JSON numeric syntax and validates every
-// upstream stream event before it can be forwarded or persisted. A malformed
-// non-event frame retains the historical "ignore it" behavior; a malformed
-// timestamp is a contract violation and must terminate the proxy run.
-func decodeProxyFrameAt(data []byte, eventLocation string) (proxyDecodedFrame, bool, error) {
-	return runtimeproxy.DecodeFrameAt(data, eventLocation)
-}
-
-func proxyFrameMatchesRequest(frame proxyDecodedFrame, requestID string) bool {
-	return runtimeproxy.FrameMatchesRequest(frame, requestID)
-}
-
-func proxyFrameError(frame proxyDecodedFrame) error {
-	return runtimeproxy.FrameError(frame)
-}
-
-func decodeProxyEventAt(data []byte, eventLocation string) (stream.EventData, bool, error) {
-	return runtimeproxy.DecodeEventAt(data, eventLocation)
-}
-
-func normalizeProxyEventIdentity(event stream.EventData, req api.QueryRequest) stream.EventData {
-	return runtimeproxy.NormalizeEventIdentity(event, queryCommandFromAPI(req))
-}
-
-func proxyRunErrorEvent(req api.QueryRequest, err error) stream.EventData {
-	return runexec.ProxyRunErrorEvent(queryCommandFromAPI(req), err)
 }
 
 func (s *Server) forwardProxySubmit(req api.SubmitRequest) (api.SubmitResponse, *statusError, bool) {
@@ -244,6 +192,10 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 		return api.SteerResponse{Accepted: false, Status: "unsupported", RunID: req.RunID, SteerID: steerID, Detail: "attachment steer is not supported for remote runs"}, nil, true
 	}
 	route.RememberSteerOrigin(steerID, req.Origin)
+	route.RememberSteerMail(steerID, req.Mail, req.Message)
+	if req.ModelMessage != "" {
+		req.Message = req.ModelMessage
+	}
 	if route.Transport == "sse" {
 		var response api.SteerResponse
 		statusErr := postProxyRunControl(route, "/api/steer", map[string]any{
@@ -323,11 +275,4 @@ func postProxyRunControl(route *proxyRunRoute, path string, payload map[string]a
 
 func sendProxyRouteMessage(route *proxyRunRoute, payload map[string]any) bool {
 	return route.Send(payload)
-}
-
-func lenAnyMap(value any) int {
-	if item, ok := value.(map[string]any); ok {
-		return len(item)
-	}
-	return 0
 }

@@ -1,7 +1,5 @@
 package tools
 
-import "strings"
-
 func stringListArg(args map[string]any, key string) []string {
 	raw, ok := args[key]
 	if !ok || raw == nil {
@@ -40,13 +38,4 @@ func floatArg(args map[string]any, key string) float64 {
 func boolArg(args map[string]any, key string) bool {
 	value, ok := args[key].(bool)
 	return ok && value
-}
-
-func firstNonBlank(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }

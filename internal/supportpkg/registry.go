@@ -127,27 +127,12 @@ func NewRegistry(root string) *Registry {
 	}
 }
 
-func (r *Registry) Root() string {
-	if r == nil {
-		return ""
-	}
-	return r.root
-}
-
 func (r *Registry) Packages() []Package {
 	if r == nil {
 		return nil
 	}
 	out := append([]Package(nil), r.packages...)
 	return out
-}
-
-func (r *Registry) Executable(name string) (Executable, bool) {
-	if r == nil {
-		return Executable{}, false
-	}
-	executable, ok := r.executables[normalizeExecutableName(name)]
-	return executable, ok
 }
 
 func (r *Registry) Executables() []Executable {

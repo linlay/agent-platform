@@ -26,9 +26,6 @@ type Config struct {
 	ShowTerminal     bool `json:"showTerminal"`
 }
 
-// Defaults returns the template defaults of a mode for a native agent.
-func Defaults(mode string) Config { return DefaultsForEngine(mode, false) }
-
 // DefaultsForEngine also applies the engine: an ACP bridge owns Workspace
 // editing, so the editing entry is never offered by default there.
 func DefaultsForEngine(mode string, acp bool) Config {
@@ -66,8 +63,6 @@ func applyBackendAttachmentCapabilities(c Config, mode string, acp bool) Config 
 	}
 	return c
 }
-
-func Parse(mode string, raw any) (Config, error) { return ParseForEngine(mode, false, raw) }
 
 func ParseForEngine(mode string, acp bool, raw any) (Config, error) {
 	c := DefaultsForEngine(mode, acp)

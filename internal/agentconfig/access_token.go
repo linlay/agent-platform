@@ -8,12 +8,12 @@ import (
 	"unicode/utf8"
 )
 
-const maxAccessTokenFileBytes = 64 * 1024
+const maxSsoIdTokenFileBytes = 64 * 1024
 
 // ReadIdentityEnvironment supplies the reserved, invocation-local SSO variable.
 // Never merge this into os.Environ or persist it in a connector/runtime package.
 func ReadIdentityEnvironment(filePath string) (map[string]string, error) {
-	token, err := ReadAccessTokenFile(filePath)
+	token, err := ReadSsoIdTokenFile(filePath)
 	if err != nil || token == "" {
 		return nil, err
 	}
@@ -36,14 +36,14 @@ func WithIdentityEnvironment(base []string, identity map[string]string) []string
 	return env
 }
 
-// ReadAccessTokenFile reads the current Desktop identity token without
+// ReadSsoIdTokenFile reads the current Desktop identity token without
 // caching it. A missing path or empty file means that no identity is active.
-func ReadAccessTokenFile(filePath string) (string, error) {
+func ReadSsoIdTokenFile(filePath string) (string, error) {
 	filePath = strings.TrimSpace(filePath)
 	if filePath == "" {
 		return "", nil
 	}
-	file, err := openIdentityFile(filePath)
+	file, err := openSsoIdTokenFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
@@ -52,12 +52,12 @@ func ReadAccessTokenFile(filePath string) (string, error) {
 	}
 	defer file.Close()
 
-	contents, err := io.ReadAll(io.LimitReader(file, maxAccessTokenFileBytes+1))
+	contents, err := io.ReadAll(io.LimitReader(file, maxSsoIdTokenFileBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("read identity file: %w", err)
 	}
-	if len(contents) > maxAccessTokenFileBytes {
-		return "", fmt.Errorf("identity file exceeds %d bytes", maxAccessTokenFileBytes)
+	if len(contents) > maxSsoIdTokenFileBytes {
+		return "", fmt.Errorf("identity file exceeds %d bytes", maxSsoIdTokenFileBytes)
 	}
 	if !utf8.Valid(contents) {
 		return "", fmt.Errorf("identity file must contain valid UTF-8")

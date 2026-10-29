@@ -18,10 +18,6 @@ func validateSubmitParams(ctx contracts.AwaitingSubmitContext, params api.Submit
 	return query.ValidateSubmitParams(ctx, api.SubmitRequest{Params: params})
 }
 
-func validateSubmitParam(ctx contracts.AwaitingSubmitContext, param api.SubmitParam) error {
-	return query.ValidateSubmitParams(ctx, api.SubmitRequest{Param: param})
-}
-
 func validateDeferredSubmitParams(mode string, params api.SubmitParams) error {
 	return query.ValidateDeferredSubmitParams(mode, api.SubmitRequest{Params: params})
 }

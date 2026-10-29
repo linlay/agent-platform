@@ -106,3 +106,15 @@ func TestActiveSummaryMatchesRebuiltSteerReferences(t *testing.T) {
 		})
 	}
 }
+
+func TestTextMailSteerKeepsTrustedInputForModelReconstruction(t *testing.T) {
+	row := map[string]any{"_type": "steer", "runId": "r", "updatedAt": int64(1), "steer": map[string]any{"message": "original body", "steerId": "m:1", "mailId": "m", "mailKind": "letter", "mailAttempt": 1, "mailHop": 1}}
+	projected := llmRequestSteerMessageFromLine(row)
+	source, ok := projected[SteerHistoryInputKey].(map[string]any)
+	if !ok || source["mailId"] != "m" || projected["_steerKey"] != "r/m:1" {
+		t.Fatalf("text mail lost reconstructable provenance: %#v", projected)
+	}
+	if projected["content"] != "original body" {
+		t.Fatalf("stored body changed: %#v", projected)
+	}
+}

@@ -865,3 +865,5 @@ func TestPlanUpdateTaskErrorGuidancePreservesStateAndSnapshot(t *testing.T) {
 		})
 	}
 }
+
+type planTasksSnapshot = plantasks.Snapshot

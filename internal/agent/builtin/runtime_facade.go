@@ -18,9 +18,7 @@ import (
 // built-in mode behavior. Transport adapters depend on this dispatch package,
 // never on a concrete CODER/KBASE/TEAM implementation.
 const (
-	CoderMainStage               = coder.MainStage
 	PlanApproveContinuationParam = planmode.ApproveContinuationParam
-	TeamMode                     = agentteam.Mode
 	TeamToolDelegate             = agentteam.ToolDelegate
 )
 
@@ -36,24 +34,17 @@ type ProjectPromptFile = agentcontract.ProjectPromptFile
 type WorkspacePromptPolicy = agentcontract.WorkspacePromptPolicy
 type WorkspaceGitPolicy = agentcontract.WorkspaceGitPolicy
 
-func IsCoderMode(mode string) bool     { return coder.IsMode(mode) }
 func IsKBaseMode(mode string) bool     { return kbase.IsMode(mode) }
 func IsGeneralMode(mode string) bool   { return general.IsMode(mode) }
 func IsExecutorMode(mode string) bool  { return executor.IsMode(mode) }
 func GeneralCreateToolNames() []string { return general.CreateToolNames() }
-func ExecutorCreateToolNames() []string {
-	return executor.CreateToolNames()
-}
-func CoderCreateToolNames() []string { return coder.CreateToolNames() }
+func CoderCreateToolNames() []string   { return coder.CreateToolNames() }
 
 const GeneralCreatePrefix = general.CreatePrefix
 const ExecutorCreatePrefix = executor.CreatePrefix
 
 func IsCoderACPBackend(mode, acpBridgeID string) bool {
 	return coder.IsACPBackend(mode, acpBridgeID)
-}
-func IsCoderNativeBackend(mode, acpBridgeID string) bool {
-	return coder.IsNativeBackend(mode, acpBridgeID)
 }
 
 // PlanningModeSupported reports whether planningMode is accepted for an Agent
@@ -153,9 +144,6 @@ func LoadWorkspacePrompt(policy WorkspacePromptPolicy) (string, error) {
 	return agentcontract.LoadWorkspacePrompt(policy)
 }
 func KBaseCreateToolNames() []string         { return kbase.CreateToolNames() }
-func TeamDefaultBudget() map[string]any      { return agentteam.DefaultBudget() }
-func TeamDefaultToolNames() []string         { return agentteam.DefaultToolNames() }
-func TeamDefaultContextTags() []string       { return agentteam.DefaultContextTags() }
 func TeamNormalizeMaxParallel(value int) int { return agentteam.NormalizeMaxParallel(value) }
 func TeamBuildToolDefinition(base api.ToolDetailResponse, members []TeamMemberSpec) (api.ToolDetailResponse, error) {
 	return agentteam.BuildToolDefinition(base, members)

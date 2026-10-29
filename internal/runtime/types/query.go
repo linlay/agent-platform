@@ -28,6 +28,8 @@ type ClientTarget struct {
 // HTTP and WebSocket adapters are responsible for decoding external DTOs into
 // this value before invoking application behavior.
 type QueryCommand struct {
+	ModelMessage string                `json:"-"`
+	Mail         *queryinput.MailInput `json:"-"`
 	// OriginalQuery is the immutable incoming JSON, separate from resolved inputs.
 	OriginalQuery json.RawMessage `json:"-"`
 

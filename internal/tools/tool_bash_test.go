@@ -897,8 +897,8 @@ func TestMergeCommandEnvInjectsReservedAgentAndChatContextAfterRuntimeOverrides(
 }
 
 func TestMergeBashCommandEnvNeverInheritsIdentityToken(t *testing.T) {
-	identityFile := filepath.Join(t.TempDir(), "desktop state", "sso-access-token.txt")
-	if err := os.MkdirAll(filepath.Dir(identityFile), 0o700); err != nil {
+	ssoIdTokenFile := filepath.Join(t.TempDir(), "desktop state", "sso-id-token.txt")
+	if err := os.MkdirAll(filepath.Dir(ssoIdTokenFile), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("AP_ACCESS_TOKEN", "ambient-token")
@@ -917,25 +917,25 @@ func TestMergeBashCommandEnvNeverInheritsIdentityToken(t *testing.T) {
 		StaticRuntimeEnv: map[string]string{"AP_ACCESS_TOKEN": "runtime-token"},
 	}
 
-	if _, ok := valuesFor(mustMergeBashCommandEnv(t, execCtx, identityFile))[agentconfig.EnvAccessToken]; ok {
+	if _, ok := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvAccessToken]; ok {
 		t.Fatal("missing identity file must remove inherited and runtime access tokens")
 	}
-	if err := os.WriteFile(identityFile, []byte("token-a\n"), 0o600); err != nil {
+	if err := os.WriteFile(ssoIdTokenFile, []byte("token-a\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, identityFile))[agentconfig.EnvAccessToken]; got != "" {
+	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvAccessToken]; got != "" {
 		t.Fatalf("AP_ACCESS_TOKEN = %q, want no token", got)
 	}
-	if err := os.WriteFile(identityFile, []byte("token-b\n"), 0o600); err != nil {
+	if err := os.WriteFile(ssoIdTokenFile, []byte("token-b\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, identityFile))[agentconfig.EnvAccessToken]; got != "" {
+	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvAccessToken]; got != "" {
 		t.Fatalf("AP_ACCESS_TOKEN = %q, want no token", got)
 	}
-	if err := os.Remove(identityFile); err != nil {
+	if err := os.Remove(ssoIdTokenFile); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := valuesFor(mustMergeBashCommandEnv(t, execCtx, identityFile))[agentconfig.EnvAccessToken]; ok {
+	if _, ok := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvAccessToken]; ok {
 		t.Fatal("removed identity file must remove AP_ACCESS_TOKEN from the next Host Bash")
 	}
 }
@@ -944,11 +944,11 @@ func TestInvokeHostBashDoesNotExposeDefaultIdentityToken(t *testing.T) {
 	t.Setenv("AP_RUNTIME_STATE_DIR", "")
 	root := t.TempDir()
 	runtimeRoot := filepath.Join(root, "runtime")
-	identityFile := filepath.Join(runtimeRoot, ".state", "identity", "access-token")
-	if err := os.MkdirAll(filepath.Dir(identityFile), 0o700); err != nil {
+	ssoIdTokenFile := filepath.Join(runtimeRoot, ".state", "identity", "sso-id-token")
+	if err := os.MkdirAll(filepath.Dir(ssoIdTokenFile), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(identityFile, []byte("current-token\n"), 0o600); err != nil {
+	if err := os.WriteFile(ssoIdTokenFile, []byte("current-token\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("AP_RUNTIME_DIR", runtimeRoot)
@@ -956,8 +956,8 @@ func TestInvokeHostBashDoesNotExposeDefaultIdentityToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if cfg.IdentityFile != identityFile {
-		t.Fatalf("identity file = %q, want default %q", cfg.IdentityFile, identityFile)
+	if cfg.SsoIdTokenFile != ssoIdTokenFile {
+		t.Fatalf("identity file = %q, want default %q", cfg.SsoIdTokenFile, ssoIdTokenFile)
 	}
 	cfg.Bash = config.BashConfig{
 		AllowedCommands: []string{"printenv"},
@@ -1400,12 +1400,17 @@ func mustMergeCommandEnv(t *testing.T, execCtx *contracts.ExecutionContext) []st
 	return env
 }
 
-func mustMergeBashCommandEnv(t *testing.T, execCtx *contracts.ExecutionContext, identityFile string) []string {
+func mustMergeBashCommandEnv(t *testing.T, execCtx *contracts.ExecutionContext, ssoIdTokenFile string) []string {
 	t.Helper()
-	_ = identityFile // ordinary Host Bash never receives the identity token
+	_ = ssoIdTokenFile // ordinary Host Bash never receives the identity token
 	env, err := mergeCommandEnv(execCtx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return env
+}
+
+// mergeCommandEnv builds the host tool environment with the shipped inherit list.
+func mergeCommandEnv(execCtx *contracts.ExecutionContext) ([]string, error) {
+	return mergeCommandEnvWith(execCtx, nil)
 }

@@ -239,37 +239,6 @@ func queryRunErrorPayload(result queryRunResult) map[string]any {
 	return apperrors.Payload(apperrors.CodeStreamFailed, queryRunErrorMessage(result), apperrors.WithScope(apperrors.ScopeRun))
 }
 
-func queryEventErrorPayload(event stream.EventData) map[string]any {
-	payload, _ := event.Value("error").(map[string]any)
-	return cloneQueryErrorPayload(payload)
-}
-
-func queryEventErrorMessage(event stream.EventData) string {
-	if message := strings.TrimSpace(event.String("message")); message != "" {
-		return message
-	}
-	if message := strings.TrimSpace(event.String("error")); message != "" {
-		return message
-	}
-	return queryErrorValueMessage(event.Value("error"))
-}
-
-func queryErrorValueMessage(value any) string {
-	switch typed := value.(type) {
-	case nil:
-		return ""
-	case string:
-		return strings.TrimSpace(typed)
-	case map[string]any:
-		for _, key := range []string{"message", "error", "code"} {
-			if message, _ := typed[key].(string); strings.TrimSpace(message) != "" {
-				return strings.TrimSpace(message)
-			}
-		}
-	}
-	return strings.TrimSpace(formatFullTextValue(value))
-}
-
 func cloneQueryErrorPayload(input map[string]any) map[string]any {
 	if len(input) == 0 {
 		return nil

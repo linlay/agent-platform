@@ -278,6 +278,7 @@ PUT/WS mutation 继续返回轻量 `sortMode/pinnedOrder/updatedAt`，不附带 
 - 新建：`/api/query`（HTTP/WS）带 `primary:true`，且本次请求创建该 Chat（省略 `chatId`、`chatId` 尚不存在，或是只有上传、尚未受理首条 query 的占位 Chat）。Chat 建立后指针随即切换；`chatId` 指向已有 Chat 时返回 400，侧通道（`lane` 非空）同样返回 400。`primary` 是调用方原样输入，只作用于这一次请求，计划批准后的执行 Run 与恢复不会重放它。
 - 设定：`PUT /api/chats/primary {chatId}`（WS 同路径同字段）把已发布的已有 Chat 设为其 owner Agent 的主要聊天；Chat 不存在返回 404，上传占位 Chat 或无 owner 的 Chat 返回 400；已是主要聊天时 `changed:false` 且不广播。
 - 互斥：当前主要聊天有活动 Run（含等待用户提问、审批的 Run）时，新建与设定都返回 409 `primary_chat_busy`，`data` 带当前主要聊天的 `chatId` 与 `runIds`。query 在创建 Chat 之前检查，被拒绝时不会留下新 Chat。
+- Mailbox 补缺：chat_send 省略 chatId/newChat 且主要指针缺失时，在会话 mutation 锁内补建，并以“指针仍缺失才设置”的条件写入设为主要聊天；恢复 accepting 时重新仲裁已有指针。既有指针不切换；`primary:true` 的 query 不取该锁，期间若它先设置了指针，信留在新建的会话中。
 - 不切换指针的入口：普通 query、在历史聊天中续聊、Automation、`chat_start`、`/api/execute`、channel、derive 和归档恢复创建或继续的 Chat 都只是历史聊天。
 - 生命周期：归档或删除主要聊天时先清除指针，客户端由既有 `chat.archived` / `chat.deleted` 得知；恢复归档不恢复指针。没有指针的 Agent 视为没有主要聊天，升级后不迁移已有 Chat。
 - 列表：`/api/chats` 可选 `primary` 与其他筛选按 AND 组合，并在 `limit` 之前生效；`primary=true` 按指针 ID 直接读取，`agentKey=<key>&primary=false` 即该 Agent 的历史聊天。HTTP 只接受单个 `true`/`false`，WebSocket 使用 JSON boolean。
@@ -1436,3 +1437,7 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 `PUT /api/admin/skills/pin {id,pinned}` 仅支持 HTTP，与 `/api/skills` 共用同一个用户级 `skillOrder` store 和 `skills-center/order.json`。身份来自认证上下文，关闭认证时沿用 local 用户。新增置顶只接受管理目录里的独立技能或技能包；取消置顶允许清理合法但已失效的 ID（包括旧成员键）。pinned 必须显式提供，重复置顶幂等且不移动位置，取消后再置顶才移到最前。写入成功直接返回 `{pinned}`，不再读取目录，不触发 catalog reload。
 
 使用端 `/api/skills` 的 HTTP/WS 目录、配置标记与置顶契约不变。管理页不得借用此接口或建立业务 WS。旧 `GET /api/admin/skill-packages` 保留供 Desktop，包 import/delete/skills/delete 和 source 编辑接口保留。管理列表使用对象响应，客户端必须按该结构解析。
+
+## Mailbox 会话投递
+
+会话投递增加 GET /api/mails 与 POST /api/mails/action，广播 mail.updated；request.query/request.steer 在顶层记录 mailId、mailKind、mailAttempt、mailHop，reply 另有 outcome；submit 可带平台生成的 origin/accessGrant 审计。字段不能由公共输入伪造，JSON 仍使用统一包裹。具体参数与权限见 [Mailbox](Mailbox.md#http-与展示)。

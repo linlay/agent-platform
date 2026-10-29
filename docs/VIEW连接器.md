@@ -191,7 +191,7 @@ display VIEW 可以在 `view.json` 声明只读查询，模板按 Markdown 块�
   | `{"opt":"--status","param":"status"}` | `{"status":"paid"}` | `--status paid` |
   | `{"flag":"--archived","param":"archived"}` | `{"archived":true}` | `--archived` |
 
-  参数缺省或为 null 时整项省略；`flag` 只接受布尔值，false 时省略；参数值只能是字符串、数字或布尔值（数字按原文传递）；`{"param"}` 直接放值的项，值不能以 `-` 开头，防止被当作选项。`opt`/`flag` 必须形如 `-x` 或 `--name`。
+  参数缺省或为 null 时整项省略；`flag` 只接受布尔值，false 时省略；参数值只能是字符串、数字或布尔值（数字按原文传递）；`{"param"}` 直接放值的项，值不能以 `-` 开头，防止被当作选项。`opt`/`flag` 必须形如 `-x` 或 `--name`。`{param}` 与 `{opt,param}` 可加 `"json": true`，把 object 或 array 参数以紧凑 JSON 作为一个参数传递（schema 属性必须为 object 或 array，不能与 `flag` 同用），如 `{"opt":"--payload","param":"payload","json":true}`。
 - `mcp` 以 `arguments` 的固定参数加校验后的 params 作为工具参数；params 不能覆盖固定参数（`paramsSchema.properties` 与 `arguments` 重名时加载拒绝，调用时同名参数返回 `view_query_params_invalid`）。
 - 查询声明随模板写入快照并计入 hash，历史快照不会因升级获得新查询。`view_describe` 不返回查询；查询的 `description` 仅供包作者说明。
 - 查询由包作者声明为只读；Platform 无法证明 CLI 或 MCP 工具没有副作用，安装包即信任包。Agent 发起的写操作仍走工具与 HITL；用户在 display VIEW 中的显式写操作走独立的 VIEW action 接口和宿主确认。
@@ -285,8 +285,47 @@ Action 使用与 Query 相同的结构化 cli/mcp 参数模板，当前不支持
 
 `POST /api/view/invoke`（WS 同路径）请求为 `{chatId,runId,view:{connectorId,key,hash},action,params,requestId}`。响应仍为 `{code,msg,data}`，成功 data 为 `{data,executedAt,invocationId,exitCode}`；CLI 业务错误保留原 JSON 和 exitCode，由模板识别 rejected/partial/unknown/applied，不将非零退出伪装成成功。非 JSON 输出按 `invocation_outcome_unknown` 处理。
 
-平台仅接受在线 Chat，校验当前查看者的 Chat 所有权、Run 属于该 Chat、快照身份以及当前 Agent 的有效和源码挂载。写入前及 connectorops 启动前复核当前安装包版本和动作声明；解除挂载、撤销或改变动作后旧快照不能继续写入。授权是当前用户的显式操作，不继承发布 Run 的自动审批等级，不创建模型 Run。连接器凭据仍只由 connectorops 在服务端注入。
+平台仅接受在线 Chat，校验当前查看者的 Chat 所有权、Run 属于该 Chat、快照身份以及当前 Agent 的有效和源码挂载。写入前及 connectorops 启动前复核当前安装包版本和动作声明；解除挂载、撤销或改变动作后旧快照不能继续写入。`intercept` 只决定 Agent 的 Bash 调用是否进表单审阅，不计入这次比较，开关它不会让已打开的页面失效。授权是当前用户的显式操作，不继承发布 Run 的自动审批等级，不创建模型 Run。连接器凭据仍只由 connectorops 在服务端注入。
 
 WebClient 为同一 Chat/Run/VIEW hash、动作和规范化参数在 sessionStorage 复用请求 ID；它是防止当前浏览器会话意外重发的辅助层，不是业务去重。服务端复用 connectorops 持久化 claim/result 收据，claim 在派发前落盘，包含用户、Chat、Run、Agent、VIEW、动作、参数和时间审计。stdin 同样进入参数摘要；既有无 stdin 收据的摘要保持兼容。未完成 claim（含进程崩溃、断线或超时）不重放，参数变化使用同一 ID 返回冲突。不能保证 Jira 远端 exactly-once，也不能根据相同参数推断不同浏览器的两次请求是否为同一业务操作。
 
 错误包括 `view_action_denied`、`view_action_stale`、`view_action_unavailable`、`view_action_params_invalid`、`view_action_run_not_found`，以及 connectorops 的安装/授权/收据错误。模板应保留输入，未知结果先回读核实，禁止自动重发；写成功后的回读失败须单独提示。平台不承诺多个动作之间的事务。
+
+## CLI 拦截审阅
+
+同一份 cli action 也可以审阅 Agent 发起的调用。action 标 `"intercept": true` 后，Agent 在 Bash 里直接调用该命令时，平台把 argv 按 action 模板反解成参数，放进所在 VIEW 的 form 让用户审阅；用户提交后按同一模板重建命令执行，不经模型。display 页面里用户点按钮走“由参数拼命令”，拦截走“由命令反解参数”，两者共用模板与 `paramsSchema`。
+
+```json
+"worklog": {
+  "usage": ["display", "form"],
+  "actions": {
+    "worklog.batch": {
+      "description": "批量登记工时",
+      "adapter": "cli",
+      "intercept": true,
+      "args": ["--no-input", "issue", "worklog", "add-batch",
+               {"opt": "--payload", "param": "payload", "json": true}, "--json"],
+      "paramsSchema": {"type": "object", "additionalProperties": false, "required": ["payload"],
+        "properties": {"payload": {"type": "object"}}}
+    }
+  }
+}
+```
+
+声明规则（加载时校验）：
+
+- 仅 cli action；所在 VIEW 必须声明 `form` 用途；不能使用 `stdinParam`（Bash 直接调用没有可审阅的 stdin）。
+- 子命令路径是模板中不以 `-` 开头的字面量，上例为 `issue worklog add-batch`，至少要有一个；位置参数必须排在这些字面量之后。同一连接器内被拦截 action 的子命令路径不得重复。
+
+匹配与反解：
+
+1. 平台只看 Bash 访问审查识别出的已挂载连接器调用；Host 与 Container 共用同一识别。
+2. 子命令路径作为 argv 连续片段出现即命中；多个路径同时命中时取最长者，等长则拒绝。
+3. 以 `-` 开头的字面量顺序不限且可省略（重建时补上），其他字面量与位置参数保持模板顺序；`{opt,param}` 接受 `--opt value` 与 `--opt=value`，`{flag,param}` 出现即 true。值按 schema 类型转换（integer/number/boolean，`json` 项按 JSON 解析）。出现未声明参数、重复选项或多余位置参数即失败，结果再按 `paramsSchema` 校验类型；缺少 required 参数不算失败，表单照常打开，由用户补齐，提交时按完整 schema 校验。
+4. 反解或校验失败、或执行声明拦截的连接器却不是单条直接调用（管道、包装、重定向、变量赋值或展开、`bash -c`），工具结果为 `view_intercept_rejected` 并说明原因，不弹表单也不执行。
+
+form 协议沿用 [WebClient 桥接](#webclient-桥接)：`form.title` 为 action 的 description，`form.data` 为 `{action, params}`；模板 collect 后回复 `{decision, data:{params}}`。form 用途的快照不含 queries 和 actions，页面只编辑参数、不自行写入。提交后服务端重新校验 schema，失败为 `tool_interaction_invalid_payload`；成功则重建为单条直接调用，经普通 Bash 执行路径运行（凭据注入、输出与审计不变），CLI 输出即这次 Bash 调用的结果。拒绝时模型收到拒绝原因与用户修改后的数据。表单始终人工提交，不受 access level 影响；不支持重启恢复。
+
+这是确认流程而非隔离边界：未标 `intercept` 的子命令照常执行，脚本内部调用 CLI 无法识别。需要审阅的写命令都应由连接器作者逐一声明。
+
+验证范围：自动化测试只覆盖 Host 路径（Container 共用同一识别代码）；尚未在真实连接器与运行中的 Platform/WebClient 上端到端验证。

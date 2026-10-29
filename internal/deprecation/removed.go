@@ -24,5 +24,3 @@ func (e *RemovedError) Unwrap() error { return ErrRemoved }
 func New(format string, args ...any) error {
 	return &RemovedError{Message: fmt.Sprintf(format, args...)}
 }
-
-func Is(err error) bool { return errors.Is(err, ErrRemoved) }

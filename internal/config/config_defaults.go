@@ -38,7 +38,7 @@ func defaultConfig(options LoadOptions) Config {
 		Export:          ConversationExportConfig{MaxSnapshotBytes: 50 << 20},
 		DocumentPreview: documentpreview.DefaultConfig(),
 		HTTPProxy:       httpclient.Config{Mode: "auto", SystemRefreshInterval: httpclient.DefaultRefreshInterval},
-		IdentityFile:    options.IdentityFile,
+		SsoIdTokenFile:  options.SsoIdTokenFile,
 		RuntimeMode:     runtimeMode,
 		Server:          ServerConfig{Port: "8080"},
 		Paths:           paths,
@@ -71,6 +71,7 @@ func defaultConfig(options LoadOptions) Config {
 		},
 		Providers: CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "providers")},
 		Models:    CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "models")},
+		Mail:      MailConfig{MaxHops: 4},
 		Automation: AutomationConfig{
 			ExternalDir: paths.AutomationsDir,
 			Enabled:     true,
@@ -183,9 +184,9 @@ func defaultRuntimeRoot() string {
 	return runtimeRoot
 }
 
-// ResolveIdentityFile selects the shared identity source after state paths resolve.
+// ResolveSsoIdTokenFile selects the shared identity source after state paths resolve.
 // It does not read or create credentials.
-func ResolveIdentityFile(stateDir, configured string) (string, error) {
+func ResolveSsoIdTokenFile(stateDir, configured string) (string, error) {
 	configured = strings.TrimSpace(configured)
 	if configured != "" {
 		if !filepath.IsAbs(configured) {
@@ -193,7 +194,7 @@ func ResolveIdentityFile(stateDir, configured string) (string, error) {
 		}
 		return filepath.Clean(configured), nil
 	}
-	return filepath.Join(stateDir, "identity", "access-token"), nil
+	return filepath.Join(stateDir, "identity", "sso-id-token"), nil
 }
 
 func expandPathHome(runtimeRoot, envKey string) (string, error) {

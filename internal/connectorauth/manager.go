@@ -49,7 +49,7 @@ type Manager struct {
 	sources             connector.Sources
 	reload              func(context.Context, string) error
 	client              *http.Client
-	identityFile        string
+	ssoIdTokenFile      string
 	inheritEnv          []string
 	afterPreparation    func(context.Context) error
 	mu                  sync.Mutex
@@ -81,8 +81,8 @@ func (m *Manager) WithPreparationReload(reload func(context.Context) error) *Man
 	return m
 }
 
-func (m *Manager) WithIdentityFile(path string) *Manager {
-	m.identityFile = strings.TrimSpace(path)
+func (m *Manager) WithSsoIdTokenFile(path string) *Manager {
+	m.ssoIdTokenFile = strings.TrimSpace(path)
 	return m
 }
 
@@ -353,7 +353,7 @@ func (m *Manager) StatusComponent(_ context.Context, id, component string) (Sess
 	m.mu.Unlock()
 	result := Session{ConnectorID: id, AuthBrowser: pkg.AuthorizationBrowser(), Status: "unauthorized"}
 	if pkg.AuthMode == connector.AuthOneID {
-		identity, err := agentconfig.ReadIdentityEnvironment(m.identityFile)
+		identity, err := agentconfig.ReadIdentityEnvironment(m.ssoIdTokenFile)
 		if err == nil && identity[agentconfig.EnvAccessToken] != "" {
 			result.Status = "authorized"
 		} else {

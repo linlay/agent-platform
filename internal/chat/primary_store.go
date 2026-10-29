@@ -140,6 +140,16 @@ func (s *FileStore) PrimaryChatID(agentKey string) (string, error) {
 // SetChatPrimary points agentKey at chatID. The Chat must be active and owned
 // by that Agent; callers decide whether the previous primary may be replaced.
 func (s *FileStore) SetChatPrimary(agentKey string, chatID string) (PrimaryChange, error) {
+	return s.setChatPrimary(agentKey, chatID, false)
+}
+
+// SetChatPrimaryIfMissing sets the pointer only while agentKey has no active
+// primary Chat. It never replaces an existing primary.
+func (s *FileStore) SetChatPrimaryIfMissing(agentKey string, chatID string) (PrimaryChange, error) {
+	return s.setChatPrimary(agentKey, chatID, true)
+}
+
+func (s *FileStore) setChatPrimary(agentKey string, chatID string, onlyIfMissing bool) (PrimaryChange, error) {
 	agentKey = strings.TrimSpace(agentKey)
 	chatID = strings.TrimSpace(chatID)
 	change := PrimaryChange{AgentKey: agentKey, ChatID: chatID}
@@ -169,6 +179,16 @@ func (s *FileStore) SetChatPrimary(agentKey string, chatID string) (PrimaryChang
 	change.PreviousChatID = previous.ChatID
 	if previous.ChatID == chatID {
 		return change, nil
+	}
+	if onlyIfMissing && previous.ChatID != "" {
+		// Same validity rule as PrimaryChatID: a stale pointer counts as missing.
+		current, err := s.loadSummary(previous.ChatID)
+		if err != nil {
+			return change, err
+		}
+		if current != nil && current.AgentKey == agentKey {
+			return change, nil
+		}
 	}
 	state.Agents[agentKey] = PrimaryEntry{ChatID: chatID, Since: time.Now().UnixMilli()}
 	if err := s.writeChatPrimaryLocked(&state); err != nil {

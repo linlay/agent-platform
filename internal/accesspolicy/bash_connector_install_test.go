@@ -39,8 +39,21 @@ func TestInstalledConnectorEntryIsBoundToItsInstallationAndMount(t *testing.T) {
 	if p := ReviewBashCommand(config.AccessPolicyConfig{}, session, "demo-cli docs list", "/", vars); p.Decision != DecisionAllow || !p.ConnectorOnly {
 		t.Fatalf("installed CLI not authorized: %+v", p)
 	}
-	if p := ReviewBashCommand(config.AccessPolicyConfig{}, session, "demo-cli docs list | head -1", "/", vars); len(p.ConnectorIDs) != 1 || p.ConnectorIDs[0] != "demo" {
+	if p := ReviewBashCommand(config.AccessPolicyConfig{}, session, "demo-cli docs list | head -1", "/", vars); len(p.ConnectorIDs) != 1 || p.ConnectorIDs[0] != "demo" || p.ConnectorCall != nil {
 		t.Fatalf("composite command did not report its connector: %+v", p.ConnectorIDs)
+	}
+	p := ReviewBashCommand(config.AccessPolicyConfig{}, session, `demo-cli docs add --body '{"a": 1}'`, "/", vars)
+	if call := p.ConnectorCall; call == nil || call.ConnectorID != "demo" || len(call.Prefix) != 1 || call.Prefix[0] != "demo-cli" ||
+		len(call.Argv) != 4 || call.Argv[3] != `{"a": 1}` {
+		t.Fatalf("plain call not reported: %+v", p.ConnectorCall)
+	}
+	for _, command := range []string{"X=1 demo-cli docs add", "demo-cli docs add > out.txt", "demo-cli docs add &", "env demo-cli docs add", "demo-cli docs $NAME"} {
+		if p := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "/", vars); p.ConnectorCall != nil {
+			t.Fatalf("%s reported as a plain call", command)
+		}
+	}
+	if p := ReviewBashCommand(config.AccessPolicyConfig{}, session, "bash -c 'demo-cli docs list'", "/", vars); len(p.ConnectorIDs) != 1 || p.ConnectorCall != nil {
+		t.Fatalf("wrapped connector hidden: %+v", p)
 	}
 	// An entry is valid only while its connector stays mounted.
 	session.ConnectorDirs = map[string]string{}

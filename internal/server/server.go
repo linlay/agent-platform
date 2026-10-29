@@ -30,6 +30,7 @@ import (
 	"agent-platform/internal/documentpreview"
 	"agent-platform/internal/kbases"
 	"agent-platform/internal/knowledge"
+	"agent-platform/internal/mailbox"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	projectpkg "agent-platform/internal/project"
@@ -78,6 +79,7 @@ type QueryRuntime interface {
 }
 
 type Dependencies struct {
+	Mailbox                *mailbox.Service
 	Sessions               *session.Builder
 	BackgroundContext      context.Context
 	Config                 config.Config
@@ -292,7 +294,7 @@ func New(deps Dependencies) (*Server, error) {
 				return nil
 			}
 			return s.deps.CatalogReloader.Reload(ctx, "connectors")
-		}).WithIdentityFile(s.deps.Config.IdentityFile).WithCredentialValidator(func(ctx context.Context, pkg connector.Package, values map[string]string) error {
+		}).WithSsoIdTokenFile(s.deps.Config.SsoIdTokenFile).WithCredentialValidator(func(ctx context.Context, pkg connector.Package, values map[string]string) error {
 			validator, ok := s.deps.MCP.(interface {
 				ValidateConnectorCredentials(context.Context, connector.Package, map[string]string) error
 			})

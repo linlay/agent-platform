@@ -27,7 +27,7 @@ Agent Platform 将可编辑事实源与执行目录分离：
 
 `agents/` 和 `skills-center/` 默认只在 Catalog 管理、编辑和组装阶段读取。Agent 配置内声明的 Skill 以及 Query、Workspace Terminal 和常规 Skill runtime 统一使用 `ru-agents/<agentKey>/<revision>`。普通技能的共享目录 run-scoped 例外是 query 的 `references` 中的 skill 引用 选中了 Agent 未配置的技能中心 Skill：该 run 只读访问该选中 Skill 的 canonical 目录，不修改已发布 `ru-agents`，也不创建或复制到额外的 run-runtime。`AgentConfigDir`、Admin Source、Agent CRUD 和“打开配置目录”仍指向原始 `agents/`。
 
-连接器通过 `connectorConfig.connectors` 挂载后，自动导入技能元数据；完整包按内容摘要共享安装到 `ru-connectors/<id>/<contentDigest>`，技能正文、资源、runtime env 和 hooks 读取该包的 skills，不再重复复制到同级 skills 目录。`skillId` 保留包内原始技能名，不加前缀；同一 Agent 下与已配置技能或其他连接器技能重名时返回冲突诊断。逻辑指令路径为 `@connectors/<id>/skills/<name>/SKILL.md`；`.config` 默认值仍按 Agent 独立合并。连接器 bin 从当前 Agent 的运行包加入 PATH，Container 只读挂载所选包。连接器技能不能作为 skill 引用，详见 [连接器](连接器.md)。
+连接器通过 `connectorConfig.connectors` 挂载后，自动导入技能元数据；完整包按内容摘要共享安装到 `ru-connectors/<id>/<contentDigest>`，技能正文、资源和 runtime env 读取该包的 skills，不再重复复制到同级 skills 目录。`skillId` 保留包内原始技能名，不加前缀；同一 Agent 下与已配置技能或其他连接器技能重名时返回冲突诊断。逻辑指令路径为 `@connectors/<id>/skills/<name>/SKILL.md`；`.config` 默认值仍按 Agent 独立合并。连接器 bin 从当前 Agent 的运行包加入 PATH，Container 只读挂载所选包。连接器技能不能作为 skill 引用，详见 [连接器](连接器.md)。
 
 技能包保存在 `skills-center/<package-id>/`，包根 `package.json` 必须包含 `name` 与 `skills:[{"id":"pdf"}]` 成员清单。成员 id 为包内单段目录名，至少保存 id，其他扩展属性原样保留；名称、描述和版本读取成员 SKILL.md。Platform 按清单加载包下一层成员，生成精确技能 ID `<package-id>/<skill-id>`，不递归发现技能，不加载未声明目录；声明但缺失、不可读取或不安全的成员保留管理诊断，不使整包消失。顶层 `<skill-id>` 与包内同名技能可共存，安装、更新、编辑和卸载分别作用于精确 id；包更新只替换该包目录，不接管或覆盖顶层同名技能。普通技能内的 `sub-skills` 暂不扫描。技能包目录本身不可执行，也不能通过单技能接口覆盖；隐藏 staging 和 backup 不进入 Skill Catalog，临时 ZIP 不持久化。Platform 在首次启动 Catalog、开始监听目录前迁移旧 `.package` 记录：复制成员到新包目录，保留原顶层技能以兼容旧 Agent 短 id 引用，旧清单移入可恢复备份并记录路径。迁移完成后幂等；目标同名冲突保留原记录和已有目录，记录 skill_package_migration_conflict 并跳过该项，继续迁移其他包，不阻断服务启动。其他迁移错误仍保留备份并报告，不覆盖已有目录。普通查询和热重载不触发迁移。已安装 package.json 缺少 skills 时，启动阶段补齐一次显式声明，并在技能根外保留原文件备份；已有 skills 的无效清单不自动修复。旧 .package 的缺失成员声明同样保留为诊断占位。
 
@@ -63,7 +63,7 @@ Bash 不展开命令文本中的别名：运行 Skill 脚本时把 `cwd` 设为�
 
 普通技能快照组装前，组装器按大小写折叠后的完整 id 检查目录边界：同一 Agent 不能同时选择独立技能 `suite` 与包成员 `suite/demo`，因为两者会产生相互覆盖的 Container 挂载点。冲突与声明顺序无关，返回包含两个 id 的 `runtime_skill_path_conflict` 诊断；热重载失败时保留已发布运行文件。`demo` 与 `suite/demo`、同一包的多个成员仍可同时选择。连接器技能在独立共享包中执行，不参与普通技能运行目录的前缀冲突检查。
 
-普通 Agent 自有或技能中心的已配置 Skill 按完整目录内容摘要安装到 `ru-skills/<digest>`，包括 `SKILL.md`、hooks、runtime env、scripts、references、assets 和 `.config`；同内容跨 Agent/版本复用，私有 Skill 不因此变成公开技能。`skills/.refs.json` 只保存有序 ID/摘要；同级预建空 Skill 挂载点，避免 Container 在只读父挂载下创建目录。`@skills/<id>` 通过 Run 绑定解析真实目录，Bash 使用技能目录清单中的 Host 或 Container 路径。Standalone YAML Agent 仍生成规范的 `agent.yml`，只能使用技能中心 Skill。
+普通 Agent 自有或技能中心的已配置 Skill 按完整目录内容摘要安装到 `ru-skills/<digest>`，包括 `SKILL.md`、runtime env、scripts、references、assets 和 `.config`；技能目录出现 `.bash-hooks` 即加载失败，命令确认改由连接器 VIEW 拦截声明；同内容跨 Agent/版本复用，私有 Skill 不因此变成公开技能。`skills/.refs.json` 只保存有序 ID/摘要；同级预建空 Skill 挂载点，避免 Container 在只读父挂载下创建目录。`@skills/<id>` 通过 Run 绑定解析真实目录，Bash 使用技能目录清单中的 Host 或 Container 路径。Standalone YAML Agent 仍生成规范的 `agent.yml`，只能使用技能中心 Skill。
 
 摘要覆盖路径、内容、结构与规范化可执行位，不包含 mtime 或可写权限位。Agent 版本目录（含根目录、自有资源、引用及 .config）和共享 Skill 安装后均去除写权限；发布及新租约复验全树摘要。损坏快照拒绝新租约并触发重载，仍有租约时禁止原地替换，释放后从当前来源重新组装；不重建历史。Skill 缓存和 CLI 状态必须写到 Chat、临时目录或独立状态目录，不能写入共享快照或静态 `.config`。这些保护不隔离同用户 Host 任意程序，不能保证校验后的任意代码访问不被外部篡改。
 
@@ -73,7 +73,7 @@ Bash 不展开命令文本中的别名：运行 Skill 脚本时把 `cwd` 设为�
 
 Query 和 steer 使用 `references:[{type:"skill",id:"package/skill"}]`。已配置技能从冻结 Agent 版本指向 ru-skills，额外技能从当前有效 skills-center catalog 验证。包 ID 不可执行，客户端展开为成员完整 ID。skill 只以名称、说明和 SKILL.md 路径进入用户引用块；动态选择不追加 system 技能 catalog。
 
-每个选中 canonical 目录获得本 Run trusted read + readonly roots，未选中兄弟目录不继承；symlink 逃逸重新按最终目标判权。额外技能不复制、不建立 run-runtime、不合并 .config/.runtime-env.json/.bash-hooks、不添加工具或提高 accessLevel。选中集合随已接受 steer 追加，累计最多 32 个。
+每个选中 canonical 目录获得本 Run trusted read + readonly roots，未选中兄弟目录不继承；symlink 逃逸重新按最终目标判权。额外技能不复制、不建立 run-runtime、不合并 .config/.runtime-env.json、不添加工具或提高 accessLevel。选中集合随已接受 steer 追加，累计最多 32 个。
 
 Agent 配置和显式选择的普通技能 scripts/** 使用独立的本 Run 内存入口凭据，执行前复验 canonical 路径和 SHA-256。重复引用不会重签已撤销凭据；压缩保留，恢复不重建。attachment.skills 开启时固定暴露技能中心，沙箱固定只读挂载 /skills-center，选择变化不改变 fingerprint。详见 [引用协议](引用协议.md) 与 [工具目录权限](工具目录权限.md#技能脚本入口执行凭据)。
 
@@ -101,7 +101,7 @@ Agent runtimeConfig.env
   < Platform reserved context
 ```
 
-后声明 Skill 覆盖前面的同名键。动态层由 `run_env` 的 `set/unset/update` 修改当前普通 native root run 的进程内 Scope，不写回 Agent、Skill、`ru-agents` 或其他持久化存储；Platform 重启取消未完成 Run；新 Run 从空动态层开始。`references` 中的 skill 引用不合并额外 Skill runtime env，也不会挂载 `run_env` 或 `platform_control`。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN` 都是 Platform 保留变量，Agent、Skill、动态层和调用级 env 不得声明。前三者按 Host/Container 执行上下文最后注入；Workspace Terminal 只注入前两个变量；普通 Host Shell 不自动获得 `AP_ACCESS_TOKEN`；经验证的单条直接 oneid CLI 调用在独立子进程中使用该变量，已挂载 oneid stdio MCP 也在进程创建前读取有效 identity 文件后注入，默认文件为 `<有效 StateDir>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先。
+后声明 Skill 覆盖前面的同名键。动态层由 `run_env` 的 `set/unset/update` 修改当前普通 native root run 的进程内 Scope，不写回 Agent、Skill、`ru-agents` 或其他持久化存储；Platform 重启取消未完成 Run；新 Run 从空动态层开始。`references` 中的 skill 引用不合并额外 Skill runtime env，也不会挂载 `run_env` 或 `platform_control`。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN` 都是 Platform 保留变量，Agent、Skill、动态层和调用级 env 不得声明。前三者按 Host/Container 执行上下文最后注入；Workspace Terminal 只注入前两个变量；普通 Host Shell 不自动获得 `AP_ACCESS_TOKEN`；经验证的单条直接 oneid CLI 调用在独立子进程中使用该变量，已挂载 oneid stdio MCP 也在进程创建前读取有效 identity 文件后注入，默认文件为 `<有效 StateDir>/identity/sso-id-token`，显式 `--sso-id-token-file <absolute-path>` 优先。
 
 ExecutionContext 的同一 root run 并发 clone 共享动态 Scope；构建子任务 session 时即使复用相同 RunID 也禁止取得 root Scope。`chat_start` 新 root、子 Agent、TEAM 成员、Terminal、MCP、ACP、Proxy、Channel、LSP、sidecar 与长期服务都不继承。
 

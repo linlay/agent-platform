@@ -444,3 +444,7 @@ func TestRefreshRejectsForeignCollectionSource(t *testing.T) {
 		}
 	}
 }
+
+func NewLibraryEngine() *LibraryEngine { return &LibraryEngine{runner: cliRunner{}} }
+
+var defaultLibraryConfig = []byte(`{"models":{"embedding":null,"query_expansion":null,"reranker":null,"graph_extraction":null}}`)

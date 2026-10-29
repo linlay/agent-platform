@@ -355,15 +355,6 @@ func RollbackDesktop(backup string) error {
 	return nil
 }
 
-func containsMigrationString(values []string, value string) bool {
-	for _, v := range values {
-		if v == value {
-			return true
-		}
-	}
-	return false
-}
-
 func writeJSON(path string, value any, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err

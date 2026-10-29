@@ -25,6 +25,7 @@ if [[ -n "$DEPLOY_RUNTIME_RESOURCE_SOURCE" ]]; then
   echo "[program-deploy] synchronizing Platform runtime resources"
   program_sync_runtime_resources
 fi
+program_migrate_sso_provider_config
 if [[ "$DEPLOY_DESKTOP_CONFIG_RESET" == "1" ]]; then
   program_secure_config_tree "$CONFIG_ROOT"
 fi

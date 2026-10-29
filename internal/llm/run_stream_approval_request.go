@@ -32,7 +32,6 @@ const (
 
 type approvalRequest struct {
 	toolApproval       *ToolApproval
-	bashHITLReview     *hitl.InterceptResult
 	bashArguments      string
 	bashFingerprint    string
 	kind               approvalKind
@@ -165,6 +164,7 @@ func (s *llmRunStream) emitApprovalRequestDeltas(request approvalRequest) error 
 	if s.runControl != nil {
 		awaitDelta, _ := s.pending[len(s.pending)-1].(DeltaAwaitAsk)
 		context := awaitingContextFromDeltaAsk(awaitDelta)
+		context.DelegateApproval = s.mailApprovalDelegator(invocation)
 		if request.kind == approvalKindTool {
 			context.ExactApprovalIDs = []string{invocation.toolID}
 		}
@@ -304,26 +304,6 @@ func (s *llmRunStream) tryResolveBashAccessApprovalFastPath(request approvalRequ
 		return true, nil
 	}
 	if accesspolicy.HasApproval(s.execCtx, review) {
-		if mode == approvalFastPathExecuteNow {
-			return true, s.executeOriginalBash(request.invocation)
-		}
-		return true, nil
-	}
-	return false, nil
-}
-
-func (s *llmRunStream) tryResolveHITLApprovalFastPath(request approvalRequest, mode approvalFastPathMode) (bool, error) {
-	if request.kind != approvalKindHITL || !request.result.Rule.IsBuiltinApproval() {
-		return false, nil
-	}
-	if s.isRuleWhitelisted(request.result.Rule.RuleKey) {
-		s.applyHITLDecision(request.invocation, request.result, "", "approve_rule_run", "", true)
-		if mode == approvalFastPathExecuteNow {
-			return true, s.executeApprovedApprovalRequest(request)
-		}
-		return true, nil
-	}
-	if s.shouldAutoApproveHITL(request.result) {
 		if mode == approvalFastPathExecuteNow {
 			return true, s.executeOriginalBash(request.invocation)
 		}

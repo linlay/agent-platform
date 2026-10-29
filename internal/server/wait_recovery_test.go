@@ -3,9 +3,7 @@ package server
 import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
-	"agent-platform/internal/contracts"
 	"agent-platform/internal/querymessages"
-	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -98,16 +96,4 @@ func TestLiveWaitBlankSteerContinuesSameRun(t *testing.T) {
 	if strings.Contains(response.Body.String(), "waitCheckpoint") {
 		t.Fatal("private checkpoint leaked")
 	}
-}
-
-type runEnvWaitCheckpointSink struct {
-	checkpoints chan *contracts.WaitCheckpoint
-}
-
-func (s runEnvWaitCheckpointSink) EmitToolOutput(context.Context, contracts.ToolOutput) error {
-	return nil
-}
-func (s runEnvWaitCheckpointSink) EmitToolWait(_ context.Context, w contracts.ToolWait) error {
-	s.checkpoints <- w.Checkpoint
-	return nil
 }

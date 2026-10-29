@@ -253,10 +253,9 @@ func (o *Coordinator) HandleSubAgentBatch(mainStream contracts.AgentStream, invo
 
 	results := make([]ChildTaskResult, len(prepared))
 	routedCh := make(chan ChildRouteEvent, 32)
-	teamMaxParallel := len(prepared)
 	var teamSem chan struct{}
 	if o.Session.TeamRuntime != nil {
-		teamMaxParallel = o.Session.TeamRuntime.MaxParallel
+		teamMaxParallel := o.Session.TeamRuntime.MaxParallel
 		if teamMaxParallel < 1 || teamMaxParallel > len(prepared) {
 			teamMaxParallel = len(prepared)
 		}

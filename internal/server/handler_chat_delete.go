@@ -48,7 +48,7 @@ func (s *Server) handleChatDelete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.deps.Chats.DeleteChat(chatID); errors.Is(err, chat.ErrChatNotFound) {
+	if err := s.conversationService().DeleteChat(chatID); errors.Is(err, chat.ErrChatNotFound) {
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
 		return
 	} else if err != nil {

@@ -136,10 +136,3 @@ var chatSchemaSpec = sqlitecontract.Spec{
 	},
 	BuildCanonical: createChatSchema,
 }
-
-func nilIfEmpty(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}

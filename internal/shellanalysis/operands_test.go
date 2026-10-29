@@ -157,9 +157,6 @@ func TestShellScriptAndEnvSplit(t *testing.T) {
 	if _, _, _, _, ok := UnwrapEnv([]string{"-S", `git "$X"`}); ok {
 		t.Fatal("env -S with quoting or variables is not static")
 	}
-	if name, args := HookCommand([]string{"env", "-S", "git -C repo push"}); name != "git" || strings.Join(args, " ") != "push" {
-		t.Fatalf("hook unwrap: %s %v", name, args)
-	}
 }
 
 func TestSedScriptSafeSubset(t *testing.T) {

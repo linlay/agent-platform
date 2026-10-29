@@ -80,60 +80,6 @@ func TestManagerDefaultDurationDoesNotExpireOldActiveRun(t *testing.T) {
 	}
 }
 
-func TestManagerRecoveredClaimIsExclusiveAndRetryable(t *testing.T) {
-	m := newTestManager(t)
-	m.maxBackgroundDuration = time.Hour
-	session := contracts.QuerySession{RunID: "run", ChatID: "chat", StartedAtMillis: time.Now().Add(-48 * time.Hour).UnixMilli()}
-	recovered, err := m.RegisterRecoveredAwaiting(context.Background(), session, "await", 12)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for attempt := 0; attempt < 2; attempt++ {
-		start := make(chan struct{})
-		claims := make(chan contracts.RecoveredAwaitingRun, 16)
-		var wg sync.WaitGroup
-		for i := 0; i < cap(claims); i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				<-start
-				if claim, ok := m.ClaimRecoveredAwaiting("run", "await"); ok {
-					claims <- claim
-				}
-			}()
-		}
-		close(start)
-		wg.Wait()
-		if len(claims) != 1 {
-			t.Fatalf("successful claims = %d", len(claims))
-		}
-		if claim := <-claims; claim.Control != recovered.Control || claim.EventBus != recovered.EventBus || claim.InitialSeq != 12 {
-			t.Fatalf("claim replaced recovered state: %#v", claim)
-		}
-		if attempt == 0 {
-			if m.ReleaseRecoveredAwaiting("run", "wrong") || !m.ReleaseRecoveredAwaiting("run", "await") || m.ReleaseRecoveredAwaiting("run", "await") {
-				t.Fatal("release identity or claim gate violated")
-			}
-			if status, _ := m.RunStatus("run"); status.State != contracts.RunLoopStateWaitingSubmit {
-				t.Fatalf("released status = %#v", status)
-			}
-		}
-	}
-	m.mu.Lock()
-	m.runs["run"].activeSince = time.Now().Add(-2 * time.Hour)
-	m.mu.Unlock()
-	if !m.ActivateRecoveredAwaiting("run", "await") || m.ActivateRecoveredAwaiting("run", "await") {
-		t.Fatal("activation must consume the recovered claim")
-	}
-	m.reapExpiredRuns()
-	if recovered.Control.Interrupted() {
-		t.Fatal("activation did not reset the reaper clock")
-	}
-	if status, _ := m.RunStatus("run"); status.StartedAt != session.StartedAtMillis {
-		t.Fatalf("activation changed persisted start: %#v", status)
-	}
-}
-
 func TestManagerFinishConcurrentWithControlAndStatus(t *testing.T) {
 	m := newTestManager(t)
 	for i := 0; i < 100; i++ {

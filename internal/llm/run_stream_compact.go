@@ -832,6 +832,10 @@ func modelMessagesToMaps(messages []openAIMessage) []map[string]any {
 		}
 		var mapped map[string]any
 		if json.Unmarshal(raw, &mapped) == nil && len(mapped) > 0 {
+			if message.MailID != "" {
+				mapped["_mailId"] = message.MailID
+				mapped["content"] = mailPersistentContent(message.Content, message.MailHeader)
+			}
 			if len(message.EncryptedReasoning) > 0 {
 				mapped["reasoning_content"] = ReasoningPartsValue(message.ReasoningContent, message.EncryptedReasoning)
 			}

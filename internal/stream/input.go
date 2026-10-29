@@ -316,12 +316,14 @@ type AwaitAsk struct {
 func (AwaitAsk) streamInputTag() {}
 
 type RequestSubmit struct {
-	RequestID  string
-	ChatID     string
-	RunID      string
-	TaskID     string
-	AwaitingID string
-	SubmitID   string
+	AccessGrant map[string]any
+	Origin      *queryinput.Origin
+	RequestID   string
+	ChatID      string
+	RunID       string
+	TaskID      string
+	AwaitingID  string
+	SubmitID    string
 	// Input is one answer object (planning/form) or an item list.
 	Input any
 }
@@ -337,6 +339,7 @@ type AwaitingAnswer struct {
 func (AwaitingAnswer) streamInputTag() {}
 
 type RequestSteer struct {
+	Mail       *queryinput.MailInput
 	Origin     *queryinput.Origin
 	RequestID  string
 	ChatID     string

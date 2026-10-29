@@ -52,7 +52,6 @@ type llmRunStream struct {
 	toolChoice                  string
 	postToolHook                func(string, string) PostToolHookResult
 	preserveSteersOnFinish      bool
-	checker                     hitl.Checker
 
 	step                int
 	stageToolCalls      int

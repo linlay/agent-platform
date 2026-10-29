@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/runtime/runstate"
 )
@@ -136,7 +137,7 @@ func (i *scriptedClientRequestInvoker) InvokeClientRequest(ctx context.Context, 
 }
 
 // dispatchDesktopActionArgs sends an admitted reverse action the way the
-// web-control tools do, bypassing only the desktop_action model allowlist.
+// desktop domain and web-control tools do after their own admission.
 func (t *RuntimeToolExecutor) dispatchDesktopActionArgs(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	return t.dispatchDesktopAction(ctx, stringArg(args, "action"), args, execCtx)
 }
@@ -163,7 +164,7 @@ func TestDesktopReverseRequestUsesCallerToolDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
 	defer cancel()
 	wantDeadline, _ := ctx.Deadline()
-	result, err := executor.invokeDesktopAction(ctx, map[string]any{
+	result, err := executor.dispatchDesktopActionArgs(ctx, map[string]any{
 		"requestId": "deadline-request", "action": "desktop.theme.get", "args": map[string]any{},
 	}, desktopActionTestExecutionContext())
 	if err != nil || result.ExitCode != 0 {
@@ -242,7 +243,7 @@ func TestDesktopRuntimeModeRoutingMatrix(t *testing.T) {
 		clientRequest: displayInvoker,
 		clientTargets: emptyRunClientTargetStore{},
 	}
-	display, err := displayExecutor.invokeDesktopAction(context.Background(), map[string]any{
+	display, err := displayExecutor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"requestId": "standalone-display",
 		"action":    "desktop.display",
 		"args":      map[string]any{"kind": "effect", "effect": "fireworks"},
@@ -254,7 +255,7 @@ func TestDesktopRuntimeModeRoutingMatrix(t *testing.T) {
 		t.Fatalf("standalone display source exposed workspace root: %#v", displayInvoker.request.Source)
 	}
 
-	unsupported, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+	unsupported, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"action": "desktop.theme.get", "args": map[string]any{},
 	}, &ExecutionContext{})
 	if err != nil || unsupported.Error != "desktop_action_unsupported_runtime" || invoker.calls != 1 {
@@ -266,7 +267,7 @@ func TestDesktopRuntimeModeRoutingMatrix(t *testing.T) {
 	if err != nil || localFile.Error != "desktop_action_unsupported_runtime" || invoker.calls != 1 {
 		t.Fatalf("standalone local file action was not rejected before dispatch: result=%#v calls=%d err=%v", localFile, invoker.calls, err)
 	}
-	tooling, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+	tooling, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"action": "desktop.webapp.package.build",
 		"args":   map[string]any{"projectPath": "app", "outputPath": "artifacts/app.zip"},
 	}, desktopActionTestExecutionContext())
@@ -495,7 +496,7 @@ func TestDesktopRuntimeRebindsStaleRunTargetBeforeDispatch(t *testing.T) {
 		WithClientRequestInvoker(invoker).
 		WithClientTargetStore(runs).
 		WithDesktopMainTargetProvider(provider)
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+	result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"requestId": "stale-target", "action": "desktop.theme.get", "args": map[string]any{},
 	}, &ExecutionContext{Session: QuerySession{RunID: "run-stale", ChatID: "chat-stale", AgentKey: "agent-1"}})
 	if err != nil || result.ExitCode != 0 {
@@ -523,7 +524,7 @@ func TestDesktopRuntimeDoesNotReplayAfterClientDisconnect(t *testing.T) {
 		WithClientRequestInvoker(invoker).
 		WithClientTargetStore(runs).
 		WithDesktopMainTargetProvider(provider)
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+	result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"requestId": "inflight-disconnect", "action": "desktop.theme.set", "args": map[string]any{"themeMode": "dark"},
 	}, &ExecutionContext{Session: QuerySession{RunID: "run-inflight", ChatID: "chat-inflight", AgentKey: "agent-1"}})
 	if err != nil {
@@ -559,7 +560,7 @@ func TestDesktopRuntimeReportsDesktopMainAvailability(t *testing.T) {
 				WithClientRequestInvoker(invoker).
 				WithClientTargetStore(runs).
 				WithDesktopMainTargetProvider(provider)
-			result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+			result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 				"action": "desktop.theme.get", "args": map[string]any{},
 			}, &ExecutionContext{Session: QuerySession{RunID: "run-no-target", ChatID: "chat-no-target", AgentKey: "agent-1"}})
 			if err != nil {
@@ -629,7 +630,7 @@ func TestDesktopRuntimeTeamSourceKeepsTeamIdentity(t *testing.T) {
 		WithClientRequestInvoker(invoker).
 		WithClientTargetStore(runs).
 		WithDesktopMainTargetProvider(provider)
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+	result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"requestId": "team-action", "action": "desktop.theme.get", "args": map[string]any{},
 	}, &ExecutionContext{Session: QuerySession{
 		RunID: "run-team", ChatID: "chat-team",
@@ -695,7 +696,7 @@ func TestDesktopRuntimeConcurrentRunsKeepReverseRequestsIsolated(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+			result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 				"requestId": requestID, "action": "desktop.theme.get", "args": map[string]any{},
 			}, &ExecutionContext{Session: QuerySession{RunID: runID, ChatID: chatID, AgentKey: "agent-1"}})
 			if err != nil {
@@ -793,7 +794,7 @@ func TestInvokeDesktopActionCallsBridge(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := newDesktopTestExecutor(server.URL, "").invokeDesktopAction(context.Background(), map[string]any{
+	result, err := newDesktopTestExecutor(server.URL, "").dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"action": "desktop.theme.set",
 		"args": map[string]any{
 			"themeMode": "dark",
@@ -847,7 +848,7 @@ func TestInvokeDesktopActionReassemblesValidatedStream(t *testing.T) {
 		clientRequest: &scriptedClientRequestInvoker{frames: frames},
 		clientTargets: emptyRunClientTargetStore{},
 	}
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+	result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"requestId": "stream-request",
 		"action":    "desktop.controlCenter.readServiceLog",
 	}, desktopActionTestExecutionContext())
@@ -881,7 +882,7 @@ func TestInvokeDesktopActionRejectsInvalidStreamManifest(t *testing.T) {
 		}},
 		clientTargets: emptyRunClientTargetStore{},
 	}
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+	result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"requestId": "invalid-stream", "action": "desktop.controlCenter.readServiceLog",
 	}, desktopActionTestExecutionContext())
 	if err != nil {
@@ -1213,233 +1214,15 @@ func TestInvokeDesktopCDPCaptureScreenshotDoesNotSaveBridgeFailure(t *testing.T)
 	}
 }
 
-func TestInvokeDesktopActionRejectsUnknownAction(t *testing.T) {
-	result, err := (&RuntimeToolExecutor{}).invokeDesktopAction(context.Background(), map[string]any{
-		"action": "desktop.unlisted.anything",
-	}, &ExecutionContext{})
-	if err != nil {
-		t.Fatalf("invoke desktop action: %v", err)
-	}
-	if result.ExitCode != -1 || result.Error != "unknown_action" {
-		t.Fatalf("expected unknown_action failure, got exit=%d error=%q output=%s", result.ExitCode, result.Error, result.Output)
-	}
-}
-
-func TestInvokeDesktopActionAllowsCurrentDesktopActions(t *testing.T) {
-	var requested []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var got map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
-			t.Fatalf("decode request: %v", err)
+func TestDesktopDomainActionsUseDirectReverseRequestFrames(t *testing.T) {
+	var actions []string
+	for _, a := range connector.ControlActions() {
+		if strings.HasPrefix(a.Tool, "desktop_") {
+			actions = append(actions, "desktop."+a.Action)
 		}
-		action := r.Header.Get("X-Test-Request-Type")
-		requested = append(requested, action)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":     true,
-			"action": action,
-			"result": map[string]any{"ok": true},
-		})
-	}))
-	defer server.Close()
-
-	actions := []string{
-		"desktop.general.deviceName",
-		"desktop.theme.get",
-		"desktop.theme.set",
-		"desktop.skin.get",
-		"desktop.skin.list",
-		"desktop.skin.import",
-		"desktop.skin.set",
-		"desktop.skin.remove",
-		"desktop.locale.get",
-		"desktop.locale.set",
-		"desktop.copilot.getPagePreferences",
-		"desktop.copilot.setPagePreference",
-		"desktop.display",
-		"desktop.web.exportArtifact",
-		"desktop.webapp.getStatus",
-		"desktop.website.list",
-		"desktop.pet.show",
-		"desktop.pet.state",
 	}
-	for _, action := range actions {
-		t.Run(action, func(t *testing.T) {
-			result, err := newDesktopTestExecutor(server.URL, "").invokeDesktopAction(context.Background(), map[string]any{
-				"action": action,
-			}, desktopActionTestExecutionContext())
-			if err != nil {
-				t.Fatalf("invoke desktop action: %v", err)
-			}
-			if result.ExitCode != 0 {
-				t.Fatalf("expected successful exit code, got %d: %s", result.ExitCode, result.Output)
-			}
-		})
-	}
-	if len(requested) != len(actions) {
-		t.Fatalf("expected bridge to receive %d actions, got %d: %#v", len(actions), len(requested), requested)
-	}
-}
-
-func TestInvokeDesktopActionRejectsLegacyAndUnsupportedActions(t *testing.T) {
-	for _, action := range []string{
-		"desktop.setting.getState",
-		"desktop.setting.validatePatch",
-		"desktop.setting.previewPatch",
-		"desktop.setting.applyPatch",
-		"desktop.settings.getState",
-		"desktop.agents.listAgents",
-		"desktop.automations.listAutomations",
-		"desktop.help.searchTopics",
-		"desktop.web.list",
-		"desktop.web.website.list",
-		"desktop.web.webapp.getStatus",
-		"desktop.webapp.installAndOpen",
-		"desktop.webapp.checkPrerequisites",
-		"desktop.webapp.getPublishInfo",
-		"desktop.webapp.selectDirectory",
-		"desktop.webapp.manifest.init",
-		"desktop.webapp.manifest.validate",
-		"desktop.webapp.init",
-	} {
-		t.Run(action, func(t *testing.T) {
-			result, err := (&RuntimeToolExecutor{}).invokeDesktopAction(context.Background(), map[string]any{
-				"action": action,
-			}, &ExecutionContext{})
-			if err != nil {
-				t.Fatalf("invoke desktop action: %v", err)
-			}
-			if result.ExitCode != -1 || result.Error != "unknown_action" {
-				t.Fatalf("expected unknown_action failure, got exit=%d error=%q output=%s", result.ExitCode, result.Error, result.Output)
-			}
-		})
-	}
-}
-
-func TestInvokeDesktopActionRejectsPageActions(t *testing.T) {
-	for _, action := range []string{
-		"desktop.awcp.invoke",
-		"desktop.page.readCurrent",
-		"desktop.skin.*",
-		"desktop.skin.futureAction",
-		"desktop.skin.get.extra",
-		"desktop.skin",
-		"desktop.embeddedWeb.readPageData",
-	} {
-		t.Run(action, func(t *testing.T) {
-			result, err := (&RuntimeToolExecutor{}).invokeDesktopAction(context.Background(), map[string]any{
-				"action": action,
-			}, &ExecutionContext{})
-			if err != nil {
-				t.Fatalf("invoke desktop action: %v", err)
-			}
-			if result.ExitCode != -1 || result.Error != "unknown_action" {
-				t.Fatalf("expected unknown_action failure, got exit=%d error=%q output=%s", result.ExitCode, result.Error, result.Output)
-			}
-		})
-	}
-}
-
-func TestDesktopActionAllowlistMatchesExpectedActions(t *testing.T) {
-	want := []string{
-		"desktop.agent.open",
-		"desktop.agent.update",
-		"desktop.assistant.chat",
-		"desktop.controlCenter.getServiceDetail",
-		"desktop.controlCenter.getServiceLogsMeta",
-		"desktop.controlCenter.getServiceStatus",
-		"desktop.controlCenter.initializeService",
-		"desktop.controlCenter.installService",
-		"desktop.controlCenter.listServices",
-		"desktop.controlCenter.openLogViewer",
-		"desktop.controlCenter.openService",
-		"desktop.controlCenter.readServiceLog",
-		"desktop.controlCenter.restartService",
-		"desktop.controlCenter.startService",
-		"desktop.controlCenter.stopService",
-		"desktop.copilot.getPagePreferences",
-		"desktop.copilot.setPagePreference",
-		"desktop.display",
-		"desktop.general.deviceName",
-		"desktop.help.openTopic",
-		"desktop.kanban.createIssue",
-		"desktop.kanban.deleteIssue",
-		"desktop.kanban.getIssue",
-		"desktop.kanban.listIssues",
-		"desktop.kanban.moveIssue",
-		"desktop.kanban.updateIssue",
-		"desktop.locale.get",
-		"desktop.locale.set",
-		"desktop.market.applySettingsPatch",
-		"desktop.market.deleteSandboxImage",
-		"desktop.market.exportSandboxImage",
-		"desktop.market.getItemDetail",
-		"desktop.market.getSettings",
-		"desktop.market.importSandboxImage",
-		"desktop.market.importSkill",
-		"desktop.market.installItem",
-		"desktop.market.listItems",
-		"desktop.market.openItem",
-		"desktop.market.previewSettingsPatch",
-		"desktop.market.refresh",
-		"desktop.market.uninstallItem",
-		"desktop.market.updateItem",
-		"desktop.market.validateSettings",
-		"desktop.navigate.toRoute",
-		"desktop.pet.hide",
-		"desktop.pet.list",
-		"desktop.pet.set",
-		"desktop.pet.import",
-		"desktop.pet.show",
-		"desktop.pet.state",
-		"desktop.runtime.diagnostics",
-		"desktop.runtime.info",
-		"desktop.site.list",
-		"desktop.skill.open",
-		"desktop.skill.update",
-		"desktop.theme.get",
-		"desktop.theme.set",
-		"desktop.skin.get",
-		"desktop.skin.list",
-		"desktop.skin.import",
-		"desktop.skin.set",
-		"desktop.skin.remove",
-		"desktop.web.exportArtifact",
-		"desktop.webapp.checkRuntime",
-		"desktop.webapp.getPublishStatus",
-		"desktop.webapp.getStatus",
-		"desktop.webapp.install",
-		"desktop.webapp.open",
-		"desktop.webapp.package.build",
-		"desktop.webapp.package.init",
-		"desktop.webapp.package.validate",
-		"desktop.webapp.publish",
-		"desktop.webapp.restart",
-		"desktop.webapp.start",
-		"desktop.webapp.stop",
-		"desktop.webapp.uninstall",
-		"desktop.webapp.unpublish",
-		"desktop.webapp.updatePreferences",
-		"desktop.website.add",
-		"desktop.site.setPinned",
-		"desktop.website.list",
-		"desktop.website.open",
-		"desktop.website.remove",
-		"desktop.website.update",
-	}
-	sort.Strings(want)
-
-	gotAllowlist := sortedDesktopActionAllowlist(t)
-	if !reflect.DeepEqual(gotAllowlist, want) {
-		t.Fatalf("desktop action allowlist mismatch\nwant: %#v\n got: %#v", want, gotAllowlist)
-	}
-
-}
-
-func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
-	actions := sortedDesktopActionAllowlist(t)
-	if len(actions) != 84 {
-		t.Fatalf("desktop action count = %d, want 84", len(actions))
+	if len(actions) == 0 {
+		t.Fatal("no desktop domain actions")
 	}
 	invoker := &routingClientRequestInvoker{}
 	executor := &RuntimeToolExecutor{
@@ -1453,7 +1236,7 @@ func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 		execution := desktopActionTestExecutionContext()
 		execution.CurrentToolID = requestID
 
-		result, err := executor.invokeDesktopAction(context.Background(), args, execution)
+		result, err := executor.dispatchDesktopActionArgs(context.Background(), args, execution)
 		if err != nil || result.ExitCode != 0 {
 			t.Fatalf("action %s failed: result=%#v err=%v", action, result, err)
 		}
@@ -1478,7 +1261,7 @@ func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 func TestDesktopActionRejectsReservedArgs(t *testing.T) {
 	for _, field := range []string{"source", "confirmationSummary", "workspaceRoot"} {
 		t.Run(field, func(t *testing.T) {
-			result, err := (&RuntimeToolExecutor{}).invokeDesktopAction(context.Background(), map[string]any{
+			result, err := (&RuntimeToolExecutor{}).dispatchDesktopActionArgs(context.Background(), map[string]any{
 				"action": "desktop.theme.set",
 				"args":   map[string]any{field: "forged"},
 			}, desktopActionTestExecutionContext())
@@ -1750,7 +1533,7 @@ func TestDesktopCDPRecommendedMethodsKeepRawBridgeRoute(t *testing.T) {
 }
 
 func TestInvokeDesktopActionRequiresClientProvider(t *testing.T) {
-	result, err := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}}).invokeDesktopAction(context.Background(), map[string]any{
+	result, err := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}}).dispatchDesktopActionArgs(context.Background(), map[string]any{
 		"action": "desktop.controlCenter.listServices",
 	}, desktopActionTestExecutionContext())
 	if err != nil {
@@ -1759,20 +1542,6 @@ func TestInvokeDesktopActionRequiresClientProvider(t *testing.T) {
 	if result.ExitCode != -1 || result.Error != "desktop_action_provider_unavailable" {
 		t.Fatalf("expected provider unavailable failure, got exit=%d error=%q output=%s", result.ExitCode, result.Error, result.Output)
 	}
-}
-
-func sortedDesktopActionAllowlist(t *testing.T) []string {
-	t.Helper()
-	allowlist, err := getDesktopActionAllowlist()
-	if err != nil {
-		t.Fatalf("load desktop action allowlist: %v", err)
-	}
-	values := make([]string, 0, len(allowlist))
-	for action := range allowlist {
-		values = append(values, action)
-	}
-	sort.Strings(values)
-	return values
 }
 
 func sortedToolPropertyEnum(t *testing.T, toolName string, propertyName string) []string {
@@ -1870,7 +1639,7 @@ func TestDesktopConfirmationErrorsRemainDistinct(t *testing.T) {
 			data, _ := json.Marshal(map[string]any{"action": "desktop.theme.set", "details": map[string]any{"category": tc.category, "stage": "confirmation", "executionState": "not_started"}})
 			invoker := &scriptedClientRequestInvoker{frames: []ClientResponseFrame{{Frame: "error", Type: tc.kind, ID: "confirmation-test", Code: &tc.status, Msg: tc.kind, Data: data}}}
 			executor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}, clientRequest: invoker, clientTargets: emptyRunClientTargetStore{}}
-			result, err := executor.invokeDesktopAction(context.Background(), map[string]any{"requestId": "confirmation-test", "action": "desktop.theme.set", "args": map[string]any{"themeMode": "dark"}}, desktopActionTestExecutionContext())
+			result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{"requestId": "confirmation-test", "action": "desktop.theme.set", "args": map[string]any{"themeMode": "dark"}}, desktopActionTestExecutionContext())
 			if err != nil || result.Error != "desktop_action_client_rejected" {
 				t.Fatalf("unexpected result: %#v %v", result, err)
 			}
@@ -1893,7 +1662,7 @@ func TestDesktopTransportTimeoutAndCancellationRemainDistinct(t *testing.T) {
 	}{{context.DeadlineExceeded, "desktop_action_client_timeout"}, {context.Canceled, "desktop_action_client_cancelled"}} {
 		invoker := &scriptedClientRequestInvoker{err: tc.err}
 		executor := &RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}, clientRequest: invoker, clientTargets: emptyRunClientTargetStore{}}
-		result, err := executor.invokeDesktopAction(context.Background(), map[string]any{"action": "desktop.theme.set", "args": map[string]any{"themeMode": "dark"}}, desktopActionTestExecutionContext())
+		result, err := executor.dispatchDesktopActionArgs(context.Background(), map[string]any{"action": "desktop.theme.set", "args": map[string]any{"themeMode": "dark"}}, desktopActionTestExecutionContext())
 		if err != nil || result.Error != tc.code {
 			t.Fatalf("expected %s, got %#v %v", tc.code, result, err)
 		}

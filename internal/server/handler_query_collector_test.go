@@ -101,7 +101,7 @@ type queryEventCollector struct {
 	ModelTurnDirty  bool
 	FinishReason    string
 	Usage           chat.UsageData
-	FullTextBuilder *queryFullTextBuilder
+	FullTextBuilder *runexec.FullTextBuilder
 	ErrorMessage    string
 	ErrorPayload    map[string]any
 }
@@ -109,7 +109,7 @@ type queryEventCollector struct {
 func newQueryEventCollector(includeFullText bool) *queryEventCollector {
 	c := &queryEventCollector{}
 	if includeFullText {
-		c.FullTextBuilder = newQueryFullTextBuilder()
+		c.FullTextBuilder = runexec.NewFullTextBuilder()
 	}
 	return c
 }
@@ -118,7 +118,7 @@ func (c *queryEventCollector) Consume(event stream.EventData) {
 	if c == nil {
 		return
 	}
-	if event.Type == "run.activity" && isDiscardIncompleteModelTurnRecovery(event.Value("recovery")) {
+	if event.Type == "run.activity" && runexec.IsDiscardIncompleteModelTurnRecovery(event.Value("recovery")) {
 		c.ModelTurnText.Reset()
 		c.ModelTurnOpen = true
 		c.ModelTurnDirty = false
@@ -240,4 +240,35 @@ func (c *queryEventCollector) ConsumeUsage(event stream.EventData) {
 		return
 	}
 	runexec.MergeUsageMapIntoRunData(&c.Usage, usage)
+}
+
+func queryEventErrorPayload(event stream.EventData) map[string]any {
+	payload, _ := event.Value("error").(map[string]any)
+	return cloneQueryErrorPayload(payload)
+}
+
+func queryEventErrorMessage(event stream.EventData) string {
+	if message := strings.TrimSpace(event.String("message")); message != "" {
+		return message
+	}
+	if message := strings.TrimSpace(event.String("error")); message != "" {
+		return message
+	}
+	return queryErrorValueMessage(event.Value("error"))
+}
+
+func queryErrorValueMessage(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(typed)
+	case map[string]any:
+		for _, key := range []string{"message", "error", "code"} {
+			if message, _ := typed[key].(string); strings.TrimSpace(message) != "" {
+				return strings.TrimSpace(message)
+			}
+		}
+	}
+	return strings.TrimSpace(runexec.FormatFullTextValue(value))
 }

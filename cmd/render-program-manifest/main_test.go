@@ -28,6 +28,9 @@ func TestRenderWindowsManifest(t *testing.T) {
 	if platform["os"] != "windows" || platform["arch"] != "amd64" {
 		t.Fatalf("platform = %#v", platform)
 	}
+	if manifest["desktop"].(map[string]any)["ssoIdTokenFile"] != "v1" {
+		t.Fatal("Platform release must declare the Desktop SSO ID-token file contract")
+	}
 }
 
 func TestRenderRejectsInvalidTarget(t *testing.T) {

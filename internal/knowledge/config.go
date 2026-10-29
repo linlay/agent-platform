@@ -144,11 +144,6 @@ func anyString(value any) string {
 	return strings.TrimSpace(fmt.Sprint(value))
 }
 
-func anyInt(value any) int {
-	out, _ := parseConfigInt(value)
-	return out
-}
-
 func parseConfigInt(value any) (int, bool) {
 	switch typed := value.(type) {
 	case int:
@@ -168,13 +163,5 @@ func parseConfigInt(value any) (int, bool) {
 		}
 		parsed, err := strconv.Atoi(text)
 		return parsed, err == nil
-	}
-}
-
-func applyIntAliases(values map[string]any, target *int, keys ...string) {
-	for _, key := range keys {
-		if value, exists := values[key]; exists {
-			*target = anyInt(value)
-		}
 	}
 }

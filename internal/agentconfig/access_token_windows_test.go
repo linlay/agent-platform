@@ -12,7 +12,7 @@ func TestIdentityReadAllowsAtomicRefreshAndRevocationWindows(t *testing.T) {
 	if err := os.WriteFile(file, []byte("fixture-old"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	reader, err := openIdentityFile(file)
+	reader, err := openSsoIdTokenFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,10 +28,10 @@ func TestIdentityReadAllowsAtomicRefreshAndRevocationWindows(t *testing.T) {
 	if err != nil || string(old) != "fixture-old" {
 		t.Fatal("existing read lost its original snapshot")
 	}
-	if got, err := ReadAccessTokenFile(file); err != nil || got != "fixture-new" {
+	if got, err := ReadSsoIdTokenFile(file); err != nil || got != "fixture-new" {
 		t.Fatal("fresh invocation did not read refreshed token")
 	}
-	current, err := openIdentityFile(file)
+	current, err := openSsoIdTokenFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestIdentityReadAllowsAtomicRefreshAndRevocationWindows(t *testing.T) {
 	if err := current.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := ReadAccessTokenFile(file); err != nil || got != "" {
+	if got, err := ReadSsoIdTokenFile(file); err != nil || got != "" {
 		t.Fatal("revoked token remained available")
 	}
 }

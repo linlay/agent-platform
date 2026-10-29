@@ -88,7 +88,7 @@ func (s *Service) PendingAwaitingInfo(chatID string, pending *chat.PendingAwaiti
 	pendingInfo := func(runID, mode string) *queryinput.ChatErrorInfo {
 		return awaitingPendingInfo(chatID, queryinput.Awaiting{AwaitingID: awaitingID, RunID: runID, Mode: mode, Status: "awaiting", CreatedAt: pending.CreatedAt})
 	}
-	if contracts.AwaitingHasLiveExecutor(s.deps.Runs, pending.RunID, awaitingID) {
+	if contracts.AwaitingHasLiveExecutor(s.deps.Runs, pending.RunID) {
 		return pendingInfo(pending.RunID, pending.Mode), nil
 	}
 	pendingMode := strings.ToLower(strings.TrimSpace(pending.Mode))
@@ -113,7 +113,7 @@ func (s *Service) PendingAwaitingInfo(chatID string, pending *chat.PendingAwaiti
 		return nil, nil
 	}
 	runID := firstNonBlank(pending.RunID, ask.RunID, sessionbuild.StringValue(ask.Payload["runId"]))
-	if contracts.AwaitingHasLiveExecutor(s.deps.Runs, runID, awaitingID) {
+	if contracts.AwaitingHasLiveExecutor(s.deps.Runs, runID) {
 		return pendingInfo(runID, effectiveMode), nil
 	}
 	timeoutSec := contracts.AnyIntNode(ask.Payload["timeout"])

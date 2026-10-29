@@ -123,7 +123,7 @@ func TestConnectorManageTokenFileDoesNotEchoCredentials(t *testing.T) {
 	}
 }
 
-func TestConnectorManageOneIDUsesIdentityFileAndNeverStoresToken(t *testing.T) {
+func TestConnectorManageOneIDUsesSsoIdTokenFileAndNeverStoresToken(t *testing.T) {
 	runtimeRoot := t.TempDir()
 	t.Setenv("AP_RUNTIME_STATE_DIR", "")
 	t.Setenv("AP_ACCESS_TOKEN", "untrusted-process-token")
@@ -131,12 +131,12 @@ func TestConnectorManageOneIDUsesIdentityFileAndNeverStoresToken(t *testing.T) {
 	os.MkdirAll(dir, 0755)
 	os.WriteFile(filepath.Join(dir, "connector.json"), []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"oneid-token"}`), 0644)
 	os.WriteFile(filepath.Join(dir, "cli.json"), []byte(`{}`), 0644)
-	explicit := filepath.Join(t.TempDir(), "sso-access-token.txt")
+	explicit := filepath.Join(t.TempDir(), "sso-id-token.txt")
 	os.WriteFile(explicit, []byte("test-private-sso"), 0600)
 	for _, tc := range []struct{ file, status string }{{"", "unauthorized"}, {explicit, "authorized"}} {
 		args := []string{"status", "--runtime-dir", runtimeRoot, "--id", "demo"}
 		if tc.file != "" {
-			args = append(args, "--identity-file", tc.file)
+			args = append(args, "--sso-id-token-file", tc.file)
 		}
 		var out bytes.Buffer
 		if err := runConnectorManagement(args, &out); err != nil {
@@ -147,14 +147,14 @@ func TestConnectorManageOneIDUsesIdentityFileAndNeverStoresToken(t *testing.T) {
 		}
 	}
 	var out bytes.Buffer
-	if err := runConnectorManagement([]string{"status", "--runtime-dir", runtimeRoot, "--id", "demo", "--identity-file", "relative.txt"}, &out); err == nil {
+	if err := runConnectorManagement([]string{"status", "--runtime-dir", runtimeRoot, "--id", "demo", "--sso-id-token-file", "relative.txt"}, &out); err == nil {
 		t.Fatal("relative identity file accepted")
 	}
 	if _, err := os.Stat(filepath.Join(runtimeRoot, ".state", "connectors", "demo")); !os.IsNotExist(err) {
 		t.Fatal("SSO created a connector credential directory")
 	}
 	// An old identity file must never revive authorization after logout.
-	legacy := filepath.Join(runtimeRoot, "identity", "access-token")
+	legacy := filepath.Join(runtimeRoot, "identity", "sso-id-token")
 	if err := os.MkdirAll(filepath.Dir(legacy), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestConnectorManageOneIDUsesIdentityFileAndNeverStoresToken(t *testing.T) {
 	}
 	for _, stateDir := range []string{filepath.Join(runtimeRoot, ".state"), filepath.Join(t.TempDir(), "custom state")} {
 		t.Setenv("AP_RUNTIME_STATE_DIR", stateDir)
-		file := filepath.Join(stateDir, "identity", "access-token")
+		file := filepath.Join(stateDir, "identity", "sso-id-token")
 		if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
 			t.Fatal(err)
 		}

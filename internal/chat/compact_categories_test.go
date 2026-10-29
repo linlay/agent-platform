@@ -93,7 +93,7 @@ func TestActiveL1WritesOnlyCategoryAttributes(t *testing.T) {
 	}
 	// The helper uses one seq per run. Use distinct runs to model distinct calls.
 	// Real active runs use their monotonically increasing seq.
-	records, data, err := readJSONLineRecords(store.chatJSONLPath(id))
+	records, _, err := readJSONLineRecords(store.chatJSONLPath(id))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,8 +110,7 @@ func TestActiveL1WritesOnlyCategoryAttributes(t *testing.T) {
 		b.Write(raw)
 		b.WriteByte('\n')
 	}
-	data = b.Bytes()
-	if err := os.WriteFile(store.chatJSONLPath(id), data, 0600); err != nil {
+	if err := os.WriteFile(store.chatJSONLPath(id), b.Bytes(), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.AppendRunCompactCheckpoint(id, RunCompactCheckpointLine{Level: "l1_tools", CompactID: "l1", L1KeepRecent: 5}); err != nil {

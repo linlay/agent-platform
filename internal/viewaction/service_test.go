@@ -87,6 +87,37 @@ func TestActionRejectsUndeclaredInvalidAndRevokedBeforeDispatch(t *testing.T) {
 		t.Fatal(err, f.calls)
 	}
 }
+func TestActionStaysWritableWhenOnlyInterceptChanges(t *testing.T) {
+	s, doc, f, dir := setup(t)
+	write := func(change func(*view.Action)) map[string]view.Action {
+		var config view.Config
+		raw, _ := os.ReadFile(filepath.Join(dir, "view.json"))
+		if err := json.Unmarshal(raw, &config); err != nil {
+			t.Fatal(err)
+		}
+		orders := config.Views["orders"]
+		orders.Usage = []string{"display", "form"}
+		action := orders.Actions["transition"]
+		change(&action)
+		orders.Actions["transition"] = action
+		config.Views["orders"] = orders
+		raw, _ = json.Marshal(config)
+		if err := os.WriteFile(filepath.Join(dir, "view.json"), raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+		return orders.Actions
+	}
+	// A page rendered before the action was intercepted keeps writing.
+	doc.Actions = write(func(a *view.Action) { a.StdinParam = "" })
+	write(func(a *view.Action) { a.Intercept = true })
+	if _, err := s.Execute(context.Background(), doc, "transition", json.RawMessage(`{"key":"DEMO-1","fields":{}}`), "request-001", actor()); err != nil || f.calls != 1 {
+		t.Fatalf("intercept made the page stale: %v calls %d", err, f.calls)
+	}
+	write(func(a *view.Action) { a.Args = append(a.Args, view.QueryArg{Literal: "--force"}) })
+	if _, err := s.Execute(context.Background(), doc, "transition", json.RawMessage(`{"key":"DEMO-1","fields":{}}`), "request-002", actor()); !errors.Is(err, ErrStale) || f.calls != 1 {
+		t.Fatalf("a changed write contract stayed valid: %v calls %d", err, f.calls)
+	}
+}
 func TestActionKeepsBusinessErrorAndTreatsNonJSONAsUnknown(t *testing.T) {
 	s, doc, f, _ := setup(t)
 	f.result = connectorops.Result{ExitCode: 6, Stdout: `{"error":{"outcome":"partial","message":"partial"}}`}

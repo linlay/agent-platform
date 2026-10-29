@@ -239,10 +239,6 @@ func decodeOptionalJSON(r *http.Request, target any) error {
 	return json.Unmarshal(data, target)
 }
 
-func normalizeQueryRole(role string) (string, bool) {
-	return api.NormalizeQueryRole(role)
-}
-
 func defaultRole(role string) string {
 	normalized, ok := api.NormalizeQueryRole(role)
 	if !ok {

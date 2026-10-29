@@ -160,8 +160,8 @@ func TestRunControlProxyMismatchReturnsForbiddenWithoutForwarding(t *testing.T) 
 		RunOwner: contracts.AgentRunOwner("proxy-agent"),
 	})
 	route := runtimeproxy.NewRoute("run-proxy-agent-check", "chat-proxy-agent-check", "proxy-agent")
-	fixture.server.registerProxyRun(route)
-	defer fixture.server.unregisterProxyRun(route.RunID, route)
+	fixture.server.proxyRuntime.Register(route)
+	defer fixture.server.proxyRuntime.Unregister(route.RunID, route)
 
 	tests := []struct {
 		name string
@@ -220,8 +220,8 @@ func TestAccessLevelHTTPForwardsForProxyRun(t *testing.T) {
 		RunOwner: contracts.AgentRunOwner("proxy-agent"),
 	})
 	route := runtimeproxy.NewRoute("run-proxy-access-level", "chat-proxy-access-level", "proxy-agent")
-	fixture.server.registerProxyRun(route)
-	defer fixture.server.unregisterProxyRun(route.RunID, route)
+	fixture.server.proxyRuntime.Register(route)
+	defer fixture.server.proxyRuntime.Unregister(route.RunID, route)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/access-level", bytes.NewBufferString(`{"agentKey":"proxy-agent","runId":"run-proxy-access-level","accessLevel":"auto_approve"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -261,8 +261,8 @@ func TestRunControlProxyForwardsSubmitInterruptAndSteer(t *testing.T) {
 		RunOwner: contracts.AgentRunOwner("proxy-agent"),
 	})
 	route := runtimeproxy.NewRoute("run-proxy-forward", "chat-proxy-forward", "proxy-agent")
-	fixture.server.registerProxyRun(route)
-	defer fixture.server.unregisterProxyRun(route.RunID, route)
+	fixture.server.proxyRuntime.Register(route)
+	defer fixture.server.proxyRuntime.Unregister(route.RunID, route)
 
 	tests := []struct {
 		name string
@@ -319,14 +319,14 @@ func TestRunControlProxyForwardsSubmitInterruptAndSteer(t *testing.T) {
 
 func TestAccessLevelDisabledBeforeACPForward(t *testing.T) {
 	fixture := newTestFixture(t)
-	config := interaction.Defaults("CODER")
+	config := interaction.DefaultsForEngine("CODER", false)
 	config.AccessLevel = false
 	registerHTTPTestRun(t, fixture, context.Background(), contracts.QuerySession{
 		RunID: "acp-interaction", ChatID: "acp-chat", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent"), InteractionConfig: &config,
 	})
 	route := runtimeproxy.NewRoute("acp-interaction", "acp-chat", "mock-agent")
-	fixture.server.registerProxyRun(route)
-	defer fixture.server.unregisterProxyRun(route.RunID, route)
+	fixture.server.proxyRuntime.Register(route)
+	defer fixture.server.proxyRuntime.Unregister(route.RunID, route)
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/access-level", bytes.NewBufferString(`{"agentKey":"mock-agent","runId":"acp-interaction","accessLevel":"full_access"}`)))
 	if rec.Code != 200 || !bytes.Contains(rec.Body.Bytes(), []byte(`"status":"interaction_disabled"`)) {

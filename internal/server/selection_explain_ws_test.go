@@ -175,3 +175,12 @@ func TestSelectionExplainWebSocketSourceCannotGrantAppPrivileges(t *testing.T) {
 		t.Fatalf("spoofed source must fail before websocket registration: response=%v err=%v", response, err)
 	}
 }
+
+func resolveRunWebClientTarget(runs contracts.RunManager, runID string) contracts.WebClientTarget {
+	store, ok := runs.(contracts.WebClientTargetStore)
+	if !ok {
+		return contracts.WebClientTarget{}
+	}
+	target, _ := store.ResolveWebClientTarget(runID)
+	return target
+}
