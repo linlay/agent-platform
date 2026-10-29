@@ -257,7 +257,15 @@ func (s *Service) deleteArchive(chatID string) error {
 	if !chat.ValidChatID(chatID) {
 		return os.ErrPermission
 	}
-	return s.Archives.DeleteArchived(chatID)
+	if err := s.Archives.DeleteArchived(chatID); err != nil {
+		return err
+	}
+	if s.MailboxPurge != nil {
+		if err := s.MailboxPurge(chatID); err != nil {
+			log.Printf("[conversation] purge mail for deleted archive=%s: %v", chatID, err)
+		}
+	}
+	return nil
 }
 
 func isArchiveResultError(err error) bool {

@@ -23,7 +23,9 @@ func testMailService(t *testing.T) (*Service, *mailbox.Service) {
 		cancel()
 		_ = box.Close()
 	})
-	return &Service{mailbox: box}, box
+	s := &Service{}
+	s.BindMailbox(box)
+	return s, box
 }
 
 func TestOnlyLetterRunsAreDerivedFromTheSender(t *testing.T) {

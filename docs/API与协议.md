@@ -1440,7 +1440,7 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 
 ## Mailbox 会话投递
 
-会话投递增加 GET /api/mails 与 POST /api/mails/action，广播 mail.updated；request.query/request.steer 在顶层记录 mailId、mailKind、mailAttempt、mailHop，reply 另有 outcome；submit 可带平台生成的 origin/accessGrant 审计。字段不能由公共输入伪造，JSON 仍使用统一包裹。具体参数与权限见 [Mailbox](Mailbox.md#http-与展示)。
+会话投递增加 GET /api/mails 与 POST /api/mails/action，广播 mail.updated；request.query/request.steer 在顶层记录 mailId、mailKind、mailAttempt、mailHop，reply 另有 outcome；submit 可带平台生成的 origin/accessGrant 审计。字段不能由公共输入伪造，JSON 仍使用统一包裹。具体参数与权限见 [Mailbox](Mailbox.md#http-与展示)。列表及动作的 JSON 字段名不随 MAILS 数据库列名变化；purgedAt 只表示邮件正文已清理，创建会话、父邮件和回信关系继续保留，HTTP/JSONL 协议不变。
 
 
 ## Agent 默认权限与来源

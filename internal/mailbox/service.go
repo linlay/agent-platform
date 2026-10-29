@@ -21,18 +21,20 @@ import (
 )
 
 type Service struct {
-	Store         *Store
-	port          Port
-	root          string
-	maxHops       int
-	ctx           context.Context
-	mu            sync.Mutex
-	chatLocks     map[string]*chatLock
-	scopes        map[string]controlscope.Scope
-	notifications contracts.NotificationSink
-	wg            sync.WaitGroup
-	closed        bool
-	prepared      map[string]*preparedMail
+	Store            *Store
+	port             Port
+	root             string
+	maxHops          int
+	ctx              context.Context
+	mu               sync.Mutex
+	chatLocks        map[string]*chatLock
+	scopes           map[string]controlscope.Scope
+	notifications    contracts.NotificationSink
+	wg               sync.WaitGroup
+	closed           bool
+	prepared         map[string]*preparedMail
+	stop             chan struct{}
+	retentionStarted bool
 }
 
 // chatLock is dropped when no dispatch for its Chat is pending.
@@ -52,7 +54,7 @@ func New(ctx context.Context, store *Store, root string, maxHops int, notificati
 	if maxHops <= 0 {
 		maxHops = 4
 	}
-	return &Service{Store: store, root: root, maxHops: maxHops, ctx: ctx, chatLocks: map[string]*chatLock{}, scopes: map[string]controlscope.Scope{}, notifications: notifications}
+	return &Service{Store: store, root: root, maxHops: maxHops, ctx: ctx, chatLocks: map[string]*chatLock{}, scopes: map[string]controlscope.Scope{}, notifications: notifications, stop: make(chan struct{})}
 }
 func (s *Service) Bind(port Port) { s.port = port }
 func NewID(prefix string) string {
@@ -64,7 +66,12 @@ func NewID(prefix string) string {
 }
 func (s *Service) Close() error {
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil
+	}
 	s.closed = true
+	close(s.stop)
 	s.mu.Unlock()
 	s.wg.Wait()
 	return s.Store.Close()
@@ -226,8 +233,16 @@ func (s *Service) Send(ctx context.Context, req Request) (Receipt, error) {
 	return receipt(current), err
 }
 func (s *Service) finishAcceptance(ctx context.Context, m Mail) error {
+	current, err := s.Store.Get(m.ID)
+	if err != nil {
+		return err
+	}
+	m = current
 	if m.Status != Accepting {
 		return nil
+	}
+	if m.ToChatDeletedAt != 0 {
+		return failure("chat_deleted", "receiving Chat was deleted")
 	}
 	if err := s.port.EnsureMailChat(ctx, &m); err != nil {
 		return err
@@ -243,8 +258,8 @@ func (s *Service) finishAcceptance(ctx context.Context, m Mail) error {
 	if err := s.copyFiles(m); err != nil {
 		return err
 	}
-	_, err := s.change(m.ID, func(row *Mail) error {
-		if row.Status != Accepting {
+	_, err = s.change(m.ID, func(row *Mail) error {
+		if row.Status != Accepting || row.ToChatDeletedAt != 0 {
 			return errStale
 		}
 		row.ToChatID, row.OpenedChat = m.ToChatID, m.OpenedChat
@@ -313,7 +328,7 @@ func (s *Service) dispatch(chatID string) error {
 			// A queued row was never handed to a Run in this attempt. Only a
 			// person can supply a delivery identity again.
 			_, err = s.change(m.ID, func(row *Mail) error {
-				if row.Status != Queued {
+				if row.Status != Queued || row.ToChatDeletedAt != 0 {
 					return errStale
 				}
 				row.ResumePhase = Queued
@@ -347,7 +362,7 @@ func (s *Service) dispatch(chatID string) error {
 			continue
 		}
 		m, e = s.change(m.ID, func(row *Mail) error {
-			if row.Status != Queued {
+			if row.Status != Queued || row.ToChatDeletedAt != 0 {
 				return errStale
 			}
 			row.Status = Inflight
@@ -480,12 +495,22 @@ func (s *Service) Action(ctx context.Context, id, action, subject string, scope 
 		return m, failure("mail_state_conflict", "only suspended mail can be redelivered or discarded")
 	}
 	if action == "redeliver" {
+		if m.ToChatDeletedAt != 0 {
+			return m, failure("chat_deleted", "receiving Chat was deleted")
+		}
+		if m.AccessLevel == "" {
+			grant, err := s.port.MailDefaultAccess(m.ToAgentKey)
+			if err != nil {
+				return m, err
+			}
+			m.AccessLevel, m.AccessGrant = grant.AccessLevel, grant.AccessGrant
+		}
 		// Installed before the row leaves suspended so no dispatch sees it
 		// queued without an identity.
 		s.setScope(id, scope)
 	}
 	m, err = s.change(id, func(row *Mail) error {
-		if row.Status != Suspended {
+		if row.Status != Suspended || action == "redeliver" && (row.ToChatDeletedAt != 0 || row.PurgedAt != 0) {
 			return failure("mail_state_conflict", "mail state changed")
 		}
 		if action == "discard" {
@@ -499,6 +524,7 @@ func (s *Service) Action(ctx context.Context, id, action, subject string, scope 
 		row.RunID = ""
 		row.SteerID = ""
 		row.Delivery = ""
+		row.AccessLevel, row.AccessGrant = m.AccessLevel, m.AccessGrant
 		return nil
 	})
 	if err != nil {
@@ -533,23 +559,21 @@ func (s *Service) Header(id string) string {
 		sender += ", run " + m.FromRunID
 	}
 	header := "[" + name + " " + m.ID + " from agent " + strconv.Quote(m.FromAgentKey) + " (" + sender + ")"
-	// A purged row no longer names the correspondence it belonged to.
-	related := m.PurgedAt == 0
 	switch m.Kind {
 	case Letter:
 		header += ". Your final answer in this run will be sent back as the reply."
 	case Reply:
-		if ids, _ := s.Store.AnsweredLetters(m.ID); related && len(ids) > 0 {
+		if ids, _ := s.Store.AnsweredLetters(m.ID); len(ids) > 0 {
 			header += ", answering your letters " + strings.Join(ids, ", ")
 		}
 		header += ": " + m.Outcome
 	case Notify:
-		if related {
+		if m.ParentID != "" {
 			header += ", about your letter " + m.ParentID
 		}
 		header += ". No reply needed."
 	case Ask:
-		if related {
+		if m.ParentID != "" {
 			header += ", about your letter " + m.ParentID
 		}
 		header += ": " + m.AwaitingMode + " " + m.AwaitingID
@@ -565,9 +589,9 @@ func (s *Service) Header(id string) string {
 	return header
 }
 
-func (s *Service) fail(m Mail, err error) {
+func (s *Service) fail(m Mail, err error) error {
 	if m.Kind != Letter {
-		_, _ = s.change(m.ID, func(row *Mail) error {
+		_, changeErr := s.change(m.ID, func(row *Mail) error {
 			if row.Terminal() {
 				return errStale
 			}
@@ -580,11 +604,14 @@ func (s *Service) fail(m Mail, err error) {
 			row.Error = errorData(err)
 			return nil
 		})
-		return
+		if errors.Is(changeErr, errStale) {
+			return nil
+		}
+		return changeErr
 	}
 	r := s.newReply(m, "letter:"+m.ID, "", fmt.Sprint(err), "failed")
 	m.Error = errorData(err)
-	s.settle([]Mail{r}, []Mail{m}, true)
+	return s.settle([]Mail{r}, []Mail{m}, true)
 }
 
 // settle commits replies and their letters. Each reply inherits its letter's
@@ -627,8 +654,18 @@ func (s *Service) settle(replies, letters []Mail, failed bool) error {
 	return nil
 }
 func (s *Service) newReply(m Mail, key, runID, text, outcome string) Mail {
-	return Mail{ID: NewID("mail"), Kind: Reply, Status: Queued, CreatedAt: now(), UpdatedAt: now(), ToAgentKey: m.FromAgentKey, ToChatID: m.FromChatID,
-		OriginType: "agent", FromAgentKey: m.ToAgentKey, FromChatID: m.ToChatID, FromRunID: runID, Subject: m.Subject, Message: text, Hop: m.Hop + 1, ReplyKey: key, ReplyOfRun: runID, Outcome: outcome, AccessLevel: "default"}
+	r := Mail{ID: NewID("mail"), Kind: Reply, Status: Queued, CreatedAt: now(), UpdatedAt: now(), ToAgentKey: m.FromAgentKey, ToChatID: m.FromChatID,
+		OriginType: "agent", FromAgentKey: m.ToAgentKey, FromChatID: m.ToChatID, FromRunID: runID, Subject: m.Subject, Message: text, Hop: m.Hop + 1, ReplyKey: key, ReplyOfRun: runID, Outcome: outcome,
+		FromChatDeletedAt: m.ToChatDeletedAt, ToChatDeletedAt: m.FromChatDeletedAt}
+	grant, err := s.port.MailDefaultAccess(r.ToAgentKey)
+	if err != nil {
+		// Keep the result even if the receiving Agent has been removed.
+		r.Status, r.ResumePhase, r.Evidence = Suspended, Queued, "none"
+		r.Error = errorData(err)
+	} else {
+		r.AccessLevel, r.AccessGrant = grant.AccessLevel, grant.AccessGrant
+	}
+	return r
 }
 
 // outcome maps a Run finish reason to the reply outcome.

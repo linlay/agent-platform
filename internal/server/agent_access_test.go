@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/mailbox"
@@ -135,5 +136,60 @@ func TestChatStartTargetDefaultCanExceedParentAndRemainsIndependent(t *testing.T
 	var typed *contracts.RunToolError
 	if !errors.As(err, &typed) || typed.Code != "run_start_access_level_exceeded" {
 		t.Fatalf("explicit escalation accepted: %v", err)
+	}
+}
+
+// Generated correspondence must resolve the receiving Agent independently of
+// the worker's original grant, and retain it across catalog changes/restarts.
+func TestGeneratedMailboxAccessFrozenFromReceivingAgent(t *testing.T) {
+	f := accessDefaultFixture(t, "full_access")
+	store, err := mailbox.Open(f.cfg.Paths.ChatsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	box := mailbox.New(ctx, store, f.cfg.Paths.ChatsDir, 4, nil)
+	defer func() { cancel(); box.Close() }()
+	q := testQueryService(f.server)
+	q.BindMailbox(box)
+	parent := mailbox.Mail{ID: "opening", Kind: mailbox.Letter, Status: mailbox.Delivered, ToAgentKey: "mock-agent", ToChatID: "worker", FromAgentKey: "mock-agent", FromChatID: "lead", FromRunID: "lead-run", FromToolID: "send", RunID: "worker-run", Delivery: "started", Hop: 1, AccessLevel: "default", Subject: "alice", Message: "task"}
+	if _, _, err := store.Accept(parent); err != nil {
+		t.Fatal(err)
+	}
+	// No live delivery identity: these durable rows stay queued until restart,
+	// where normal reconciliation suspends them without changing the grant.
+	qgr, err := q.MailDefaultAccess("mock-agent")
+	if err != nil || qgr.AccessLevel != "full_access" || qgr.AccessGrant["source"] != "agent_default" || qgr.AccessGrant["agentRevision"] == "" {
+		t.Fatal(qgr, err)
+	}
+	if _, err := q.MailDefaultAccess("missing-agent"); err == nil {
+		t.Fatal("missing recipient silently defaulted")
+	}
+	if err := box.Completed(chat.RunCompletion{RunID: "worker-run", ChatID: "worker", AssistantText: "complete result", FinishReason: "complete"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	original, _ := store.Get(parent.ID)
+	reply, err := store.Get(original.AnsweredBy)
+	if err != nil || reply.AccessLevel != "full_access" || reply.AccessGrant["source"] != "agent_default" {
+		t.Fatal(reply, err)
+	}
+	path := filepath.Join(f.cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = bytes.Replace(data, []byte("default: full_access"), []byte("default: default"), 1)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.registry.Reload(ctx, "agents"); err != nil {
+		t.Fatal(err)
+	}
+	if err := box.Reconcile(func(mailbox.Mail) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := store.Get(reply.ID)
+	if err != nil || saved.AccessLevel != "full_access" || saved.Status != mailbox.Suspended {
+		t.Fatal(saved, err)
 	}
 }

@@ -95,6 +95,22 @@ func (s *Service) MailOpenedChats(agentKey, subject string, items []map[string]a
 	}
 	return out, nil
 }
+
+// Generated correspondence starts the receiving Agent's own Run; it does not
+// inherit the sender's access level or require the sender to remain alive.
+func (s *Service) MailDefaultAccess(agentKey string) (mailbox.Grant, error) {
+	if s.deps.Registry == nil {
+		return mailbox.Grant{}, runToolError("agent_not_found", "receiving Agent is unavailable")
+	}
+	def, ok := s.deps.Registry.AgentDefinition(agentKey)
+	if !ok {
+		return mailbox.Grant{}, runToolError("agent_not_found", "receiving Agent is unavailable")
+	}
+	level, source, _ := contracts.ResolveInitialAccessLevel("", def.AccessConfig)
+	return mailbox.Grant{AccessLevel: level, AccessGrant: map[string]any{
+		"accessLevel": level, "source": source, "agentKey": agentKey, "agentRevision": def.RuntimeRevision,
+	}}, nil
+}
 func (s *Service) PrepareMail(ctx context.Context, req mailbox.Request) (mailbox.Prepared, error) {
 	r, err := contracts.NormalizeRunStartRequest(req.Start)
 	if err != nil {

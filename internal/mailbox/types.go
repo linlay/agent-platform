@@ -45,37 +45,40 @@ type File struct {
 	Source string `json:"source,omitempty"`
 }
 type Mail struct {
-	ID             string                        `json:"mailId"`
-	Kind           Kind                          `json:"kind"`
-	Status         Status                        `json:"status"`
-	CreatedAt      int64                         `json:"createdAt"`
-	UpdatedAt      int64                         `json:"updatedAt"`
-	ToAgentKey     string                        `json:"toAgentKey"`
-	ToChatID       string                        `json:"toChatId"`
-	OpenedChat     bool                          `json:"openedChat,omitempty"`
-	OriginType     string                        `json:"originType"`
-	FromAgentKey   string                        `json:"fromAgentKey"`
-	FromChatID     string                        `json:"fromChatId"`
-	FromRunID      string                        `json:"fromRunId"`
-	FromToolID     string                        `json:"fromToolId,omitempty"`
-	Subject        string                        `json:"-"`
-	Input          json.RawMessage               `json:"input,omitempty"`
-	Message        string                        `json:"message"`
-	References     []queryinput.Reference        `json:"references,omitempty"`
-	Files          []File                        `json:"files,omitempty"`
-	PurgedAt       int64                         `json:"purgedAt,omitempty"`
-	Hop            int                           `json:"hop"`
-	AccessLevel    string                        `json:"accessLevel,omitempty"`
-	AccessGrant    map[string]any                `json:"accessGrant,omitempty"`
-	Model          *queryinput.QueryModelOptions `json:"model,omitempty"`
-	RequestDigest  string                        `json:"-"`
-	AnsweredBy     string                        `json:"answeredBy,omitempty"`
-	ReplyKey       string                        `json:"replyKey,omitempty"`
-	ReplyOfRun     string                        `json:"replyOfRun,omitempty"`
-	Outcome        string                        `json:"outcome,omitempty"`
-	AwaitingID     string                        `json:"awaitingId,omitempty"`
-	AwaitingMode   string                        `json:"awaitingMode,omitempty"`
-	AwaitingSource string                        `json:"awaitingSource,omitempty"`
+	ID                string                        `json:"mailId"`
+	Kind              Kind                          `json:"kind"`
+	Status            Status                        `json:"status"`
+	CreatedAt         int64                         `json:"createdAt"`
+	UpdatedAt         int64                         `json:"updatedAt"`
+	ToAgentKey        string                        `json:"toAgentKey"`
+	ToChatID          string                        `json:"toChatId"`
+	OpenedChat        bool                          `json:"openedChat,omitempty"`
+	OriginType        string                        `json:"originType"`
+	FromAgentKey      string                        `json:"fromAgentKey"`
+	FromChatID        string                        `json:"fromChatId"`
+	FromRunID         string                        `json:"fromRunId"`
+	FromToolID        string                        `json:"fromToolId,omitempty"`
+	Subject           string                        `json:"-"`
+	Input             json.RawMessage               `json:"input,omitempty"`
+	Message           string                        `json:"message"`
+	References        []queryinput.Reference        `json:"references,omitempty"`
+	Files             []File                        `json:"files,omitempty"`
+	PurgedAt          int64                         `json:"purgedAt,omitempty"`
+	TerminalAt        int64                         `json:"-"`
+	FromChatDeletedAt int64                         `json:"-"`
+	ToChatDeletedAt   int64                         `json:"-"`
+	Hop               int                           `json:"hop"`
+	AccessLevel       string                        `json:"accessLevel,omitempty"`
+	AccessGrant       map[string]any                `json:"accessGrant,omitempty"`
+	Model             *queryinput.QueryModelOptions `json:"model,omitempty"`
+	RequestDigest     string                        `json:"-"`
+	AnsweredBy        string                        `json:"answeredBy,omitempty"`
+	ReplyKey          string                        `json:"replyKey,omitempty"`
+	ReplyOfRun        string                        `json:"replyOfRun,omitempty"`
+	Outcome           string                        `json:"outcome,omitempty"`
+	AwaitingID        string                        `json:"awaitingId,omitempty"`
+	AwaitingMode      string                        `json:"awaitingMode,omitempty"`
+	AwaitingSource    string                        `json:"awaitingSource,omitempty"`
 	// ParentID retains the originating letter for asks and notifications even
 	// after a delivery attempt has moved to another Run.
 	ParentID    string         `json:"parentId,omitempty"`
@@ -129,6 +132,7 @@ type DeliveryResult struct {
 // Port is implemented by Runtime. Accept must commit persist while holding the
 // caller's live permission lock, after consuming any required one-shot review.
 type Port interface {
+	MailDefaultAccess(string) (Grant, error)
 	PrepareMail(context.Context, Request) (Prepared, error)
 	AcceptMail(context.Context, Request, Prepared, func(Grant) error) error
 	EnsureMailChat(context.Context, *Mail) error

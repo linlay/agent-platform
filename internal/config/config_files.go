@@ -197,14 +197,18 @@ func (c *Config) applyRuntimeFile(path string) error {
 			return fmt.Errorf("mail must be a mapping")
 		}
 		for key, value := range settings {
-			if key != "max-hops" {
+			if key != "max-hops" && key != "retention-days" {
 				return fmt.Errorf("unknown mail.%s", key)
 			}
 			n, ok := value.(int64)
-			if !ok || n < 1 {
-				return fmt.Errorf("mail.max-hops must be a positive integer")
+			if !ok || n < 1 || uint64(n) > uint64(^uint(0)>>1) || key == "retention-days" && n > 365000 {
+				return fmt.Errorf("mail.%s must be a positive integer (retention-days at most 365000)", key)
 			}
-			c.Mail.MaxHops = int(n)
+			if key == "max-hops" {
+				c.Mail.MaxHops = int(n)
+			} else {
+				c.Mail.RetentionDays = int(n)
+			}
 		}
 	}
 	if raw, exists := values["kbx"]; exists {

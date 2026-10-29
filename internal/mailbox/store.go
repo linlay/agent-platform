@@ -14,35 +14,37 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schema = `CREATE TABLE mails (
- id TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL,
- created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
- to_agent_key TEXT NOT NULL, to_chat_id TEXT NOT NULL, opened_chat INTEGER NOT NULL DEFAULT 0,
- origin_type TEXT NOT NULL, from_agent_key TEXT NOT NULL DEFAULT '', from_chat_id TEXT NOT NULL DEFAULT '',
- from_run_id TEXT NOT NULL DEFAULT '', from_tool_id TEXT NOT NULL DEFAULT '', subject TEXT NOT NULL DEFAULT '',
- input TEXT, message TEXT NOT NULL DEFAULT '', refs TEXT, files TEXT, purged_at INTEGER NOT NULL DEFAULT 0,
- hop INTEGER NOT NULL, access_level TEXT NOT NULL DEFAULT '', access_grant TEXT, model TEXT, request_digest TEXT NOT NULL DEFAULT '',
- answered_by TEXT NOT NULL DEFAULT '', reply_key TEXT NOT NULL DEFAULT '', reply_of_run TEXT NOT NULL DEFAULT '',
- outcome TEXT NOT NULL DEFAULT '', awaiting_id TEXT NOT NULL DEFAULT '', awaiting_mode TEXT NOT NULL DEFAULT '',
- awaiting_source TEXT NOT NULL DEFAULT '', parent_id TEXT NOT NULL DEFAULT '',
- delivery TEXT NOT NULL DEFAULT '', run_id TEXT NOT NULL DEFAULT '', steer_id TEXT NOT NULL DEFAULT '',
- attempts INTEGER NOT NULL DEFAULT 0, consumed_at INTEGER NOT NULL DEFAULT 0,
- resume_phase TEXT NOT NULL DEFAULT '', evidence TEXT NOT NULL DEFAULT '', error TEXT
+const schema = `CREATE TABLE MAILS (
+ MAIL_ID_ TEXT PRIMARY KEY, KIND_ TEXT NOT NULL, STATUS_ TEXT NOT NULL,
+ CREATED_AT_ INTEGER NOT NULL, UPDATED_AT_ INTEGER NOT NULL,
+ TO_AGENT_KEY_ TEXT NOT NULL, TO_CHAT_ID_ TEXT NOT NULL, OPENED_CHAT_ INTEGER NOT NULL DEFAULT 0,
+ ORIGIN_TYPE_ TEXT NOT NULL, FROM_AGENT_KEY_ TEXT NOT NULL DEFAULT '', FROM_CHAT_ID_ TEXT NOT NULL DEFAULT '',
+ FROM_RUN_ID_ TEXT NOT NULL DEFAULT '', FROM_TOOL_ID_ TEXT NOT NULL DEFAULT '', SUBJECT_ TEXT NOT NULL DEFAULT '',
+ INPUT_ TEXT, MESSAGE_ TEXT NOT NULL DEFAULT '', REFERENCES_ TEXT, FILES_ TEXT, BODY_PURGED_AT_ INTEGER NOT NULL DEFAULT 0,
+ HOP_ INTEGER NOT NULL, ACCESS_LEVEL_ TEXT NOT NULL DEFAULT '', ACCESS_GRANT_ TEXT, MODEL_ TEXT, REQUEST_DIGEST_ TEXT NOT NULL DEFAULT '',
+ ANSWERED_BY_MAIL_ID_ TEXT NOT NULL DEFAULT '', REPLY_KEY_ TEXT NOT NULL DEFAULT '', REPLY_OF_RUN_ID_ TEXT NOT NULL DEFAULT '',
+ OUTCOME_ TEXT NOT NULL DEFAULT '', AWAITING_ID_ TEXT NOT NULL DEFAULT '', AWAITING_MODE_ TEXT NOT NULL DEFAULT '',
+ AWAITING_SOURCE_ TEXT NOT NULL DEFAULT '', PARENT_MAIL_ID_ TEXT NOT NULL DEFAULT '',
+ DELIVERY_ TEXT NOT NULL DEFAULT '', RUN_ID_ TEXT NOT NULL DEFAULT '', STEER_ID_ TEXT NOT NULL DEFAULT '',
+ ATTEMPTS_ INTEGER NOT NULL DEFAULT 0, CONSUMED_AT_ INTEGER NOT NULL DEFAULT 0,
+ RESUME_PHASE_ TEXT NOT NULL DEFAULT '', EVIDENCE_ TEXT NOT NULL DEFAULT '', ERROR_ TEXT,
+ TERMINAL_AT_ INTEGER NOT NULL DEFAULT 0, FROM_CHAT_DELETED_AT_ INTEGER NOT NULL DEFAULT 0, TO_CHAT_DELETED_AT_ INTEGER NOT NULL DEFAULT 0
 );
-CREATE UNIQUE INDEX mails_idem ON mails(from_run_id,from_tool_id) WHERE from_tool_id <> '';
-CREATE UNIQUE INDEX mails_reply ON mails(reply_key) WHERE kind = 'reply';
-CREATE UNIQUE INDEX mails_ask ON mails(from_run_id,awaiting_id) WHERE kind = 'ask';
-CREATE INDEX mails_deliver ON mails(to_chat_id,status,created_at,id);
-CREATE INDEX mails_inbox ON mails(to_agent_key,created_at);
-CREATE INDEX mails_run ON mails(run_id);
-CREATE INDEX mails_status ON mails(status);
-CREATE INDEX mails_answered ON mails(answered_by);`
+CREATE UNIQUE INDEX IDX_MAILS_IDEM_ ON MAILS(FROM_RUN_ID_,FROM_TOOL_ID_) WHERE FROM_TOOL_ID_ <> '';
+CREATE UNIQUE INDEX IDX_MAILS_REPLY_ ON MAILS(REPLY_KEY_) WHERE KIND_ = 'reply';
+CREATE UNIQUE INDEX IDX_MAILS_ASK_ ON MAILS(FROM_RUN_ID_,AWAITING_ID_) WHERE KIND_ = 'ask';
+CREATE INDEX IDX_MAILS_DELIVER_ ON MAILS(TO_CHAT_ID_,STATUS_,CREATED_AT_,MAIL_ID_);
+CREATE INDEX IDX_MAILS_INBOX_ ON MAILS(TO_AGENT_KEY_,CREATED_AT_);
+CREATE INDEX IDX_MAILS_RUN_ ON MAILS(RUN_ID_);
+CREATE INDEX IDX_MAILS_STATUS_ ON MAILS(STATUS_);
+CREATE INDEX IDX_MAILS_ANSWERED_ ON MAILS(ANSWERED_BY_MAIL_ID_);
+CREATE INDEX IDX_MAILS_TERMINAL_ ON MAILS(TERMINAL_AT_,BODY_PURGED_AT_);`
 
-const columns = `id,kind,status,created_at,updated_at,to_agent_key,to_chat_id,opened_chat,
-origin_type,from_agent_key,from_chat_id,from_run_id,from_tool_id,subject,
-input,message,refs,files,purged_at,hop,access_level,access_grant,model,request_digest,
-answered_by,reply_key,reply_of_run,outcome,awaiting_id,awaiting_mode,awaiting_source,parent_id,
-delivery,run_id,steer_id,attempts,consumed_at,resume_phase,evidence,error`
+const columns = `MAIL_ID_,KIND_,STATUS_,CREATED_AT_,UPDATED_AT_,TO_AGENT_KEY_,TO_CHAT_ID_,OPENED_CHAT_,
+ORIGIN_TYPE_,FROM_AGENT_KEY_,FROM_CHAT_ID_,FROM_RUN_ID_,FROM_TOOL_ID_,SUBJECT_,
+INPUT_,MESSAGE_,REFERENCES_,FILES_,BODY_PURGED_AT_,HOP_,ACCESS_LEVEL_,ACCESS_GRANT_,MODEL_,REQUEST_DIGEST_,
+ANSWERED_BY_MAIL_ID_,REPLY_KEY_,REPLY_OF_RUN_ID_,OUTCOME_,AWAITING_ID_,AWAITING_MODE_,AWAITING_SOURCE_,PARENT_MAIL_ID_,
+DELIVERY_,RUN_ID_,STEER_ID_,ATTEMPTS_,CONSUMED_AT_,RESUME_PHASE_,EVIDENCE_,ERROR_,TERMINAL_AT_,FROM_CHAT_DELETED_AT_,TO_CHAT_DELETED_AT_`
 
 var ErrNotFound = errors.New("mail_not_found")
 var errStale = errors.New("stale mail callback")
@@ -63,7 +65,7 @@ func Open(root string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 	create := func(db *sql.DB) error { _, err := db.Exec(schema); return err }
-	spec := sqlitecontract.Spec{Name: "mail", ApplicationID: 0x41504D4C, UserVersion: 1, BuildCanonical: create}
+	spec := sqlitecontract.Spec{Name: "mail-v2", ApplicationID: 0x41504D4C, UserVersion: 2, BuildCanonical: create}
 	if err = sqlitecontract.InitializeOrVerify(db, path, path, spec, nil, func() error { return create(db) }); err != nil {
 		db.Close()
 		return nil, err
@@ -81,7 +83,7 @@ func values(m Mail) []any {
 		m.OriginType, m.FromAgentKey, m.FromChatID, m.FromRunID, m.FromToolID, m.Subject,
 		string(m.Input), m.Message, jsonText(m.References), jsonText(m.Files), m.PurgedAt, m.Hop, m.AccessLevel, jsonText(m.AccessGrant), jsonText(m.Model), m.RequestDigest,
 		m.AnsweredBy, m.ReplyKey, m.ReplyOfRun, m.Outcome, m.AwaitingID, m.AwaitingMode, m.AwaitingSource, m.ParentID,
-		m.Delivery, m.RunID, m.SteerID, m.Attempts, m.ConsumedAt, m.ResumePhase, m.Evidence, jsonText(m.Error)}
+		m.Delivery, m.RunID, m.SteerID, m.Attempts, m.ConsumedAt, m.ResumePhase, m.Evidence, jsonText(m.Error), m.TerminalAt, m.FromChatDeletedAt, m.ToChatDeletedAt}
 }
 
 type scanner interface{ Scan(...any) error }
@@ -93,7 +95,7 @@ func scan(row scanner) (Mail, error) {
 		&m.OriginType, &m.FromAgentKey, &m.FromChatID, &m.FromRunID, &m.FromToolID, &m.Subject,
 		&input, &m.Message, &refs, &files, &m.PurgedAt, &m.Hop, &m.AccessLevel, &grant, &model, &m.RequestDigest,
 		&m.AnsweredBy, &m.ReplyKey, &m.ReplyOfRun, &m.Outcome, &m.AwaitingID, &m.AwaitingMode, &m.AwaitingSource, &m.ParentID,
-		&m.Delivery, &m.RunID, &m.SteerID, &m.Attempts, &m.ConsumedAt, &m.ResumePhase, &m.Evidence, &errData)
+		&m.Delivery, &m.RunID, &m.SteerID, &m.Attempts, &m.ConsumedAt, &m.ResumePhase, &m.Evidence, &errData, &m.TerminalAt, &m.FromChatDeletedAt, &m.ToChatDeletedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return m, ErrNotFound
 	}
@@ -117,7 +119,7 @@ func scan(row scanner) (Mail, error) {
 }
 func insert(tx *sql.Tx, m Mail) error {
 	args := values(m)
-	_, err := tx.Exec("INSERT INTO mails ("+columns+") VALUES ("+strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")+")", args...)
+	_, err := tx.Exec("INSERT INTO MAILS ("+columns+") VALUES ("+strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")+")", args...)
 	return err
 }
 func update(tx *sql.Tx, m Mail) error {
@@ -127,16 +129,16 @@ func update(tx *sql.Tx, m Mail) error {
 	}
 	args := values(m)[1:]
 	args = append(args, m.ID)
-	_, err := tx.Exec("UPDATE mails SET "+strings.Join(parts[1:], ",")+" WHERE id=?", args...)
+	_, err := tx.Exec("UPDATE MAILS SET "+strings.Join(parts[1:], ",")+" WHERE MAIL_ID_=?", args...)
 	return err
 }
 func (s *Store) Get(id string) (Mail, error) {
-	return scan(s.db.QueryRow("SELECT "+columns+" FROM mails WHERE id=?", id))
+	return scan(s.db.QueryRow("SELECT "+columns+" FROM MAILS WHERE MAIL_ID_=?", id))
 }
 
 // Lifecycle hooks run for every Run, so they read only indexed slices.
 func (s *Store) query(where string, args ...any) ([]Mail, error) {
-	rows, err := s.db.Query("SELECT "+columns+" FROM mails WHERE "+where+" ORDER BY created_at,id", args...)
+	rows, err := s.db.Query("SELECT "+columns+" FROM MAILS WHERE "+where+" ORDER BY CREATED_AT_,MAIL_ID_", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -153,28 +155,28 @@ func (s *Store) query(where string, args ...any) ([]Mail, error) {
 }
 func (s *Store) exists(where string, args ...any) (bool, error) {
 	var one int
-	err := s.db.QueryRow("SELECT 1 FROM mails WHERE "+where+" LIMIT 1", args...).Scan(&one)
+	err := s.db.QueryRow("SELECT 1 FROM MAILS WHERE "+where+" LIMIT 1", args...).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	return err == nil, err
 }
 func (s *Store) ByRun(runID string) ([]Mail, error) {
-	return s.query("run_id=?", runID)
+	return s.query("RUN_ID_=?", runID)
 }
 func (s *Store) AsksFromRun(runID string) ([]Mail, error) {
-	return s.query("kind='ask' AND from_run_id=?", runID)
+	return s.query("KIND_='ask' AND FROM_RUN_ID_=?", runID)
 }
 func (s *Store) Ask(runID, awaitingID string) (Mail, error) {
-	return scan(s.db.QueryRow("SELECT "+columns+" FROM mails WHERE kind='ask' AND from_run_id=? AND awaiting_id=?", runID, awaitingID))
+	return scan(s.db.QueryRow("SELECT "+columns+" FROM MAILS WHERE KIND_='ask' AND FROM_RUN_ID_=? AND AWAITING_ID_=?", runID, awaitingID))
 }
 
 // StartedLetter is the letter that opened runID, if it is still being worked.
 func (s *Store) StartedLetter(runID string) (Mail, error) {
-	return scan(s.db.QueryRow("SELECT "+columns+" FROM mails WHERE run_id=? AND kind='letter' AND delivery='started' AND status IN ('delivered','inflight') ORDER BY created_at,id LIMIT 1", runID))
+	return scan(s.db.QueryRow("SELECT "+columns+" FROM MAILS WHERE RUN_ID_=? AND KIND_='letter' AND DELIVERY_='started' AND STATUS_ IN ('delivered','inflight') ORDER BY CREATED_AT_,MAIL_ID_ LIMIT 1", runID))
 }
 func (s *Store) AnsweredLetters(replyID string) ([]string, error) {
-	rows, err := s.db.Query("SELECT id FROM mails WHERE answered_by=? ORDER BY id", replyID)
+	rows, err := s.db.Query("SELECT MAIL_ID_ FROM MAILS WHERE ANSWERED_BY_MAIL_ID_=? ORDER BY MAIL_ID_", replyID)
 	if err != nil {
 		return nil, err
 	}
@@ -192,26 +194,27 @@ func (s *Store) AnsweredLetters(replyID string) ([]string, error) {
 
 // OwnsRun grants control only for a Run opened by the caller's own letter.
 func (s *Store) OwnsRun(runID, agentKey, subject string) (bool, error) {
-	return s.exists("run_id=? AND kind='letter' AND delivery='started' AND from_agent_key=? AND subject=?", runID, agentKey, subject)
+	return s.exists("RUN_ID_=? AND KIND_='letter' AND DELIVERY_='started' AND FROM_AGENT_KEY_=? AND SUBJECT_=?", runID, agentKey, subject)
 }
 func (s *Store) OpenedBy(chatID, agentKey, subject string) (bool, error) {
-	return s.exists("to_chat_id=? AND opened_chat=1 AND from_agent_key=? AND subject=?", chatID, agentKey, subject)
+	return s.exists("TO_CHAT_ID_=? AND OPENED_CHAT_=1 AND FROM_AGENT_KEY_=? AND SUBJECT_=? AND TO_CHAT_DELETED_AT_=0", chatID, agentKey, subject)
 }
 func (s *Store) OpenedChats(agentKey, subject string) ([]Mail, error) {
-	return s.query("from_agent_key=? AND subject=? AND opened_chat=1 AND purged_at=0", agentKey, subject)
+	return s.query("FROM_AGENT_KEY_=? AND SUBJECT_=? AND OPENED_CHAT_=1 AND TO_CHAT_DELETED_AT_=0", agentKey, subject)
 }
 func (s *Store) ForChat(chatID string) ([]Mail, error) {
-	return s.query("from_chat_id=? OR to_chat_id=?", chatID, chatID)
+	return s.query("FROM_CHAT_ID_=? OR TO_CHAT_ID_=?", chatID, chatID)
 }
 
 // Unsettled excludes the statuses that are terminal for every kind.
 func (s *Store) Unsettled() ([]Mail, error) {
-	return s.query("status NOT IN ('done','failed','discarded','withdrawn')")
+	return s.query("STATUS_ NOT IN ('done','failed','discarded','withdrawn')")
 }
 func (s *Store) Invocation(runID, toolID string) (Mail, error) {
-	return scan(s.db.QueryRow("SELECT "+columns+" FROM mails WHERE from_run_id=? AND from_tool_id=?", runID, toolID))
+	return scan(s.db.QueryRow("SELECT "+columns+" FROM MAILS WHERE FROM_RUN_ID_=? AND FROM_TOOL_ID_=?", runID, toolID))
 }
 func (s *Store) Accept(m Mail) (Mail, bool, error) {
+	stampTerminal(&m)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tx, err := s.db.Begin()
@@ -220,7 +223,7 @@ func (s *Store) Accept(m Mail) (Mail, bool, error) {
 	}
 	defer tx.Rollback()
 	if m.FromToolID != "" {
-		old, e := scan(tx.QueryRow("SELECT "+columns+" FROM mails WHERE from_run_id=? AND from_tool_id=?", m.FromRunID, m.FromToolID))
+		old, e := scan(tx.QueryRow("SELECT "+columns+" FROM MAILS WHERE FROM_RUN_ID_=? AND FROM_TOOL_ID_=?", m.FromRunID, m.FromToolID))
 		if e == nil {
 			if old.RequestDigest != m.RequestDigest {
 				return old, false, failure("idempotency_conflict", "this invocation already used different arguments")
@@ -232,7 +235,7 @@ func (s *Store) Accept(m Mail) (Mail, bool, error) {
 		}
 	}
 	if m.Kind == Ask {
-		old, e := scan(tx.QueryRow("SELECT "+columns+" FROM mails WHERE kind='ask' AND from_run_id=? AND awaiting_id=?", m.FromRunID, m.AwaitingID))
+		old, e := scan(tx.QueryRow("SELECT "+columns+" FROM MAILS WHERE KIND_='ask' AND FROM_RUN_ID_=? AND AWAITING_ID_=?", m.FromRunID, m.AwaitingID))
 		if e == nil {
 			return old, false, nil
 		}
@@ -253,7 +256,7 @@ func (s *Store) Change(id string, change func(*Mail) error) (Mail, error) {
 		return Mail{}, err
 	}
 	defer tx.Rollback()
-	m, err := scan(tx.QueryRow("SELECT "+columns+" FROM mails WHERE id=?", id))
+	m, err := scan(tx.QueryRow("SELECT "+columns+" FROM MAILS WHERE MAIL_ID_=?", id))
 	if err != nil {
 		return m, err
 	}
@@ -261,6 +264,7 @@ func (s *Store) Change(id string, change func(*Mail) error) (Mail, error) {
 		return m, err
 	}
 	m.UpdatedAt = now()
+	stampTerminal(&m)
 	if err = update(tx, m); err != nil {
 		return m, err
 	}
@@ -268,14 +272,14 @@ func (s *Store) Change(id string, change func(*Mail) error) (Mail, error) {
 }
 func (s *Store) List(f Filter) ([]Mail, error) {
 	where, args := []string{"1=1"}, []any{}
-	for _, v := range []struct{ col, value string }{{"to_agent_key", f.AgentKey}, {"to_chat_id", f.ChatID}, {"kind", string(f.Kind)}, {"status", string(f.Status)}} {
+	for _, v := range []struct{ col, value string }{{"TO_AGENT_KEY_", f.AgentKey}, {"TO_CHAT_ID_", f.ChatID}, {"KIND_", string(f.Kind)}, {"STATUS_", string(f.Status)}} {
 		if v.value != "" {
 			where = append(where, v.col+"=?")
 			args = append(args, v.value)
 		}
 	}
 	if !f.AllSubjects {
-		where = append(where, "subject=?")
+		where = append(where, "SUBJECT_=?")
 		args = append(args, f.Subject)
 	}
 	limit := f.Limit
@@ -284,11 +288,11 @@ func (s *Store) List(f Filter) ([]Mail, error) {
 	}
 	offset := max(f.Offset, 0)
 	args = append(args, limit, offset)
-	order := "created_at,id"
+	order := "CREATED_AT_,MAIL_ID_"
 	if f.NewestFirst {
-		order = "created_at DESC,id DESC"
+		order = "CREATED_AT_ DESC,MAIL_ID_ DESC"
 	}
-	rows, err := s.db.Query("SELECT "+columns+" FROM mails WHERE "+strings.Join(where, " AND ")+" ORDER BY "+order+" LIMIT ? OFFSET ?", args...)
+	rows, err := s.db.Query("SELECT "+columns+" FROM MAILS WHERE "+strings.Join(where, " AND ")+" ORDER BY "+order+" LIMIT ? OFFSET ?", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -316,9 +320,44 @@ func (s *Store) Complete(replies []Mail, letters []Mail, failed bool) ([]Mail, [
 	}
 	defer tx.Rollback()
 	var inserted, settled []Mail
+	// Re-read under the transaction: a deletion, discard or another completion
+	// may have settled these letters after the caller took its snapshot.
+	var pending []Mail
+	for _, snapshot := range letters {
+		current, err := scan(tx.QueryRow("SELECT "+columns+" FROM MAILS WHERE MAIL_ID_=?", snapshot.ID))
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		if current.Terminal() || current.AnsweredBy != "" || current.FromChatDeletedAt != 0 {
+			continue
+		}
+		current.Error = snapshot.Error
+		pending = append(pending, current)
+	}
+	letters = pending
 	for _, r := range replies {
+		eligible := false
+		for _, m := range letters {
+			key := "run:" + m.RunID + ":" + m.FromChatID
+			if failed {
+				key = "letter:" + m.ID
+			}
+			if r.ReplyKey == key {
+				eligible = true
+				r.FromChatDeletedAt = m.ToChatDeletedAt
+				r.ToChatDeletedAt = m.FromChatDeletedAt
+				break
+			}
+		}
+		if !eligible {
+			continue
+		}
+		stampTerminal(&r)
 		var id string
-		err := tx.QueryRow("SELECT id FROM mails WHERE kind='reply' AND reply_key=?", r.ReplyKey).Scan(&id)
+		err := tx.QueryRow("SELECT MAIL_ID_ FROM MAILS WHERE KIND_='reply' AND REPLY_KEY_=?", r.ReplyKey).Scan(&id)
 		if err == nil {
 			continue
 		}
@@ -336,19 +375,19 @@ func (s *Store) Complete(replies []Mail, letters []Mail, failed bool) ([]Mail, [
 		if failed {
 			key = "letter:" + m.ID
 		}
-		if err := tx.QueryRow("SELECT id FROM mails WHERE kind='reply' AND reply_key=?", key).Scan(&replyID); err != nil {
+		if err := tx.QueryRow("SELECT MAIL_ID_ FROM MAILS WHERE KIND_='reply' AND REPLY_KEY_=?", key).Scan(&replyID); err != nil {
 			return nil, nil, err
 		}
 		status := Done
 		if failed {
 			status = Failed
 		}
-		result, err := tx.Exec("UPDATE mails SET answered_by=?,status=?,updated_at=?,error=? WHERE id=? AND answered_by='' AND status NOT IN ('discarded','withdrawn','done','failed')", replyID, status, now(), jsonText(m.Error), m.ID)
+		result, err := tx.Exec("UPDATE MAILS SET ANSWERED_BY_MAIL_ID_=?,STATUS_=?,UPDATED_AT_=?,TERMINAL_AT_=?,ERROR_=? WHERE MAIL_ID_=? AND ANSWERED_BY_MAIL_ID_='' AND STATUS_ NOT IN ('discarded','withdrawn','done','failed')", replyID, status, now(), now(), jsonText(m.Error), m.ID)
 		if err != nil {
 			return nil, nil, err
 		}
 		if n, _ := result.RowsAffected(); n > 0 {
-			row, err := scan(tx.QueryRow("SELECT "+columns+" FROM mails WHERE id=?", m.ID))
+			row, err := scan(tx.QueryRow("SELECT "+columns+" FROM MAILS WHERE MAIL_ID_=?", m.ID))
 			if err != nil {
 				return nil, nil, err
 			}
@@ -356,4 +395,13 @@ func (s *Store) Complete(replies []Mail, letters []Mail, failed bool) ([]Mail, [
 		}
 	}
 	return inserted, settled, tx.Commit()
+}
+
+// TerminalAt is independent of metadata edits and body cleanup.
+func stampTerminal(m *Mail) {
+	if !m.Terminal() {
+		m.TerminalAt = 0
+	} else if m.TerminalAt == 0 {
+		m.TerminalAt = now()
+	}
 }

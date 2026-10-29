@@ -28,3 +28,8 @@ All mail addresses are Chats. A letter is durable work; a notify is interim info
 Questions: `params:[{"answer":"skip"}]`; multiple selections use answers. Approvals: `params:[{"decision":"approve"}]`, approve_rule_run or reject. Forms/review pages: `param:{"decision":"approve","data":{...}}`, reject or dismiss. Use exactly the original awaiting shape.
 
 Approval capability follows awaiting_source, not presentation mode: a tool review rendered as a form remains a tool approval. Only approve if evaluating the frozen child operation under your current live permission would need no human review. Hard blocks, readonly roots, destructive policies and mandatory human reviews remain in force. approval_requires_human means ask the user to handle the child Chat; never lower or alter the operation to bypass it. Rejections and ordinary question/form answers need no delegation approval. Human and Agent submissions race; already_resolved means stop, do not resubmit. chat_submit may answer even at the hop limit.
+
+
+## 邮件清理与删除
+
+平台生成的回信、通知、请示按收件 Agent 的默认权限创建，后续不因默认配置变化而重算。终态邮件默认 30 天后清除正文、请示快照与附件元数据，保留幂等和会话关系；挂起邮件不按保留期清理。删除工作会话不撤回已保存的回信及收件侧附件副本；收件会话删除后不能再向它投递。已发布到聊天历史的附件副本按该 Chat 生命周期保留。

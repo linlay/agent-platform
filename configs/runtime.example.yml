@@ -144,3 +144,5 @@ conversation-export:
 # Maximum causal mailbox distance; terminal replies may exceed this limit.
 mail:
   max-hops: 4
+  # Clear terminal mail bodies after this many days; retain receipts and relations.
+  retention-days: 30

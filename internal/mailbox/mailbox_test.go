@@ -28,6 +28,10 @@ type testPort struct {
 	callback   func(Mail) (DeliveryResult, error)
 }
 
+func (p *testPort) MailDefaultAccess(agentKey string) (Grant, error) {
+	return Grant{AccessLevel: "default", AccessGrant: map[string]any{"source": "default", "agentKey": agentKey, "agentRevision": "test"}}, nil
+}
+
 func (p *testPort) PrepareMail(_ context.Context, r Request) (Prepared, error) {
 	r.Start.AgentKey = "worker"
 	return Prepared{Request: r.Start, Plan: contracts.RunStartPlan{AccessLevel: "default"}, ChatID: "receiver", OpenedChat: true}, nil

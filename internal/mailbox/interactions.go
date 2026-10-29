@@ -31,6 +31,16 @@ func (s *Service) Notify(ctx context.Context, message string, files []string, or
 		if old.RequestDigest != d {
 			return Receipt{}, failure("idempotency_conflict", "notify arguments changed")
 		}
+		if old.Status == Accepting {
+			if err := s.finishAcceptance(context.WithoutCancel(ctx), old); err != nil {
+				return s.acceptanceFailure(old, err)
+			}
+			old, err = s.Store.Get(old.ID)
+			if err != nil {
+				return Receipt{}, err
+			}
+		}
+		s.Kick(old.ToChatID)
 		return receipt(old), nil
 	} else if !errors.Is(err, ErrNotFound) {
 		return Receipt{}, err
@@ -50,7 +60,11 @@ func (s *Service) Notify(ctx context.Context, message string, files []string, or
 		return Receipt{}, failure("run_control_identity_unavailable", "mail delivery identity is unavailable")
 	}
 	m := s.newReply(parent, "", origin.RunID, message, "")
+	if m.AccessLevel == "" {
+		return Receipt{}, failure("agent_not_found", "receiving Agent is unavailable")
+	}
 	m.Kind = Notify
+	m.Status = Accepting
 	m.ParentID = parent.ID
 	m.ReplyKey = ""
 	m.ReplyOfRun = ""
@@ -62,18 +76,23 @@ func (s *Service) Notify(ctx context.Context, message string, files []string, or
 	if err != nil {
 		return Receipt{}, err
 	}
-	if err = s.copyFiles(m); err != nil {
-		return Receipt{}, err
-	}
-	s.setScope(m.ID, scope)
 	stored, inserted, err := s.Store.Accept(m)
-	if !inserted {
-		s.dropScope(m.ID)
-	}
 	if err != nil {
 		return Receipt{}, err
 	}
-	s.changed(stored)
+	if !stored.Terminal() {
+		s.setScope(stored.ID, scope)
+	}
+	if inserted {
+		s.changed(stored)
+	}
+	if err := s.finishAcceptance(context.WithoutCancel(ctx), stored); err != nil {
+		return s.acceptanceFailure(stored, err)
+	}
+	stored, err = s.Store.Get(stored.ID)
+	if err != nil {
+		return Receipt{}, err
+	}
 	s.Kick(stored.ToChatID)
 	return receipt(stored), nil
 }
@@ -121,6 +140,9 @@ func (s *Service) ObserveEvent(runID string, event stream.EventData) {
 			}
 		}
 		m := s.newReply(parent, "", runID, jsonText(snapshot), "")
+		if m.AccessLevel == "" {
+			return
+		}
 		m.Kind = Ask
 		m.ParentID = parent.ID
 		m.Hop = hop + 1
@@ -208,34 +230,52 @@ func (s *Service) OpenedChats(agentKey, subject string) ([]map[string]any, error
 	}
 	return out, nil
 }
+
+// PurgeChat records deletion separately from body expiry. Outbound replies
+// already belong to their receiving Chat and survive deletion of the worker.
 func (s *Service) PurgeChat(chatID string) error {
 	rows, err := s.Store.ForChat(chatID)
 	if err != nil {
 		return err
 	}
 	for _, m := range rows {
-		if m.Kind == Letter && !m.Terminal() && m.ToChatID == chatID {
-			s.fail(m, failure("chat_deleted", "receiving Chat was deleted"))
+		current, err := s.change(m.ID, func(row *Mail) error {
+			if row.FromChatID == chatID && row.FromChatDeletedAt == 0 {
+				row.FromChatDeletedAt = now()
+			}
+			if row.ToChatID == chatID && row.ToChatDeletedAt == 0 {
+				row.ToChatDeletedAt = now()
+			}
+			return nil
+		})
+		if err != nil {
+			return err
 		}
-		if _, e := s.change(m.ID, func(row *Mail) error {
+		if current.Kind == Letter && !current.Terminal() && current.ToChatID == chatID {
+			if err := s.fail(current, failure("chat_deleted", "receiving Chat was deleted")); err != nil {
+				return err
+			}
+		}
+		if _, err := s.change(m.ID, func(row *Mail) error {
 			if !row.Terminal() {
-				if row.Kind == Letter {
+				switch {
+				case row.ToChatID == chatID && row.Kind == Reply:
+					row.Status = Discarded
+				case row.Kind == Letter:
 					row.Status = Failed
-				} else {
+				case row.Kind == Notify || row.Kind == Ask:
 					row.Status = Withdrawn
 				}
 			}
-			row.Input = nil
-			row.Message = ""
-			row.References = nil
-			row.Files = nil
-			row.PurgedAt = now()
+			if row.ToChatID == chatID {
+				clearBody(row, now())
+			}
 			return nil
-		}); e != nil {
-			return e
+		}); err != nil {
+			return err
 		}
 	}
-	return nil
+	return s.Store.deleteOrphans()
 }
 
 // Body is the text delivered to the receiving Chat. An ask keeps its awaiting

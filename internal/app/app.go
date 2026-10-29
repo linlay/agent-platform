@@ -561,6 +561,15 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if err := mailService.Reconcile(queryService.MailConsumedEvidence); err != nil {
 		log.Printf("[mailbox] reconcile: %v", err)
 	}
+	mailService.StartRetention(cfg.Mail.RetentionDays, func(chatID string) (bool, error) {
+		release := conversationService.LockMutation()
+		defer release()
+		summary, err := chatStore.Summary(chatID)
+		if err != nil || summary != nil {
+			return summary != nil, err
+		}
+		return archiveStore.HasChat(chatID)
+	})
 
 	if err := toolExecutor.RegisterHandler(runops.NewToolHandler(runtimeService, runManager).WithMailbox(mailService)); err != nil {
 		return nil, fmt.Errorf("register run tools: %w", err)

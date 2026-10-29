@@ -506,6 +506,11 @@ func (s *ArchiveStore) existsLocked(chatID string) (bool, error) {
 	return true, nil
 }
 
+// HasChat checks archive membership without loading the archived transcript.
+func (s *ArchiveStore) HasChat(chatID string) (bool, error) {
+	return s.exists(chatID)
+}
+
 func (s *ArchiveStore) listRunsLocked(chatID string) ([]RunSummary, error) {
 	rows, err := s.db.Query(`SELECT RUN_ID_, CHAT_ID_, AGENT_KEY_, COALESCE(AGENT_MODE_,''), INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
 		STARTED_AT_, COMPLETED_AT_,

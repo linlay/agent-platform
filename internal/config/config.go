@@ -80,7 +80,10 @@ type LoadOptions struct {
 	IgnoreRemovedWorkingDirectoryForAudit bool
 }
 
-type MailConfig struct{ MaxHops int }
+type MailConfig struct {
+	MaxHops       int
+	RetentionDays int
+}
 
 type RuntimeMode string
 

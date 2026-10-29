@@ -200,9 +200,9 @@ Mailbox 负责会话之间的三类往来：**信**（派活、补充，平台�
 ### 其他
 
 - 只有主 Agent 根 Run（含 TEAM 总控）能调用 `chat_send`、`chat_notify`、`chat_submit`，包括由信开出的 Run；BTW、`agent_invoke` 子任务、Team 成员不能调用。规划 Run 默认排除这三个工具。
-- `accessLevel`、`modelKey`、`reasoningEffort`、`chatName` 只能与 `newChat` 同用，判断规则同 `chat_start`：省略则继承，提升需要人工审批。
-- 寄给已有会话的信冻结发信时的继承档位；开新 Run 时用这个档位，模型用目标 Agent 默认值；插入时不改变正在跑的 Run 的设置。
-- 回信开出的 Run 使用收件 Agent 的默认档位，不提升。
+- `accessLevel`、`modelKey`、`reasoningEffort`、`chatName` 只能与 `newChat` 同用。权限省略时按收件 Agent 的 `accessConfig.default` 解析；显式档位不得超过发信 Run 受理时当前档位。
+- 寄给已有会话的信冻结受理时收件 Agent 的默认档位；开新 Run 时用这个档位，模型用目标 Agent 默认值；插入时不改变正在跑的 Run 的设置。
+- 回信、即时消息、请示在创建时冻结收件 Agent 默认档位，后续开 Run 使用该冻结值，不继承发送 Run 的权限。
 - 旧工具限制不变：由信开出的 Run 调用 `chat_start`、`chat_steer`、`chat_get_status`、`chat_interrupt`，以及 `wait` 的 `run.terminal` 条件，仍返回 `run_chaining_not_allowed`。派完活用不带条件的普通 `wait` 等回信唤醒；`wait` 新增唤醒原因 `mail`。
 
 ## 文件交付
@@ -239,7 +239,7 @@ Mailbox 负责会话之间的三类往来：**信**（派活、补充，平台�
 ## 会话删除
 
 - 任一端会话被删除：未完成的信转为 `failed`（收件端删除时寄回失败回信），未送达的即时消息和请示转为 `withdrawn`。
-- 正文类字段（`input`、`message`、`refs`、`files`）清空并写 `purged_at`；收据字段保留，保证幂等不失效。复制过去的文件随收件会话目录一起删除。
+- 仅清理寄往被删会话的正文、引用和附件元数据，写 `BODY_PURGED_AT_`；发出的已受理回信继续投递，使用收件侧附件副本。两端均删除且邮件终态时删除行。默认 30 天清理终态正文，保留幂等和开出会话关系，已投递副本按收件 Chat 生命周期保留。
 
 ## 工具
 
@@ -340,87 +340,23 @@ Options: approve | approve_rule_run | reject. Approval is accepted only if your 
 
 - 信封头的首词就是 kind：`Letter`、`Reply`、`Notify`、`Ask`。
 - "about your letter M1"：即时消息和请示所属的那封信，即开出发件 Run 的信。
-- 信封头不落盘，每次组装模型输入时按行上的 `mailId` 和 mail.db 生成；正文已清空时省略引用部分。
+- 信封头不落盘，每次组装模型输入时按行上的 `mailId` 和 mail.db 生成；正文到期清理后仍保留原有邮件关系和信封引用。
 - 这改变了现有"origin 不进入模型输入"的规则，仅适用于来自 Agent 的内容。
 
 ## 数据结构
 
 ### mail.db
 
-位于 `AP_RUNTIME_CHATS_DIR/mail.db`，独立库，`application_id = 0x41504D4C`（APML），`user_version = 1`，遵守 `sqlitecontract` 的身份规则。不改 `chats.db`。
+位于 `AP_RUNTIME_CHATS_DIR/mail.db`，独立库，`application_id = 0x41504D4C`（APML），`user_version = 2`，遵守 `sqlitecontract` 的身份规则。不改 `chats.db`。
 
-```sql
-CREATE TABLE mails (
-  id              TEXT PRIMARY KEY,           -- mail_<ulid>
-  kind            TEXT NOT NULL,              -- letter|reply|notify|ask
-  status          TEXT NOT NULL,              -- accepting|queued|inflight|delivered|done|failed|suspended|discarded|withdrawn
-  created_at      INTEGER NOT NULL,
-  updated_at      INTEGER NOT NULL,
-
-  -- 收件
-  to_agent_key    TEXT NOT NULL,
-  to_chat_id      TEXT NOT NULL,
-  opened_chat     INTEGER NOT NULL DEFAULT 0, -- 1 = 这封信新建了 to_chat_id
-
-  -- 发件（与 JSONL origin 同义）
-  origin_type     TEXT NOT NULL,              -- agent（本期）；user|automation 留给后续
-  from_agent_key  TEXT NOT NULL DEFAULT '',
-  from_chat_id    TEXT NOT NULL DEFAULT '',
-  from_run_id     TEXT NOT NULL DEFAULT '',
-  from_tool_id    TEXT NOT NULL DEFAULT '',   -- 平台生成的回信、请示为空
-  subject         TEXT NOT NULL DEFAULT '',
-
-  -- 正文（会话删除时清空）
-  input           TEXT,                       -- 工具参数原样 JSON；平台生成的为空
-  message         TEXT NOT NULL DEFAULT '',   -- 收件会话收到的正文；请示为等待项结构快照 JSON
-  refs            TEXT,                       -- 规范化后的 references JSON
-  files           TEXT,                       -- [{name,size,sha256,path,source}]，path 为收件会话内路径
-  purged_at       INTEGER NOT NULL DEFAULT 0,
-
-  -- 受理时冻结
-  hop             INTEGER NOT NULL,
-  access_level    TEXT NOT NULL DEFAULT '',   -- 信开 Run 时使用的档位
-  access_grant    TEXT,                       -- 提升审计，同现有 accessGrant
-  model           TEXT,                       -- {key,reasoningEffort}，仅新开会话
-  request_digest  TEXT NOT NULL DEFAULT '',   -- 幂等比较
-
-  -- 按类型
-  answered_by     TEXT NOT NULL DEFAULT '',   -- letter：回答它的 reply id
-  reply_key       TEXT NOT NULL DEFAULT '',   -- reply：run:<runId>:<toChatId> 或 letter:<letterId>
-  reply_of_run    TEXT NOT NULL DEFAULT '',   -- reply：正文来自哪个 Run；失败回信为空
-  outcome         TEXT NOT NULL DEFAULT '',   -- reply：completed|failed|canceled
-  parent_id       TEXT NOT NULL DEFAULT '',   -- notify/ask：开出发件 Run 的 letter
-  awaiting_id     TEXT NOT NULL DEFAULT '',   -- ask：分身的等待项
-  awaiting_mode   TEXT NOT NULL DEFAULT '',   -- ask：question|approval|form，只决定呈现与提交形状
-  awaiting_source TEXT NOT NULL DEFAULT '',   -- ask：ask_user_question|ask_user_form|tool_approval，决定能否代答
-
-  -- 投递
-  delivery        TEXT NOT NULL DEFAULT '',   -- started|inserted
-  run_id          TEXT NOT NULL DEFAULT '',   -- 当前在途或已消费它的 Run
-  steer_id        TEXT NOT NULL DEFAULT '',
-  attempts        INTEGER NOT NULL DEFAULT 0,
-  consumed_at     INTEGER NOT NULL DEFAULT 0,
-  resume_phase    TEXT NOT NULL DEFAULT '',   -- 重投恢复的挂起前阶段
-  evidence        TEXT NOT NULL DEFAULT '',   -- 挂起时：none|consumed|unknown
-  error           TEXT
-);
-
-CREATE UNIQUE INDEX mails_idem    ON mails(from_run_id, from_tool_id) WHERE from_tool_id <> '';
-CREATE UNIQUE INDEX mails_reply   ON mails(reply_key) WHERE kind = 'reply';
-CREATE UNIQUE INDEX mails_ask     ON mails(from_run_id, awaiting_id) WHERE kind = 'ask';
-CREATE INDEX mails_deliver  ON mails(to_chat_id, status, created_at);
-CREATE INDEX mails_inbox    ON mails(to_agent_key, created_at);
-CREATE INDEX mails_run      ON mails(run_id);
-CREATE INDEX mails_status   ON mails(status);
-CREATE INDEX mails_answered ON mails(answered_by);
-```
+建表与索引以 [internal/mailbox/store.go](../internal/mailbox/store.go) 为事实源：表名 `MAILS`，列名使用大写下划线加尾部 `_`，索引使用 `IDX_` 前缀。关系字段为 `ANSWERED_BY_MAIL_ID_`、`PARENT_MAIL_ID_`、`REPLY_OF_RUN_ID_`；`TERMINAL_AT_`、`BODY_PURGED_AT_` 与两端 `*_CHAT_DELETED_AT_` 分别表达终态、正文清理和会话删除。本次为未上线的 V2 不兼容变更，不迁移或自动清理旧开发库。
 
 各类型的终态：
 
 | kind | 正常终态 | 其他终态 |
 |---|---|---|
 | letter | `done`（已被回信） | `failed`、`discarded`；重启后 `suspended` |
-| reply | `delivered`（终态，永不再投） | `withdrawn`（收件会话已删除）、`discarded`；重启后未送达的 `suspended` |
+| reply | `delivered`（终态，永不再投） | `discarded`（含收件会话已删除）；重启后未送达的 `suspended` |
 | notify | `delivered` | `withdrawn` |
 | ask | `done`（等待项已解决） | `withdrawn` |
 
