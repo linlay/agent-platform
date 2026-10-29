@@ -11,8 +11,8 @@ import (
 func TestResolveRunStartAccessLevel(t *testing.T) {
 	levels := []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess}
 	for parentRank, parent := range levels {
-		if level, escalates := ResolveRunStartAccessLevel("", parent); level != parent || escalates {
-			t.Fatalf("omitted must inherit %s: %s %v", parent, level, escalates)
+		if level, escalates := ResolveRunStartAccessLevel("", parent); level != AccessLevelDefault || escalates {
+			t.Fatalf("omitted must use platform default, parent=%s: %s %v", parent, level, escalates)
 		}
 		for requestedRank, requested := range levels {
 			level, escalates := ResolveRunStartAccessLevel(requested, parent)

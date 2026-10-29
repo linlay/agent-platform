@@ -16,7 +16,7 @@ In user requests, conversation, dialogue and chat are synonyms for Chat, includi
 - Current Agent: omit agentKey, or set it to the exact Agent Identity.key from the current system prompt. References to the current Agent, this Agent or yourself in any language always mean that Agent; never substitute another Agent’s key from catalog discovery.
 - chatId: non-empty string. Omit it to create a new Chat. Provide it only when the user asks to continue a specific existing Chat owned by the selected target. Omitting agentKey still selects the current calling Agent and requires that Chat to have the same owner. Never reuse the current chatId for a request to open a new Chat.
 - chatName: non-empty string naming a new Chat. Pass it only when the user specifies a name; otherwise normal naming applies. Cannot be combined with chatId. taskName is not supported.
-- accessLevel: `"default"`, `"auto_approve"` or `"full_access"`, for this run only. Pass it only when the user explicitly requests a permission level. Omission inherits the parent Run's current level at invocation time and does not follow later changes. Automatic approval means auto_approve, not full_access; destructive operations may still require approval. The target's interactionConfig switches do not restrict chat_start; the parent-level comparison and permission review below still apply.
+- accessLevel: `"default"`, `"auto_approve"` or `"full_access"`, for this run only. Pass it only when the user explicitly requests a permission level. Omission uses the target Agent's accessConfig.default, falling back to default; it does not inherit the parent Run level. Automatic approval means auto_approve, not full_access; destructive operations may still require approval. The target's interactionConfig switches do not restrict chat_start; an explicit level above the calling Run current level is rejected.
 - references: array of resource locators `{type,id}`. `type` is skill, kbase or chat; `id` is the exact resource ID. Skills are ordinary Skills, never connector skills. Each reference is used for the task. Empty or omitted means none. Chat references may only name Chats the calling Run can already read; an anonymous caller cannot create a new Chat grant through this tool. References grant no additional tools or access level.
 - modelKey: non-empty string holding a registered model key, for this run only. Pass it only when the user asks for a specific model; when the target is the current Agent, omission inherits the calling Run's effective model; for any other Agent, omission uses that Agent's own configured model. It is the `modelKey` returned by chat_query `models`, not a provider model ID; never guess a key. Separate calls may use different models, and continuing a Chat with chatId may use a different model than its earlier runs.
 - reasoningEffort: `"NONE"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"XHIGH"` or `"MAX"`, for this run only. `"NONE"` disables reasoning. Pass it only when the user asks for it; when the target is the current Agent, omission inherits the calling Run's effort (NONE when disabled); for any other Agent, omission uses that Agent's own default effort. Can be used without modelKey.
@@ -35,15 +35,15 @@ Examples:
 {"message": "Continue with the second chapter", "agentKey": "writer", "chatId": "<existing chatId>"}
 ```
 
-### Permission review
+### Permission selection
 
-Levels are ordered default < auto_approve < full_access and compared with the calling Run's current level when the call is accepted.
+Levels are ordered default < auto_approve < full_access. An explicit selection is compared with the calling Run current level at acceptance.
 
-- At or below the calling Run's level, or omitted: the run starts directly.
-- Above it: the user must approve this one start in a review shown in the current Chat. No access level, approval rule or argument can grant it, and the calling Run's own level never changes. Waiting uses the normal approval timeout; a timeout counts as a rejection.
-- Rejected, dismissed, timed out or interrupted: nothing was started. Do not call chat_start again for the same task, and never omit or lower accessLevel to avoid the review. Report the outcome to the user.
-- An error with `retryable: true` (`run_start_review_stale`, `run_start_approval_required`, `run_parent_access_level_changed`) means nothing was started because the calling Run's level changed. Make a new chat_start call with the same target, message and accessLevel; a new review is shown when one is still required.
-- `run_start_outcome_unknown` means the start could not be confirmed. Check the returned runId with chat_get_status; do not start again.
+- Omitted: use the target Agent accessConfig.default, falling back to default. A configured higher target default is allowed.
+- Explicit at or below the calling Run level: start directly.
+- Explicit above the calling Run level: reject with run_start_access_level_exceeded. A user must raise the parent Run level or use a management entry; do not omit the field to evade the user's explicit permission choice.
+- run_start_target_changed is retryable: the target changed before acceptance. Retry with the same intended parameters.
+- run_start_outcome_unknown means the start could not be confirmed. Check the returned runId with chat_get_status; do not start again.
 
 Errors raised before a run exists carry `executionState: "not_started"`.
 

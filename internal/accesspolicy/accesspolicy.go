@@ -145,6 +145,16 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	}
 
 	if mode == WriteAccess {
+		for _, rawRoot := range session.ControlReadonlyRoots {
+			root, err := pathutil.Canonicalize(rawRoot)
+			if err != nil {
+				return PathPlan{}, err
+			}
+			// Ancestor replacement/deletion can mutate an entire protected tree.
+			if pathutil.WithinRoot(realCandidate, root) || pathutil.WithinRoot(root, realCandidate) {
+				return buildPathPlan(mode, rawPath, realCandidate, root, accessLevel, DecisionBlock, "platform control source requires a dedicated management operation"), nil
+			}
+		}
 		readonlyRoots := append([]string(nil), level.ReadonlyRoots...)
 		readonlyRoots = append(readonlyRoots, session.ReferenceAccessRoots().ReadonlyRoots...)
 		if readonlyRoot, readonly := firstAllowedRoot(session, workspaceRoot, readonlyRoots, realCandidate); readonly {

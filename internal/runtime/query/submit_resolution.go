@@ -302,6 +302,12 @@ func (s *Service) resolveDeferredSubmit(req queryinput.SubmitRequest) (queryinpu
 		return queryinput.SubmitResponse{}, err
 	}
 	startsNewExecutionRun := agentbuiltin.StartsNewExecutionRun(deferred.Mode, normalized, continuationAdmission.AgentDef.Mode, continuationAdmission.AgentDef.ACPBridgeID)
+	if startsNewExecutionRun {
+		req.ChatID = deferred.ChatID
+		if err := s.preparePlanExecutionAccess(req, &continuationAdmission); err != nil {
+			return queryinput.SubmitResponse{}, err
+		}
+	}
 	if startsNewExecutionRun && strings.TrimSpace(req.ContinuationRunID) == "" {
 		req.ContinuationRunID = newRunID()
 	}
@@ -507,6 +513,9 @@ func (s *Service) prepareActiveSubmitContinuation(req queryinput.SubmitRequest, 
 	}
 	if strings.TrimSpace(req.ContinuationRunID) == "" {
 		req.ContinuationRunID = newRunID()
+	}
+	if err := s.preparePlanExecutionAccess(req, &admission); err != nil {
+		return req, err
 	}
 	req.ContinuationState = &admission
 	return req, nil

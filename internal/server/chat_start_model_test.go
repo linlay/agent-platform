@@ -94,7 +94,7 @@ func TestChatStartModelRejectionsDoNotConsumeApproval(t *testing.T) {
 func TestChatStartModelOptionsBindApproval(t *testing.T) {
 	for _, field := range []string{"modelKey", "reasoningEffort"} {
 		t.Run(field, func(t *testing.T) {
-			fixture, _ := chatStartFixture(t, "default")
+			fixture, _ := chatStartFixture(t, "full_access")
 			req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", AccessLevel: "full_access", Origin: contracts.RunOrigin{RunID: "parent"}}
 			plan, err := fixture.server.PrepareRunStart(context.Background(), req)
 			if err != nil {

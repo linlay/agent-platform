@@ -24,7 +24,7 @@ type adminAgentRegistry interface {
 }
 
 func (s *Server) writeAdminAgentSaveResponse(w http.ResponseWriter, detail api.AgentDetailResponse, err error) {
-	response := api.AdminAgentSaveResponse{ModelKey: detail.ModelKey, ServiceTier: detail.ServiceTier, ReasoningEffort: detail.ReasoningEffort, InteractionConfig: detail.InteractionConfig, Key: detail.Key, Name: detail.Name, Icon: detail.Icon, Description: detail.Description, Role: detail.Role, Greetings: detail.Greetings, Introductions: detail.Introductions, Wonders: detail.Wonders, Mode: detail.Mode, Engine: detail.Engine, Skills: detail.Skills, Connectors: detail.Connectors, Controls: detail.Controls, Meta: detail.Meta, Definition: detail.Definition, SoulPrompt: detail.SoulPrompt, AgentsPrompt: detail.AgentsPrompt, Source: detail.Source}
+	response := api.AdminAgentSaveResponse{DefaultAccessLevel: detail.DefaultAccessLevel, ModelKey: detail.ModelKey, ServiceTier: detail.ServiceTier, ReasoningEffort: detail.ReasoningEffort, InteractionConfig: detail.InteractionConfig, Key: detail.Key, Name: detail.Name, Icon: detail.Icon, Description: detail.Description, Role: detail.Role, Greetings: detail.Greetings, Introductions: detail.Introductions, Wonders: detail.Wonders, Mode: detail.Mode, Engine: detail.Engine, Skills: detail.Skills, Connectors: detail.Connectors, Controls: detail.Controls, Meta: detail.Meta, Definition: detail.Definition, SoulPrompt: detail.SoulPrompt, AgentsPrompt: detail.AgentsPrompt, Source: detail.Source}
 	if err == nil {
 		if def, found := s.deps.Registry.AgentDefinition(detail.Key); found {
 			response.ToolBindings = s.independentAgentToolBindings(def.EffectiveToolBindings())
@@ -140,59 +140,64 @@ func (s *Server) withAdminAgentPrivateSkills(detail api.AdminAgentDetailResponse
 }
 
 func buildAdminAgentSummary(item catalog.AdminAgent) api.AdminAgentSummary {
+	defaultAccess := agentDefaultAccessLevel(item.Definition)
 	return api.AdminAgentSummary{
-		Key:          item.Key,
-		Name:         firstNonBlank(item.Name, item.Key),
-		Icon:         item.Icon,
-		Mode:         item.Mode,
-		WorkspaceDir: item.Workspace.ProjectDir(),
-		Role:         item.Role,
-		Status:       firstNonBlank(item.Status, catalog.AdminAgentStatusInvalid),
-		Diagnostics:  adminAgentDiagnostics(item.Diagnostics),
-		Source:       adminAgentSource(item.Source),
-		Meta:         cloneMeta(item.Meta),
+		DefaultAccessLevel: defaultAccess,
+		Key:                item.Key,
+		Name:               firstNonBlank(item.Name, item.Key),
+		Icon:               item.Icon,
+		Mode:               item.Mode,
+		WorkspaceDir:       item.Workspace.ProjectDir(),
+		Role:               item.Role,
+		Status:             firstNonBlank(item.Status, catalog.AdminAgentStatusInvalid),
+		Diagnostics:        adminAgentDiagnostics(item.Diagnostics),
+		Source:             adminAgentSource(item.Source),
+		Meta:               cloneMeta(item.Meta),
 	}
 }
 
 func adminAgentDetailFromAgentDetail(detail api.AgentDetailResponse, item catalog.AdminAgent) api.AdminAgentDetailResponse {
 	return api.AdminAgentDetailResponse{
-		Key:          detail.Key,
-		Name:         detail.Name,
-		Icon:         detail.Icon,
-		Description:  detail.Description,
-		Role:         detail.Role,
-		Model:        detail.ModelKey,
-		Mode:         detail.Mode,
-		Skills:       append([]string{}, detail.Skills...),
-		Controls:     cloneListMaps(detail.Controls),
-		Meta:         cloneMeta(detail.Meta),
-		Definition:   cloneMeta(detail.Definition),
-		SoulPrompt:   detail.SoulPrompt,
-		AgentsPrompt: detail.AgentsPrompt,
-		Source:       detail.Source,
-		Status:       firstNonBlank(item.Status, catalog.AdminAgentStatusReady),
-		Diagnostics:  adminAgentDiagnostics(item.Diagnostics),
+		DefaultAccessLevel: detail.DefaultAccessLevel,
+		Key:                detail.Key,
+		Name:               detail.Name,
+		Icon:               detail.Icon,
+		Description:        detail.Description,
+		Role:               detail.Role,
+		Model:              detail.ModelKey,
+		Mode:               detail.Mode,
+		Skills:             append([]string{}, detail.Skills...),
+		Controls:           cloneListMaps(detail.Controls),
+		Meta:               cloneMeta(detail.Meta),
+		Definition:         cloneMeta(detail.Definition),
+		SoulPrompt:         detail.SoulPrompt,
+		AgentsPrompt:       detail.AgentsPrompt,
+		Source:             detail.Source,
+		Status:             firstNonBlank(item.Status, catalog.AdminAgentStatusReady),
+		Diagnostics:        adminAgentDiagnostics(item.Diagnostics),
 	}
 }
 
 func adminAgentDetailFromAdminAgent(item catalog.AdminAgent) api.AdminAgentDetailResponse {
+	defaultAccess := agentDefaultAccessLevel(item.Definition)
 	return api.AdminAgentDetailResponse{
-		Key:          item.Key,
-		Name:         firstNonBlank(item.Name, item.Key),
-		Icon:         item.Icon,
-		Description:  item.Description,
-		Role:         item.Role,
-		Model:        item.ModelKey,
-		Mode:         item.Mode,
-		Skills:       append([]string{}, item.Skills...),
-		Controls:     cloneListMaps(item.Controls),
-		Meta:         cloneMeta(item.Meta),
-		Definition:   cloneMeta(item.Definition),
-		SoulPrompt:   item.SoulPrompt,
-		AgentsPrompt: item.AgentsPrompt,
-		Source:       adminAgentSource(item.Source),
-		Status:       firstNonBlank(item.Status, catalog.AdminAgentStatusInvalid),
-		Diagnostics:  adminAgentDiagnostics(item.Diagnostics),
+		DefaultAccessLevel: defaultAccess,
+		Key:                item.Key,
+		Name:               firstNonBlank(item.Name, item.Key),
+		Icon:               item.Icon,
+		Description:        item.Description,
+		Role:               item.Role,
+		Model:              item.ModelKey,
+		Mode:               item.Mode,
+		Skills:             append([]string{}, item.Skills...),
+		Controls:           cloneListMaps(item.Controls),
+		Meta:               cloneMeta(item.Meta),
+		Definition:         cloneMeta(item.Definition),
+		SoulPrompt:         item.SoulPrompt,
+		AgentsPrompt:       item.AgentsPrompt,
+		Source:             adminAgentSource(item.Source),
+		Status:             firstNonBlank(item.Status, catalog.AdminAgentStatusInvalid),
+		Diagnostics:        adminAgentDiagnostics(item.Diagnostics),
 	}
 }
 
@@ -414,4 +419,14 @@ func (s *Server) withKnowledgeWarning(item catalog.AdminAgent) catalog.AdminAgen
 		}
 	}
 	return item
+}
+
+// Invalid permission configuration is reported in diagnostics, never displayed
+// as a valid fallback default in management responses.
+func agentDefaultAccessLevel(definition map[string]any) string {
+	access, err := contracts.ParseAgentAccessConfig(definition)
+	if err != nil {
+		return ""
+	}
+	return access.EffectiveDefault()
 }

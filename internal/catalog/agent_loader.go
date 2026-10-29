@@ -603,6 +603,10 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	if err != nil {
 		return AgentDefinition{}, nil, err
 	}
+	def.AccessConfig, err = contracts.ParseAgentAccessConfig(root)
+	if err != nil {
+		return AgentDefinition{}, nil, err
+	}
 	def.Mode = mode
 	def.Engine = engine
 	if _, declared := root["teamConfig"]; declared && mode != "TEAM" {

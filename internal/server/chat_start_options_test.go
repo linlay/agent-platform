@@ -39,7 +39,7 @@ func TestChatStartOptionalSettings(t *testing.T) {
 		}
 		expected := level
 		if expected == "" {
-			expected = "full_access"
+			expected = "default"
 		}
 		if started.AccessLevel != expected {
 			t.Fatalf("started=%#v", started)
@@ -75,8 +75,8 @@ func TestChatStartOptionalSettings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if continued.AccessLevel != "full_access" {
-			t.Fatalf("continuation did not inherit parent level: %#v", continued)
+		if continued.AccessLevel != "default" {
+			t.Fatalf("continuation did not use target default: %#v", continued)
 		}
 		waitRunTerminal(t, fixture.server, continued.RunID)
 		summary, _ = fixture.chats.Summary(started.ChatID)
@@ -114,138 +114,60 @@ func requireNoChatStarted(t *testing.T, fixture testFixture, err error, code str
 // consumable approval, whoever the caller is.
 func TestChatStartPermissionMatrixWithoutApproval(t *testing.T) {
 	levels := []string{"default", "auto_approve", "full_access"}
-	for parentRank, parentLevel := range levels {
-		for requestedRank, requested := range levels {
+	for pi, parentLevel := range levels {
+		for ri, requested := range levels {
 			t.Run(parentLevel+"/"+requested, func(t *testing.T) {
 				fixture, parent := chatStartFixture(t, parentLevel)
 				req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", AccessLevel: requested, Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "tool"}}
 				plan, err := fixture.server.PrepareRunStart(context.Background(), req)
-				if err != nil || plan.RequiresApproval != (requestedRank > parentRank) || plan.AccessLevel != requested || plan.ParentAccessLevel != parentLevel {
-					t.Fatalf("plan=%#v err=%v", plan, err)
-				}
-				if chats, _ := fixture.chats.ListChats("", ""); len(chats) != 0 {
-					t.Fatal("preparing a start created a chat")
-				}
-				started, err := fixture.server.StartRun(context.Background(), req)
-				if requestedRank > parentRank {
-					if typed := requireNoChatStarted(t, fixture, err, "run_start_approval_required"); !typed.Retryable {
-						t.Fatal("a missing review must be retryable so the caller can request one")
-					}
+				if ri > pi {
+					requireNoChatStarted(t, fixture, err, "run_start_access_level_exceeded")
+					_, err = fixture.server.StartRun(context.Background(), req)
+					requireNoChatStarted(t, fixture, err, "run_start_access_level_exceeded")
 					return
 				}
+				if err != nil || plan.RequiresApproval || plan.AccessLevel != requested {
+					t.Fatalf("plan=%+v err=%v", plan, err)
+				}
+				started, err := fixture.server.StartRun(context.Background(), req)
 				if err != nil || started.AccessLevel != requested {
-					t.Fatalf("started=%#v err=%v", started, err)
+					t.Fatalf("start=%+v err=%v", started, err)
 				}
 				waitRunTerminal(t, fixture.server, started.RunID)
-				if current, _ := parent.AccessLevelSnapshot(); current != parentLevel {
-					t.Fatal("starting a run changed the parent level")
+				if level, _ := parent.AccessLevelSnapshot(); level != parentLevel {
+					t.Fatal("changed parent")
 				}
 			})
 		}
 	}
 }
 
-func TestChatStartApprovalIsValidatedAndConsumedByRuntime(t *testing.T) {
-	origin := contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "tool"}
-	base := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", AccessLevel: "full_access", Origin: origin}
-	reviewed := func(t *testing.T, fixture testFixture, req contracts.RunStartRequest, consumed *[]string, grant bool) contracts.RunStartRequest {
-		t.Helper()
-		plan, err := fixture.server.PrepareRunStart(context.Background(), req)
-		if err != nil || !plan.RequiresApproval {
-			t.Fatalf("plan=%#v err=%v", plan, err)
-		}
-		req.Review = &contracts.RunStartReview{
-			ParentAccessLevel: plan.ParentAccessLevel, ParentAccessVersion: plan.ParentAccessVersion, ApprovalDigest: plan.ApprovalDigest,
-			Consume: func(digest string) bool {
-				*consumed = append(*consumed, digest)
-				return grant && digest == plan.ApprovalDigest && len(*consumed) == 1
-			},
-		}
-		return req
+func TestChatStartLegacyApprovalCannotOverrideCeiling(t *testing.T) {
+	for _, parentLevel := range []string{"default", "auto_approve", "full_access"} {
+		t.Run(parentLevel, func(t *testing.T) {
+			fixture, _ := chatStartFixture(t, parentLevel)
+			consumed := false
+			req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", AccessLevel: "full_access", Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "legacy"}, Review: &contracts.RunStartReview{Consume: func(string) bool { consumed = true; return true }}}
+			_, err := fixture.server.StartRun(context.Background(), req)
+			code := "run_start_access_level_exceeded"
+			if parentLevel == "full_access" {
+				code = "run_start_review_stale"
+			}
+			requireNoChatStarted(t, fixture, err, code)
+			if consumed {
+				t.Fatal("consumed legacy permission escalation receipt")
+			}
+		})
 	}
-	t.Run("approved start consumes exactly one receipt", func(t *testing.T) {
-		fixture, parent := chatStartFixture(t, "auto_approve")
-		var consumed []string
-		req := reviewed(t, fixture, base, &consumed, true)
-		started, err := fixture.server.StartRun(context.Background(), req)
-		if err != nil || started.AccessLevel != "full_access" || len(consumed) != 1 {
-			t.Fatalf("started=%#v err=%v consumed=%v", started, err, consumed)
-		}
-		waitRunTerminal(t, fixture.server, started.RunID)
-		persisted, loadErr := fixture.chats.LoadRunQuery(started.ChatID, started.RunID)
-		raw, _ := json.Marshal(persisted)
-		if loadErr != nil || !strings.Contains(string(raw), `"source":"approved"`) || !strings.Contains(string(raw), `"parentAccessLevel":"auto_approve"`) {
-			t.Fatalf("permission audit missing: %s %v", raw, loadErr)
-		}
-		if current, _ := parent.AccessLevelSnapshot(); current != "auto_approve" {
-			t.Fatal("approval elevated the parent run")
-		}
-		// The spent receipt cannot start a second run.
-		if _, err := fixture.server.StartRun(context.Background(), req); err == nil {
-			t.Fatal("receipt was reused")
-		}
-	})
-	t.Run("missing receipt", func(t *testing.T) {
-		fixture, _ := chatStartFixture(t, "auto_approve")
-		var consumed []string
-		_, err := fixture.server.StartRun(context.Background(), reviewed(t, fixture, base, &consumed, false))
-		if typed := requireNoChatStarted(t, fixture, err, "run_start_approval_required"); typed.Retryable {
-			t.Fatal("a reviewed call without a receipt must not be retried automatically")
-		}
-		req := reviewed(t, fixture, base, &consumed, true)
-		req.Review.Consume = nil
-		_, err = fixture.server.StartRun(context.Background(), req)
-		requireNoChatStarted(t, fixture, err, "run_start_approval_required")
-	})
-	t.Run("raising the parent does not bypass a shown review", func(t *testing.T) {
-		fixture, parent := chatStartFixture(t, "auto_approve")
-		var consumed []string
-		req := reviewed(t, fixture, base, &consumed, true)
-		parent.UpdateAccessLevel("full_access")
-		_, err := fixture.server.StartRun(context.Background(), req)
-		if typed := requireNoChatStarted(t, fixture, err, "run_start_review_stale"); !typed.Retryable || len(consumed) != 0 {
-			t.Fatalf("stale review consumed a receipt: %#v %v", typed, consumed)
-		}
-	})
-	t.Run("baseline version is strict even when the level returns", func(t *testing.T) {
-		fixture, parent := chatStartFixture(t, "auto_approve")
-		var consumed []string
-		req := reviewed(t, fixture, base, &consumed, true)
-		parent.UpdateAccessLevel("default")
-		parent.UpdateAccessLevel("auto_approve")
-		_, err := fixture.server.StartRun(context.Background(), req)
-		requireNoChatStarted(t, fixture, err, "run_start_review_stale")
-		if len(consumed) != 0 {
-			t.Fatal("stale review consumed a receipt")
-		}
-	})
-	t.Run("approval is bound to the reviewed request", func(t *testing.T) {
-		fixture, _ := chatStartFixture(t, "auto_approve")
-		var consumed []string
-		req := reviewed(t, fixture, base, &consumed, true)
-		req.Message = "a different task"
-		_, err := fixture.server.StartRun(context.Background(), req)
-		requireNoChatStarted(t, fixture, err, "run_start_review_stale")
-		if len(consumed) != 0 {
-			t.Fatal("receipt consumed for a different request")
-		}
-	})
-	t.Run("lowered parent requires a review that was never shown", func(t *testing.T) {
-		fixture, parent := chatStartFixture(t, "full_access")
-		parent.UpdateAccessLevel("default")
-		_, err := fixture.server.StartRun(context.Background(), base)
-		requireNoChatStarted(t, fixture, err, "run_start_approval_required")
-	})
-	t.Run("cancelled caller and finished parent", func(t *testing.T) {
-		fixture, _ := chatStartFixture(t, "full_access")
-		cancelled, cancel := context.WithCancel(context.Background())
-		cancel()
-		_, err := fixture.server.StartRun(cancelled, base)
-		requireNoChatStarted(t, fixture, err, "chat_start_cancelled")
-		fixture.runs.Finish("parent")
-		_, err = fixture.server.StartRun(context.Background(), base)
-		requireNoChatStarted(t, fixture, err, "run_parent_not_active")
-	})
+	fixture, _ := chatStartFixture(t, "full_access")
+	req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent"}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := fixture.server.StartRun(ctx, req)
+	requireNoChatStarted(t, fixture, err, "chat_start_cancelled")
+	fixture.runs.Finish("parent")
+	_, err = fixture.server.StartRun(context.Background(), req)
+	requireNoChatStarted(t, fixture, err, "run_parent_not_active")
 }
 
 func TestChatStartTargetAdmissionForOptions(t *testing.T) {
@@ -296,8 +218,8 @@ func TestChatStartTargetAdmissionForOptions(t *testing.T) {
 		level   string
 	}{
 		{contracts.RunStartRequest{AccessLevel: "default"}, "default"},
-		{contracts.RunStartRequest{}, "full_access"},
-		{contracts.RunStartRequest{References: queryinput.MakeReferences("skill", []string{"mock-skill"})}, "full_access"},
+		{contracts.RunStartRequest{}, "default"},
+		{contracts.RunStartRequest{References: queryinput.MakeReferences("skill", []string{"mock-skill"})}, "default"},
 		{contracts.RunStartRequest{AccessLevel: "auto_approve", ModelKey: "mock-model", ReasoningEffort: "LOW"}, "auto_approve"},
 	} {
 		tc.request.AgentKey, tc.request.Message = "mock-agent", "test"
@@ -315,7 +237,7 @@ func TestChatStartTargetAdmissionForOptions(t *testing.T) {
 
 }
 
-func TestChatStartInheritsLiveParentAccessLevel(t *testing.T) {
+func TestChatStartDefaultDoesNotInheritLiveParentAccessLevel(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`, `[DONE]`)
 	}, testFixtureOptions{})
@@ -334,12 +256,12 @@ func TestChatStartInheritsLiveParentAccessLevel(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if started.AccessLevel != level {
+		if started.AccessLevel != "default" {
 			t.Fatalf("want %s, got %#v", level, started)
 		}
 		parent.UpdateAccessLevel("auto_approve")
 		finished := waitRunTerminal(t, fixture.server, started.RunID)
-		if finished.AccessLevel != level {
+		if finished.AccessLevel != "default" {
 			t.Fatalf("child permission changed with parent: %#v", finished)
 		}
 		chatID = started.ChatID
@@ -350,146 +272,52 @@ func TestChatStartInheritsLiveParentAccessLevel(t *testing.T) {
 // the only way an escalating call can start, and it is bound to its baseline.
 func TestChatStartEscalationThroughHandler(t *testing.T) {
 	fixture, parent := chatStartFixture(t, "auto_approve")
-	runtimeService, ok := fixture.server.deps.Runtime.(runopspkg.Runtime)
-	if !ok {
-		t.Fatal("assembled runtime does not expose the run-tool surface")
-	}
-	handler := runopspkg.NewToolHandler(runtimeService, fixture.runs)
-	exec := func(toolID string) *contracts.ExecutionContext {
-		return &contracts.ExecutionContext{
-			Session:    contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent")},
-			RunControl: parent, CurrentToolID: toolID, CurrentToolName: runopspkg.StartToolName,
-		}
-	}
+	handler := runopspkg.NewToolHandler(fixture.server.deps.Runtime.(runopspkg.Runtime), fixture.runs)
+	e := &contracts.ExecutionContext{Session: contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent")}, RunControl: parent, CurrentToolID: "escalate", CurrentToolName: runopspkg.StartToolName}
 	args := map[string]any{"agentKey": "mock-agent", "message": "task", "accessLevel": "full_access"}
-	chatCount := func() int {
-		chats, err := fixture.chats.ListChats("", "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		return len(chats)
+	approval, err := handler.PrepareToolApproval(context.Background(), runopspkg.StartToolName, args, e)
+	if err != nil || approval != nil {
+		t.Fatalf("explicit escalation must not offer review: %+v %v", approval, err)
 	}
-	review := func(e *contracts.ExecutionContext) *contracts.ToolApproval {
-		t.Helper()
-		approval, err := handler.PrepareToolApproval(context.Background(), runopspkg.StartToolName, args, e)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return approval
+	e.ToolApprovals = map[string]bool{"forged": true}
+	result, err := handler.Invoke(context.Background(), runopspkg.StartToolName, args, e)
+	if err != nil || result.Error != "run_start_access_level_exceeded" || result.Structured["executionState"] != "not_started" {
+		t.Fatalf("%+v %v", result, err)
 	}
-	invoke := func(e *contracts.ExecutionContext) contracts.ToolExecutionResult {
-		t.Helper()
-		result, err := handler.Invoke(context.Background(), runopspkg.StartToolName, args, e)
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Let started runs finish before the fixture directories are removed.
-		if run, ok := result.Structured["run"].(map[string]any); ok && result.Error == "" {
-			waitRunTerminal(t, fixture.server, run["runId"].(string))
-		}
-		return result
-	}
-
-	// Shown but never approved: nothing starts.
-	e := exec("unapproved")
-	if approval := review(e); approval == nil || approval.AllowAutoApprove {
-		t.Fatalf("escalation must require manual review: %#v", approval)
-	}
-	if result := invoke(e); result.Error != "run_start_approval_required" || result.Structured["executionState"] != "not_started" || chatCount() != 0 {
-		t.Fatalf("unapproved start: %#v chats=%d", result, chatCount())
-	}
-
-	// The user raises the parent while the review is displayed, then approves.
-	e = exec("raised")
-	approval := review(e)
 	parent.UpdateAccessLevel("full_access")
-	e.ToolApprovals = map[string]bool{approval.Fingerprint: true}
-	if result := invoke(e); result.Error != "run_start_review_stale" || result.Structured["retryable"] != true || chatCount() != 0 {
-		t.Fatalf("stale review: %#v chats=%d", result, chatCount())
+	e.CurrentToolID = "after-user-raise"
+	result, err = handler.Invoke(context.Background(), runopspkg.StartToolName, args, e)
+	if err != nil || result.Error != "" {
+		t.Fatalf("user raised permission: %+v %v", result, err)
 	}
-	// A new call is judged against the new parent level and needs no review.
-	e = exec("after-raise")
-	if approval := review(e); approval != nil {
-		t.Fatalf("no escalation remains: %#v", approval)
-	}
-	if result := invoke(e); result.Error != "" || chatCount() != 1 {
-		t.Fatalf("direct start: %#v", result)
-	}
-
-	// Approved against an unchanged baseline: exactly one run, receipt spent.
-	parent.UpdateAccessLevel("auto_approve")
-	e = exec("approved")
-	approval = review(e)
-	e.ToolApprovals = map[string]bool{approval.Fingerprint: true}
-	result := invoke(e)
-	run, _ := result.Structured["run"].(map[string]any)
-	if result.Error != "" || run["accessLevel"] != "full_access" || len(e.ToolApprovals) != 0 || chatCount() != 2 {
-		t.Fatalf("approved start: %#v approvals=%v chats=%d", result, e.ToolApprovals, chatCount())
-	}
-	if level, _ := parent.AccessLevelSnapshot(); level != "auto_approve" {
-		t.Fatal("approval elevated the parent run")
-	}
-	// Retrying the same call returns the same run without a new approval.
-	retry := invoke(e)
-	retried, _ := retry.Structured["run"].(map[string]any)
-	if retry.Error != "" || retried["runId"] != run["runId"] || chatCount() != 2 {
-		t.Fatalf("retry: %#v", retry)
-	}
-	if again := review(e); again != nil {
-		t.Fatal("a started call asked for review again")
-	}
-
-	// Judged as no escalation, then the parent is lowered before execution.
-	parent.UpdateAccessLevel("full_access")
-	e = exec("lowered")
-	if approval := review(e); approval != nil {
-		t.Fatalf("unexpected review: %#v", approval)
-	}
-	parent.UpdateAccessLevel("default")
-	if result := invoke(e); result.Error != "run_start_approval_required" || result.Structured["retryable"] != true || chatCount() != 2 {
-		t.Fatalf("lowered parent: %#v", result)
+	run := result.Structured["run"].(map[string]any)
+	waitRunTerminal(t, fixture.server, run["runId"].(string))
+	retry, _ := handler.Invoke(context.Background(), runopspkg.StartToolName, args, e)
+	if retry.Structured["run"].(map[string]any)["runId"] != run["runId"] {
+		t.Fatal("idempotent start created another Run")
 	}
 }
 
-// A reviewed call keeps its frozen baseline: replaying the same tool call can
-// never start without the receipt, even once the request no longer escalates.
-func TestChatStartReviewedCallCannotBeReplayedWithoutReceipt(t *testing.T) {
-	fixture, parent := chatStartFixture(t, "auto_approve")
-	handler := runopspkg.NewToolHandler(fixture.server.deps.Runtime.(runopspkg.Runtime), fixture.runs)
-	e := &contracts.ExecutionContext{
-		Session:    contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent")},
-		RunControl: parent, CurrentToolID: "same-call", CurrentToolName: runopspkg.StartToolName,
+func TestChatStartParentLoweredBeforeAcceptance(t *testing.T) {
+	fixture, parent := chatStartFixture(t, "full_access")
+	req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", AccessLevel: "full_access", Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent"}}
+	if _, err := fixture.server.PrepareRunStart(context.Background(), req); err != nil {
+		t.Fatal(err)
 	}
-	args := map[string]any{"agentKey": "mock-agent", "message": "task", "accessLevel": "full_access"}
-	approval, err := handler.PrepareToolApproval(context.Background(), runopspkg.StartToolName, args, e)
-	if err != nil || approval == nil {
-		t.Fatalf("review missing: %v", err)
-	}
-	parent.UpdateAccessLevel("full_access")
-	e.ToolApprovals = map[string]bool{approval.Fingerprint: true}
-	if first, _ := handler.Invoke(context.Background(), runopspkg.StartToolName, args, e); first.Error != "run_start_review_stale" {
-		t.Fatalf("first=%#v", first)
-	}
-	// The LLM layer drops the temporary receipt when the invocation returns.
-	e.ToolApprovals = nil
-	for range 2 {
-		replay, _ := handler.Invoke(context.Background(), runopspkg.StartToolName, args, e)
-		if replay.Error != "run_start_review_stale" {
-			t.Fatalf("replayed stale call: %#v", replay)
-		}
-	}
-	// Re-planning the same call shows the frozen review, not a fresh judgment.
-	again, err := handler.PrepareToolApproval(context.Background(), runopspkg.StartToolName, args, e)
-	if err != nil || again == nil || again.Fingerprint != approval.Fingerprint || again.AllowAutoApprove {
-		t.Fatalf("reviewed call was re-planned: %#v %v", again, err)
-	}
-	e.ToolApprovals = map[string]bool{again.Fingerprint: true}
-	if replay, _ := handler.Invoke(context.Background(), runopspkg.StartToolName, args, e); replay.Error != "run_start_review_stale" {
-		t.Fatalf("re-approved stale call: %#v", replay)
-	}
-	if chats, _ := fixture.chats.ListChats("", ""); len(chats) != 0 {
-		t.Fatalf("stale call created chats: %#v", chats)
-	}
+	parent.UpdateAccessLevel("default")
+	_, err := fixture.server.StartRun(context.Background(), req)
+	requireNoChatStarted(t, fixture, err, "run_start_access_level_exceeded")
+}
+
+// narrowRunManager hides the atomic acceptance point of the real manager.
+type narrowRunManager struct{ contracts.RunManager }
+
+// Control identities are unrelated to the acceptance point and stay visible.
+func (m narrowRunManager) BindRunControlScope(runID string, scope controlscope.Scope) controlscope.Scope {
+	return m.RunManager.(controlscope.Live).BindRunControlScope(runID, scope)
+}
+func (m narrowRunManager) RunControlScope(runID string) (controlscope.Scope, bool) {
+	return m.RunManager.(controlscope.Live).RunControlScope(runID)
 }
 
 type chatStartSwitchRegistry struct {
@@ -533,15 +361,8 @@ func TestChatStartAuditUsesAcceptedParentBaseline(t *testing.T) {
 }
 
 // narrowRunManager hides the atomic acceptance point of the real manager.
-type narrowRunManager struct{ contracts.RunManager }
 
 // Control identities are unrelated to the acceptance point and stay visible.
-func (m narrowRunManager) BindRunControlScope(runID string, scope controlscope.Scope) controlscope.Scope {
-	return m.RunManager.(controlscope.Live).BindRunControlScope(runID, scope)
-}
-func (m narrowRunManager) RunControlScope(runID string) (controlscope.Scope, bool) {
-	return m.RunManager.(controlscope.Live).RunControlScope(runID)
-}
 
 func TestChatStartRefusesRunManagerWithoutAtomicAcceptance(t *testing.T) {
 	fixture, _ := chatStartFixture(t, "auto_approve")
@@ -553,43 +374,27 @@ func TestChatStartRefusesRunManagerWithoutAtomicAcceptance(t *testing.T) {
 	}
 }
 
-func TestChatStartDefaultAgentReviewStartAndContinuation(t *testing.T) {
-	fixture, _ := chatStartFixture(t, "default")
-	req := contracts.RunStartRequest{
-		Message: "create coding agents", ChatName: "冒烟-A1-创建编程智能体", AccessLevel: "full_access",
-		Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "default-target"},
-	}
+func TestChatStartDefaultAgentStartAndContinuation(t *testing.T) {
+	fixture, _ := chatStartFixture(t, "full_access")
+	req := contracts.RunStartRequest{Message: "task", ChatName: "named", AccessLevel: "full_access", Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "default-target"}}
 	plan, err := fixture.server.PrepareRunStart(context.Background(), req)
-	if err != nil || !plan.RequiresApproval {
-		t.Fatalf("plan=%#v err=%v", plan, err)
+	if err != nil {
+		t.Fatal(err)
 	}
 	explicit := req
 	explicit.AgentKey = "mock-agent"
-	explicitPlan, err := fixture.server.PrepareRunStart(context.Background(), explicit)
-	if err != nil || explicitPlan.RequestDigest != plan.RequestDigest || explicitPlan.ApprovalDigest != plan.ApprovalDigest {
-		t.Fatalf("default and explicit targets differ: %#v %#v %v", plan, explicitPlan, err)
-	}
-	_, err = fixture.server.StartRun(context.Background(), req)
-	requireNoChatStarted(t, fixture, err, "run_start_approval_required")
-	consumed := 0
-	req.Review = &contracts.RunStartReview{
-		ParentAccessLevel: plan.ParentAccessLevel, ParentAccessVersion: plan.ParentAccessVersion, ApprovalDigest: plan.ApprovalDigest,
-		Consume: func(digest string) bool { consumed++; return consumed == 1 && digest == plan.ApprovalDigest },
+	other, err := fixture.server.PrepareRunStart(context.Background(), explicit)
+	if err != nil || plan.RequestDigest != other.RequestDigest {
+		t.Fatal("implicit target changed request identity")
 	}
 	started, err := fixture.server.StartRun(context.Background(), req)
-	if err != nil || started.AgentKey != "mock-agent" || consumed != 1 {
-		t.Fatalf("start=%#v err=%v consumed=%d", started, err, consumed)
+	if err != nil {
+		t.Fatal(err)
 	}
 	waitRunTerminal(t, fixture.server, started.RunID)
-	summary, err := fixture.chats.Summary(started.ChatID)
-	if err != nil || summary.ChatName != req.ChatName || summary.AgentKey != "mock-agent" {
-		t.Fatalf("summary=%#v err=%v", summary, err)
-	}
-	continued, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
-		Message: "continue", ChatID: started.ChatID, Origin: req.Origin,
-	})
-	if err != nil || continued.ChatID != started.ChatID || continued.AgentKey != "mock-agent" || continued.RunID == started.RunID {
-		t.Fatalf("continuation=%#v err=%v", continued, err)
+	continued, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{Message: "continue", ChatID: started.ChatID, Origin: req.Origin})
+	if err != nil || continued.ChatID != started.ChatID || continued.AgentKey != "mock-agent" || continued.AccessLevel != "default" {
+		t.Fatalf("%+v %v", continued, err)
 	}
 	waitRunTerminal(t, fixture.server, continued.RunID)
 }

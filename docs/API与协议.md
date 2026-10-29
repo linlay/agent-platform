@@ -1441,3 +1441,14 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 ## Mailbox 会话投递
 
 会话投递增加 GET /api/mails 与 POST /api/mails/action，广播 mail.updated；request.query/request.steer 在顶层记录 mailId、mailKind、mailAttempt、mailHop，reply 另有 outcome；submit 可带平台生成的 origin/accessGrant 审计。字段不能由公共输入伪造，JSON 仍使用统一包裹。具体参数与权限见 [Mailbox](Mailbox.md#http-与展示)。
+
+
+## Agent 默认权限与来源
+
+Agent YAML 的 accessConfig.default 是默认值，使用目录 /api/agents、/api/agent 及对应 WS 返回有效 defaultAccessLevel。普通 /api/query、/api/execute 与 BTW/explain 在省略 accessLevel 时取目标冻结定义的默认，未配置为 default；显式请求优先。关闭 interactionConfig.accessLevel 时仅接受省略或等于 Agent 默认的显式值。活动 Run 当前档位与 Agent 默认分别展示，运行中切档不写回 YAML。
+
+Agent 发起 chat_start/chat_send 时，省略采用目标默认且可高于父 Run；显式高于父当前档位返回 run_start_access_level_exceeded，executionState=not_started。目标准备与准入快照变化返回可重试的 run_start_target_changed。Automation 省略仍固定 default。
+
+JSONL query 原始输入不补默认。顶层 accessLevel 保存有效值，accessGrant.source 可为 explicit/agent_default/platform_default/automation_config/automation_default/continuation，目标 revision 与父基线在适用时一起冻结。旧 inherited/approved 历史继续读取，不按新配置重算。
+
+计划批准的 param 可带 executionAccessLevel（三个档位之一），用于确认等待期间升高的 Agent 默认。未确认升高返回 HTTP 409/plan_access_level_changed，data.executionAccessLevel 返回当前值，等待项不消费；客户端先刷新展示，再由用户重新确认。它不替代原始显式请求或规划期间用户切档。

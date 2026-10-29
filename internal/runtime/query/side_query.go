@@ -36,7 +36,7 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 	if input.SideID != "" && !chat.ValidSideID(input.SideID) {
 		return preparedQuery{}, btwStatusError(400, "invalid_side_id", "invalid sideId")
 	}
-	accessLevel, ok := contracts.NormalizeAccessLevel(input.AccessLevel)
+	_, ok := contracts.NormalizeAccessLevel(input.AccessLevel)
 	if !ok {
 		return preparedQuery{}, btwStatusError(400, "invalid_access_level", "accessLevel must be default, auto_approve, or full_access")
 	}
@@ -152,10 +152,14 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 		Stream:          input.Stream,
 		IncludeUsage:    input.IncludeUsage,
 		IncludeFullText: input.IncludeFullText,
-		AccessLevel:     accessLevel,
+		AccessLevel:     input.AccessLevel,
 		Model:           input.Model,
 		Detail:          input.Detail,
 	}
+	if err := ValidateInteractionInput(agentDef.Interaction(), req, agentDef.AccessConfig.EffectiveDefault()); err != nil {
+		return preparedQuery{}, btwStatusError(400, "interaction_disabled", err.Error())
+	}
+	ResolveQueryAccess(&req, agentDef)
 	delete(req.Params, agentbuiltin.PlanApproveContinuationParam)
 	session, buildErr := s.deps.Sessions.BuildQuerySession(ctx, req, *summary, agentDef, sessionbuild.Options{
 		Created:           false,

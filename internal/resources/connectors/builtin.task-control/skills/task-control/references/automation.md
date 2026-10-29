@@ -20,7 +20,7 @@ Read [workflow](automation-workflow.md) for natural-language time and execution 
 - trigger: `{id,baseRevision}` executes the approved snapshot once, including paused tasks. Does not enable a task or consume remainingRuns. Returns accepted and executionId; accepted does not mean completed. Use execution to inspect the result.
 - delete: `{id,baseRevision}` removes the definition and retains existing execution history and conversations.
 
-All management operations require approval bound to exact invocation, content and baseline. Default mode displays a dedicated business review. auto_approve/full_access permits automatic approval except delete, which always requires a human. Task execution still follows saved query.accessLevel; no chat permission inheritance.
+All management operations require approval bound to exact invocation, content and baseline. Default mode displays a dedicated business review. auto_approve/full_access permits automatic approval except delete, which always requires a human. Task execution follows saved query.accessLevel; omission remains default, independent of Agent defaults and Chat history. Agent create/update/enable/trigger operations cannot select or reuse an execution level above the calling Run current level. Disabling and deletion keep their existing review policies.
 
 Saving/pause/delete updates scheduling registrations and can cancel an in-progress scheduled execution. Manually triggered executions are not canceled by those configuration changes. A task reaching its remainingRuns limit follows the existing scheduler retirement behavior.
 

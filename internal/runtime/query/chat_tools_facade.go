@@ -121,50 +121,35 @@ func (s *Service) PrepareRunStart(ctx context.Context, request contracts.RunStar
 	}
 	plan.ParentAccessLevel = sessionbuild.NormalizedAccessLevel(parent.AccessLevel)
 	plan.ParentAccessVersion = parent.AccessLevelVersion
-	plan.AccessLevel, plan.RequiresApproval = contracts.ResolveRunStartAccessLevel(request.AccessLevel, plan.ParentAccessLevel)
+	if err := contracts.ValidateExplicitRunAccess(request.AccessLevel, plan.ParentAccessLevel); err != nil {
+		return contracts.RunStartPlan{}, runNotStarted(err)
+	}
+	plan.AccessLevel, plan.AccessSource, _ = contracts.ResolveInitialAccessLevel(request.AccessLevel, def.AccessConfig)
+	plan.TargetRevision = def.RuntimeRevision
 	plan.RequestDigest = contracts.RunStartRequestDigest(request)
 	plan.ApprovalDigest = contracts.RunStartApprovalDigest(plan.RequestDigest, plan.ParentAccessLevel, plan.ParentAccessVersion, plan.AccessLevel)
 	return plan, nil
 }
 
-// acceptRunStart is the single authorization decision for a chat_start. Inside
-// the parent Run's access-level critical section it re-reads the level, and for
-// any request that exceeds it, or that already carries a frozen review,
-// validates the baseline and synchronously consumes the one-shot approval.
-// Nothing has been created when it fails.
+// acceptRunStart checks explicit selection against the parent live level.
+// The target default was frozen by admission and is independent of the parent.
+// Nothing has been created when authorization fails.
 func (s *Service) acceptRunStart(ctx context.Context, request contracts.RunStartRequest, plan contracts.RunStartPlan) (acceptedRunStart, error) {
-	accepted := acceptedRunStart{source: "inherited"}
+	accepted := acceptedRunStart{source: plan.AccessSource}
 	accept := func(parentLevel string, version int64) error {
 		if err := ctx.Err(); err != nil {
 			return runToolError("chat_start_cancelled", err.Error())
 		}
 		parentLevel = sessionbuild.NormalizedAccessLevel(parentLevel)
-		accessLevel, escalates := contracts.ResolveRunStartAccessLevel(request.AccessLevel, parentLevel)
-		// Record the baseline this decision was actually made against.
-		accepted.parentAccessLevel, accepted.parentAccessVersion, accepted.accessLevel = parentLevel, version, accessLevel
-		if review := request.Review; review != nil {
-			digest := contracts.RunStartApprovalDigest(plan.RequestDigest, parentLevel, version, accessLevel)
-			if version != review.ParentAccessVersion || parentLevel != review.ParentAccessLevel || digest != review.ApprovalDigest {
-				return &contracts.RunToolError{Code: "run_start_review_stale", Retryable: true,
-					Message: "the parent Run permission changed after this start was reviewed; the approval no longer applies. Call chat_start again with the same target, message and accessLevel"}
-			}
-			if review.Consume == nil || !review.Consume(digest) {
-				return runToolError("run_start_approval_required", "the one-time approval for this start is missing or was already used")
-			}
-			accepted.source, accepted.approvalDigest = "approved", digest
-			return nil
+		if err := contracts.ValidateExplicitRunAccess(request.AccessLevel, parentLevel); err != nil {
+			return err
 		}
-		if escalates {
-			return &contracts.RunToolError{Code: "run_start_approval_required", Retryable: true,
-				Message: "accessLevel exceeds the parent Run current level and requires human approval. Call chat_start again with the same target, message and accessLevel"}
+		// Old escalation reviews cannot override the explicit ceiling.
+		if request.Review != nil {
+			return runToolError("run_start_review_stale", "permission escalation reviews are no longer accepted")
 		}
-		if accessLevel != plan.AccessLevel {
-			return &contracts.RunToolError{Code: "run_parent_access_level_changed", Retryable: true,
-				Message: "the parent Run permission changed while this start was being admitted. Call chat_start again with the same arguments"}
-		}
-		if plan.RequestedAccessLevel != "" {
-			accepted.source = "explicit"
-		}
+		accepted.parentAccessLevel, accepted.parentAccessVersion = parentLevel, version
+		accepted.accessLevel = plan.AccessLevel
 		return nil
 	}
 	acceptor, ok := s.deps.Runs.(runAccessLevelAcceptor)
@@ -187,7 +172,6 @@ type acceptedRunStart struct {
 	parentAccessLevel   string
 	parentAccessVersion int64
 	accessLevel         string
-	approvalDigest      string
 }
 
 func (s *Service) StartRun(ctx context.Context, request contracts.RunStartRequest) (contracts.RunSnapshot, error) {
@@ -253,6 +237,11 @@ func (s *Service) StartRun(ctx context.Context, request contracts.RunStartReques
 	if err != nil {
 		return contracts.RunSnapshot{}, runNotStarted(mapRunAdmissionError(err, agentKey))
 	}
+	level, source, _ := contracts.ResolveInitialAccessLevel(request.AccessLevel, admission.AgentDef.AccessConfig)
+	if admission.AgentDef.RuntimeRevision != plan.TargetRevision || level != plan.AccessLevel || source != plan.AccessSource {
+		releaseQuery(admission.Release)
+		return contracts.RunSnapshot{}, runNotStarted(&contracts.RunToolError{Code: "run_start_target_changed", Retryable: true, Message: "target Agent changed during admission; retry the invocation"})
+	}
 	admission.StrictOwner = true
 	accepted, err := s.acceptRunStart(ctx, request, plan)
 	if err != nil {
@@ -271,13 +260,12 @@ func (s *Service) StartRun(ctx context.Context, request contracts.RunStartReques
 		"parentAccessVersion": accepted.parentAccessVersion,
 		"accessLevel":         accepted.accessLevel,
 		"source":              accepted.source,
+		"agentKey":            agentKey,
+		"agentRevision":       plan.TargetRevision,
 		"requestDigest":       plan.RequestDigest,
 	}
 	if plan.RequestedAccessLevel != "" {
 		permission["requestedAccessLevel"] = plan.RequestedAccessLevel
-	}
-	if accepted.approvalDigest != "" {
-		permission["approvalDigest"] = accepted.approvalDigest
 	}
 	prepared.Req.AccessGrant = permission
 	prepared.Execution = &queryExecutionOptions{

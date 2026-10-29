@@ -1035,7 +1035,7 @@ func TestFrameOrchestratorBuildsChildRequestFromExplicitAllowlist(t *testing.T) 
 	if childRequest.AgentKey != "writer" {
 		t.Fatalf("child routing fields = %#v", childRequest)
 	}
-	if childRequest.AccessLevel != contracts.AccessLevelFullAccess {
+	if childRequest.AccessLevel != contracts.AccessLevelDefault {
 		t.Fatalf("child accessLevel = %q", childRequest.AccessLevel)
 	}
 	if childDefinition.Mode != "REACT" {

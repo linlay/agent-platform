@@ -8,10 +8,8 @@ import (
 	"strings"
 )
 
-// RunStartReview is the frozen review a trusted handler prepared for one
-// chat_start invocation. It is never model input and is never serialized.
-// Once present, Runtime must validate it and consume its one-shot approval,
-// even when the parent level no longer makes the request an escalation.
+// RunStartReview is a legacy internal escalation proof, never model input.
+// Current Runtime rejects it: explicit starts cannot exceed the caller level.
 type RunStartReview struct {
 	ParentAccessLevel   string
 	ParentAccessVersion int64
@@ -24,6 +22,8 @@ type RunStartReview struct {
 // RunStartPlan is the read-only outcome of PrepareRunStart. Preparing a plan
 // creates no Chat, registers no Run and holds no lease.
 type RunStartPlan struct {
+	TargetRevision       string
+	AccessSource         string
 	RequestedAccessLevel string // empty when the caller omitted accessLevel
 	ParentAccessLevel    string
 	ParentAccessVersion  int64
@@ -65,12 +65,12 @@ func AccessLevelRank(level string) int {
 	}
 }
 
-// ResolveRunStartAccessLevel applies inheritance for an omitted level and
-// reports whether the result exceeds the parent Run's current level.
+// ResolveRunStartAccessLevel handles explicit starts without a target default.
+// Deprecated: use ResolveInitialAccessLevel plus ValidateExplicitRunAccess.
 func ResolveRunStartAccessLevel(requested string, parent string) (string, bool) {
 	parent, _ = NormalizeAccessLevel(parent)
 	if strings.TrimSpace(requested) == "" {
-		return parent, false
+		return AccessLevelDefault, false
 	}
 	level, _ := NormalizeAccessLevel(requested)
 	return level, AccessLevelRank(level) > AccessLevelRank(parent)

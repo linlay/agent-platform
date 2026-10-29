@@ -261,7 +261,7 @@ func (o *Coordinator) HandleSubAgentBatch(mainStream contracts.AgentStream, invo
 		}
 		teamSem = make(chan struct{}, teamMaxParallel)
 	}
-	hitlBatch := NewTeamHITLQueue(o, prepared, o.Session.TeamRuntime != nil)
+	hitlBatch := NewTeamHITLQueue(o, prepared, true)
 	var wg sync.WaitGroup
 
 	for index, task := range prepared {
@@ -545,7 +545,7 @@ func NewTeamHITLQueue(o *Coordinator, tasks []PreparedSubTask, enabled bool) *Te
 	queue.Enabled = true
 	for _, task := range tasks {
 		control := contracts.NewRunControl(o.RunCtx, task.TaskID)
-		control.SetInitialAccessLevel(o.Session.AccessLevel)
+		control.SetInitialAccessLevel(task.AgentDef.AccessConfig.EffectiveDefault())
 		// A queued awaiting is not visible yet; its timeout starts on publication.
 		control.HoldSubmitTimeouts()
 		queue.Controls[task.TaskID] = control
@@ -755,7 +755,7 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 		References:  append([]runtimetypes.Reference(nil), task.Spec.References...),
 		Role:        queryinput.QueryRoleUser,
 		Message:     task.Spec.TaskText,
-		AccessLevel: o.Session.AccessLevel,
+		AccessLevel: task.AgentDef.AccessConfig.EffectiveDefault(),
 	}
 	if options.InheritOriginalContext {
 		subReq.Role = o.Request.Role
@@ -793,6 +793,14 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 		subReq.References = DeduplicateTeamReferences(baseReferences)
 	}
 
+	level, source, _ := contracts.ResolveInitialAccessLevel("", task.AgentDef.AccessConfig)
+	subReq.AccessLevel = level
+	subReq.AccessGrant = map[string]any{"accessLevel": level, "source": source, "agentKey": task.Spec.TaskAgentKey, "agentRevision": task.AgentDef.RuntimeRevision}
+	if options.RunControl == nil {
+		options.RunControl = contracts.NewRunControl(o.RunCtx, task.TaskID)
+	}
+	options.RunControl.SetInitialAccessLevel(level)
+	defer options.RunControl.Finish()
 	childRunCtx := o.RunCtx
 	if options.RunControl != nil {
 		childRunCtx = contracts.WithRunControl(options.RunControl.Context(), options.RunControl)
@@ -949,6 +957,8 @@ func (o *Coordinator) WriteChildTaskQueryAndSystem(subReq runtimetypes.QueryComm
 		TaskToolID:   task.MainToolID,
 		TaskAgentKey: task.Spec.TaskAgentKey,
 		References:   childTaskReferences(subReq.References),
+		AccessLevel:  subReq.AccessLevel,
+		AccessGrant:  subReq.AccessGrant,
 		// The task item as the calling Agent wrote it; what the platform
 		// resolved (Agent, references, default task text) stays outside.
 		Query:    childTaskInput(task.Spec),

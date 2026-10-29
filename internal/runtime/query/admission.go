@@ -356,11 +356,10 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	}
 	req.Role = req.Origin.ExecutionRole()
 	req.ChatSource = runtimetypes.ChatSourceFromContext(ctx)
-	accessLevel, ok := contracts.NormalizeAccessLevel(req.AccessLevel)
+	_, ok := contracts.NormalizeAccessLevel(req.AccessLevel)
 	if !ok {
 		return queryAdmission{}, &statusError{Status: 400, Message: "accessLevel must be default, auto_approve, or full_access"}
 	}
-	req.AccessLevel = accessLevel
 
 	runID := strings.TrimSpace(req.RunID)
 	if runID == "" {
@@ -483,10 +482,11 @@ func (s *Service) PrepareQueryAdmissionRequest(
 		return queryAdmission{}, statusErr
 	}
 	if !req.SkipInteractionPolicy && !sessionbuild.IsProxyAgentMode(agentDef.Mode) && !catalog.AgentIsChannelMode(agentDef.Mode) {
-		if err := ValidateInteractionInput(agentDef.Interaction(), req); err != nil {
+		if err := ValidateInteractionInput(agentDef.Interaction(), req, agentDef.AccessConfig.EffectiveDefault()); err != nil {
 			return queryAdmission{}, err
 		}
 	}
+	ResolveQueryAccess(&req, agentDef)
 	if err := s.ValidateQueryModelOptions(req.Model, agentDef); err != nil {
 		return queryAdmission{}, err
 	}

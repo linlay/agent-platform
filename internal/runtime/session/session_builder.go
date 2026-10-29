@@ -213,6 +213,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		ToolNames:                 toolNames,
 		ToolSetFrozen:             true,
 		ProtectedPaths:            accesspolicy.PlatformProtectedPaths(s.deps.Config),
+		ControlReadonlyRoots:      accesspolicy.PlatformControlReadonlyRoots(s.deps.Config),
 		PathAppend:                ResolveSkillPathAppend(agentDef, agentDef.EffectiveSkills(), s.deps.Config.Bash.PathAppendRoots),
 		Mode:                      agentDef.Mode,
 		ModeCapabilities:          ResolvedModeCapabilities(agentDef),
@@ -264,7 +265,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		AgentHasRuntimeSandbox:   HasRuntimeSandbox(agentDef.Runtime),
 		WorkspaceRoot:            resolvedWorkspaceRoot,
 		ChatRoot:                 strings.TrimSpace(runtimeContext.LocalPaths.ChatDir),
-		AccessLevel:              NormalizedAccessLevel(req.AccessLevel),
+		AccessLevel:              ResolveQueryAccessLevel(req, agentDef),
 		InteractionConfig:        func() *interaction.Config { c := agentDef.Interaction(); return &c }(),
 		StaticRuntimeEnv:         runtimeEnvOverrides,
 	}

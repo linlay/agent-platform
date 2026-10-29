@@ -237,27 +237,21 @@ func (s *Service) AcceptMail(ctx context.Context, req mailbox.Request, p mailbox
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		level, escalates := contracts.ResolveRunStartAccessLevel(r.AccessLevel, parent)
-		source := "inherited"
-		if r.AccessLevel != "" {
-			source = "explicit"
+		if err := contracts.ValidateExplicitRunAccess(r.AccessLevel, parent); err != nil {
+			return err
 		}
-		grant := map[string]any{"parentAccessLevel": parent, "parentAccessVersion": version, "accessLevel": level, "source": source, "requestDigest": p.Plan.RequestDigest}
-		if review := r.Review; review != nil {
-			d := contracts.RunStartApprovalDigest(p.Plan.RequestDigest, parent, version, level)
-			if parent != review.ParentAccessLevel || version != review.ParentAccessVersion || d != review.ApprovalDigest {
-				return runToolError("run_start_review_stale", "caller permission changed after review; issue a new chat_send invocation")
-			}
-			if review.Consume == nil || !review.Consume(d) {
-				return runToolError("run_start_approval_required", "the one-shot approval is missing or already used")
-			}
-			grant["source"], grant["approvalDigest"] = "approved", d
-		} else if escalates {
-			return runToolError("run_start_approval_required", "mail permission exceeds the caller Run; human approval is required")
+		if r.Review != nil {
+			return runToolError("run_start_review_stale", "permission escalation reviews are no longer accepted")
 		}
-		if level != p.Plan.AccessLevel {
-			return runToolError("run_parent_access_level_changed", "caller permission changed during mail admission")
+		def, ok := s.deps.Registry.AgentDefinition(r.AgentKey)
+		if !ok {
+			return runToolError("agent_not_found", "target Agent is unavailable")
 		}
+		level, source, _ := contracts.ResolveInitialAccessLevel(r.AccessLevel, def.AccessConfig)
+		if def.RuntimeRevision != p.Plan.TargetRevision || level != p.Plan.AccessLevel || source != p.Plan.AccessSource {
+			return runToolError("run_start_target_changed", "target Agent changed during mail admission")
+		}
+		grant := map[string]any{"parentAccessLevel": parent, "parentAccessVersion": version, "accessLevel": level, "source": source, "requestDigest": p.Plan.RequestDigest, "agentKey": r.AgentKey, "agentRevision": p.Plan.TargetRevision}
 		return persist(mailbox.Grant{AccessLevel: level, AccessGrant: grant, Scope: scope})
 	})
 	if err != nil {

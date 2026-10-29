@@ -139,7 +139,7 @@ func planConfigMigration(dir, agents string) (*configMigration, error) {
 	if _, ok := tools["runQuery"]; ok {
 		delete(tools, "runQuery")
 		changed["tools.yml"] = true
-		m.notes = append(m.notes, "Removed runQuery.allowAccessLevelOverride: chat_start above the caller Run level now always requires human approval (original retained in backup)")
+		m.notes = append(m.notes, "Removed runQuery.allowAccessLevelOverride: explicit chat_start above the caller Run level is rejected; omission uses the target Agent default (original retained in backup)")
 	}
 	var oldModel string
 	if source := m.before[filepath.Join(dir, "runtime.yml")]; len(source) > 0 {

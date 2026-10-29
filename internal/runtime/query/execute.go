@@ -49,7 +49,9 @@ func (s *Service) LocalRunExecutorParams(
 		}
 
 		onContinuation = func(c contracts.DeltaRunContinuation) (string, error) {
-			c.ContinuationState = &awaitingContinuationAdmission{Summary: prepared.Summary, AgentKey: prepared.AgentDef.Key, TeamSnapshot: prepared.TeamSnapshot, AgentDef: prepared.AgentDef, Frozen: true}
+			if c.ContinuationState == nil {
+				c.ContinuationState = &awaitingContinuationAdmission{Summary: prepared.Summary, AgentKey: prepared.AgentDef.Key, TeamSnapshot: prepared.TeamSnapshot, AgentDef: prepared.AgentDef, Frozen: true}
+			}
 			return s.startRunContinuation(c)
 		}
 	}

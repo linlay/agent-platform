@@ -33,3 +33,15 @@ func PlatformProtectedPaths(cfg config.Config) []string {
 	}
 	return paths
 }
+
+// PlatformControlReadonlyRoots are readable under the ordinary policy, but
+// only dedicated management transactions may mutate their source definitions.
+func PlatformControlReadonlyRoots(cfg config.Config) []string {
+	var roots []string
+	for _, path := range []string{cfg.Paths.AgentsDir, cfg.Paths.EffectiveRUAgentsDir(), cfg.Paths.AutomationsDir} {
+		if strings.TrimSpace(path) != "" {
+			roots = append(roots, path)
+		}
+	}
+	return roots
+}

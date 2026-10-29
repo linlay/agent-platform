@@ -168,8 +168,14 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 		if err != nil {
 			return nil, err
 		}
+		if plan.AccessConfigChange != nil && plan.AccessConfigChange.Changed {
+			allowAutoApprove = false
+		}
 		digest = plan.Digest
 		form = map[string]any{"action": action, "resourceType": plan.Change.ResourceType, "resourceKey": plan.Change.ResourceKey, "path": plan.Change.Path, "baseRevision": plan.Change.BaseRevision, "before": plan.Before, "after": plan.After}
+		if plan.AccessConfigChange != nil {
+			form["accessConfigChange"] = plan.AccessConfigChange
+		}
 		if plan.Change.IsProject {
 			form["isProject"] = true
 		}
@@ -180,7 +186,7 @@ func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args
 			form["knowledgeBinding"] = plan.KnowledgeBinding
 		}
 		if action == "apply" && plan.Change.ResourceType == "agent" && (plan.Change.Path == "" || plan.Change.Path == "agent.yml") {
-			form["permissionFields"] = []string{"toolConfig", "connectorConfig", "skillConfig", "hostAccess", "accessLevel"}
+			form["permissionFields"] = []string{"toolConfig", "connectorConfig", "skillConfig", "hostAccess", "accessLevel", "accessConfig"}
 		}
 	} else {
 		if action != "delete" {
@@ -265,6 +271,10 @@ func (h *ToolHandler) Invoke(ctx context.Context, tool string, args map[string]a
 		}
 		if strings.HasPrefix(err.Error(), "approval_required:") {
 			failure = controlInputFailure("approval_required", err, "authorization")
+		}
+		var permission *contracts.RunToolError
+		if errors.As(err, &permission) && permission.Code != "" {
+			failure = controlInputFailure(permission.Code, err, "authorization")
 		}
 		var mutation *contracts.MutationError
 		if errors.As(err, &mutation) && mutation.State != "not_started" {

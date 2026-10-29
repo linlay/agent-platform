@@ -90,7 +90,7 @@ prepare 生成脱敏前后内容和摘要；执行在 `adminsource` 共用 Agent
 
 ## 一次性审批与权限档位
 
-`catalog_manage.apply` 在 default 下人工审阅，在 auto_approve / full_access 下由服务端自动批准并记录 auto_approved 决策；`catalog_manage.delete` 与 `chat_manage.delete` 仍必须人工批准，即使 full_access / auto_approve。审批绑定 subject、Agent、Run、tool invocation、目标、内容与基准版本；批准不赋予同轮规则授权，也不传给并发兄弟调用。提交必须匹配调用 ID，且只能 approve/reject。审批等待期间变更目标或候选内容会使授权失效。
+`catalog_manage.apply` 在 default 下人工审阅，在 auto_approve / full_access 下通常自动批准并记录 auto_approved；Agent 主定义的 accessConfig 块或 default 字段新增、修改、删除均强制人工，包括空对象和降档，Mailbox 代批不可放宽。差异来自 adminsource 同一次 Prepare 读取的原始 before 与已验证 after，表单展示前后有效默认；纯格式变化不算权限变更；`catalog_manage.delete` 与 `chat_manage.delete` 仍必须人工批准，即使 full_access / auto_approve。审批绑定 subject、Agent、Run、tool invocation、目标、内容与基准版本；批准不赋予同轮规则授权，也不传给并发兄弟调用。提交必须匹配调用 ID，且只能 approve/reject。审批等待期间变更目标或候选内容会使授权失效。
 
 平台控制通过工具 YML 的 `confirmationRules` 选择界面：`catalog_manage` 的 `/action: delete` 使用 `resource_delete_review`，其默认规则保留 `platform_control_review`；`chat_manage.delete` 使用独立的 `chat_delete_review` 模板，展示会话标识、归档位置和基准版本；Go Handler 不再指定模板。匹配后发出 `awaiting.ask(mode: form, view: {source: builtin, key: platform_control_review, renderer: html})`；等待项由 `awaitingId` 绑定工具调用，`form.data` 保存业务审阅数据。HTML 随 Platform 编译内置，经 `/api/view?source=builtin&key=platform_control_review` 返回，固定 key 不接受本地或远端覆盖。通用 approval 不再扩展 review/before/after/fingerprint，WebClient 不解释平台控制业务字段。
 

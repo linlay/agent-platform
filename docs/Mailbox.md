@@ -30,3 +30,8 @@ mail 发出时 hop=当前+1，接收取 max；用户直接输入归零；chat_su
 - request.query/request.steer 与 JSONL：mailId/mailKind/mailAttempt/mailHop，reply 另有 outcome；这些由平台生成，公共输入不得伪造。
 
 相邻 WebClient 的收件箱和时间线消费上述协议。自动重投、用户消息经 mailbox、审批转到主视图均不在本期。
+
+
+## Agent 默认权限
+
+新开或闲时投递所需权限在邮件受理时从收件 Agent 的 accessConfig.default 解析并保存，未配置为 default；显式档位不得超过发送 Run 受理时当前档位。权限来源、目标 revision、父基线保存于 accessGrant。已经受理的邮件不因收件 Agent 后续改默认或发送 Run 结束而改变权限，重投也不重算。inserted 仅给活动 Run 补消息，不改变其当前档位；letter/reply/notify/ask 的控制权边界保持原合同。

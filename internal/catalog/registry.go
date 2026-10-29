@@ -42,6 +42,7 @@ type TeamResolver interface {
 }
 
 type AgentDefinition struct {
+	AccessConfig         contracts.AgentAccessConfig
 	TeamConfig           *TeamConfig `json:"teamConfig,omitempty"`
 	InteractionConfig    *interaction.Config
 	Key                  string
@@ -621,15 +622,16 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 		}
 		apiMode := AgentModeForAPI(def.Mode)
 		summary := api.AgentSummary{
-			Key:            def.Key,
-			Name:           def.Name,
-			Icon:           def.Icon,
-			Mode:           apiMode,
-			Engine:         AgentEngineForAPI(def),
-			WorkspaceDir:   def.Workspace.ProjectDir(),
-			AgentConfigDir: def.AgentDir,
-			Description:    def.Description,
-			Role:           def.Role,
+			DefaultAccessLevel: def.AccessConfig.EffectiveDefault(),
+			Key:                def.Key,
+			Name:               def.Name,
+			Icon:               def.Icon,
+			Mode:               apiMode,
+			Engine:             AgentEngineForAPI(def),
+			WorkspaceDir:       def.Workspace.ProjectDir(),
+			AgentConfigDir:     def.AgentDir,
+			Description:        def.Description,
+			Role:               def.Role,
 		}
 		// Every ordinary Agent reports its model defaults the same way.
 		if agentbuiltin.PlanningModeSupported(def.Mode) {
