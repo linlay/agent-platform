@@ -45,7 +45,7 @@ func (s *Server) withPrincipal(r *http.Request, w http.ResponseWriter) *http.Req
 	if isConnectorExecutionRoute(r.URL.Path) {
 		return r // Each exact execution route validates a restricted capability token.
 	}
-	forceAuth := r.URL.Path == "/api/connectors/execution/grants" || r.URL.Path == "/api/connectors/auth" || r.URL.Path == "/api/connectors/auth/cancel" || strings.HasPrefix(r.URL.Path, "/api/chat/artifacts/") || strings.HasPrefix(r.URL.Path, "/api/desktop/")
+	forceAuth := r.URL.Path == "/api/connectors/execution/grants" || r.URL.Path == "/api/connectors/auth" || r.URL.Path == "/api/connectors/auth/cancel" || strings.HasPrefix(r.URL.Path, "/api/chat/artifacts/") || r.URL.Path == "/api/chat/export/resources/read" || strings.HasPrefix(r.URL.Path, "/api/desktop/")
 	if (!s.deps.Config.Auth.Enabled && !forceAuth) || !strings.HasPrefix(r.URL.Path, "/api/") {
 		return r
 	}

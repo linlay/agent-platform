@@ -1,10 +1,8 @@
 package chatresource
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"context"
 	"errors"
-	"io"
 	"os"
 	"strings"
 
@@ -29,7 +27,7 @@ type Artifact struct {
 func projectArtifact(chatID string, item chat.ArtifactManifestItem) Artifact {
 	return Artifact{chatID, item.RunID, item.ArtifactID, item.PublishedAt, item.Name, item.MimeType, item.SizeBytes, item.SHA256}
 }
-func (s *Service) artifactManifest(chatID string) ([]chat.ArtifactManifestItem, error) {
+func (s *Service) PublishedArtifacts(chatID string) ([]chat.ArtifactManifestItem, error) {
 	if !chat.ValidChatID(chatID) {
 		return nil, ErrArtifactNotFound
 	}
@@ -45,7 +43,7 @@ func (s *Service) ListArtifacts(chatID, runID string, offset, limit int) ([]Arti
 	if offset < 0 || limit < 1 || limit > 100 {
 		return nil, false, ErrArtifactNotFound
 	}
-	entries, err := s.artifactManifest(chatID)
+	entries, err := s.PublishedArtifacts(chatID)
 	if err != nil {
 		return nil, false, err
 	}
@@ -67,7 +65,7 @@ func (s *Service) ListArtifacts(chatID, runID string, offset, limit int) ([]Arti
 	return items, false, nil
 }
 func (s *Service) findArtifact(chatID, id, runID string) (chat.ArtifactManifestItem, error) {
-	entries, err := s.artifactManifest(chatID)
+	entries, err := s.PublishedArtifacts(chatID)
 	if err != nil {
 		return chat.ArtifactManifestItem{}, err
 	}
@@ -89,11 +87,11 @@ func (s *Service) findArtifact(chatID, id, runID string) (chat.ArtifactManifestI
 }
 
 func (s *Service) findArtifactByRef(chatID, sourceRef string) (chat.ArtifactManifestItem, error) {
-	canonicalRef, err := canonicalArtifactRef(chatID, sourceRef)
+	canonicalRef, _, err := CanonicalArtifactRef(chatID, sourceRef)
 	if err != nil {
 		return chat.ArtifactManifestItem{}, ErrArtifactNotFound
 	}
-	entries, err := s.artifactManifest(chatID)
+	entries, err := s.PublishedArtifacts(chatID)
 	if err != nil {
 		return chat.ArtifactManifestItem{}, err
 	}
@@ -111,87 +109,57 @@ func (s *Service) findArtifactByRef(chatID, sourceRef string) (chat.ArtifactMani
 	return found, nil
 }
 
-func canonicalArtifactRef(chatID, sourceRef string) (string, error) {
+func CanonicalArtifactRef(chatID, sourceRef string) (string, string, error) {
 	// An @chat/ path is literal, so "?" and "#" are file name characters
 	// there; only the encoded bare form reserves them.
 	sourceRef = chat.BareChatScopeRef(sourceRef)
 	if !chat.ValidChatID(chatID) || sourceRef == "" || sourceRef != strings.TrimSpace(sourceRef) ||
 		strings.ContainsAny(sourceRef, `\?#`) {
-		return "", ErrArtifactNotFound
+		return "", "", ErrArtifactNotFound
 	}
 	owner, relative, err := chat.ParseResourceKey(chatID + "/" + sourceRef)
 	if err != nil || owner != chatID {
-		return "", ErrArtifactNotFound
+		return "", "", ErrArtifactNotFound
 	}
 	segments := strings.Split(relative, "/")
 	if len(segments) != 3 || segments[0] != "artifacts" || segments[1] == "" || segments[2] == "" {
-		return "", ErrArtifactNotFound
+		return "", "", ErrArtifactNotFound
 	}
 	canonical, err := chat.BuildChatScopeRef(relative)
 	if err != nil || canonical != sourceRef {
-		return "", ErrArtifactNotFound
+		return "", "", ErrArtifactNotFound
 	}
-	return canonical, nil
+	return canonical, segments[1], nil
 }
 func (s *Service) GetArtifact(chatID, id, runID string) (Artifact, error) {
 	entry, err := s.findArtifact(chatID, id, runID)
 	return projectArtifact(chatID, entry), err
 }
-func (s *Service) OpenArtifact(chatID, id, runID string) (*os.File, Artifact, error) {
+func (s *Service) OpenArtifact(ctx context.Context, chatID, id, runID string) (*os.File, Artifact, error) {
 	entry, err := s.findArtifact(chatID, id, runID)
 	if err != nil {
 		return nil, Artifact{}, err
 	}
-	return s.openArtifact(chatID, entry)
+	return s.openArtifact(ctx, chatID, entry)
 }
 
-func (s *Service) OpenArtifactByRef(chatID, sourceRef string) (*os.File, Artifact, error) {
+func (s *Service) OpenArtifactByRef(ctx context.Context, chatID, sourceRef string) (*os.File, Artifact, error) {
 	entry, err := s.findArtifactByRef(chatID, sourceRef)
 	if err != nil {
 		return nil, Artifact{}, err
 	}
-	return s.openArtifact(chatID, entry)
+	return s.openArtifact(ctx, chatID, entry)
 }
 
-func (s *Service) openArtifact(chatID string, entry chat.ArtifactManifestItem) (*os.File, Artifact, error) {
-	// Only published ChatScope references, never a caller-supplied file or URL.
+func (s *Service) openArtifact(ctx context.Context, chatID string, entry chat.ArtifactManifestItem) (*os.File, Artifact, error) {
 	ref := chat.BareChatScopeRef(entry.URL)
-	if !strings.HasPrefix(ref, "artifacts/") {
+	owner, relative, err := chat.ParseResourceKey(chatID + "/" + ref)
+	if err != nil || owner != chatID || !strings.HasPrefix(ref, "artifacts/") || !strings.HasPrefix(relative, "artifacts/") {
 		return nil, Artifact{}, ErrArtifactNotFound
 	}
-	key := chatID + "/" + ref
-	owner, relative, err := chat.ParseResourceKey(key)
-	if err != nil || owner != chatID || !strings.HasPrefix(relative, "artifacts/") {
-		return nil, Artifact{}, ErrArtifactNotFound
-	}
-	path, err := s.ResolveResource(key)
+	f, _, err := s.openResource(ctx, chatID+"/"+ref, &entry)
 	if err != nil {
 		return nil, Artifact{}, err
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, Artifact{}, err
-	}
-	valid := false
-	defer func() {
-		if !valid {
-			f.Close()
-		}
-	}()
-	info, err := f.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() != entry.SizeBytes || entry.SHA256 == "" {
-		return nil, Artifact{}, ErrArtifactChanged
-	}
-	hash := sha256.New()
-	if _, err = io.Copy(hash, f); err != nil {
-		return nil, Artifact{}, err
-	}
-	if hex.EncodeToString(hash.Sum(nil)) != entry.SHA256 {
-		return nil, Artifact{}, ErrArtifactChanged
-	}
-	if _, err = f.Seek(0, io.SeekStart); err != nil {
-		return nil, Artifact{}, err
-	}
-	valid = true
 	return f, projectArtifact(chatID, entry), nil
 }

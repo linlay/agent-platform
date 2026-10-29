@@ -11,6 +11,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/documentmeta"
 )
 
 const (
@@ -36,7 +37,7 @@ func decodeDocumentCommitPayload(request api.DocumentCommitRequest, maxTextBytes
 	if !documentKindEditable(kind) {
 		return nil, errors.New("document type is read-only")
 	}
-	if kind == documentKindImage {
+	if kind == documentmeta.KindImage {
 		if request.Payload.Text != nil || strings.TrimSpace(request.Payload.DataBase64) == "" {
 			return nil, errors.New("image document requires dataBase64")
 		}
@@ -91,7 +92,7 @@ func (s *Server) handleDocumentCommit(w http.ResponseWriter, r *http.Request) {
 	request.Mode = cleanDocumentCommitText(request.Mode, 32)
 	request.ExpectedRevision = cleanDocumentCommitText(request.ExpectedRevision, 512)
 	request.Payload.Kind = cleanDocumentCommitText(request.Payload.Kind, 64)
-	request.Payload.MIMEType = normalizeDocumentMIME(request.Payload.MIMEType)
+	request.Payload.MIMEType = documentmeta.NormalizeMIME(request.Payload.MIMEType)
 	maxTextBytes := s.deps.Config.FileTools.MaxReadBytes
 	if maxTextBytes <= 0 {
 		maxTextBytes = 1 << 20
@@ -160,7 +161,7 @@ func (s *Server) commitWorkspaceDocument(w http.ResponseWriter, request api.Docu
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "document source could not be read"))
 		return
 	}
-	currentKind := classifyDocumentKind(resolved.Info.Name(), detectDocumentMIME(resolved.AbsolutePath), sourceSample, sourceLookahead, sourceComplete)
+	currentKind := documentmeta.Classify(resolved.Info.Name(), documentmeta.DetectMIME(resolved.AbsolutePath, sourceSample, sourceLookahead, sourceComplete), sourceSample, sourceLookahead, sourceComplete)
 	if !documentKindEditable(currentKind) || currentKind != request.Payload.Kind ||
 		!validDocumentCommitResult(resolved.Info.Name(), request.Payload.Kind, request.Payload.MIMEType, data) {
 		writeJSON(w, http.StatusUnsupportedMediaType, api.Failure(http.StatusUnsupportedMediaType, "document type cannot be overwritten"))

@@ -6,12 +6,7 @@ import (
 )
 
 func RenderMarkdown(snapshot SnapshotV1) ([]byte, error) {
-	selected := make([]struct {
-		question string
-		answer   string
-		steers   []NodeV1
-	}, 0, len(snapshot.Turns))
-	totalBytes := 0
+	var out strings.Builder
 	for _, turn := range snapshot.Turns {
 		if turn.Outcome != OutcomeCompleted || len(turn.Nodes) == 0 || turn.Nodes[0].Kind != "message" || turn.Nodes[0].Role != "user" {
 			continue
@@ -26,33 +21,15 @@ func RenderMarkdown(snapshot SnapshotV1) ([]byte, error) {
 		if strings.TrimSpace(answer) == "" {
 			continue
 		}
-		question := turn.Nodes[0].Text
-		var steers []NodeV1
-		for _, node := range turn.Nodes[1:] {
-			if node.Kind == "message" && node.Role == "user" && node.SteerID != "" && strings.TrimSpace(node.Text) != "" {
-				steers = append(steers, node)
-			}
-		}
-		selected = append(selected, struct {
-			question string
-			answer   string
-			steers   []NodeV1
-		}{question: question, answer: answer, steers: steers})
-		totalBytes += len(question) + len(answer) + 64
-	}
-	if len(selected) == 0 {
-		return nil, ErrNoCompletedTurn
-	}
-
-	var out strings.Builder
-	out.Grow(totalBytes)
-	for index, turn := range selected {
-		if index > 0 {
-			out.WriteString("---\n\n")
+		if out.Len() > 0 {
+			out.WriteString("\n---\n\n")
 		}
 		out.WriteString("## 用户问题\n\n")
-		out.WriteString(turn.question)
-		for _, steer := range turn.steers {
+		out.WriteString(turn.Nodes[0].Text)
+		for _, steer := range turn.Nodes[1:] {
+			if steer.Kind != "message" || steer.Role != "user" || steer.SteerID == "" || strings.TrimSpace(steer.Text) == "" {
+				continue
+			}
 			out.WriteString("\n\n### 补充指令\n\n")
 			out.WriteString(steer.Text)
 			if origin := steer.Origin; origin != nil {
@@ -60,11 +37,11 @@ func RenderMarkdown(snapshot SnapshotV1) ([]byte, error) {
 			}
 		}
 		out.WriteString("\n\n## 助手回答\n\n")
-		out.WriteString(turn.answer)
+		out.WriteString(answer)
 		out.WriteString("\n")
-		if index < len(selected)-1 {
-			out.WriteString("\n")
-		}
+	}
+	if out.Len() == 0 {
+		return nil, ErrNoCompletedTurn
 	}
 	return []byte(out.String()), nil
 }
