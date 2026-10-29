@@ -67,12 +67,14 @@ func (s *llmRunStream) awaitHITLSubmitOrAccessLevelChange(config hitlSubmitWaitC
 
 func (s *llmRunStream) appendHITLRequestSubmit(awaitingID string, submitResult SubmitResult) {
 	s.pending = append(s.pending, DeltaRequestSubmit{
-		RequestID:  s.session.RequestID,
-		ChatID:     s.session.ChatID,
-		RunID:      s.session.RunID,
-		AwaitingID: awaitingID,
-		SubmitID:   submitResult.Request.SubmitID,
-		Input:      submitResult.Request.Input(),
+		Origin:      submitResult.Request.Origin,
+		AccessGrant: submitResult.Request.AccessGrant,
+		RequestID:   s.session.RequestID,
+		ChatID:      s.session.ChatID,
+		RunID:       s.session.RunID,
+		AwaitingID:  awaitingID,
+		SubmitID:    submitResult.Request.SubmitID,
+		Input:       submitResult.Request.Input(),
 	})
 }
 

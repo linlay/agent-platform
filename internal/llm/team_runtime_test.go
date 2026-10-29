@@ -117,12 +117,13 @@ func TestTeamModeUsesAutoProviderToolChoiceAndRetainsMandatoryDelegation(t *test
 		Description: "delegate a Team task",
 		Parameters:  map[string]any{"type": "object"},
 	}
-	engine := NewLLMAgentEngine(
+	engine := NewLLMAgentEngineWithHTTPClient(
 		config.Config{},
 		newSystemInitTestModelRegistry(t),
 		stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
 		toolinteraction.NewDefaultRegistry(),
 		testutil.NewNoopSandboxClient(),
+		nil,
 	)
 	session := contracts.QuerySession{
 		RunID:        "run-team",

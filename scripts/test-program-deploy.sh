@@ -186,20 +186,20 @@ set -e
 
 # The start wrapper must preserve a Desktop identity path containing spaces.
 . "$bundle_root/scripts/program-common.sh"
-identity_file="$tmp_dir/Application Data/.agent-platform/.desktop/state/desktop/sso-access-token.txt"
+identity_file="$tmp_dir/Application Data/.agent-platform/.desktop/state/desktop/sso-id-token.txt"
 program_apply_layout_flags \
   --config-dir "$tmp_dir/Application Data/config" \
   --state-dir "$tmp_dir/run" \
   --log-dir "$tmp_dir/logs" \
   --port 17078 \
   --runtime-mode=desktop \
-  --identity-file "$identity_file"
+  --sso-id-token-file "$identity_file"
 program_update_backend_args
 [[ "${BACKEND_ARGS[0]}" == "--config-dir" ]]
 [[ "${BACKEND_ARGS[2]}" == "--runtime-mode" ]]
 [[ "${BACKEND_ARGS[3]}" == "desktop" ]]
 [[ "${BACKEND_ARGS[4]}" == "--port" ]]
-[[ "${BACKEND_ARGS[6]}" == "--identity-file" ]]
+[[ "${BACKEND_ARGS[6]}" == "--sso-id-token-file" ]]
 [[ "${BACKEND_ARGS[7]}" == "$identity_file" ]]
 
 fake_backend="$tmp_dir/fake agent-platform"
@@ -283,3 +283,20 @@ run_deploy "$legacy_output" --document-preview-api-base-url http://hub:8090 --do
 [[ -f "$legacy_output/configs/agent-settings.yml" ]]
 [[ -f "$legacy_output/configs/coder-settings.yml" ]]
 echo '[program-deploy-test] merged Agent settings and ignored legacy files passed'
+
+# Migration belongs to deploy, preserves unrelated fields, and is idempotent.
+DEPLOY_AP_RUNTIME_DIR="$tmp_dir/sso migration runtime"
+mkdir -p "$DEPLOY_AP_RUNTIME_DIR/registries/providers"
+provider_fixture="$DEPLOY_AP_RUNTIME_DIR/registries/providers/login.yml"
+printf 'key: employee\nuseAccessToken: true\napiKey: unchanged\n' > "$provider_fixture"
+program_migrate_sso_provider_config
+expected_provider=$(printf 'key: employee\nuseSsoIdToken: true\napiKey: unchanged')
+[[ "$(cat "$provider_fixture")" == "$expected_provider" ]]
+program_migrate_sso_provider_config
+[[ "$(cat "$provider_fixture")" == "$expected_provider" ]]
+printf 'useAccessToken: true\nuseSsoIdToken: false\n' > "$provider_fixture"
+if (program_migrate_sso_provider_config) >/dev/null 2>&1; then
+  echo '[program-deploy-test] conflicting provider credential keys unexpectedly accepted' >&2
+  exit 1
+fi
+echo '[program-deploy-test] SSO provider migration, idempotence and conflicts passed'

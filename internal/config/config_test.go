@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -70,8 +71,8 @@ func TestLoadDefaults(t *testing.T) {
 				if cfg.Paths.RUAgentsDir != ProjectFile(filepath.Join("runtime", "ru-agents")) {
 					t.Fatalf("unexpected ru-agents dir: %q", cfg.Paths.RUAgentsDir)
 				}
-				if cfg.IdentityFile != ProjectFile(filepath.Join("runtime", ".state", "identity", "access-token")) {
-					t.Fatalf("unexpected default identity file: %q", cfg.IdentityFile)
+				if cfg.SsoIdTokenFile != ProjectFile(filepath.Join("runtime", ".state", "identity", "sso-id-token")) {
+					t.Fatalf("unexpected default identity file: %q", cfg.SsoIdTokenFile)
 				}
 
 				if !cfg.Auth.Enabled {
@@ -180,15 +181,15 @@ func TestLoadDefaults(t *testing.T) {
 	})
 }
 
-func TestLoadExplicitIdentityFileOverridesRuntimeDefault(t *testing.T) {
+func TestLoadExplicitSsoIdTokenFileOverridesRuntimeDefault(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": filepath.Join(t.TempDir(), "runtime"), "AP_RUNTIME_STATE_DIR": filepath.Join(t.TempDir(), "state")}, func() {
-		identityFile := filepath.Join(t.TempDir(), "desktop state", "sso-access-token.txt")
-		cfg, err := Load(LoadOptions{IdentityFile: identityFile})
+		ssoIdTokenFile := filepath.Join(t.TempDir(), "desktop state", "sso-id-token.txt")
+		cfg, err := Load(LoadOptions{SsoIdTokenFile: ssoIdTokenFile})
 		if err != nil {
 			t.Fatalf("load config with missing identity file: %v", err)
 		}
-		if cfg.IdentityFile != filepath.Clean(identityFile) {
-			t.Fatalf("identity file = %q, want %q", cfg.IdentityFile, filepath.Clean(identityFile))
+		if cfg.SsoIdTokenFile != filepath.Clean(ssoIdTokenFile) {
+			t.Fatalf("identity file = %q, want %q", cfg.SsoIdTokenFile, filepath.Clean(ssoIdTokenFile))
 		}
 	})
 }
@@ -208,7 +209,7 @@ func TestLoadRuntimeModeFromStartupOptions(t *testing.T) {
 	})
 }
 
-func TestLoadDerivesIdentityFileFromRuntimeDir(t *testing.T) {
+func TestLoadDerivesSsoIdTokenFileFromRuntimeDir(t *testing.T) {
 	t.Run("absolute", func(t *testing.T) {
 		runtimeRoot := filepath.Join(t.TempDir(), "runtime")
 		withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": runtimeRoot}, func() {
@@ -216,9 +217,9 @@ func TestLoadDerivesIdentityFileFromRuntimeDir(t *testing.T) {
 			if err != nil {
 				t.Fatalf("load config: %v", err)
 			}
-			want := filepath.Join(runtimeRoot, ".state", "identity", "access-token")
-			if cfg.IdentityFile != want {
-				t.Fatalf("identity file = %q, want %q", cfg.IdentityFile, want)
+			want := filepath.Join(runtimeRoot, ".state", "identity", "sso-id-token")
+			if cfg.SsoIdTokenFile != want {
+				t.Fatalf("identity file = %q, want %q", cfg.SsoIdTokenFile, want)
 			}
 		})
 	})
@@ -231,9 +232,9 @@ func TestLoadDerivesIdentityFileFromRuntimeDir(t *testing.T) {
 			if err != nil {
 				t.Fatalf("load config: %v", err)
 			}
-			want := filepath.Join(configRoot, runtimeRoot, ".state", "identity", "access-token")
-			if cfg.IdentityFile != want {
-				t.Fatalf("identity file = %q, want %q", cfg.IdentityFile, want)
+			want := filepath.Join(configRoot, runtimeRoot, ".state", "identity", "sso-id-token")
+			if cfg.SsoIdTokenFile != want {
+				t.Fatalf("identity file = %q, want %q", cfg.SsoIdTokenFile, want)
 			}
 		})
 	})
@@ -249,17 +250,17 @@ func TestLoadDerivesIdentityFileFromRuntimeDir(t *testing.T) {
 			if err != nil {
 				t.Fatalf("load config: %v", err)
 			}
-			want := filepath.Join(home, "agent-platform-runtime", ".state", "identity", "access-token")
-			if cfg.IdentityFile != want {
-				t.Fatalf("identity file = %q, want %q", cfg.IdentityFile, want)
+			want := filepath.Join(home, "agent-platform-runtime", ".state", "identity", "sso-id-token")
+			if cfg.SsoIdTokenFile != want {
+				t.Fatalf("identity file = %q, want %q", cfg.SsoIdTokenFile, want)
 			}
 		})
 	})
 }
 
-func TestLoadRejectsRelativeIdentityFile(t *testing.T) {
+func TestLoadRejectsRelativeSsoIdTokenFile(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
-		if _, err := Load(LoadOptions{IdentityFile: "state/desktop/sso-access-token.txt"}); err == nil || !strings.Contains(err.Error(), "absolute path") {
+		if _, err := Load(LoadOptions{SsoIdTokenFile: "state/desktop/sso-id-token.txt"}); err == nil || !strings.Contains(err.Error(), "absolute path") {
 			t.Fatalf("expected relative identity file error, got %v", err)
 		}
 	})
@@ -1051,7 +1052,7 @@ func TestLoadRejectsRemovedSkillsMarketPathKey(t *testing.T) {
 		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
 			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
 				_, err := Load()
-				if err == nil || !deprecation.Is(err) || !strings.Contains(err.Error(), "paths configuration was removed") {
+				if err == nil || !errors.Is(err, deprecation.ErrRemoved) || !strings.Contains(err.Error(), "paths configuration was removed") {
 					t.Fatalf("expected removed skills-market-dir error, got %v", err)
 				}
 			})
@@ -1076,7 +1077,7 @@ func TestLoadRejectsRemovedSkillsMarketRuntimeDirectory(t *testing.T) {
 				withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
 					withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
 						_, err := Load()
-						if err == nil || !deprecation.Is(err) || !strings.Contains(err.Error(), legacyDir) {
+						if err == nil || !errors.Is(err, deprecation.ErrRemoved) || !strings.Contains(err.Error(), legacyDir) {
 							t.Fatalf("expected removed runtime directory error, got %v", err)
 						}
 					})
@@ -1093,7 +1094,7 @@ func TestLoadRejectsRemovedSkillsMarketRuntimeDirectoryWithStateOverride(t *test
 		t.Fatal(err)
 	}
 	withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": runtimeRoot, "AP_RUNTIME_STATE_DIR": filepath.Join(t.TempDir(), "state")}, func() {
-		if _, err := Load(LoadOptions{ConfigDir: t.TempDir()}); err == nil || !deprecation.Is(err) || !strings.Contains(err.Error(), legacyDir) {
+		if _, err := Load(LoadOptions{ConfigDir: t.TempDir()}); err == nil || !errors.Is(err, deprecation.ErrRemoved) || !strings.Contains(err.Error(), legacyDir) {
 			t.Fatalf("expected legacy runtime directory error, got %v", err)
 		}
 	})
@@ -1111,7 +1112,7 @@ func TestLoadRejectsRuntimePathsFromYAML(t *testing.T) {
 				t.Fatal(err)
 			}
 			withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": filepath.Join(root, "runtime"), "AP_RUNTIME_STATE_DIR": filepath.Join(root, "env-state")}, func() {
-				if _, err := Load(LoadOptions{ConfigDir: root}); err == nil || !deprecation.Is(err) || !strings.Contains(err.Error(), "paths configuration was removed") {
+				if _, err := Load(LoadOptions{ConfigDir: root}); err == nil || !errors.Is(err, deprecation.ErrRemoved) || !strings.Contains(err.Error(), "paths configuration was removed") {
 					t.Fatalf("YAML override accepted: %v", err)
 				}
 			})
@@ -1124,7 +1125,7 @@ func TestLoadRejectsRuntimePathsFromYAML(t *testing.T) {
 				t.Fatal(err)
 			}
 			var cfg Config
-			if err := cfg.applyRuntimeFile(path); err == nil || !deprecation.Is(err) {
+			if err := cfg.applyRuntimeFile(path); err == nil || !errors.Is(err, deprecation.ErrRemoved) {
 				t.Fatalf("removed paths block accepted: %v", err)
 			}
 		})

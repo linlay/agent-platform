@@ -109,10 +109,14 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 		pathReview(ReadAccess, workingDir)
 	}
 	possibleCwds := []string{workingDir}
+	var call *ConnectorCall
 	for _, cmd := range parsed.Commands {
 		allConnector := len(cmd.Words) > 0
 		for _, candidateCwd := range append([]string(nil), possibleCwds...) {
 			x := analyzeBashExecution(session, cmd, candidateCwd, variables, environment)
+			if depth == 0 && len(parsed.Commands) == 1 {
+				call = connectorCall(command, variables, x)
+			}
 			if x.BlockReason != "" {
 				add(bashPlan(command, accessLevel, DecisionBlock, x.BlockReason, "bash-access:temp-escape", cmd.Text))
 			}
@@ -143,6 +147,10 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 					// wrappers cannot hide remote mutations or file effects.
 					inner := reviewBashScript(cfg, session, script, x.Cwd, variables, environment, execCtx, depth+1)
 					sshAgent = sshAgent || inner.UsesSSHAgent
+					// A wrapper does not hide which connectors run.
+					for _, id := range inner.ConnectorIDs {
+						connectorIDs[id] = true
+					}
 					add(inner)
 					break
 				}
@@ -257,6 +265,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 		result.ConnectorIDs = append(result.ConnectorIDs, id)
 	}
 	sort.Strings(result.ConnectorIDs)
+	result.ConnectorCall = call
 	if len(connectorWords) > 0 {
 		result.HasConnector = true
 		result.ConnectorOnly = onlyConnectors
@@ -462,6 +471,7 @@ func PendingBashPlan(ctx *ExecutionContext, p BashPlan) BashPlan {
 	result := combineBashPlans(p.CommandText, p.AccessLevel, leaves)
 	result.HasConnector, result.ReviewCommand, result.ConnectorOnly = p.HasConnector, p.ReviewCommand, p.ConnectorOnly
 	result.ConnectorIDs = append([]string(nil), p.ConnectorIDs...)
+	result.ConnectorCall = p.ConnectorCall
 	return result
 }
 

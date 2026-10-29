@@ -7,11 +7,11 @@ import (
 	"testing"
 )
 
-func TestReadAccessTokenFileFollowsCurrentFileState(t *testing.T) {
-	filePath := filepath.Join(t.TempDir(), "sso-access-token.txt")
+func TestReadSsoIdTokenFileFollowsCurrentFileState(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "sso-id-token.txt")
 	assertToken := func(want string) {
 		t.Helper()
-		got, err := ReadAccessTokenFile(filePath)
+		got, err := ReadSsoIdTokenFile(filePath)
 		if err != nil {
 			t.Fatalf("read token: %v", err)
 		}
@@ -39,33 +39,33 @@ func TestReadAccessTokenFileFollowsCurrentFileState(t *testing.T) {
 	assertToken("")
 }
 
-func TestReadAccessTokenFileRejectsInvalidContent(t *testing.T) {
-	filePath := filepath.Join(t.TempDir(), "sso-access-token.txt")
+func TestReadSsoIdTokenFileRejectsInvalidContent(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "sso-id-token.txt")
 	for name, contents := range map[string][]byte{
 		"multiple lines": []byte("token-a\ntoken-b\n"),
 		"nul byte":       []byte("token-a\x00token-b"),
 		"invalid utf8":   {0xff, 0xfe},
-		"too large":      []byte(strings.Repeat("x", maxAccessTokenFileBytes+1)),
+		"too large":      []byte(strings.Repeat("x", maxSsoIdTokenFileBytes+1)),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := os.WriteFile(filePath, contents, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if token, err := ReadAccessTokenFile(filePath); err == nil || token != "" {
-				t.Fatalf("ReadAccessTokenFile() = %q, %v; want invalid content error", token, err)
+			if token, err := ReadSsoIdTokenFile(filePath); err == nil || token != "" {
+				t.Fatalf("ReadSsoIdTokenFile() = %q, %v; want invalid content error", token, err)
 			}
 		})
 	}
 }
 
-func TestReadAccessTokenFileReturnsErrorForUnreadableTarget(t *testing.T) {
-	if token, err := ReadAccessTokenFile(t.TempDir()); err == nil || token != "" {
-		t.Fatalf("ReadAccessTokenFile(directory) = %q, %v; want read error", token, err)
+func TestReadSsoIdTokenFileReturnsErrorForUnreadableTarget(t *testing.T) {
+	if token, err := ReadSsoIdTokenFile(t.TempDir()); err == nil || token != "" {
+		t.Fatalf("ReadSsoIdTokenFile(directory) = %q, %v; want read error", token, err)
 	}
 }
 
 func TestIdentityEnvironmentIsFreshScopedAndRemovesInheritedValues(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "sso-access-token.txt")
+	file := filepath.Join(t.TempDir(), "sso-id-token.txt")
 	t.Setenv(EnvAccessToken, "process-value")
 	original := []string{"KEEP=value", "ap_access_token=spoofed", "AP_ACCESS_TOKEN=stale"}
 	for _, token := range []string{"first", "second", ""} {

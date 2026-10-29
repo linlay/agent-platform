@@ -1,0 +1,31 @@
+name: chat_submit
+i18n:
+  en:
+    label: "Answer Ask"
+  zh-CN:
+    label: "答复请示"
+description: "Answer a delivered mailbox ask within the caller's current permission. Read the task-control skill before use."
+clientVisible: true
+explicitOnly: true
+readOnly: false
+inputSchema:
+  type: object
+  properties:
+    runId:
+      description: "Required. Run requesting an answer."
+      type: string
+      minLength: 1
+    awaitingId:
+      description: "Required. Exact waiting item from the ask."
+      type: string
+      minLength: 1
+    param:
+      type: object
+      description: "Single form answer. Mutually exclusive with params. Use decision approve/reject/dismiss; approve requires data."
+    params:
+      type: array
+      description: "Question or approval answers; exclusive with param. Use answer/answers for questions and decision for approvals."
+      items:
+        type: object
+  required: [runId, awaitingId]
+  additionalProperties: false

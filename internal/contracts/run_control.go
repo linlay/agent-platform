@@ -195,16 +195,19 @@ type RunControl struct {
 	observerCnt atomic.Int32
 	compactable atomic.Bool
 
-	mu              sync.Mutex
-	steerQueue      []api.SteerRequest
-	steerAvailable  chan struct{}
-	steerClosed     bool
-	steerPreparer   func(api.SteerRequest) (api.SteerRequest, error)
-	submitWaiters   map[string]*submitWaiter
-	pendingSubmits  map[string]SubmitResult
-	resolvedSubmits map[string]SubmitResult
-	awaitingSubmits map[string]AwaitingSubmitContext
-	awaitingAliases map[string]string
+	mu                 sync.Mutex
+	mailHop            int
+	compactIdle        func()
+	userChatReferences []string
+	steerQueue         []api.SteerRequest
+	steerAvailable     chan struct{}
+	steerClosed        bool
+	steerPreparer      func(api.SteerRequest) (api.SteerRequest, error)
+	submitWaiters      map[string]*submitWaiter
+	pendingSubmits     map[string]SubmitResult
+	resolvedSubmits    map[string]SubmitResult
+	awaitingSubmits    map[string]AwaitingSubmitContext
+	awaitingAliases    map[string]string
 	// holdSubmitTimeouts defers each submit timer until StartSubmitTimeout.
 	holdSubmitTimeouts  bool
 	submitTimeoutStarts map[string]chan struct{}
@@ -821,7 +824,18 @@ func (c *RunControl) TransitionState(next RunLoopState) {
 		c.mu.Unlock()
 		return
 	}
+	previous := c.state
 	c.state = next
+	idle := c.compactIdle
+	c.mu.Unlock()
+	if previous == RunLoopStateCompacting && next != RunLoopStateCompacting && !isTerminalRunLoopState(next) && idle != nil {
+		idle()
+	}
+}
+
+func (c *RunControl) SetCompactIdle(fn func()) {
+	c.mu.Lock()
+	c.compactIdle = fn
 	c.mu.Unlock()
 }
 
@@ -982,6 +996,11 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 	}
 	if ok {
 		delete(c.submitWaiters, awaitingID)
+		if req.MailHop != nil {
+			c.mailHop = max(c.mailHop, *req.MailHop)
+		} else if req.Origin == nil || req.Origin.Type == queryinput.OriginUser {
+			c.mailHop = 0
+		}
 		delete(c.awaitingSubmits, awaitingID)
 		resolved := SubmitResult{
 			Request: deliverReq,
@@ -998,6 +1017,11 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 			Detail:  "Tool interaction submit accepted",
 		}
 		c.pendingSubmits[awaitingID] = accepted
+		if req.MailHop != nil {
+			c.mailHop = max(c.mailHop, *req.MailHop)
+		} else if req.Origin == nil || req.Origin.Type == queryinput.OriginUser {
+			c.mailHop = 0
+		}
 		c.recordResolvedSubmitLocked(publicAwaitingID, awaitingID, accepted)
 		delete(c.awaitingSubmits, awaitingID)
 		c.deleteAwaitingAliasesLocked(awaitingID)

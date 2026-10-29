@@ -500,7 +500,7 @@ func TestAutomationHTTPCreateAndUpdatePreserveQueryMessageExactly(t *testing.T) 
 func TestMapAutomationSummaryUsesPlatformDisplayZoneAndKeepsNextFireEpochPrecision(t *testing.T) {
 	server := &Server{deps: Dependencies{Config: config.Config{Automation: config.AutomationConfig{DefaultZoneID: "UTC"}}}}
 	next := time.Date(2026, time.January, 2, 3, 4, 5, 123_456_000, time.FixedZone("UTC+8", 8*60*60))
-	response, err := server.mapAutomationSummary(automation.Definition{ID: "precision", Name: "Precision", Enabled: true}, &next)
+	response, err := server.automationService().MapAutomationSummary(automation.Definition{ID: "precision", Name: "Precision", Enabled: true}, &next)
 	if err != nil {
 		t.Fatalf("map automation summary: %v", err)
 	}

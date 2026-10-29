@@ -12,7 +12,6 @@ import (
 	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/hitl"
 	sessionbuild "agent-platform/internal/runtime/session"
-	"agent-platform/internal/stream"
 	"agent-platform/internal/toolinteraction"
 )
 
@@ -120,6 +119,9 @@ func (s *Service) resolveNonContinuableDeferredSubmit(deferred DeferredAwaiting,
 	}
 	s.deferredAwaitings.Remove(req.AwaitingID)
 	s.broadcastDeferredAwaitingAnswer(deferred, answerPayload, resolvedAt)
+	if s.mailbox != nil {
+		s.mailbox.Kick(deferred.ChatID)
+	}
 
 	return queryinput.SubmitResponse{
 		Accepted:   true,
@@ -303,28 +305,9 @@ func (s *Service) resolveDeferredSubmit(req queryinput.SubmitRequest) (queryinpu
 	if startsNewExecutionRun && strings.TrimSpace(req.ContinuationRunID) == "" {
 		req.ContinuationRunID = newRunID()
 	}
-	var recovered *contracts.RecoveredAwaitingRun
-	var recoveredStep *chat.PersistedAwaitingStep
-	if runs, ok := s.deps.Runs.(contracts.RecoveredAwaitingRunService); ok && runs.IsRecoveredAwaiting(req.RunID, req.AwaitingID) {
-		claimed, claimedOK := runs.ClaimRecoveredAwaiting(req.RunID, req.AwaitingID)
-		if !claimedOK {
-			return queryinput.SubmitResponse{}, awaitingSubmitConflictError(req, deferred.ChatID, "already_resolved", "already_resolved", "awaiting continuation is already resuming")
-		}
-		recovered = &claimed
-		if startsNewExecutionRun {
-			recoveredStep, err = s.LoadPersistedAwaitingStep(deferred.ChatID, req.AwaitingID)
-			if err != nil {
-				return queryinput.SubmitResponse{}, err
-			}
-		}
-		defer func() {
-			if recovered != nil {
-				runs.ReleaseRecoveredAwaiting(req.RunID, req.AwaitingID)
-			}
-		}()
-	} else if s.deps.Runs != nil {
-		// The shell may have activated between the persisted-submit lookup
-		// and IsRecoveredAwaiting. Its live executor still owns all writes.
+	if s.deps.Runs != nil {
+		// A run registered after the persisted-submit lookup owns this
+		// awaiting; its live executor handles all writes.
 		if _, registered := s.deps.Runs.RunStatus(req.RunID); registered {
 			return queryinput.SubmitResponse{}, awaitingSubmitConflictError(req, deferred.ChatID, "already_resolved", "already_resolved", "awaiting continuation is already resuming")
 		}
@@ -351,24 +334,10 @@ func (s *Service) resolveDeferredSubmit(req queryinput.SubmitRequest) (queryinpu
 	if duration, ok := awaitingDurationMs(deferred.CreatedAt, resolvedAt); ok {
 		answerPayload["durationMs"] = duration
 	}
-	var submitEvent stream.EventData
-	var answerEvent stream.EventData
-	lineLiveSeq := int64(0)
-	if recovered != nil {
-		submitEvent = stream.EventData{
-			Seq: recovered.EventBus.LatestSeq() + 1, Type: "request.submit", Timestamp: resolvedAt, Payload: contracts.CloneMap(submitPayload),
-		}
-		answerEvent = stream.EventData{
-			Seq: submitEvent.Seq + 1, Type: "awaiting.answer", Timestamp: resolvedAt, Payload: contracts.CloneMap(answerPayload),
-		}
-		lineLiveSeq = answerEvent.Seq
-	}
-
 	if err := s.deps.Chats.AppendSubmitLine(deferred.ChatID, chat.SubmitLine{
 		ChatID:    deferred.ChatID,
 		RunID:     req.RunID,
 		UpdatedAt: resolvedAt,
-		LiveSeq:   lineLiveSeq,
 		Submit:    submitPayload,
 		Answer:    answerPayload,
 		Type:      "submit",
@@ -383,24 +352,15 @@ func (s *Service) resolveDeferredSubmit(req queryinput.SubmitRequest) (queryinpu
 	}
 	s.deferredAwaitings.Remove(req.AwaitingID)
 	s.broadcastDeferredAwaitingAnswer(deferred, answerPayload, resolvedAt)
-	if recovered != nil {
-		recovered.EventBus.Publish(submitEvent)
-		recovered.EventBus.Publish(answerEvent)
-		if startsNewExecutionRun {
-			if toolPayload := recoveredAnsweredToolResult(recoveredStep, req.AwaitingID, answerPayload); len(toolPayload) > 0 {
-				publishRecoveredEvent(recovered.EventBus, "tool.result", resolvedAt, toolPayload)
-			}
-		}
-	}
-	continued, continueErr := s.startAwaitingContinuationWithAdmission(deferred, req, answerPayload, &continuationAdmission, recovered)
+	continued, continueErr := s.startAwaitingContinuationWithAdmission(deferred, req, answerPayload, &continuationAdmission)
 	if continueErr != nil {
 		log.Printf("[server][awaiting] continue run failed chatId=%s runId=%s awaitingId=%s err=%v", deferred.ChatID, req.RunID, req.AwaitingID, continueErr)
 		if statusErr, ok := continueErr.(*statusError); ok && statusErr.Code == "time_contract_violation" {
 			return queryinput.SubmitResponse{}, statusErr
 		}
 	}
-	if continued {
-		recovered = nil
+	if s.mailbox != nil {
+		s.mailbox.Kick(deferred.ChatID)
 	}
 
 	return queryinput.SubmitResponse{

@@ -252,3 +252,7 @@ func TestParseForSecurityDeepInputReturnsTooComplexPromptly(t *testing.T) {
 		t.Fatalf("expected parser protection to return promptly, took %s", elapsed)
 	}
 }
+
+func ParseForSecurity(command string) ParseResult {
+	return ParseForSecurityWithKnownVariables(command, nil)
+}

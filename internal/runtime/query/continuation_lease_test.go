@@ -45,7 +45,7 @@ func TestFailedContinuationReleasesFrozenOrCurrentLease(t *testing.T) {
 		continued, err := s.startAwaitingContinuationWithAdmission(
 			DeferredAwaiting{Mode: "question", RunID: "run", ChatID: "chat"},
 			queryinput.SubmitRequest{RunID: "run", ChatID: "chat"}, nil,
-			&awaitingContinuationAdmission{AgentKey: "agent", AgentDef: catalog.AgentDefinition{Key: "agent"}, Frozen: frozen}, nil,
+			&awaitingContinuationAdmission{AgentKey: "agent", AgentDef: catalog.AgentDefinition{Key: "agent"}, Frozen: frozen},
 		)
 		if continued || err == nil || err.Error() != "query unavailable" {
 			t.Fatalf("continuation=%v err=%v", continued, err)

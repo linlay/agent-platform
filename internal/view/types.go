@@ -226,7 +226,7 @@ func ValidateDefinitions(root string, definitions map[string]Definition) error {
 			}
 		}
 	}
-	return nil
+	return validateIntercepts(definitions)
 }
 
 func validateModelContract(key string, d Definition) error {

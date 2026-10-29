@@ -17,10 +17,12 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/pathutil"
+	runtimeproxy "agent-platform/internal/runtime/proxy"
 	"agent-platform/internal/timecontract"
 	platformws "agent-platform/internal/ws"
 
 	"agent-platform/internal/contracts/queryinput"
+
 	gws "github.com/gorilla/websocket"
 )
 
@@ -1225,7 +1227,7 @@ func TestProxyQueryPayloadWithWorkspaceDoesNotExposeHostCWD(t *testing.T) {
 			"pdf",
 		}),
 	}
-	payload := proxyQueryPayloadWithWorkspace(req, &catalog.ProxyConfig{}, req.References, "/workspace/project")
+	payload := runtimeproxy.QueryPayloadWithWorkspace(queryCommandFromAPI(req), &catalog.ProxyConfig{}, runtimeReferencesFromAPI(req.References), "/workspace/project")
 	inner, ok := payload["payload"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected payload object, got %#v", payload)
@@ -1269,7 +1271,7 @@ func writeTestGitHead(t *testing.T, workspace string, branch string) {
 }
 
 func TestProxyForwardParamsWithoutWorkspaceKeepsLegacyParams(t *testing.T) {
-	params := proxyForwardParams(api.QueryRequest{Params: map[string]any{"channel": "desktop"}}, nil, "")
+	params := runtimeproxy.ForwardParams(queryCommandFromAPI(api.QueryRequest{Params: map[string]any{"channel": "desktop"}}), nil, "")
 	if params["channel"] != "desktop" {
 		t.Fatalf("expected existing param to be preserved, got %#v", params)
 	}

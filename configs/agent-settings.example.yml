@@ -48,6 +48,9 @@ planning-mode:
     - plan_add_tasks
     - plan_update_task
     - agent_invoke
+    - chat_send
+    - chat_notify
+    - chat_submit
     - chat_start
     - chat_interrupt
     - chat_steer

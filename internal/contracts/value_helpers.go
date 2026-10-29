@@ -118,10 +118,6 @@ func StringValue(value any) string {
 	}
 }
 
-func IntValue(value any) int {
-	return anyIntNode(value)
-}
-
 func FirstNonEmptyString(values ...any) string {
 	for _, value := range values {
 		if text := strings.TrimSpace(StringValue(value)); text != "" {

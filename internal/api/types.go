@@ -213,11 +213,8 @@ const (
 	QueryRoleAssistant         = queryinput.QueryRoleAssistant
 	QueryRoleAutomation        = queryinput.QueryRoleAutomation
 	QueryRoleSystem            = queryinput.QueryRoleSystem
-	QueryRoleValidationMessage = queryinput.QueryRoleValidationMessage
-	ChatSourceQuery            = queryinput.ChatSourceQuery
 	ChatSourceQueryPrefix      = queryinput.ChatSourceQueryPrefix
 	ChatSourceAutomationPrefix = queryinput.ChatSourceAutomationPrefix
-	ChatSourceRunQueryPrefix   = queryinput.ChatSourceRunQueryPrefix
 )
 
 func NormalizeQueryRole(role string) (string, bool) { return queryinput.NormalizeQueryRole(role) }
@@ -343,16 +340,6 @@ type SubmitRequest = queryinput.SubmitRequest
 type SubmitParams = queryinput.SubmitParams
 
 type SubmitParam = queryinput.SubmitParam
-
-func DecodeSubmitParam(raw json.RawMessage) (map[string]any, error) {
-	return queryinput.DecodeSubmitParam(raw)
-}
-
-func DecodeSubmitParams(params SubmitParams) ([]map[string]any, error) {
-	return queryinput.DecodeSubmitParams(params)
-}
-
-func EncodeSubmitParams(value any) (SubmitParams, error) { return queryinput.EncodeSubmitParams(value) }
 
 type SubmitResponse = queryinput.SubmitResponse
 

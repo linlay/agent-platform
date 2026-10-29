@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/mailbox"
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/toolinput"
 )
@@ -42,6 +43,7 @@ type startReview struct {
 const startApprovalAction = "start"
 
 type ToolHandler struct {
+	mailbox *mailbox.Service
 	service Runtime
 	runs    contracts.RunManager
 
@@ -70,10 +72,13 @@ func NewToolHandler(service Runtime, runs contracts.RunManager) *ToolHandler {
 }
 
 func (h *ToolHandler) ToolNames() []string {
-	return []string{StartToolName, StatusToolName, InterruptToolName, SteerToolName}
+	return []string{StartToolName, StatusToolName, InterruptToolName, SteerToolName, "chat_send", "chat_notify", "chat_submit"}
 }
 
 func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
+	if toolName == "chat_send" || toolName == "chat_notify" || toolName == "chat_submit" {
+		return h.invokeMail(ctx, toolName, args, execCtx)
+	}
 	origin, errResult := h.callerOrigin(execCtx)
 	if errResult != nil {
 		return *errResult, nil
@@ -156,6 +161,9 @@ func startRequest(args map[string]any, origin contracts.RunOrigin, execCtx *cont
 // Requests that are invalid or need no review return nil and are handled,
 // unchanged, by Invoke.
 func (h *ToolHandler) PrepareToolApproval(ctx context.Context, tool string, args map[string]any, execCtx *contracts.ExecutionContext) (*contracts.ToolApproval, error) {
+	if tool == "chat_send" {
+		return h.prepareMailApproval(ctx, args, execCtx)
+	}
 	if strings.ToLower(strings.TrimSpace(tool)) != StartToolName {
 		return nil, nil
 	}
@@ -298,6 +306,9 @@ func (h *ToolHandler) query(
 }
 
 func (h *ToolHandler) status(args map[string]any, origin contracts.RunOrigin) (contracts.ToolExecutionResult, error) {
+	if _, ok := args["mailId"]; ok {
+		return h.mailStatus(args, origin)
+	}
 	if err := toolinput.Validate(args, map[string]string{"runId": "s!"}, ""); err != nil {
 		return resultFromError(err), nil
 	}
@@ -346,6 +357,9 @@ func (h *ToolHandler) interrupt(ctx context.Context, args map[string]any, origin
 }
 
 func (h *ToolHandler) requireOwnedRun(runID string, origin contracts.RunOrigin) *contracts.ToolExecutionResult {
+	if h.mailbox != nil && h.mailbox.OwnsRun(runID, origin.AgentKey, origin.Subject) {
+		return nil
+	}
 	snapshot, err := h.service.GetRunStatus(runID)
 	if err == nil && snapshot.Origin != nil &&
 		snapshot.Origin.AgentKey == origin.AgentKey &&

@@ -46,9 +46,3 @@ type ArchiveSearchHit struct {
 	Snippet        string `json:"snippet"`
 	Score          int    `json:"score"`
 }
-
-type ArchiveResult struct {
-	ChatID  string `json:"chatId"`
-	Success bool   `json:"success"`
-	Error   string `json:"error,omitempty"`
-}

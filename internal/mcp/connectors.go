@@ -147,13 +147,13 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 			return ServerDefinition{}, err
 		}
 		if pkg.AuthMode == connector.AuthOneID {
-			if err := validateIdentityFileRequest(parsed, parsed.Hostname()); err != nil {
+			if err := validateSsoIdTokenFileRequest(parsed, parsed.Hostname()); err != nil {
 				return ServerDefinition{}, err
 			}
-			if value := tree["authSource"]; value != nil && value != "" && value != AuthSourceIdentityFile {
+			if value := tree["authSource"]; value != nil && value != "" && value != AuthSourceSsoIdTokenFile {
 				return ServerDefinition{}, fmt.Errorf("oneid cannot combine with another authSource")
 			}
-			tree["authSource"] = AuthSourceIdentityFile
+			tree["authSource"] = AuthSourceSsoIdTokenFile
 		}
 		tree["transport"] = TransportStreamableHTTP
 		tree["baseUrl"] = component["url"]

@@ -338,15 +338,6 @@ func TestEffectiveToolDefinitionsRequireExplicitRootsWithoutWorkspace(t *testing
 	}
 }
 
-func containsToolName(tools []string, want string) bool {
-	for _, tool := range tools {
-		if tool == want {
-			return true
-		}
-	}
-	return false
-}
-
 func nestedSchemaDescription(schema map[string]any, path ...string) string {
 	current := schema
 	for _, name := range path {

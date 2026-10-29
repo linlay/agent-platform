@@ -154,8 +154,8 @@ func TestChatSteerProxyDoesNotForwardSource(t *testing.T) {
 				defer upstream.Close()
 				route.BaseURL = upstream.URL
 			}
-			fixture.server.registerProxyRun(route)
-			defer fixture.server.unregisterProxyRun(route.RunID, route)
+			fixture.server.proxyRuntime.Register(route)
+			defer fixture.server.proxyRuntime.Unregister(route.RunID, route)
 			source := &queryinput.Origin{Type: "agent", AgentKey: "caller", ChatID: "caller-chat", RunID: "caller-run", ToolID: "call"}
 			result, statusErr, forwarded := fixture.server.forwardProxySteer(api.SteerRequest{RunID: route.RunID, AgentKey: route.AgentKey, SteerID: "id", Message: "goal", Origin: source})
 			if statusErr != nil || !forwarded || !result.Accepted {
@@ -224,8 +224,8 @@ func TestChatSteerProxyDistinguishesNotSentFromUnknown(t *testing.T) {
 				route.BaseURL = upstream.URL
 				route.Timeout = 100 * time.Millisecond
 			}
-			fixture.server.registerProxyRun(route)
-			defer fixture.server.unregisterProxyRun(route.RunID, route)
+			fixture.server.proxyRuntime.Register(route)
+			defer fixture.server.proxyRuntime.Unregister(route.RunID, route)
 			req := api.SteerRequest{RunID: route.RunID, AgentKey: route.AgentKey, SteerID: "id", Message: "goal", Origin: &queryinput.Origin{Type: "agent", AgentKey: "caller", ChatID: "caller-chat", RunID: "caller", ToolID: "call"}}
 			if tc.name == "agent_mismatch" {
 				req.AgentKey = "wrong"

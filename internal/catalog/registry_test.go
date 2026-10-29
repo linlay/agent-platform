@@ -758,11 +758,11 @@ func TestLoadSkillsSkipsExampleDirectories(t *testing.T) {
 	}
 }
 
-func TestLoadSkillsLoadsBashHooksAndRuntimeEnv(t *testing.T) {
+func TestLoadSkillsLoadsRuntimeEnvAndRejectsBashHooks(t *testing.T) {
 	root := t.TempDir()
 	skillDir := filepath.Join(root, "mock-skill")
-	if err := os.MkdirAll(filepath.Join(skillDir, ".bash-hooks"), 0o755); err != nil {
-		t.Fatalf("mkdir bash hooks: %v", err)
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Mock Skill\n\nSkill description"), 0o644); err != nil {
 		t.Fatalf("write skill: %v", err)
@@ -779,15 +779,15 @@ func TestLoadSkillsLoadsBashHooksAndRuntimeEnv(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected mock-skill to load, got %#v", skills)
 	}
-	wantHooksDir, err := filepath.Abs(filepath.Join(skillDir, ".bash-hooks"))
-	if err != nil {
-		t.Fatalf("abs bash hooks dir: %v", err)
-	}
-	if got.BashHooksDir != wantHooksDir {
-		t.Fatalf("BashHooksDir = %q, want %q", got.BashHooksDir, wantHooksDir)
-	}
 	if got.RuntimeEnv["NODE_ENV"] != "production" || got.RuntimeEnv["DEBUG"] != "0" {
 		t.Fatalf("RuntimeEnv = %#v", got.RuntimeEnv)
+	}
+	// A leftover hook directory would silently stop confirming commands.
+	if err := os.MkdirAll(filepath.Join(skillDir, ".bash-hooks"), 0o755); err != nil {
+		t.Fatalf("mkdir bash hooks: %v", err)
+	}
+	if _, _, err := loadSkillDefinitionFromDir(skillDir, "mock-skill", 0); err == nil || !strings.Contains(err.Error(), ".bash-hooks is no longer supported") {
+		t.Fatalf("bash hooks accepted: %v", err)
 	}
 }
 
@@ -924,11 +924,11 @@ func TestResolveSkillDefinitionPrefersAgentLocalSkillBeforeCenter(t *testing.T) 
 	centerDir := t.TempDir()
 	localSkillDir := filepath.Join(agentDir, "skills", "mock-skill")
 	centerSkillDir := filepath.Join(centerDir, "mock-skill")
-	if err := os.MkdirAll(filepath.Join(localSkillDir, ".bash-hooks"), 0o755); err != nil {
-		t.Fatalf("mkdir local hooks: %v", err)
+	if err := os.MkdirAll(localSkillDir, 0o755); err != nil {
+		t.Fatalf("mkdir local skill: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(centerSkillDir, ".bash-hooks"), 0o755); err != nil {
-		t.Fatalf("mkdir center hooks: %v", err)
+	if err := os.MkdirAll(centerSkillDir, 0o755); err != nil {
+		t.Fatalf("mkdir center skill: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(localSkillDir, "SKILL.md"), []byte("---\nname: Local Skill\ndescription: Local Description\n---\n"), 0o644); err != nil {
 		t.Fatalf("write local skill: %v", err)
@@ -955,9 +955,6 @@ func TestResolveSkillDefinitionPrefersAgentLocalSkillBeforeCenter(t *testing.T) 
 	}
 	if got.RuntimeEnv["SOURCE"] != "local" {
 		t.Fatalf("RuntimeEnv = %#v", got.RuntimeEnv)
-	}
-	if got.BashHooksDir != filepath.Join(localSkillDir, ".bash-hooks") {
-		t.Fatalf("BashHooksDir = %q", got.BashHooksDir)
 	}
 }
 

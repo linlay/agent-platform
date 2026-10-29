@@ -19,7 +19,6 @@ const (
 	SnapshotVersion = 1
 	MaxItems        = 2_000
 	MaxTitleBytes   = 300
-	MaxLabelBytes   = 300
 )
 
 var (

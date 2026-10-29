@@ -274,11 +274,13 @@ type DeltaAwaitAsk struct {
 func (DeltaAwaitAsk) agentDeltaTag() {}
 
 type DeltaRequestSubmit struct {
-	RequestID  string
-	ChatID     string
-	RunID      string
-	AwaitingID string
-	SubmitID   string
+	AccessGrant map[string]any
+	Origin      *queryinput.Origin
+	RequestID   string
+	ChatID      string
+	RunID       string
+	AwaitingID  string
+	SubmitID    string
 	// Input is one answer object (planning/form) or an item list.
 	Input any
 }
@@ -294,6 +296,7 @@ type DeltaAwaitingAnswer struct {
 func (DeltaAwaitingAnswer) agentDeltaTag() {}
 
 type DeltaRequestSteer struct {
+	Mail       *queryinput.MailInput
 	RequestID  string
 	ChatID     string
 	RunID      string

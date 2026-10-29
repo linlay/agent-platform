@@ -393,7 +393,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 
 	runs := runstate.NewManager()
 	sandbox := sandboxClient
-	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, interactionRegistry, sandbox)
+	agentEngine := llm.NewLLMAgentEngineWithHTTPClient(cfg, modelRegistry, toolExecutor, interactionRegistry, sandbox, nil)
 	server, err := newRuntimeServer(Dependencies{
 		Config:           cfg,
 		Chats:            chats,
@@ -630,21 +630,6 @@ func findToolResultPayload(t *testing.T, body string, toolID string) map[string]
 	}
 	t.Fatalf("expected tool.result for %s in body %s", toolID, body)
 	return nil
-}
-
-func assertSSEEventDuration(t *testing.T, body string, eventType string) {
-	t.Helper()
-	for _, message := range decodeSSEMessages(t, body) {
-		if message["type"] != eventType {
-			continue
-		}
-		duration, ok := message["durationMs"].(float64)
-		if !ok || duration < 0 {
-			t.Fatalf("expected non-negative durationMs on %s, got %#v", eventType, message)
-		}
-		return
-	}
-	t.Fatalf("expected %s in body %s", eventType, body)
 }
 
 func findToolMessageContent(t *testing.T, messages []map[string]any, toolName string) string {

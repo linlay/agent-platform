@@ -112,11 +112,15 @@ func firstSystemMessageSnapshot(messages []openAIMessage) map[string]any {
 }
 
 func rawMessageFromOpenAIMessage(message openAIMessage) map[string]any {
+	message.Content = mailPersistentContent(message.Content, message.MailHeader)
 	role := strings.TrimSpace(message.Role)
 	if role == "" {
 		return nil
 	}
 	raw := map[string]any{"role": role}
+	if message.MailID != "" {
+		raw["_mailId"] = message.MailID
+	}
 	if content, ok := message.Content.(string); ok && strings.TrimSpace(content) != "" {
 		raw["content"] = content
 	} else if message.Content != nil {

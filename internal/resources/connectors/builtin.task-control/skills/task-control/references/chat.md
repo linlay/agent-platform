@@ -4,6 +4,8 @@ Use chat_query and chat_manage in an ordinary native main root Run with builtin.
 
 ## Queries
 
+- opened: `{}` lists Chats opened by the calling Agent and subject through mailbox or legacy chat_start. Includes chatId, agentKey, current active/activeRun and available mail provenance; it grants no history-read or Run-control permission.
+
 - current: `{}` returns current summary and active Run state.
 - list: `{scope?:"agent"|"instance", archived?, pinned?, limit?, cursor?}`. Default scope is current Agent. limit is 1–100 (default 20). Follow nextCursor even when a page is empty. Ordering is stable Chat ID order, independent of UI pins/manual sorting.
 - search: `{query, scope?, chatId?, archived?, limit?, cursor?}` searches visible user/assistant text; returns up to 500-character snippets around matches. Follow nextCursor when incomplete; skippedChatIds identifies histories above the 8 MiB per-Chat scan limit. These are not proof of no matches.

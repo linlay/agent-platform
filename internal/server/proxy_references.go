@@ -38,9 +38,5 @@ func requestBaseURL(r *http.Request) string {
 	return strings.TrimRight(proto+"://"+host, "/")
 }
 
-type proxyReferenceOptions = proxy.ReferenceOptions
-
-var prepareProxyReferences = proxy.PrepareReferences
-
 var sha256FileHex = proxy.Sha256FileHex
 var pathWithinBase = proxy.PathWithinBase

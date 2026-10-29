@@ -709,11 +709,6 @@ func cleanAbs(path string) string {
 
 const WorkspaceEditingDisabledReason = "workspace editing is disabled for this run (Workspace mutation requires editingMode=true)"
 
-// WorkspaceEditingDisabled reports the resolved editing capability.
-func WorkspaceEditingDisabled(session QuerySession) bool {
-	return sessionWorkspaceEditingDisabled(session)
-}
-
 func sessionWorkspaceEditingDisabled(session QuerySession) bool {
 	return session.WorkspaceReadOnly
 }

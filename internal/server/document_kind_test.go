@@ -1,6 +1,7 @@
 package server
 
 import (
+	"agent-platform/internal/documentmeta"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,13 +16,13 @@ func TestClassifyDocumentKindUsesSignatureThenSpecializedExtension(t *testing.T)
 		want     string
 	}{
 		{name: "html", fileName: "index.html", mimeType: "text/html", sample: []byte("<!doctype html>"), want: documentKindHTML},
-		{name: "office zip before archive", fileName: "report.xlsx", mimeType: "application/zip", sample: []byte("PK\x03\x04\x00"), want: documentKindOffice},
+		{name: "office zip before archive", fileName: "report.xlsx", mimeType: "application/zip", sample: []byte("PK\x03\x04\x00"), want: documentmeta.KindOffice},
 		{name: "svg before text", fileName: "diagram.svg", mimeType: "text/xml", sample: []byte("<svg xmlns=\"http://www.w3.org/2000/svg\"/>"), want: documentKindImage},
 		{name: "markdown extension refines text", fileName: "README.md", mimeType: "text/plain", sample: []byte("# hello"), want: documentKindMarkdown},
 		{name: "source extension refines text", fileName: "main.go", mimeType: "text/plain", sample: []byte("package main"), want: documentKindCode},
 		{name: "extensionless utf8", fileName: "NOTICE", mimeType: "text/plain", sample: []byte("hello"), want: documentKindText},
 		{name: "forged image extension remains text", fileName: "notes.png", mimeType: "text/plain", sample: []byte("not an image"), want: documentKindText},
-		{name: "unknown binary", fileName: "payload", mimeType: "application/octet-stream", sample: []byte{0, 1, 2, 3}, want: documentKindBinary},
+		{name: "unknown binary", fileName: "payload", mimeType: "application/octet-stream", sample: []byte{0, 1, 2, 3}, want: documentmeta.KindBinary},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

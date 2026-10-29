@@ -142,7 +142,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 			return contracts.QuerySession{}, err
 		}
 	}
-	skillHookDirs, runtimeEnvOverrides, err := ResolveSkillRuntimeSettings(
+	runtimeEnvOverrides, err := ResolveSkillRuntimeSettings(
 		RuntimeAgentEnv(agentDef.Runtime["env"]),
 		agentDef.RuntimeDir,
 		s.deps.Config.Paths.SkillsCenterDir,
@@ -152,10 +152,9 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	if err != nil {
 		return contracts.QuerySession{}, err
 	}
-	log.Printf("[server][skill-runtime] agent=%s skills=%v hookDirs=%v runtimeEnvKeys=%v",
+	log.Printf("[server][skill-runtime] agent=%s skills=%v runtimeEnvKeys=%v",
 		agentDef.Key,
 		agentDef.EffectiveSkills(),
-		skillHookDirs,
 		SortedStringKeys(runtimeEnvOverrides),
 	)
 
@@ -267,7 +266,6 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		ChatRoot:                 strings.TrimSpace(runtimeContext.LocalPaths.ChatDir),
 		AccessLevel:              NormalizedAccessLevel(req.AccessLevel),
 		InteractionConfig:        func() *interaction.Config { c := agentDef.Interaction(); return &c }(),
-		SkillHookDirs:            skillHookDirs,
 		StaticRuntimeEnv:         runtimeEnvOverrides,
 	}
 	if agentbuiltin.NativePlanning(agentDef.Mode, agentDef.ACPBridgeID) && !session.PlanningMode && agentbuiltin.IsConfirmedPlanRun(req.Params) {

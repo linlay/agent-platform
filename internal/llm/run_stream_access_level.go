@@ -56,14 +56,6 @@ func (s *llmRunStream) invocationNeedsAccessPolicyApproval(invocation *preparedT
 	if invocation == nil {
 		return false
 	}
-	// Raising path access cannot implicitly answer a secondary skill hook in a
-	// combined approval. Keep the original visible confirmation pending.
-	if request := invocation.shownApproval; request != nil && request.bashHITLReview != nil {
-		match := s.checkBashHITL(invocation)
-		if match.Intercepted && !s.isRuleWhitelisted(match.Rule.RuleKey) && !s.shouldAutoApproveHITL(match) {
-			return true
-		}
-	}
 	if _, pending := s.imageAccessApprovalRequest(invocation); pending {
 		return true
 	}

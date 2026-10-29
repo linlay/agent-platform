@@ -2,18 +2,7 @@ package llm
 
 import (
 	"testing"
-
-	"agent-platform/internal/api"
 )
-
-func mustEncodeHITLSubmitParams(t *testing.T, value any) api.SubmitParams {
-	t.Helper()
-	params, err := api.EncodeSubmitParams(value)
-	if err != nil {
-		t.Fatalf("encode submit params: %v", err)
-	}
-	return params
-}
 
 func TestNormalizePlanningConfirmationSubmitApprove(t *testing.T) {
 	normalized, err := normalizePlanningConfirmationSubmit(map[string]any{

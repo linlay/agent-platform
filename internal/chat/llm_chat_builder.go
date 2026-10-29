@@ -162,7 +162,7 @@ func llmRequestSteerMessageFromLine(line map[string]any) map[string]any {
 	if snapshot := messageMapsFromAny(line["messages"]); len(snapshot) == 1 {
 		msg = cloneMessageMap(snapshot[0])
 		msg["ts"] = line["updatedAt"]
-	} else if len(refs) > 0 {
+	} else if len(refs) > 0 || strings.TrimSpace(stringValue(steer["mailId"])) != "" {
 		msg["content"] = referenceprompt.FormatUserMessage(content, refs)
 		msg[SteerHistoryInputKey] = cloneMapDeep(steer)
 	}

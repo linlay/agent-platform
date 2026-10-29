@@ -13,7 +13,7 @@ func TestCredentialFileReadsAreBlocked(t *testing.T) {
 	root := t.TempDir()
 	executor := fileToolExecutor(root, true)
 	executor.cfg.Providers.ExternalDir = filepath.Join(root, "registries", "providers")
-	executor.cfg.IdentityFile = filepath.Join(root, "custom-identity")
+	executor.cfg.SsoIdTokenFile = filepath.Join(root, "custom-identity")
 	provider := filepath.Join(executor.cfg.Providers.ExternalDir, "demo.yml")
 	if err := os.MkdirAll(filepath.Dir(provider), 0700); err != nil {
 		t.Fatal(err)
@@ -22,12 +22,12 @@ func TestCredentialFileReadsAreBlocked(t *testing.T) {
 	if err := os.WriteFile(provider, []byte(raw), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(executor.cfg.IdentityFile, []byte("opaque-identity-token"), 0600); err != nil {
+	if err := os.WriteFile(executor.cfg.SsoIdTokenFile, []byte("opaque-identity-token"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	// The identity file is platform state and is blocked; provider definitions
 	// are ordinary configuration whose secret fields are redacted when read.
-	identity, err := executor.invokeRead(map[string]any{"filePath": executor.cfg.IdentityFile, "addLineNumbers": false}, fileToolExecutionContext(root))
+	identity, err := executor.invokeRead(map[string]any{"filePath": executor.cfg.SsoIdTokenFile, "addLineNumbers": false}, fileToolExecutionContext(root))
 	if err != nil || identity.Error != "file_read_path_blocked" || strings.Contains(identity.Output, "opaque-identity-token") {
 		t.Fatal(err, identity)
 	}

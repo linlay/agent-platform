@@ -14,12 +14,13 @@ import (
 	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/interaction"
+	"agent-platform/internal/knowledge/libraryinfo"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
 func TestKnowledgeSelectionUnboundAgentAndFrozenRun(t *testing.T) {
-	a := api.KBaseOption{ID: "a", Name: "产品文档", Description: "发布规则", Readable: true, Collections: []api.KBaseCollectionSummary{{Name: "docs", Description: "版本说明"}}}
-	b := api.KBaseOption{ID: "b", Name: "业务库", Readable: true, Collections: []api.KBaseCollectionSummary{}}
+	a := api.KBaseOption{ID: "a", Name: "产品文档", Description: "发布规则", Readable: true, Collections: []libraryinfo.CollectionSummary{{Name: "docs", Description: "版本说明"}}}
+	b := api.KBaseOption{ID: "b", Name: "业务库", Readable: true, Collections: []libraryinfo.CollectionSummary{}}
 	lookup := map[string]api.KBaseOption{"a": a, "b": b}
 	builder := New(Dependencies{Config: config.Config{Paths: config.PathsConfig{ChatsDir: filepath.Join(t.TempDir(), "chats")}}, KnowledgeLibrary: func(id string) (api.KBaseOption, error) {
 		if value, ok := lookup[id]; ok {
@@ -80,7 +81,7 @@ func TestKBaseConnectorMountWithoutLibraryContextAddsNoPrompt(t *testing.T) {
 func TestKnowledgeSelectionGatesAndEmptySelection(t *testing.T) {
 	builder := New(Dependencies{KnowledgeLibrary: func(id string) (api.KBaseOption, error) { return api.KBaseOption{ID: id, Readable: id != "bad"}, nil }})
 	def := catalog.AgentDefinition{Key: "general", Mode: "GENERAL", Connectors: []string{connector.KBaseControlConnectorID}}
-	c := interaction.Defaults(def.Mode)
+	c := interaction.DefaultsForEngine(def.Mode, false)
 	c.Attachment.Kbases = false
 	def.InteractionConfig = &c
 	if _, err := builder.ResolveKbases(def, []string{" ", ""}); err != nil {

@@ -86,7 +86,7 @@ func TestConnectorCredentialsReachOnlyVerifiedDirectChild(t *testing.T) {
 	ctx.Session.ConnectorBinDirs = []string{bin}
 	ctx.Session.ConnectorCLIEntries = entries
 	ctx.Session.ConnectorCredentials = []connector.CredentialEnvironment{{ID: "fixture", Mode: connector.AuthOneID}}
-	executor := &RuntimeToolExecutor{cfg: config.Config{IdentityFile: identity, Bash: config.BashConfig{AllowedCommands: []string{"*"}, ShellFeaturesEnabled: true}}}
+	executor := &RuntimeToolExecutor{cfg: config.Config{SsoIdTokenFile: identity, Bash: config.BashConfig{AllowedCommands: []string{"*"}, ShellFeaturesEnabled: true}}}
 	t.Setenv("UNRELATED_SECRET", "never-inherit")
 	for _, tc := range []struct{ command, want, code string }{
 		{"credential-fixture", "synthetic-test-token", ""},

@@ -9,12 +9,6 @@ func TestCoderModeGuardsKeepProxySeparate(t *testing.T) {
 	if IsMode("PROXY") {
 		t.Fatalf("ordinary PROXY mode must not be treated as CODER")
 	}
-	if !IsNativeBackend("CODER", "") {
-		t.Fatalf("expected CODER without acpBridgeId to be native backend")
-	}
-	if IsNativeBackend("CODER", "codex") {
-		t.Fatalf("expected CODER with acpBridgeId not to be native backend")
-	}
 	if !IsACPBackend("CODER", "codex") {
 		t.Fatalf("expected CODER with acpBridgeId to be ACP backend")
 	}

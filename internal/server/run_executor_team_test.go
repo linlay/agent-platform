@@ -4,12 +4,13 @@ import (
 	"testing"
 
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtime/runexec"
 	"agent-platform/internal/stream"
 )
 
 func TestTeamAwaitingNotificationUsesPublicOwner(t *testing.T) {
 	notifications := &recordingNotificationSink{}
-	handleAwaitingLifecycle(RunExecutorParams{
+	runexec.HandleAwaitingLifecycle(runexec.NativeOptions{
 		Session: contracts.QuerySession{
 			ChatID: "chat-team", RunID: "run-team", AgentKey: "research",
 			RunOwner: contracts.AgentRunOwner("research"),
@@ -17,7 +18,7 @@ func TestTeamAwaitingNotificationUsesPublicOwner(t *testing.T) {
 		Notifications: notifications,
 	}, stream.EventData{Type: "awaiting.ask", Timestamp: testEpochMillis + 1, Payload: map[string]any{
 		"awaitingId": "await-team", "runId": "run-team", "mode": "form",
-	}}, &awaitingTracker{})
+	}}, &runexec.AwaitingTracker{})
 	payloads := notifications.Payloads()
 	if len(payloads) != 1 {
 		t.Fatalf("notifications=%#v", payloads)

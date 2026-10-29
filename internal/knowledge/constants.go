@@ -11,19 +11,3 @@ const (
 	ToolStatus      = "kbase_status"
 	ToolDatetime    = "datetime"
 )
-
-var capabilityToolNames = []string{
-	ToolList,
-	ToolSearch,
-	ToolFiles,
-	ToolRead,
-	ToolStatus,
-}
-
-func CapabilityToolNames() []string {
-	return append([]string(nil), capabilityToolNames...)
-}
-
-func DefaultToolNames() []string {
-	return append(CapabilityToolNames(), ToolDatetime)
-}

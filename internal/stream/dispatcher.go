@@ -104,12 +104,19 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) (events []StreamEven
 		}
 		return []StreamEvent{event}
 	case RequestSubmit:
+		// Delegation audit is trusted metadata, separate from original answers.
 		payload := map[string]any{
 			"requestId":  value.RequestID,
 			"chatId":     value.ChatID,
 			"runId":      value.RunID,
 			"awaitingId": value.AwaitingID,
 			"submitId":   value.SubmitID,
+		}
+		if value.Origin != nil {
+			payload["origin"] = value.Origin.Payload()
+		}
+		if len(value.AccessGrant) > 0 {
+			payload["accessGrant"] = value.AccessGrant
 		}
 		if param, ok := value.Input.(map[string]any); ok && param != nil {
 			payload["param"] = param
@@ -142,6 +149,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) (events []StreamEven
 		if value.Origin != nil {
 			payload["origin"] = value.Origin.Payload()
 		}
+		value.Mail.Payload(payload)
 		events = append(events, NewEvent("request.steer", payload))
 		return events
 	case RunCancel:

@@ -1,0 +1,24 @@
+name: chat_notify
+i18n:
+  en:
+    label: "Notify Parent"
+  zh-CN:
+    label: "告知上级"
+description: "Send an interim message to the Chat that opened this Run by letter. Read the task-control skill before use."
+clientVisible: true
+explicitOnly: true
+readOnly: false
+inputSchema:
+  type: object
+  properties:
+    message:
+      description: "Required. Interim result or information for the sender."
+      type: string
+      minLength: 1
+    files:
+      description: "Current Chat files to copy to the receiver."
+      type: array
+      items:
+        type: string
+  required: [message]
+  additionalProperties: false

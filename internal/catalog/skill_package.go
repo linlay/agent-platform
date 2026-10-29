@@ -685,33 +685,6 @@ func readLegacySkillPackageRecord(root, packageID string) (SkillPackageRecord, [
 	return record, content, true, nil
 }
 
-func readSkillPackageOwners(root string) (map[string]string, error) {
-	owners := map[string]string{}
-	entries, err := os.ReadDir(root)
-	if errors.Is(err, os.ErrNotExist) {
-		return owners, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	for _, e := range entries {
-		if !isSkillCenterDirectory(e) {
-			continue
-		}
-		record, _, exists, err := readSkillPackageRecord(root, e.Name())
-		if err != nil {
-			logInvalidSkillPackage(root, e.Name(), err)
-			continue
-		}
-		if exists {
-			for _, child := range record.Skills {
-				owners[child.ID] = record.ID
-			}
-		}
-	}
-	return owners, nil
-}
-
 func writeSkillPackageRecordFile(path string, content []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

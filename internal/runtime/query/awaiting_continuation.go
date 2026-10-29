@@ -23,10 +23,6 @@ import (
 	"agent-platform/internal/timecontract"
 )
 
-func (s *Service) startAwaitingContinuation(deferred DeferredAwaiting, submitReq queryinput.SubmitRequest, answer map[string]any) (bool, error) {
-	return s.startAwaitingContinuationWithAdmission(deferred, submitReq, answer, nil, nil)
-}
-
 func deferredAwaitingAnswerToolCall(step *chat.PersistedAwaitingStep, publicAwaitingID string) (chat.PersistedAwaitingToolCall, bool) {
 	if step == nil {
 		return chat.PersistedAwaitingToolCall{}, false
@@ -51,7 +47,6 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	submitReq queryinput.SubmitRequest,
 	answer map[string]any,
 	admission *awaitingContinuationAdmission,
-	recovered *contracts.RecoveredAwaitingRun,
 ) (bool, error) {
 	if s == nil || s.deps.Runs == nil || s.deps.Chats == nil || s.deps.Agent == nil || s.deps.Registry == nil {
 		return false, nil
@@ -68,29 +63,8 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 		return false, fmt.Errorf("runId is required")
 	}
 	runID := firstNonBlank(submitReq.ContinuationRunID, sourceRunID)
-	if recovered == nil {
-		if _, ok := s.deps.Runs.RunStatus(runID); ok {
-			return true, nil
-		}
-	} else if strings.TrimSpace(recovered.Run.RunID) != sourceRunID || strings.TrimSpace(recovered.AwaitingID) != strings.TrimSpace(submitReq.AwaitingID) {
-		return false, fmt.Errorf("recovered awaiting claim does not match continuation")
-	}
-	if recovered != nil && recovered.Control == nil {
-		return false, fmt.Errorf("recovered awaiting control is unavailable")
-	}
-	if recovered != nil && recovered.EventBus == nil {
-		return false, fmt.Errorf("recovered awaiting event bus is unavailable")
-	}
-	if recovered != nil && recovered.Control.Interrupted() {
-		return false, contracts.ErrRunInterrupted
-	}
-	if recovered != nil && recovered.Control.Finished() {
-		return false, contracts.ErrRunFinished
-	}
-	if recovered == nil {
-		// New registrations keep the existing continuation behavior.
-	} else if _, ok := s.deps.Runs.RunStatus(sourceRunID); !ok {
-		return false, fmt.Errorf("recovered awaiting run is unavailable")
+	if _, ok := s.deps.Runs.RunStatus(runID); ok {
+		return true, nil
 	}
 	chatID := firstNonBlank(submitReq.ChatID, deferred.ChatID)
 	if chatID == "" {
@@ -225,6 +199,7 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 			return false, err
 		}
 	}
+	s.bindMailboxSession(req, &session)
 	if !sessionbuild.IsProxyAgentMode(agentDef.Mode) {
 		ApplyQueryModelOptionsToSession(req.Model, &session)
 	}
@@ -286,9 +261,6 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	session.HistoryMessages = awaitingContinuationHistory(session.HistoryMessages, sourceRunID, submitReq.AwaitingID, answer)
 
 	initialSeq := s.continuationInitialSeq(chatID, sourceRunID, runID)
-	if recovered != nil && strings.TrimSpace(runID) == sourceRunID {
-		initialSeq = recovered.EventBus.LatestSeq()
-	}
 	prepared := preparedQuery{
 		Req:          req,
 		Summary:      summary,
@@ -304,44 +276,21 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	} else if continuationSystem != nil {
 		prepared.SyntheticBootstrap = systemInitSyntheticBootstrap(session.ChatID, *continuationSystem)
 	}
-	var registered registeredQueryRun
-	var eventBus *stream.RunEventBus
-	if recovered != nil && !newExecutionRun {
-		status, ok := s.deps.Runs.RunStatus(sourceRunID)
-		if !ok {
-			return false, fmt.Errorf("recovered awaiting status is unavailable")
-		}
-		registered = registeredQueryRun{
-			RunCtx: recovered.Context, Control: recovered.Control, Managed: true, StartedAtMillis: status.StartedAt,
-		}
-		eventBus = recovered.EventBus
-		if runs, ok := s.deps.Runs.(contracts.RecoveredAwaitingRunService); !ok || !runs.ActivateRecoveredAwaiting(sourceRunID, submitReq.AwaitingID) {
-			return false, fmt.Errorf("activate recovered awaiting run")
-		}
-	} else {
-		if recovered != nil && newExecutionRun {
-			if err := s.completeRecoveredPlanningRun(deferred, recovered); err != nil {
-				return false, err
-			}
-		}
-		var statusErr *statusError
-		owner, ownerErr := s.runControlScopes().Load(sourceRunID)
-		if ownerErr != nil {
-			return false, ownerErr
-		}
-		registered, statusErr = s.RegisterPreparedQuery(controlscope.WithContext(context.Background(), owner), prepared)
-		if statusErr != nil {
-			return false, statusErr
-		}
-		var eventBusOK bool
-		eventBus, eventBusOK = s.deps.Runs.EventBus(runID)
-		if !eventBusOK {
-			s.deps.Runs.Interrupt(serverSetupInterruptRequest(req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
-			s.FinishRegisteredQuery(prepared, registered)
-			return false, fmt.Errorf("run event bus unavailable")
-		}
-		s.broadcast("run.started", runStartedPushPayload(runID, chatID, agentKey, registered.StartedAtMillis))
+	owner, ownerErr := s.runControlScopes().Load(sourceRunID)
+	if ownerErr != nil {
+		return false, ownerErr
 	}
+	registered, statusErr := s.RegisterPreparedQuery(controlscope.WithContext(context.Background(), owner), prepared)
+	if statusErr != nil {
+		return false, statusErr
+	}
+	eventBus, eventBusOK := s.deps.Runs.EventBus(runID)
+	if !eventBusOK {
+		s.deps.Runs.Interrupt(serverSetupInterruptRequest(req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
+		s.FinishRegisteredQuery(prepared, registered)
+		return false, fmt.Errorf("run event bus unavailable")
+	}
+	s.broadcast("run.started", runStartedPushPayload(runID, chatID, agentKey, registered.StartedAtMillis))
 	runCtx, control := registered.RunCtx, registered.Control
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
@@ -538,7 +487,7 @@ func (s *Service) startRunContinuation(continuation contracts.DeltaRunContinuati
 		RunID:      sourceRunID,
 		AwaitingID: submitReq.AwaitingID,
 		Mode:       mode,
-	}, submitReq, contracts.CloneMap(continuation.Answer), admission, nil)
+	}, submitReq, contracts.CloneMap(continuation.Answer), admission)
 	if err != nil {
 		return "", err
 	}

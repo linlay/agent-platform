@@ -178,3 +178,15 @@ func fixtureLibraryID(m *Manager, agentKey string) string {
 	}
 	return agentKey
 }
+
+func (m *Manager) resolve(key string) (library, error) {
+	spec, err := m.boundAgent(key)
+	if err != nil {
+		return library{}, err
+	}
+	d, db, release, err := m.options.KBases.Acquire(spec.Config.LibraryID)
+	if err != nil {
+		return library{}, unavailable(err.Error())
+	}
+	return library{spec: spec, database: db, definition: d, release: release}, nil
+}

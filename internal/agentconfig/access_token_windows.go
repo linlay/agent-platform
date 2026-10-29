@@ -12,7 +12,7 @@ import (
 // does not request FILE_SHARE_DELETE on Windows, so even a short token read can
 // prevent that publication. Keep the read handle on its original file snapshot
 // while permitting Desktop to replace or remove the directory entry.
-func openIdentityFile(path string) (*os.File, error) {
+func openSsoIdTokenFile(path string) (*os.File, error) {
 	name, err := filepath.Abs(path)
 	if err != nil {
 		return nil, &os.PathError{Op: "open", Path: path, Err: err}

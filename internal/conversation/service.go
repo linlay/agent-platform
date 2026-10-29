@@ -5,6 +5,7 @@ package conversation
 import (
 	"agent-platform/internal/operationstate"
 	"errors"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -16,6 +17,8 @@ import (
 var ErrNotConfigured = errors.New("conversation service is not configured")
 
 type Service struct {
+	MailboxPurge    func(string) error
+	MailboxOpened   func(string, string) ([]map[string]any, error)
 	ExportMaxBytes  int
 	ControlReceipts *operationstate.Receipts[ControlReceipt] // fork/export outcomes for this process
 	controlMutation sync.Mutex
@@ -29,6 +32,20 @@ type Service struct {
 
 func NewService(chats chat.Store, archives *chat.ArchiveStore, archiver *chat.Archiver, runs contracts.RunManager) *Service {
 	return &Service{Chats: chats, Archives: archives, Archiver: archiver, Runs: runs}
+}
+
+// DeleteChat reports only the Chat deletion. Mail cleanup is best effort: the
+// Chat is already gone, and a restart suspends any mail it left behind.
+func (s *Service) DeleteChat(chatID string) error {
+	if err := s.Chats.DeleteChat(chatID); err != nil {
+		return err
+	}
+	if s.MailboxPurge != nil {
+		if err := s.MailboxPurge(chatID); err != nil {
+			log.Printf("[conversation] purge mail for deleted chat=%s: %v", chatID, err)
+		}
+	}
+	return nil
 }
 
 func (s *Service) ListSummaries(lastRunID string, agentKey string, agentModes []string, limit int) ([]chat.Summary, error) {
@@ -294,6 +311,7 @@ func (s *Service) LockMutation() func() {
 // This supports embedders replacing transport dependencies while sharing the same lock.
 func (s *Service) WithDependencies(chats chat.Store, archives *chat.ArchiveStore, archiver *chat.Archiver, runs contracts.RunManager, notifications contracts.NotificationSink) *Service {
 	view := &Service{ExportMaxBytes: s.ExportMaxBytes, ControlReceipts: s.ControlReceipts, Chats: s.Chats, Archives: s.Archives, Archiver: s.Archiver, Runs: s.Runs, Notifications: notifications, mutationOwner: s}
+	view.MailboxPurge, view.MailboxOpened = s.MailboxPurge, s.MailboxOpened
 	if chats != nil {
 		view.Chats = chats
 	}

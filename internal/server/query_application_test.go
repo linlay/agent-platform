@@ -8,13 +8,10 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/runtime/query"
+	"agent-platform/internal/runtime/runexec"
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 ) // Test adapters exercise the Runtime application directly; they contain no
-// admission, execution or recovery implementation.
-func (s *Server) persistedRunLiveSeq(chatID string, runID string) int64 {
-	return testQueryService(s).PersistedRunLiveSeq(chatID, runID)
-}
 func (s *Server) persistDeferredAwaitingToolAnswer(chatID string, runID string, awaitingID string, answer map[string]any, resolvedAt int64) error {
 	return testQueryService(s).PersistDeferredAwaitingToolAnswer(chatID, runID, awaitingID, answer, resolvedAt)
 }
@@ -22,7 +19,7 @@ func (s *Server) localRunExecutorParams(
 	prepared preparedQuery,
 	registered registeredQueryRun,
 	eventBus *stream.RunEventBus,
-) RunExecutorParams {
+) runexec.NativeOptions {
 	return testQueryService(s).LocalRunExecutorParams(runtimePreparedQuery(prepared), runtimetypes.RegisteredRun(registered), eventBus)
 }
 func (s *Server) prepareQueryAdmissionRequest(
@@ -47,12 +44,6 @@ func (s *Server) prepareBlockingQuery(ctx context.Context, req api.QueryRequest,
 }
 func (s *Server) awaitingQueryGateError(chatID string, summary *chat.Summary) *statusError {
 	return testQueryService(s).AwaitingQueryGateError(chatID, summary)
-}
-func (s *Server) registerRecoveredAwaitingRun(item chat.PendingAwaitingWithChat) (contracts.RecoveredAwaitingRun, error) {
-	return testQueryService(s).RegisterRecoveredAwaitingRun(item)
-}
-func (s *Server) loadPersistedAwaitingStep(chatID string, awaitingID string) (*chat.PersistedAwaitingStep, error) {
-	return testQueryService(s).LoadPersistedAwaitingStep(chatID, awaitingID)
 }
 func (s *Server) finishTerminalAwaiting(item chat.PendingAwaitingWithChat, answer map[string]any, resolvedAt int64) (contracts.AwaitingResolutionState, error) {
 	return testQueryService(s).FinishTerminalAwaiting(item, answer, resolvedAt)
@@ -86,6 +77,31 @@ func proxyPreparedQuery(p runtimetypes.PreparedQuery) preparedQuery {
 	out := preparedQuery{Req: queryRequestFromRuntime(p.Req), Summary: p.Summary, Created: p.Created, AgentDef: p.AgentDef, TeamSnapshot: p.TeamSnapshot, Session: p.Session, SystemInitLine: p.SystemInitLine, ResourceBaseURL: p.ResourceBaseURL, Release: p.Release, ContinueRun: p.ContinueRun, InitialSeq: p.InitialSeq, SyntheticBootstrap: p.SyntheticBootstrap}
 	if p.Execution != nil {
 		e := queryExecutionOptions(*p.Execution)
+		out.Execution = &e
+	}
+	return out
+}
+
+// registeredQueryRun carries the single authoritative lifecycle timestamp read
+// from the run manager immediately after registration.
+type registeredQueryRun struct {
+	RunCtx          context.Context
+	Control         *contracts.RunControl
+	Managed         bool
+	StartedAtMillis int64
+}
+
+func (s *Server) registerQueryRun(ctx context.Context, p preparedQuery) (registeredQueryRun, *statusError) {
+	r, e := s.deps.Runtime.RegisterPreparedQuery(ctx, runtimePreparedQuery(p))
+	return registeredQueryRun(r), e
+}
+func (s *Server) finishRegisteredQueryRun(p preparedQuery, r registeredQueryRun) {
+	s.deps.Runtime.FinishRegisteredQuery(runtimePreparedQuery(p), runtimetypes.RegisteredRun(r))
+}
+func runtimePreparedQuery(p preparedQuery) runtimetypes.PreparedQuery {
+	out := runtimetypes.PreparedQuery{Req: queryCommandFromAPI(p.Req), Summary: p.Summary, Created: p.Created, AgentDef: p.AgentDef, TeamSnapshot: p.TeamSnapshot, Session: p.Session, SystemInitLine: p.SystemInitLine, ResourceBaseURL: p.ResourceBaseURL, Release: p.Release, ContinueRun: p.ContinueRun, InitialSeq: p.InitialSeq, SyntheticBootstrap: p.SyntheticBootstrap}
+	if p.Execution != nil {
+		e := runtimetypes.QueryExecutionOptions(*p.Execution)
 		out.Execution = &e
 	}
 	return out

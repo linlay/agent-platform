@@ -16,7 +16,6 @@ import (
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
-	"agent-platform/internal/hitl"
 	"agent-platform/internal/httpclient"
 	"agent-platform/internal/modelclient"
 	. "agent-platform/internal/models"
@@ -51,10 +50,6 @@ type runStreamOptions struct {
 	DisableRunControl            bool
 	// The enclosing stream owns run completion across multiple stages.
 	PreserveSteersOnFinish bool
-}
-
-func NewLLMAgentEngine(cfg config.Config, models *ModelRegistry, tools ToolExecutor, interactions *toolinteraction.Registry, sandbox SandboxClient) *LLMAgentEngine {
-	return NewLLMAgentEngineWithHTTPClient(cfg, models, tools, interactions, sandbox, nil)
 }
 
 func NewLLMAgentEngineWithHTTPClient(cfg config.Config, models *ModelRegistry, tools ToolExecutor, interactions *toolinteraction.Registry, sandbox SandboxClient, httpClient *http.Client) *LLMAgentEngine {
@@ -207,6 +202,9 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		preserveReasoning := preserveReasoningContent(protocolConfig, stageSettings)
 		for _, raw := range mergeRawMessagesByMsgID(session.HistoryMessages) {
 			raw = e.materializeHistorySteer(raw, session, model.IsVision)
+			if id, ok := raw["_mailId"].(string); ok {
+				raw = mailModelInput(raw, id, session)
+			}
 			msg := rawMessageToOpenAI(raw, preserveReasoning)
 			if msg.Role != "" {
 				messages = append(messages, msg)
@@ -219,6 +217,9 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		}
 		pinnedMessageStart = len(messages)
 		for _, raw := range currentMessages {
+			if session.Mail != nil {
+				raw = mailModelInput(raw, session.Mail.ID, session)
+			}
 			msg := rawMessageToOpenAI(raw, preserveReasoning)
 			if msg.Role != "" {
 				messages = append(messages, msg)
@@ -288,24 +289,6 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		stream.runControl.EnableContextCompact()
 	}
 	stream.syncAccessLevelFromRunControl()
-	if len(session.SkillHookDirs) > 0 {
-		if e.llmConsoleEnabled(llmConsoleHitl) {
-			log.Printf("[llm][run:%s][hitl] creating SkillChecker hookDirs=%v", session.RunID, session.SkillHookDirs)
-		}
-		checker, err := hitl.NewSkillChecker(session.SkillHookDirs)
-		if err != nil {
-			log.Printf("[llm][run:%s][hitl][warning] failed to create SkillChecker hookDirs=%v err=%v", session.RunID, session.SkillHookDirs, err)
-			return nil, err
-		}
-		stream.checker = checker
-		if e.llmConsoleEnabled(llmConsoleHitl) {
-			log.Printf("[llm][run:%s][hitl] SkillChecker enabled hookDirCount=%d", session.RunID, len(session.SkillHookDirs))
-		}
-	} else {
-		if e.llmConsoleEnabled(llmConsoleHitl) {
-			log.Printf("[llm][run:%s][hitl] SkillChecker disabled hookDirCount=0", session.RunID)
-		}
-	}
 	if !stream.allowToolUse {
 		stream.toolSpecs = nil
 		stream.maxSteps = 1

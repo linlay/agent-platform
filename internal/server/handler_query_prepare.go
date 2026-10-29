@@ -38,20 +38,6 @@ type queryExecutionOptions struct {
 	ParentChatID    string
 }
 
-func (s *Server) resolvedQueryExecution(prepared preparedQuery) queryExecutionOptions {
-	if prepared.Execution == nil {
-		return queryExecutionOptions{
-			StepLineStore:   s.deps.Chats,
-			CompletionStore: s.deps.Chats,
-		}
-	}
-	resolved := *prepared.Execution
-	if resolved.StepLineStore == nil {
-		resolved.StepLineStore = s.deps.Chats
-	}
-	return resolved
-}
-
 type statusError = runtimetypes.RequestError
 
 type queryReleaseFunc = func()
@@ -87,13 +73,6 @@ func decodeQueryRequest(r *http.Request) (api.QueryRequest, error) {
 		return api.QueryRequest{}, &statusError{Status: http.StatusBadRequest, Message: message}
 	}
 	return req, nil
-}
-
-func chatAgentMode(agentDef catalog.AgentDefinition, orchestratedTeam bool) string {
-	if orchestratedTeam {
-		return "TEAM"
-	}
-	return catalog.AgentModeForAPI(agentDef.Mode)
 }
 
 // Reference-only follow-ups are validated by the runtime.

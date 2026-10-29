@@ -7,6 +7,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 )
 
 func interactionTool(name string) api.ToolDetailResponse {
@@ -20,7 +21,7 @@ func interactionTool(name string) api.ToolDetailResponse {
 
 func mustSubmitParams(t *testing.T, value any) api.SubmitParams {
 	t.Helper()
-	params, err := api.EncodeSubmitParams(value)
+	params, err := queryinput.EncodeSubmitParams(value)
 	if err != nil {
 		t.Fatalf("encode submit params: %v", err)
 	}

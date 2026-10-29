@@ -22,23 +22,12 @@ const (
 	MaxParallel        = 5
 )
 
-var defaultToolNames = []string{ToolDelegate}
-var defaultContextTags = []string{}
-
 var defaultBudget = map[string]any{
 	"timeout":  3600,
 	"maxSteps": 60,
 	"tool": map[string]any{
 		"maxCalls": 40,
 	},
-}
-
-func DefaultToolNames() []string {
-	return append([]string(nil), defaultToolNames...)
-}
-
-func DefaultContextTags() []string {
-	return append([]string(nil), defaultContextTags...)
 }
 
 func DefaultBudget() map[string]any {

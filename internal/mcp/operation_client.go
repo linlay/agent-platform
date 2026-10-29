@@ -15,7 +15,7 @@ func NewOperationClient(pkg connector.Package, component, toolName string) (*Cli
 	if err != nil {
 		return nil, "", err
 	}
-	if !server.Enabled() || server.AuthSource == AuthSourceIdentityFile {
+	if !server.Enabled() || server.AuthSource == AuthSourceSsoIdTokenFile {
 		return nil, "", fmt.Errorf("unsupported operation MCP authentication")
 	}
 	for _, disabled := range server.DisabledTools {

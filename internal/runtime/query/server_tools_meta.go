@@ -6,20 +6,7 @@ import (
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/contracts/queryinput"
 )
-
-func normalizeQueryRole(role string) (string, bool) {
-	return queryinput.NormalizeQueryRole(role)
-}
-
-func defaultRole(role string) string {
-	normalized, ok := queryinput.NormalizeQueryRole(role)
-	if !ok {
-		return queryinput.QueryRoleUser
-	}
-	return normalized
-}
 
 func newRunID() string {
 	return chat.NewRunID()

@@ -38,7 +38,7 @@ Workspace 由 Agent `workspaceRoot` 决定；full_access 只把访问范围扩�
 | 已配置技能脚本、已挂载连接器 CLI | 放行 | 放行 | 放行 |
 | 满足只读条件的 Git 命令 | 放行 | 放行 | 放行 |
 | 平台私有资源 | 拒绝 | 拒绝 | 拒绝 |
-| 业务 Hook | 按规则 | 按 `autoApprove` | 按 `autoApprove` |
+| 连接器 VIEW 拦截 | 人工 | 人工 | 人工 |
 
 - 破坏性：递归删除，以及 `reset --hard`、`clean -f`、`checkout/restore <路径>`、`stash drop/clear`、`branch -D` 等丢弃改动的 Git 命令；单文件 `rm/mv`、覆盖和 `>` 重定向是普通修改。
 - 可执行配置：`.git` 本身、`.git/hooks/**`、`.git` 下的 `config` / `config.worktree`，按大小写归一的 canonical 路径匹配。脚本入口摘要不锁定 `package.json` scripts、`Makefile` 等完整依赖图。
@@ -56,7 +56,7 @@ Workspace 由 Agent `workspaceRoot` 决定；full_access 只把访问范围扩�
 ## 执行边界
 
 - 自写脚本免审仅限本 Run 经 `file_write/file_edit` 写入当前 Chat 目录、由系统解释器执行且内容未变的脚本；Workspace、公共临时目录和外来脚本不因此免审。
-- 技能脚本与连接器 CLI 仍校验 canonical 入口及内容摘要；外围 Shell、业务 Hook、readonly 和 KBASE mutation gate 独立生效。
+- 技能脚本与连接器 CLI 仍校验 canonical 入口及内容摘要；外围 Shell、连接器 VIEW 拦截、readonly 和 KBASE mutation gate 独立生效。
 - readonly roots 和平台私有资源保护先于 writeRoots、hostAccess 与 HITL；批准不能解除硬拒绝。
 - `@temp` 是启动时冻结的共享临时根，尚无每 Run 私有临时目录；任意获准 Host 代码内部的文件访问不受静态分析隔离。
 - `find -exec` / `xargs` 内部执行对象、Container glob 和 Windows Shell 方言仍有分析限制；Git include 变更依赖缓存刷新，不能保证即时失效。

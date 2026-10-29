@@ -393,7 +393,7 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 		Mode:          "REACT",
 		ModelKey:      "mock-model",
 		Connectors:    []string{"builtin.kbase-control"},
-		Tools:         append([]string{"datetime"}, knowledge.DefaultToolNames()...),
+		Tools:         append([]string{"datetime"}, []string{knowledge.ToolList, knowledge.ToolSearch, knowledge.ToolFiles, knowledge.ToolRead, knowledge.ToolStatus, knowledge.ToolDatetime}...),
 		Workspace:     catalog.AgentWorkspaceConfig{Root: workspace},
 		KBaseConfig: knowledge.Config{
 			Enabled: true, LibraryID: "research",

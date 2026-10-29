@@ -69,17 +69,6 @@ func (m *Manager) boundAgent(key string) (knowledge.AgentSpec, error) {
 	}
 	return spec, nil
 }
-func (m *Manager) resolve(key string) (library, error) {
-	spec, err := m.boundAgent(key)
-	if err != nil {
-		return library{}, err
-	}
-	d, db, release, err := m.options.KBases.Acquire(spec.Config.LibraryID)
-	if err != nil {
-		return library{}, unavailable(err.Error())
-	}
-	return library{spec: spec, database: db, definition: d, release: release}, nil
-}
 func (m *Manager) BindKBases(libraryService *kbases.Service) { m.options.KBases = libraryService }
 func (m *Manager) ValidateAgent(key string) error {
 	spec, err := m.boundAgent(key)

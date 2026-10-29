@@ -1,12 +1,10 @@
 package server
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 )
 
@@ -30,26 +28,6 @@ func (s *Server) InterruptRun(req api.InterruptRequest) (api.InterruptResponse, 
 		RunID:    req.RunID,
 		Detail:   ack.Detail,
 	}, nil
-}
-
-func runOwnerMatchesChat(summary *chat.Summary, agentKey string) bool {
-	if summary == nil {
-		return true
-	}
-
-	return strings.TrimSpace(summary.AgentKey) == agentKey
-}
-
-func mapRunAdmissionError(err error, agentKey string) error {
-	var statusErr *statusError
-	if !errors.As(err, &statusErr) {
-		return err
-	}
-	if strings.Contains(strings.ToLower(statusErr.Message), "agent not found") && agentKey != "" {
-		return runToolError("agent_not_found", statusErr.Message)
-	}
-
-	return mapRunStatusError(statusErr)
 }
 
 func mapRunStatusError(err *statusError) error {

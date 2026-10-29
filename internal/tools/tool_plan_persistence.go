@@ -8,8 +8,6 @@ import (
 	"agent-platform/internal/plantasks"
 )
 
-type planTasksSnapshot = plantasks.Snapshot
-
 func (t *RuntimeToolExecutor) persistPlanTasksSnapshot(execCtx *ExecutionContext, state *PlanRuntimeState) {
 	if execCtx == nil || state == nil {
 		return

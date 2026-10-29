@@ -11,6 +11,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/runenv"
 	"agent-platform/internal/runtime/controlscope"
 	"agent-platform/internal/stream"
@@ -27,20 +28,16 @@ const (
 )
 
 type managedRun struct {
-	lifetimeTimer       *time.Timer
-	interactionConfig   *interaction.Config
-	run                 contracts.ActiveRun
-	control             *contracts.RunControl
-	eventBus            *stream.RunEventBus
-	webClientTarget     contracts.WebClientTarget
-	runOrigin           *contracts.RunOrigin
-	startedAt           time.Time
-	activeSince         time.Time
-	reaperStartOverride bool
-	completedAt         time.Time
-	recoveredAwaitingID string
-	recoveredClaimed    bool
-	runEnvironment      *runenv.Scope
+	lifetimeTimer     *time.Timer
+	interactionConfig *interaction.Config
+	run               contracts.ActiveRun
+	control           *contracts.RunControl
+	eventBus          *stream.RunEventBus
+	webClientTarget   contracts.WebClientTarget
+	runOrigin         *contracts.RunOrigin
+	startedAt         time.Time
+	completedAt       time.Time
+	runEnvironment    *runenv.Scope
 }
 
 type Manager struct {
@@ -58,6 +55,7 @@ type Manager struct {
 	chatMaintenance       map[string]contracts.CompactControlHandle
 	chatMaintenanceResult map[string]contracts.CompactControlHandle
 	chatQueryAdmissions   map[string]map[string]int
+	maintenanceIdle       func(string)
 }
 
 func NewManager() *Manager {
@@ -166,6 +164,11 @@ func (m *Manager) registerLocked(session contracts.QuerySession) (context.Contex
 	}
 	control := contracts.NewRunControl(context.Background(), session.RunID)
 	control.SetInitialAccessLevel(session.AccessLevel)
+	control.SetCompactIdle(session.RuntimeIdle)
+	control.ConsumeMailInput(session.Mail, nil, queryinput.MakeReferences("chat", session.UserChatReferences)...)
+	if session.Mail == nil && session.RunOrigin != nil {
+		control.RaiseMailHop(1)
+	}
 	if session.SupportsContextCompaction {
 		control.EnableContextCompact()
 	}
@@ -200,7 +203,6 @@ func (m *Manager) registerLocked(session contracts.QuerySession) (context.Contex
 		runOrigin:         cloneRunOrigin(session.RunOrigin),
 		runEnvironment:    session.RunEnvironment,
 		startedAt:         startedAt,
-		activeSince:       startedAt,
 	}
 	if session.RunOrigin != nil {
 		if m.runOrigins == nil {
@@ -254,95 +256,6 @@ func (m *Manager) BindClientTarget(runID string, target contracts.ClientTarget) 
 
 func (m *Manager) ResolveClientTarget(runID string) (contracts.ClientTarget, bool) {
 	return m.ResolveWebClientTarget(runID)
-}
-
-func (m *Manager) RegisterRecoveredAwaiting(_ context.Context, session contracts.QuerySession, awaitingID string, initialSeq int64) (contracts.RecoveredAwaitingRun, error) {
-	m.startReaper()
-	awaitingID = strings.TrimSpace(awaitingID)
-	if strings.TrimSpace(session.RunID) == "" || awaitingID == "" || initialSeq < 0 {
-		return contracts.RecoveredAwaitingRun{}, fmt.Errorf("recovered awaiting identity and cursor are required")
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, exists := m.runs[session.RunID]; exists {
-		return contracts.RecoveredAwaitingRun{}, fmt.Errorf("run already registered: %s", session.RunID)
-	}
-	if scopeID := querySessionRunScopeID(session); scopeID != "" {
-		_, runIDs := m.activeRunMatchLocked(scopeID)
-		if len(runIDs) > 0 {
-			return contracts.RecoveredAwaitingRun{}, &contracts.ActiveRunConflictError{ChatID: session.ChatID, RunIDs: runIDs}
-		}
-	}
-	runCtx, control, _ := m.registerLocked(session)
-	state := m.runs[session.RunID]
-	state.activeSince = time.Now()
-	state.reaperStartOverride = true
-	state.recoveredAwaitingID = awaitingID
-	if !state.eventBus.SeedCursor(initialSeq) {
-		delete(m.runs, session.RunID)
-		control.Finish()
-		return contracts.RecoveredAwaitingRun{}, fmt.Errorf("seed recovered run cursor")
-	}
-	control.TransitionState(contracts.RunLoopStateWaitingSubmit)
-	return recoveredAwaitingRunFromManaged(runCtx, state, initialSeq), nil
-}
-
-func (m *Manager) ClaimRecoveredAwaiting(runID string, awaitingID string) (contracts.RecoveredAwaitingRun, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	state := m.runs[strings.TrimSpace(runID)]
-	if state == nil || strings.TrimSpace(state.recoveredAwaitingID) != strings.TrimSpace(awaitingID) || state.recoveredClaimed || !state.completedAt.IsZero() {
-		return contracts.RecoveredAwaitingRun{}, false
-	}
-	state.recoveredClaimed = true
-	state.control.TransitionState(contracts.RunLoopStateResuming)
-	return recoveredAwaitingRunFromManaged(contracts.WithRunControl(state.control.Context(), state.control), state, state.eventBus.LatestSeq()), true
-}
-
-func (m *Manager) ReleaseRecoveredAwaiting(runID string, awaitingID string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	state := m.runs[strings.TrimSpace(runID)]
-	if state == nil || strings.TrimSpace(state.recoveredAwaitingID) != strings.TrimSpace(awaitingID) || !state.recoveredClaimed || !state.completedAt.IsZero() {
-		return false
-	}
-	state.recoveredClaimed = false
-	state.control.TransitionState(contracts.RunLoopStateWaitingSubmit)
-	return true
-}
-
-func (m *Manager) ActivateRecoveredAwaiting(runID string, awaitingID string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	state := m.runs[strings.TrimSpace(runID)]
-	if state == nil || strings.TrimSpace(state.recoveredAwaitingID) != strings.TrimSpace(awaitingID) || !state.recoveredClaimed || !state.completedAt.IsZero() {
-		return false
-	}
-	state.recoveredAwaitingID = ""
-	state.recoveredClaimed = false
-	state.activeSince = time.Now()
-	return true
-}
-
-func (m *Manager) IsRecoveredAwaiting(runID string, awaitingID string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	state := m.runs[strings.TrimSpace(runID)]
-	return state != nil && strings.TrimSpace(state.recoveredAwaitingID) == strings.TrimSpace(awaitingID) && state.completedAt.IsZero()
-}
-
-func recoveredAwaitingRunFromManaged(ctx context.Context, state *managedRun, initialSeq int64) contracts.RecoveredAwaitingRun {
-	if state == nil {
-		return contracts.RecoveredAwaitingRun{}
-	}
-	return contracts.RecoveredAwaitingRun{
-		Context:    ctx,
-		Control:    state.control,
-		Run:        state.run,
-		EventBus:   state.eventBus,
-		AwaitingID: state.recoveredAwaitingID,
-		InitialSeq: initialSeq,
-	}
 }
 
 func (m *Manager) Submit(req api.SubmitRequest) contracts.SubmitAck {
@@ -682,8 +595,25 @@ func (m *Manager) CompleteChatMaintenance(chatID string, requestID string, resul
 	}
 	delete(m.chatMaintenance, chatID)
 	m.chatMaintenanceResult[key] = handle
+	idle := m.maintenanceIdle
 	m.mu.Unlock()
 	handle.Complete(result)
+	if idle != nil {
+		idle(chatID)
+	}
+}
+
+// Maintenance dispatch runs after the history writer releases its reservation.
+func (m *Manager) SetMaintenanceIdle(fn func(string)) {
+	m.mu.Lock()
+	m.maintenanceIdle = fn
+	m.mu.Unlock()
+}
+
+func (m *Manager) ChatMaintenanceActive(chatID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.chatMaintenance[chatID].Valid()
 }
 
 func (m *Manager) activeRunMatchLocked(chatID string) (*managedRun, []string) {
@@ -808,11 +738,7 @@ func (m *Manager) reapExpiredRuns() {
 			}
 			continue
 		}
-		activeSince := state.startedAt
-		if state.reaperStartOverride && !state.activeSince.IsZero() {
-			activeSince = state.activeSince
-		}
-		if m.maxBackgroundDuration > 0 && now.Sub(activeSince) > m.maxBackgroundDuration {
+		if m.maxBackgroundDuration > 0 && now.Sub(state.startedAt) > m.maxBackgroundDuration {
 			toInterrupt = append(toInterrupt, state)
 		}
 	}
@@ -857,6 +783,9 @@ func (m *Manager) lookupControl(runID string) (*contracts.RunControl, bool) {
 	return state.control, true
 }
 
+// Control is the process-local lifecycle control, for trusted runtime services.
+func (m *Manager) Control(runID string) (*contracts.RunControl, bool) { return m.lookupControl(runID) }
+
 func (m *Manager) lookupRun(runID string) (*managedRun, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -865,15 +794,14 @@ func (m *Manager) lookupRun(runID string) (*managedRun, bool) {
 }
 
 var (
-	_ contracts.ClientTargetStore           = (*Manager)(nil)
-	_ contracts.WebClientTargetStore        = (*Manager)(nil)
-	_ contracts.ActiveAwaitingLister        = (*Manager)(nil)
-	_ contracts.RunManager                  = (*Manager)(nil)
-	_ contracts.ChatQueryAdmissionService   = (*Manager)(nil)
-	_ contracts.ExclusiveRunRegistrar       = (*Manager)(nil)
-	_ contracts.RecoveredAwaitingRunService = (*Manager)(nil)
-	_ contracts.ActiveRunCompactService     = (*Manager)(nil)
-	_ contracts.ChatCompactCoordinator      = (*Manager)(nil)
+	_ contracts.ClientTargetStore         = (*Manager)(nil)
+	_ contracts.WebClientTargetStore      = (*Manager)(nil)
+	_ contracts.ActiveAwaitingLister      = (*Manager)(nil)
+	_ contracts.RunManager                = (*Manager)(nil)
+	_ contracts.ChatQueryAdmissionService = (*Manager)(nil)
+	_ contracts.ExclusiveRunRegistrar     = (*Manager)(nil)
+	_ contracts.ActiveRunCompactService   = (*Manager)(nil)
+	_ contracts.ChatCompactCoordinator    = (*Manager)(nil)
 )
 
 // RunInteractionConfig returns a value copy of the immutable admission snapshot.

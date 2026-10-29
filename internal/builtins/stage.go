@@ -737,7 +737,7 @@ func extractArchiveTree(archivePath, format string, layout TreeLayout, destinati
 				if err := writeEntry(header.Name, os.FileMode(header.Mode), true, nil); err != nil {
 					return err
 				}
-			case tar.TypeReg, tar.TypeRegA:
+			case tar.TypeReg:
 				if err := writeEntry(header.Name, os.FileMode(header.Mode), false, reader); err != nil {
 					return err
 				}

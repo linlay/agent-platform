@@ -1510,7 +1510,7 @@ func TestGeneralAndNativeCoderAttachKBaseCapability(t *testing.T) {
 			if !def.KBaseConfig.Enabled {
 				t.Fatalf("unexpected %s capability: %#v", mode, def.KBaseConfig)
 			}
-			for _, tool := range knowledge.CapabilityToolNames() {
+			for _, tool := range []string{knowledge.ToolList, knowledge.ToolSearch, knowledge.ToolFiles, knowledge.ToolRead, knowledge.ToolStatus} {
 				if containsString(def.Tools, tool) {
 					t.Fatalf("%s implicitly added KBASE tool %q: %#v", mode, tool, def.Tools)
 				}

@@ -317,9 +317,6 @@ func (s *Service) load(id string) (Definition, error) {
 	return d, nil
 }
 
-func (s *Service) fingerprint(collections []Collection) string {
-	return scopeFingerprint(s.effectiveCollections(collections))
-}
 func scopeFingerprint(collections []Collection) string {
 	// Explicit projection preserves the existing fingerprint encoding and excludes
 	// Run-only metadata. New fields must choose a fingerprint category deliberately.

@@ -161,7 +161,12 @@ func ExecuteNative(params NativeOptions) Result {
 		OnCompactEvent:       func(data stream.EventData) { CompleteCompactControl(params.RunControl, data) },
 		OnPersistenceFailure: func(data stream.EventData) { HandleCompactCheckpointPersistenceFailure(params, data) },
 		OnProcessingError:    func(err error) { PublishLocalRunProcessingError(params, err) },
-		OnEvent:              func(data stream.EventData) { HandleAwaitingLifecycle(params, data, tracker) },
+		OnEvent: func(data stream.EventData) {
+			HandleAwaitingLifecycle(params, data, tracker)
+			if params.Session.RuntimeEvent != nil {
+				params.Session.RuntimeEvent(data)
+			}
+		},
 		Publish: func(data stream.EventData) error {
 			data = ClientVisibleEventData(data)
 			if params.EventBus != nil {
@@ -203,6 +208,13 @@ func ExecuteNative(params NativeOptions) Result {
 	}
 	if result.Persisted {
 		BroadcastCompletion(params, result.Completion)
+	}
+	// Mailbox hooks run after the ordinary finish path so it is unaffected.
+	if params.Session.RuntimeComplete != nil {
+		params.Session.RuntimeComplete(params.Session.RunID, result.Completion.FinishReason, result.Completion.AssistantText, result.Persisted)
+	}
+	if params.Session.RuntimeIdle != nil {
+		params.Session.RuntimeIdle()
 	}
 	return result
 }
@@ -645,13 +657,6 @@ func ContractViolationMessage(err error) string {
 const timeContractViolationMessage = "time contract violation"
 
 var ErrTimeContractViolation = errors.New("time contract violation")
-
-func LenAnyMap(value any) int {
-	if item, ok := value.(map[string]any); ok {
-		return len(item)
-	}
-	return 0
-}
 
 func ChatStorageSchemaErrorData(err error) map[string]any {
 	data := chat.JSONLSchemaErrorData(err)

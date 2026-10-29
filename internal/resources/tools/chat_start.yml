@@ -4,7 +4,7 @@ i18n:
     label: "Start Chat Run"
   zh-CN:
     label: "发起会话运行"
-description: "Start an independent Agent run. Only message is required. Read the task-control skill before use."
+description: "Start an independent Agent run. Only message is required. Prefer chat_send for durable correspondence. Read the task-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: false

@@ -117,11 +117,11 @@ func TestGitBranchChangesPreserveLocalFiles(t *testing.T) {
 	}
 }
 func TestGitBranchUnbornDetachedWorktreeAndBoundary(t *testing.T) {
-	s, root := branchFixture(t, false)
+	s, _ := branchFixture(t, false)
 	if _, err := s.ChangeGitBranch(context.Background(), branchRequest(t, s, "create", "unborn")); err != nil {
 		t.Fatal(err)
 	}
-	s, root = branchFixture(t, true)
+	s, root := branchFixture(t, true)
 	gitFixtureCommand(t, root, "checkout", "--detach")
 	if _, err := s.ChangeGitBranch(context.Background(), branchRequest(t, s, "create", "from-detached")); err != nil {
 		t.Fatal(err)

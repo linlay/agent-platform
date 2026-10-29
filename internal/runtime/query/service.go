@@ -12,6 +12,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
+	"agent-platform/internal/mailbox"
 	"agent-platform/internal/models"
 	"agent-platform/internal/runtime/proxy"
 	"agent-platform/internal/runtime/reference"
@@ -73,6 +74,7 @@ type PrimaryChatPort interface {
 }
 
 type Service struct {
+	mailbox           *mailbox.Service
 	deps              Dependencies
 	backgroundCtx     context.Context
 	deferredAwaitings DeferredAwaitingStore

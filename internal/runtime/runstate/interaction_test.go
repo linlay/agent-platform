@@ -11,7 +11,7 @@ import (
 
 func TestInteractionPolicyFrozenForActiveRun(t *testing.T) {
 	m := NewManager()
-	c := interaction.Defaults("KBASE")
+	c := interaction.DefaultsForEngine("KBASE", false)
 	m.Register(context.Background(), contracts.QuerySession{RunID: "interaction-run", InteractionConfig: &c})
 	// A caller mutating its definition must not change the registered policy.
 	c.AccessLevel = true

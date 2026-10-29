@@ -123,7 +123,7 @@ func connectorFixtureDefinition(path string, tree any) (connector.Manifest, map[
 	}
 	if server.AuthSource != "" {
 		platform["authSource"] = server.AuthSource
-		if server.AuthSource == AuthSourceIdentityFile {
+		if server.AuthSource == AuthSourceSsoIdTokenFile {
 			manifest.AuthMode = connector.AuthOneID
 		}
 	}
@@ -179,7 +179,7 @@ func connectorFixtureDefinition(path string, tree any) (connector.Manifest, map[
 	inject(server.Env, "env")
 	if len(credentials) > 0 {
 		if server.AuthSource != "" {
-			return manifest, nil, nil, fmt.Errorf("identity-file with additional credential fields requires explicit migration review")
+			return manifest, nil, nil, fmt.Errorf("sso-id-token-file with additional credential fields requires explicit migration review")
 		}
 		manifest.AuthMode = "token"
 		manifest.TokenSchema, _ = json.Marshal(map[string]any{"fields": fields})

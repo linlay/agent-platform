@@ -29,7 +29,7 @@ func TestSteerReferencesPrepareWithoutMutatingAndUseFrozenPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Catalog changes do not alter the policy captured by this Run.
-	changed := interaction.Defaults(def.Mode)
+	changed := interaction.DefaultsForEngine(def.Mode, false)
 	changed.Attachment.Kbases = false
 	def.InteractionConfig = &changed
 	for _, closed := range []bool{true, false} {
@@ -125,7 +125,7 @@ func TestAgentEntryReferencesSkipInteractionPolicyButKeepFrozenSnapshot(t *testi
 	builder := New(Dependencies{Config: config.Config{Paths: config.PathsConfig{ChatsDir: filepath.Join(t.TempDir(), "chats")}}, KnowledgeLibrary: func(id string) (api.KBaseOption, error) {
 		return api.KBaseOption{ID: id, Name: id, Readable: true}, nil
 	}})
-	closed := interaction.Defaults("GENERAL")
+	closed := interaction.DefaultsForEngine("GENERAL", false)
 	closed.Attachment.Kbases = false
 	def := catalog.AgentDefinition{Key: "general", Mode: "GENERAL", Connectors: []string{connector.KBaseControlConnectorID}, InteractionConfig: &closed}
 	refs := queryinput.MakeReferences("kbase", []string{"docs"})
@@ -179,7 +179,7 @@ func TestAgentEntrySkillReferenceInSandboxNeedsSkillsCenterOnlyForCenterSkills(t
 		Config:   config.Config{Paths: config.PathsConfig{SkillsCenterDir: center}},
 		Registry: skillCenterOnlyCatalog{skills: nestedSkillCatalog{"shared": {ID: "shared"}}},
 	})
-	closed := interaction.Defaults("GENERAL")
+	closed := interaction.DefaultsForEngine("GENERAL", false)
 	closed.Attachment.Skills = false
 	def := catalog.AgentDefinition{Key: "general", Mode: "GENERAL", RuntimeDir: runtime, Skills: []string{"own"}, InteractionConfig: &closed, Runtime: map[string]any{"environmentId": "env"}}
 	prepare := func(id string) error {

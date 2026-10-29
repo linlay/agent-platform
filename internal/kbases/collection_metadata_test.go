@@ -27,7 +27,7 @@ func TestCollectionMetadataPreservesReadyIndexAndRunSnapshot(t *testing.T) {
 	if err != nil || d.State != "ready" || d.IndexedAt != ready.IndexedAt {
 		t.Fatalf("metadata rebuilt index: %+v %v", d, err)
 	}
-	if got := s.fingerprint(d.Collections); got != state.AppliedFingerprint {
+	if got := scopeFingerprint(s.effectiveCollections(d.Collections)); got != state.AppliedFingerprint {
 		t.Fatalf("fingerprint changed %s != %s", got, state.AppliedFingerprint)
 	}
 	current, err := s.Get(d.ID)

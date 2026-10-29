@@ -51,7 +51,7 @@ $processTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("agent-platform 
 $fakeBackend = Join-Path $processTestRoot 'fake-agent-platform.exe'
 $capturedArgsFile = Join-Path $processTestRoot 'captured-args.txt'
 $configRoot = Join-Path $processTestRoot 'Application Data\.agent-platform\.desktop\config\services\agent-platform'
-$identityFile = Join-Path $processTestRoot 'Application Data\.agent-platform\.desktop\state\desktop\sso-access-token.txt'
+$ssoIdTokenFile = Join-Path $processTestRoot 'Application Data\.agent-platform\.desktop\state\desktop\sso-id-token.txt'
 $runDir = Join-Path $processTestRoot 'run'
 $logDir = Join-Path $processTestRoot 'logs'
 $previousCapturePath = $env:AGENT_PLATFORM_TEST_CAPTURE_ARGS
@@ -90,7 +90,7 @@ public static class FakeAgentPlatformBackend
   $Script:RunDir = $runDir
   $Script:LogDir = $logDir
   $Script:ProgramPort = '17078'
-  $Script:IdentityFile = $identityFile
+  $Script:SsoIdTokenFile = $ssoIdTokenFile
   $Script:RuntimeMode = 'desktop'
   Update-ProgramPaths
   $env:AGENT_PLATFORM_TEST_CAPTURE_ARGS = $capturedArgsFile
@@ -107,7 +107,7 @@ public static class FakeAgentPlatformBackend
   }
 
   $capturedArgs = @(Get-Content -LiteralPath $capturedArgsFile)
-  $expectedArgs = @('--config-dir', $configRoot, '--runtime-mode', 'desktop', '--port', '17078', '--identity-file', $identityFile)
+  $expectedArgs = @('--config-dir', $configRoot, '--runtime-mode', 'desktop', '--port', '17078', '--sso-id-token-file', $ssoIdTokenFile)
   if ($capturedArgs.Count -ne $expectedArgs.Count) {
     throw "expected $($expectedArgs.Count) daemon arguments, got $($capturedArgs.Count): $($capturedArgs -join ' | ')"
   }
@@ -191,4 +191,25 @@ public static class FakeAgentPlatformBackend
   if (Test-Path -LiteralPath $processTestRoot) {
     Remove-Item -LiteralPath $processTestRoot -Recurse -Force -ErrorAction SilentlyContinue
   }
+}
+
+$migrationRoot = Join-Path ([IO.Path]::GetTempPath()) ('sso migration ' + [Guid]::NewGuid().ToString('N'))
+try {
+  $Script:DeployAPRuntimeDir = $migrationRoot
+  $providers = Join-Path $migrationRoot 'registries/providers'
+  New-Item -ItemType Directory -Force -Path $providers | Out-Null
+  $providerFile = Join-Path $providers 'login.yml'
+  [IO.File]::WriteAllText($providerFile, "key: employee`nuseAccessToken: true`napiKey: unchanged`n")
+  Convert-ProgramSsoProviderConfig
+  $expected = "key: employee`nuseSsoIdToken: true`napiKey: unchanged`n"
+  if ([IO.File]::ReadAllText($providerFile) -ne $expected) { throw 'Provider SSO migration changed unrelated content' }
+  Convert-ProgramSsoProviderConfig
+  if ([IO.File]::ReadAllText($providerFile) -ne $expected) { throw 'Provider SSO migration is not idempotent' }
+  [IO.File]::WriteAllText($providerFile, "useAccessToken: true`nuseSsoIdToken: false`n")
+  $rejected = $false
+  try { Convert-ProgramSsoProviderConfig } catch { $rejected = $true }
+  if (-not $rejected) { throw 'Provider SSO migration accepted conflicting keys' }
+  Write-Host '[test] SSO provider migration, idempotence and conflicts passed'
+} finally {
+  if (Test-Path -LiteralPath $migrationRoot) { Remove-Item -LiteralPath $migrationRoot -Recurse -Force }
 }

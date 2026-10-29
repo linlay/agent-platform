@@ -50,14 +50,3 @@ func completeServerFixtureRun(t testing.TB, store chat.Store, completion chat.Ru
 // fixtureRunScopes carries scopes requested through startServerFixtureRun to
 // bindFixtureRunScopes, which has the server those Runs belong to.
 var fixtureRunScopes sync.Map
-
-func bindFixtureRunScopes(t testing.TB, s *Server) {
-	t.Helper()
-	fixtureRunScopes.Range(func(runID, scope any) bool {
-		if err := s.runControlScopes().Bind(runID.(string), scope.(controlscope.Scope)); err != nil {
-			t.Fatal(err)
-		}
-		fixtureRunScopes.Delete(runID)
-		return true
-	})
-}

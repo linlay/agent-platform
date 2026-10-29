@@ -12,9 +12,9 @@ import (
 )
 
 func TestConnectorOneIDHTTPUsesConfiguredDesktopIdentity(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "sso-access-token.txt")
+	file := filepath.Join(t.TempDir(), "sso-id-token.txt")
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte(`{}`)) }, testFixtureOptions{
-		configure: func(cfg *config.Config) { cfg.IdentityFile = file },
+		configure: func(cfg *config.Config) { cfg.SsoIdTokenFile = file },
 	})
 	root := fixture.server.deps.Config.Paths.EffectiveConnectorsCenterDir()
 	writeMCPConnectorForTest(t, root, "demo")

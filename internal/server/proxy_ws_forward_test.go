@@ -9,6 +9,8 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	runtimeproxy "agent-platform/internal/runtime/proxy"
+	"agent-platform/internal/runtime/runexec"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
 )
@@ -151,7 +153,7 @@ func TestDecodeProxyFrameRejectsInvalidUpstreamTimestamp(t *testing.T) {
 		"missing": `{"frame":"stream","id":"request-1","event":{"type":"content.delta"}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, _, err := decodeProxyFrameAt([]byte(frame), "proxy.websocket.event")
+			_, _, err := runtimeproxy.DecodeFrameAt([]byte(frame), "proxy.websocket.event")
 			if !timecontract.IsViolation(err) {
 				t.Fatalf("expected time contract violation, got %v", err)
 			}
@@ -176,7 +178,7 @@ func TestPublishProxyLiveEventDoesNotFillMissingTimestamp(t *testing.T) {
 
 func TestProxyRunErrorEventUsesLocalTimestampForContractViolation(t *testing.T) {
 	err := timecontract.ValidateEpochMillis(0, "timestamp", "proxy.sse.event")
-	event := proxyRunErrorEvent(api.QueryRequest{RunID: "run-1", ChatID: "chat-1"}, err)
+	event := runexec.ProxyRunErrorEvent(queryCommandFromAPI(api.QueryRequest{RunID: "run-1", ChatID: "chat-1"}), err)
 	if event.Type != "run.error" {
 		t.Fatalf("event type = %q", event.Type)
 	}

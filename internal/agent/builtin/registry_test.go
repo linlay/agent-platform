@@ -40,7 +40,7 @@ func TestRenderTeamSystemPrompt(t *testing.T) {
 		Mode: agentteam.Mode, AgentKey: "team-1",
 
 		ModeSystemPrompt: "team={{agent_key}} tools={{available_tools}} request={{user_request}}",
-	}, api.QueryRequest{Message: "hello"}, agentteam.DefaultToolNames(), agentteam.MainStage)
+	}, api.QueryRequest{Message: "hello"}, []string{agentteam.ToolDelegate}, agentteam.MainStage)
 	for _, value := range []string{"team=team-1", agentteam.ToolDelegate, "request=hello"} {
 		if !strings.Contains(got, value) {
 			t.Fatalf("rendered prompt %q missing %q", got, value)

@@ -52,16 +52,6 @@ func AgentModeForAPI(value string) string {
 	}
 }
 
-// AgentModeAliases returns every stored spelling that carries the same
-// meaning as the given public mode. Stored chat rows are never rewritten, so
-// filters must match the historical spelling as well.
-func AgentModeAliases(mode string) []string {
-	if strings.EqualFold(strings.TrimSpace(mode), AgentModeGeneral) || strings.EqualFold(strings.TrimSpace(mode), agentModeLegacyReact) {
-		return []string{AgentModeGeneral, agentModeLegacyReact}
-	}
-	return []string{strings.TrimSpace(mode)}
-}
-
 // ParsePublicAgentMode accepts only the stable YAML/API spellings. Runtime-only
 // modes (TEAM and ONESHOT) are deliberately absent from this boundary.
 func ParsePublicAgentMode(value string) (string, error) {

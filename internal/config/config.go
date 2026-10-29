@@ -29,7 +29,7 @@ type Config struct {
 	KBX              KBXConfig
 	DocumentPreview  documentpreview.Config
 	HTTPProxy        httpclient.Config
-	IdentityFile     string
+	SsoIdTokenFile   string
 	RuntimeMode      RuntimeMode
 	Server           ServerConfig
 	Paths            PathsConfig
@@ -51,6 +51,7 @@ type Config struct {
 	Models           CatalogConfig
 	Query            QueryConfig
 	Automation       AutomationConfig
+	Mail             MailConfig
 	Billing          BillingConfig
 	Memory           MemoryConfig
 	Defaults         DefaultsConfig
@@ -73,14 +74,16 @@ type Config struct {
 }
 
 type LoadOptions struct {
-	ConfigDir    string
-	Port         string
-	IdentityFile string
-	RuntimeMode  string
+	ConfigDir      string
+	Port           string
+	SsoIdTokenFile string
+	RuntimeMode    string
 	// IgnoreRemovedWorkingDirectoryForAudit is reserved for the read-only
 	// workspace/chat migration audit. Normal startup must leave it false.
 	IgnoreRemovedWorkingDirectoryForAudit bool
 }
+
+type MailConfig struct{ MaxHops int }
 
 type RuntimeMode string
 
@@ -730,11 +733,11 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 	if err := cfg.normalize(options.ConfigDir); err != nil {
 		return Config{}, err
 	}
-	identityFile, err := ResolveIdentityFile(cfg.Paths.StateDir, options.IdentityFile)
+	ssoIdTokenFile, err := ResolveSsoIdTokenFile(cfg.Paths.StateDir, options.SsoIdTokenFile)
 	if err != nil {
 		return Config{}, err
 	}
-	cfg.IdentityFile = identityFile
+	cfg.SsoIdTokenFile = ssoIdTokenFile
 	if err := validateRemovedSkillsMarketRuntimeDirs(defaultRuntimeRoot(), cfg.Paths.SkillsCenterDir); err != nil {
 		return Config{}, err
 	}
@@ -872,7 +875,7 @@ func DefaultPlanningModeConfig() PlanningModeConfig {
 		ExcludeTools: []string{
 			"bash", "bash_sandbox", "file_write", "file_edit", "artifact_publish", "image_generate", "speech_generate",
 			"plan_add_tasks", "plan_update_task",
-			"agent_invoke", "chat_start", "chat_interrupt", "chat_steer", "chat_manage",
+			"agent_invoke", "chat_send", "chat_notify", "chat_submit", "chat_start", "chat_interrupt", "chat_steer", "chat_manage",
 			"automation_manage", "catalog_manage", "run_env", "ask_user_form", "result_submit",
 		},
 		ExecuteExcludeTools: []string{"ask_user_question", "ask_user_form"},

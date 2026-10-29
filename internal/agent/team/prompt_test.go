@@ -48,7 +48,7 @@ func TestRenderSystemPromptUsesTeamTemplateValues(t *testing.T) {
 
 		AgentName:        "Writer Team",
 		Locale:           "English",
-		ToolNames:        DefaultToolNames(),
+		ToolNames:        []string{ToolDelegate},
 		ModeSystemPrompt: "{{mode}} {{agent_key}} {{agent_name}} {{available_tools}} {{user_request}} {{language_preference}}",
 	}
 	got := RenderSystemPrompt(session, api.QueryRequest{Message: "draft"}, nil, MainStage)

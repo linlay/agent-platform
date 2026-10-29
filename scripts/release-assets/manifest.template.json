@@ -93,6 +93,7 @@
   },
   "desktop": {
     "runtimeResources": "v1",
+    "ssoIdTokenFile": "v1",
     "displayOrder": 2,
     "autoStart": true,
     "assetFileName": "__ASSET_FILENAME__",

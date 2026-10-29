@@ -195,10 +195,6 @@ func gitWriteEffects(e *Effects, sub string, flags map[string]bool, positional, 
 	}
 }
 
-// ExecutableGitKey reports configuration keys under which Git runs a program
-// implicitly for the commands modeled as non-executing.
-func ExecutableGitKey(key string) bool { return isExecutableGitKey(key) }
-
 func isExecutableGitKey(key string) bool {
 	key = strings.ToLower(strings.TrimSpace(key))
 	switch key {

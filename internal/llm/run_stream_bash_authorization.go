@@ -18,8 +18,6 @@ type hostBashAuthorization struct {
 	toolID      string
 	access      map[string]int
 	security    map[string]int
-	hitlCommand string
-	hitlRule    string
 	dispatched  bool
 	retired     bool
 }
@@ -28,9 +26,10 @@ func (s *llmRunStream) usesHostBashAuthorization(invocation *preparedToolInvocat
 	if s == nil || s.execCtx == nil || invocation == nil || !strings.EqualFold(invocation.toolName, "bash") || s.isSandboxRuntime() {
 		return false
 	}
-	// Forms can rebuild commands on submit and keep their existing serial path.
+	// View forms rebuild the command on submit and keep the serial path; a
+	// refused call is reported by the authorization below.
 	match := s.lookupPrecheckedHITL(invocation)
-	return !match.Intercepted || match.Rule.IsBuiltinApproval()
+	return !match.Intercepted || match.Conflict != ""
 }
 
 // prepareHostBashAuthorization runs on the stream's scheduling goroutine. It
@@ -57,7 +56,7 @@ func (s *llmRunStream) prepareHostBashAuthorization(invocation *preparedToolInvo
 	}
 	command := strings.TrimSpace(mapStringArg(invocation.args, "command"))
 	if match := s.checkBashHITL(invocation); match.Conflict != "" {
-		s.queueHostBashAuthorizationError(invocation, "hitl_hook_conflict", match.Conflict)
+		s.queueHostBashAuthorizationError(invocation, "view_intercept_rejected", match.Conflict)
 		return nil
 	}
 	access := s.rawBashAccessReview(invocation)
@@ -96,14 +95,6 @@ func (s *llmRunStream) prepareHostBashAuthorization(invocation *preparedToolInvo
 				if decision == "approve_rule_run" && request.kind == approvalKindBashSecurity {
 					s.registerRuleWhitelist(request.result.Rule.RuleKey)
 				}
-			}
-			if request.bashHITLReview != nil {
-				a.hitlCommand = request.bashHITLReview.OriginalCommand
-				a.hitlRule = request.bashHITLReview.Rule.RuleKey
-			}
-			if request.kind == approvalKindHITL {
-				a.hitlCommand = request.result.OriginalCommand
-				a.hitlRule = request.result.Rule.RuleKey
 			}
 		}
 		invocation.approvalDecision = ""
@@ -144,21 +135,6 @@ func (s *llmRunStream) prepareHostBashAuthorization(invocation *preparedToolInvo
 			s.recordHostBashRuleApproval(invocation, bashAccessInterceptResult(invocation, access))
 		}
 	}
-	if s.checker != nil {
-		match := s.checkBashHITL(invocation)
-		if match.Intercepted && !(a.hitlCommand == command && a.hitlRule == match.Rule.RuleKey) {
-			if s.isRuleWhitelisted(match.Rule.RuleKey) || s.shouldAutoApproveHITL(match) {
-				a.hitlCommand, a.hitlRule = command, match.Rule.RuleKey
-				if s.isRuleWhitelisted(match.Rule.RuleKey) {
-					s.recordHostBashRuleApproval(invocation, match)
-				}
-			} else {
-				request := hitlApprovalRequest(invocation, match)
-				request.bashAccessReview = &access
-				return s.hostBashApprovalNeeded(invocation, request, "bash_access_approval_required", "Bash HITL rule requires approval.")
-			}
-		}
-	}
 	invocation.approvalDecision = ""
 	return nil
 }
@@ -175,12 +151,6 @@ func (s *llmRunStream) hostBashApprovalNeeded(invocation *preparedToolInvocation
 	if request.kind == approvalKindBashAccess && request.bashAccessReview != nil {
 		if rules := accesspolicy.ApprovalRules(*request.bashAccessReview); len(rules) > 0 {
 			request.result.Rule.RuleKey = rules[0]
-		}
-	}
-	if request.kind != approvalKindHITL {
-		match := s.checkBashHITL(invocation)
-		if match.Intercepted && match.Rule.IsBuiltinApproval() && !s.isRuleWhitelisted(match.Rule.RuleKey) && !s.shouldAutoApproveHITL(match) {
-			request.bashHITLReview = &match
 		}
 	}
 	return &request

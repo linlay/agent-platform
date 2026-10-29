@@ -7,7 +7,6 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/runenv"
 	"agent-platform/internal/runtime/adapter"
 	"agent-platform/internal/runtime/session"
 )
@@ -29,18 +28,6 @@ func testSessionBuilder(s *Server) *session.Builder {
 func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, summary chat.Summary, def catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 	s.deps.Sessions = testSessionBuilder(s)
 	return s.buildCompactSession(ctx, req, summary, def, options)
-}
-
-func (s *Server) buildCurrentMessages(req api.QueryRequest, input contracts.QuerySession) []map[string]any {
-	return testSessionBuilder(s).BuildCurrentMessages(queryCommandFromAPI(req), input)
-}
-
-func (s *Server) resolveQueryReferencedSkills(def catalog.AgentDefinition, requested []string) (referencedSkillResolution, error) {
-	return testSessionBuilder(s).ResolveSkills(def, requested)
-}
-
-func (s *Server) newRunEnvironmentScope() *runenv.Scope {
-	return testSessionBuilder(s).NewRunEnvironmentScope()
 }
 
 func resolveReferencedSkills(def catalog.AgentDefinition, dir string, registry legacySkillCatalog, requested []string) (referencedSkillResolution, error) {
@@ -67,10 +54,6 @@ func (c skillCatalogAdapter) SkillIDs() []string {
 
 func (s *Server) prepareSystemInitCache(req api.QueryRequest, input *contracts.QuerySession, created bool) (*chat.QueryLineSystem, error) {
 	return testSessionBuilder(s).PrepareSystemInitCache(queryCommandFromAPI(req), input, created)
-}
-
-func (s *Server) prepareSystemInitCacheFrom(req api.QueryRequest, input *contracts.QuerySession, index chat.SystemInitIndex) (*chat.QueryLineSystem, error) {
-	return testSessionBuilder(s).PrepareSystemInitCacheFrom(queryCommandFromAPI(req), input, index)
 }
 
 // Tests without a library service intentionally isolate prompt/tool assembly from storage.

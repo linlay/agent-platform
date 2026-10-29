@@ -1,8 +1,6 @@
 package platformcontrol
 
 import (
-	"crypto/sha256"
-	"fmt"
 	"strings"
 
 	"agent-platform/internal/adminsource"
@@ -12,7 +10,6 @@ import (
 	"agent-platform/internal/automation"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
-	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/kbases"
@@ -25,7 +22,6 @@ const (
 	GeneralCreationPath = "agents.creation.general"
 	CoderCreationPath   = "agents.creation.coder"
 	KBaseCreationPath   = "agents.creation.kbase"
-	maxCandidateBytes   = 1 << 20
 )
 
 type ToolHandler struct {
@@ -105,76 +101,6 @@ func (h *ToolHandler) get(path string) contracts.ToolExecutionResult {
 	}
 }
 
-func (h *ToolHandler) validate(resourceType string, resourceKey string, content string) contracts.ToolExecutionResult {
-	if resourceKey == "" {
-		return errorResult("invalid_request", "resourceKey is required")
-	}
-	if strings.TrimSpace(content) == "" {
-		return errorResult("invalid_request", "content is required")
-	}
-	if strings.TrimSpace(content) == "[REDACTED]" {
-		return errorResult("catalog_candidate_redacted", "content is a redacted history placeholder, not candidate content; reread the candidate file and submit its complete content using only resourceType, resourceKey, content")
-	}
-	if len(content) > maxCandidateBytes {
-		return errorResult("invalid_request", "content exceeds 1 MiB")
-	}
-
-	diagnostics := make([]map[string]any, 0)
-	switch resourceType {
-	case "agent":
-		if err := catalog.ValidateAgentCandidate(resourceKey, []byte(content)); err != nil {
-			diagnostics = append(diagnostics, candidateError("invalid_agent_config", err))
-		}
-	case "skill":
-		for _, item := range catalog.ValidateSkillCandidate(resourceKey, []byte(content), h.cfg.Skills.MaxPromptChars) {
-			diagnostics = append(diagnostics, diagnostic(item.Severity, item.Code, sanitizeDiagnostic(item.Message)))
-		}
-	case "connector":
-		if err := connector.ValidateManifest(resourceKey, []byte(content)); err != nil {
-			diagnostics = append(diagnostics, candidateError("invalid_connector_manifest", err))
-		}
-	default:
-		return errorResult("unsupported_resource_type", "resourceType must be agent, team, skill, or connector")
-	}
-
-	return successResult(map[string]any{
-		"resourceType": resourceType,
-		"resourceKey":  resourceKey,
-		"valid":        !hasErrorDiagnostic(diagnostics),
-		"candidate": map[string]any{
-			"sha256": fmt.Sprintf("%x", sha256.Sum256([]byte(content))),
-			"bytes":  len([]byte(content)),
-		},
-		"diagnostics": diagnostics,
-	})
-}
-
-func (h *ToolHandler) teamMemberDiagnostics(agentKeys []string) []map[string]any {
-	diagnostics := make([]map[string]any, 0)
-	if len(agentKeys) == 0 {
-		return append(diagnostics, diagnostic("error", "empty_agent_keys", "agentKeys must contain at least one agent"))
-	}
-	seen := map[string]struct{}{}
-	for _, raw := range agentKeys {
-		key := strings.TrimSpace(raw)
-		if key == "" {
-			diagnostics = append(diagnostics, diagnostic("error", "empty_agent_key", "agentKeys must not contain empty values"))
-			continue
-		}
-		if _, exists := seen[key]; exists {
-			diagnostics = append(diagnostics, diagnostic("error", "duplicate_agent_key", "agentKeys must not contain duplicates"))
-			continue
-		}
-		seen[key] = struct{}{}
-		if h.registry != nil {
-			if _, ok := h.registry.AgentDefinition(key); !ok {
-				diagnostics = append(diagnostics, diagnostic("error", "unknown_agent", "team member is not present in the agent catalog: "+key))
-			}
-		}
-	}
-	return diagnostics
-}
-
 func missingDefinitionFields(definition map[string]any, paths ...string) []string {
 	missing := make([]string, 0, len(paths))
 	for _, path := range paths {
@@ -222,15 +148,6 @@ func diagnostic(severity string, code string, message string) map[string]any {
 		"code":     code,
 		"message":  strings.TrimSpace(message),
 	}
-}
-
-func hasErrorDiagnostic(diagnostics []map[string]any) bool {
-	for _, item := range diagnostics {
-		if strings.EqualFold(contracts.AnyStringNode(item["severity"]), "error") {
-			return true
-		}
-	}
-	return false
 }
 
 func successResult(payload map[string]any) contracts.ToolExecutionResult {

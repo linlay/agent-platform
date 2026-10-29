@@ -43,27 +43,6 @@ func Canonicalize(path string) (Canonical, error) {
 	}, nil
 }
 
-func NearestExistingAncestor(path string) (Canonical, error) {
-	canonical, err := Canonicalize(path)
-	if err != nil {
-		return Canonical{}, err
-	}
-	current := filepath.Clean(canonical.Host)
-	for {
-		if info, err := os.Stat(current); err == nil {
-			if info.IsDir() {
-				return Canonicalize(current)
-			}
-			return Canonicalize(filepath.Dir(current))
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return Canonicalize(current)
-		}
-		current = parent
-	}
-}
-
 func WithinRoot(target, root Canonical) bool {
 	targetKey := strings.TrimSpace(target.Key)
 	rootKey := strings.TrimSpace(root.Key)

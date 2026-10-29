@@ -30,7 +30,7 @@ func runConnectorManagement(args []string, out io.Writer) error {
 	component := flags.String("component", "", "MCP component to authorize")
 	overwrite := flags.Bool("overwrite", false, "replace an existing external package")
 	credentialsFile := flags.String("credentials-file", "", "JSON file containing token field values (set-token only)")
-	identityFile := flags.String("identity-file", "", "Desktop SSO token file (absolute path; defaults to <state-dir>/identity/access-token)")
+	ssoIdTokenFile := flags.String("sso-id-token-file", "", "Desktop SSO token file (absolute path; defaults to <state-dir>/identity/sso-id-token)")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -55,7 +55,7 @@ func runConnectorManagement(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	*identityFile, err = config.ResolveIdentityFile(stateDir, *identityFile)
+	*ssoIdTokenFile, err = config.ResolveSsoIdTokenFile(stateDir, *ssoIdTokenFile)
 	if err != nil {
 		return err
 	}
@@ -104,7 +104,7 @@ func runConnectorManagement(args []string, out io.Writer) error {
 	}
 	validator := mcp.NewClientWithGate(nil, nil, mcp.NewAvailabilityGate())
 	defer validator.Close()
-	manager := connectorauth.New(ctx, sources, nil).WithIdentityFile(*identityFile).WithCredentialValidator(validator.ValidateConnectorCredentials)
+	manager := connectorauth.New(ctx, sources, nil).WithSsoIdTokenFile(*ssoIdTokenFile).WithCredentialValidator(validator.ValidateConnectorCredentials)
 	switch action {
 	case "set-oauth-client":
 		if *credentialsFile == "" {

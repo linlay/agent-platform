@@ -3,10 +3,6 @@ package kbase
 import "agent-platform/internal/knowledge"
 
 const (
-	ToolSearch   = knowledge.ToolSearch
-	ToolFiles    = knowledge.ToolFiles
-	ToolRead     = knowledge.ToolRead
-	ToolStatus   = knowledge.ToolStatus
 	ToolDatetime = knowledge.ToolDatetime
 )
 

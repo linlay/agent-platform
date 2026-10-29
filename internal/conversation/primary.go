@@ -97,12 +97,38 @@ func (s *Service) PublishPrimaryChat(agentKey string, chatID string) error {
 	return err
 }
 
+// BackfillPrimaryChat makes chatID primary only while agentKey has none. It is
+// used by mailbox delivery, which must never switch an existing primary Chat.
+func (s *Service) BackfillPrimaryChat(agentKey string, chatID string) error {
+	store, err := s.primaryStore()
+	if err != nil {
+		return err
+	}
+	backfill, ok := store.(interface {
+		SetChatPrimaryIfMissing(string, string) (chat.PrimaryChange, error)
+	})
+	if !ok {
+		return ErrPrimaryNotSupported
+	}
+	change, err := backfill.SetChatPrimaryIfMissing(agentKey, chatID)
+	if err != nil {
+		return err
+	}
+	s.broadcastPrimaryChange(change)
+	return nil
+}
+
 func (s *Service) publishPrimary(store chat.PrimaryStore, agentKey string, chatID string) (PrimaryResult, error) {
 	change, err := store.SetChatPrimary(agentKey, chatID)
 	result := PrimaryResult{AgentKey: change.AgentKey, ChatID: change.ChatID, PreviousChatID: change.PreviousChatID, Changed: change.Changed}
 	if err != nil {
 		return result, err
 	}
+	s.broadcastPrimaryChange(change)
+	return result, nil
+}
+
+func (s *Service) broadcastPrimaryChange(change chat.PrimaryChange) {
 	if change.Changed && s.Notifications != nil {
 		payload := map[string]any{"agentKey": change.AgentKey, "chatId": change.ChatID}
 		if change.PreviousChatID != "" {
@@ -110,7 +136,6 @@ func (s *Service) publishPrimary(store chat.PrimaryStore, agentKey string, chatI
 		}
 		s.Notifications.Broadcast(PrimaryChangedEvent, payload)
 	}
-	return result, nil
 }
 
 func (s *Service) ensureChatIdle(agentKey string, chatID string) error {

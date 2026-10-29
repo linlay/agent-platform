@@ -26,7 +26,6 @@ const (
 )
 
 const (
-	ToolExecutionPolicyDefault  = "default"
 	ToolExecutionPolicyReadOnly = "read_only"
 )
 
@@ -184,26 +183,6 @@ type ExclusiveRunRegistrar interface {
 	RegisterExclusiveForChat(parent context.Context, session QuerySession) (ExclusiveRunRegistration, error)
 }
 
-type RecoveredAwaitingRun struct {
-	Context    context.Context
-	Control    *RunControl
-	Run        ActiveRun
-	EventBus   *stream.RunEventBus
-	AwaitingID string
-	InitialSeq int64
-}
-
-// RecoveredAwaitingRunService owns the observation shell used by a persisted
-// question/planning wait. The shell is active and attachable before submit,
-// but can be claimed exactly once when its continuation is rebuilt.
-type RecoveredAwaitingRunService interface {
-	RegisterRecoveredAwaiting(parent context.Context, session QuerySession, awaitingID string, initialSeq int64) (RecoveredAwaitingRun, error)
-	ClaimRecoveredAwaiting(runID string, awaitingID string) (RecoveredAwaitingRun, bool)
-	ReleaseRecoveredAwaiting(runID string, awaitingID string) bool
-	ActivateRecoveredAwaiting(runID string, awaitingID string) bool
-	IsRecoveredAwaiting(runID string, awaitingID string) bool
-}
-
 type ActiveAwaitingLister interface {
 	ActiveAwaitings(runID string) []AwaitingSubmitContext
 }
@@ -328,6 +307,13 @@ type RunLimits struct {
 }
 
 type QuerySession struct {
+	Mail               *queryinput.MailInput `json:"-"`
+	UserChatReferences []string              `json:"-"`
+	// MailHeaders is bound by Runtime and used only at the model boundary.
+	MailHeaders       func(string) string                `json:"-"`
+	RuntimeEvent      func(stream.EventData)             `json:"-"`
+	RuntimeComplete   func(string, string, string, bool) `json:"-"`
+	RuntimeIdle       func()                             `json:"-"`
 	InteractionConfig *interaction.Config
 	// ResolveView freezes a mounted presentation in this Chat before publication.
 	// It is installed by the session producer, never supplied by query clients.
@@ -476,7 +462,6 @@ type QuerySession struct {
 	WorkspaceRoot          string
 	ChatRoot               string
 	AccessLevel            string
-	SkillHookDirs          []string
 	// StaticRuntimeEnv is the immutable Agent/Skill environment frozen at admission.
 	StaticRuntimeEnv map[string]string
 	// RunEnvironment is the root run's lazy dynamic environment scope.
@@ -711,13 +696,16 @@ func (u ModelUsage) HasBillableUsage() bool {
 }
 
 type SubmitInfo struct {
-	RunID      string
-	AwaitingID string
-	SubmitID   string
-	Input      any
+	AccessGrant map[string]any
+	Origin      *queryinput.Origin
+	RunID       string
+	AwaitingID  string
+	SubmitID    string
+	Input       any
 }
 
 type AwaitingSubmitContext struct {
+	DelegateApproval   func(context.Context, string, queryinput.SubmitRequest) error
 	ExactApprovalIDs   []string // one-time approvals bound to these invocation IDs
 	Summaries          []ApprovalSummary
 	SummariesTruncated bool
@@ -741,6 +729,7 @@ type AwaitingSubmitContext struct {
 
 func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
 	return AwaitingSubmitContext{
+		DelegateApproval:   c.DelegateApproval,
 		ExactApprovalIDs:   append([]string(nil), c.ExactApprovalIDs...),
 		Summaries:          append([]ApprovalSummary(nil), c.Summaries...),
 		SummariesTruncated: c.SummariesTruncated,

@@ -410,7 +410,7 @@ func (s *Service) ControlSearch(c ControlCaller, args map[string]any) (map[strin
 	}
 	archived := controlBool(args, "archived")
 	target := controlString(args, "chatId")
-	ids := []string{}
+	var ids []string
 	if target != "" {
 		ids = []string{target}
 	} else {
@@ -638,7 +638,7 @@ func (s *Service) ControlManage(c ControlCaller, action string, args map[string]
 		if archived {
 			e = s.Archives.DeleteArchived(id)
 		} else {
-			e = s.Chats.DeleteChat(id)
+			e = s.DeleteChat(id)
 		}
 		if e != nil {
 			return nil, e

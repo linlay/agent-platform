@@ -102,18 +102,17 @@ func TestEditableSkillPathGuardsAndBinaryRead(t *testing.T) {
 func TestWriteEditableSkillArchiveIncludesSafeFilesOnly(t *testing.T) {
 	root := t.TempDir()
 	skillDir := filepath.Join(root, "demo-skill")
-	for _, dir := range []string{"assets", "references", "scripts", ".bash-hooks"} {
+	for _, dir := range []string{"assets", "references", "scripts"} {
 		if err := os.MkdirAll(filepath.Join(skillDir, dir), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
 	}
 	files := map[string][]byte{
-		"SKILL.md":              []byte("# Demo\n"),
-		"assets/logo.png":       []byte{0x89, 'P', 'N', 'G'},
-		"references/guide.md":   []byte("guide\n"),
-		"scripts/run.sh":        []byte("#!/bin/sh\necho demo\n"),
-		".bash-hooks/pre-start": []byte("echo hook\n"),
-		".runtime-env.json":     []byte(`{"TOKEN":"secret"}`),
+		"SKILL.md":            []byte("# Demo\n"),
+		"assets/logo.png":     []byte{0x89, 'P', 'N', 'G'},
+		"references/guide.md": []byte("guide\n"),
+		"scripts/run.sh":      []byte("#!/bin/sh\necho demo\n"),
+		".runtime-env.json":   []byte(`{"TOKEN":"secret"}`),
 	}
 	for relPath, content := range files {
 		if err := os.WriteFile(filepath.Join(skillDir, filepath.FromSlash(relPath)), content, 0o644); err != nil {
@@ -147,7 +146,7 @@ func TestWriteEditableSkillArchiveIncludesSafeFilesOnly(t *testing.T) {
 	for _, entry := range reader.File {
 		entries[entry.Name] = entry
 	}
-	for _, name := range []string{"SKILL.md", "assets/logo.png", "references/guide.md", "scripts/run.sh", ".bash-hooks/pre-start"} {
+	for _, name := range []string{"SKILL.md", "assets/logo.png", "references/guide.md", "scripts/run.sh"} {
 		if entries[name] == nil {
 			t.Fatalf("archive missing %s: %#v", name, entries)
 		}

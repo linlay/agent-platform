@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/chatresource"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/querymessages"
 )
 
@@ -53,7 +54,11 @@ func (e *LLMAgentEngine) steerPreparer(session contracts.QuerySession, vision bo
 			// As with a blank query, the public message stays empty.
 			text = querymessages.EmptySteerContinuation
 		}
-		req.PreparedMessages = []map[string]any{{"role": "user", "content": querymessages.BuildContentWithImageBlocks(text, refs, blocks, inputOptions)}}
+		input := map[string]any{"role": "user", "content": querymessages.BuildContentWithImageBlocks(text, refs, blocks, inputOptions)}
+		if req.Mail != nil {
+			input = mailModelInput(input, req.Mail.ID, session)
+		}
+		req.PreparedMessages = []map[string]any{input}
 		return req, nil
 	}
 }
@@ -117,6 +122,12 @@ func (e *LLMAgentEngine) materializeHistorySteer(raw map[string]any, session con
 		}
 	}
 	text := steer.Message
+	mailID := ""
+	if source, ok := input.(map[string]any); ok && session.MailHeaders != nil {
+		if mail := queryinput.MailFromPayload(source); mail != nil {
+			mailID = mail.ID
+		}
+	}
 	if len(unavailable) > 0 {
 		text += "\n\n" + strings.Join(unavailable, "\n")
 	}
@@ -139,6 +150,9 @@ func (e *LLMAgentEngine) materializeHistorySteer(raw map[string]any, session con
 		}
 	}
 	result["content"] = querymessages.BuildContentWithImageBlocks(text, refs, blocks, options)
+	if mailID != "" {
+		result = mailModelInput(result, mailID, session)
+	}
 	return result
 }
 

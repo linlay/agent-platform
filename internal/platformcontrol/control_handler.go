@@ -59,6 +59,7 @@ var argumentFields = map[string]map[string]string{
 	"chat_query.read":             {"chatId": "s!", "archived": "b", "view": "s!", "limit": "n", "cursor": "s"},
 	"chat_query.artifacts":        {"chatId": "s", "runId": "s", "limit": "n", "cursor": "s"},
 	"chat_query.models":           {},
+	"chat_query.opened":           {},
 	"chat_manage.rename":          {"chatId": "s", "chatName": "s!"},
 	"chat_manage.setPinned":       {"chatId": "s", "pinned": "b!"},
 	"chat_manage.archive":         {"chatId": "s", "chatIds": "a"}, "chat_manage.restore": {"chatId": "s", "chatIds": "a"},
@@ -562,6 +563,12 @@ func (h *ToolHandler) chatQuery(action string, p map[string]any, e *contracts.Ex
 		return map[string]any{"chat": sum, "active": active, "run": run}, err
 	case "list":
 		return h.conversations.ControlList(c, p)
+	case "opened":
+		if h.conversations.MailboxOpened == nil {
+			return nil, fmt.Errorf("mailbox unavailable")
+		}
+		items, err := h.conversations.MailboxOpened(c.AgentKey, c.Subject)
+		return map[string]any{"chats": items}, err
 	case "read":
 		return h.conversations.ControlRead(c, p)
 	case "search":

@@ -133,6 +133,9 @@ func (t *RuntimeToolExecutor) invokeWait(ctx context.Context, args map[string]an
 			finished = true
 		case <-wake:
 			reason = "steered"
+			if execCtx.RunControl.QueuedMail() {
+				reason = "mail"
+			}
 			// Only blank steers queued: the user asked to continue without new input.
 			continued = execCtx.RunControl.QueuedSteersBlank()
 			finished = true

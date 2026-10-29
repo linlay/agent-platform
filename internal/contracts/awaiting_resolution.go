@@ -14,40 +14,29 @@ const (
 )
 
 // AwaitingHasLiveExecutor includes the interval after submit removes an awaiting
-// and before the executor persists its results. Only an actual recovered shell
-// may delegate its terminal writes to the continuation machinery.
-func AwaitingHasLiveExecutor(runs RunManager, runID, awaitingID string) bool {
+// and before the executor persists its results.
+func AwaitingHasLiveExecutor(runs RunManager, runID string) bool {
 	if runs == nil {
 		return false
 	}
 	status, ok := runs.RunStatus(runID)
-	if !ok || status.CompletedAt > 0 {
-		return false
-	}
-	recovery, ok := runs.(RecoveredAwaitingRunService)
-	return !ok || !recovery.IsRecoveredAwaiting(runID, awaitingID)
+	return ok && status.CompletedAt == 0
 }
 
-// ClaimAwaitingResolution distinguishes a failed claim from an absent owner.
-// A non-nil claim grants exclusive recovery ownership; otherwise the caller may
-// write only for Unowned. Re-read status after a failed claim because a shell
-// can have been claimed, activated, or finished concurrently.
-func ClaimAwaitingResolution(runs RunManager, runID, awaitingID string) (AwaitingResolutionState, *RecoveredAwaitingRun) {
+// AwaitingResolutionOwner reports who owns an awaiting's terminal writes: a
+// live run (Owned), a finished run (Finished), or nobody (Unowned). Callers may
+// write only for Unowned.
+func AwaitingResolutionOwner(runs RunManager, runID string) AwaitingResolutionState {
 	if runs == nil {
-		return AwaitingResolutionUnowned, nil
-	}
-	if recovery, ok := runs.(RecoveredAwaitingRunService); ok {
-		if claimed, ok := recovery.ClaimRecoveredAwaiting(runID, awaitingID); ok {
-			return AwaitingResolutionOwned, &claimed
-		}
+		return AwaitingResolutionUnowned
 	}
 	if status, ok := runs.RunStatus(runID); ok {
 		if status.CompletedAt > 0 {
-			return AwaitingResolutionFinished, nil
+			return AwaitingResolutionFinished
 		}
-		return AwaitingResolutionOwned, nil
+		return AwaitingResolutionOwned
 	}
-	return AwaitingResolutionUnowned, nil
+	return AwaitingResolutionUnowned
 }
 
 // AwaitingResolutionCoordinator provides per-awaiting leases for continuation

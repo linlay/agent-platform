@@ -173,12 +173,6 @@ func isUnmarked(db *sql.DB) (bool, error) {
 	return applicationID == 0 && userVersion == 0, nil
 }
 
-// IsUnmarked reports whether both SQLite identity fields are zero. Callers
-// must not treat a partial zero marker as claimable.
-func IsUnmarked(db *sql.DB) (bool, error) {
-	return isUnmarked(db)
-}
-
 func verifyRequiredObjects(db *sql.DB, databasePath, cleanupPath string, spec Spec) error {
 	for _, object := range spec.Objects {
 		var found int

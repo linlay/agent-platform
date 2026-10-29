@@ -52,9 +52,9 @@ type ServerDefinition struct {
 }
 
 const (
-	TransportStreamableHTTP = "streamable-http"
-	TransportStdio          = "stdio"
-	AuthSourceIdentityFile  = "identity-file"
+	TransportStreamableHTTP  = "streamable-http"
+	TransportStdio           = "stdio"
+	AuthSourceSsoIdTokenFile = "identity-file"
 	// ProtocolVersion is the preferred version requested by the pinned SDK.
 	// The SDK also accepts its supported older versions during negotiation.
 	ProtocolVersion = "2025-11-25"

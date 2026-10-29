@@ -9,11 +9,11 @@ import (
 	"agent-platform/internal/apperrors"
 )
 
-func TestUseAccessTokenProviderReadsIdentityFilePerRequest(t *testing.T) {
+func TestUseSsoIdTokenProviderReadsSsoIdTokenFilePerRequest(t *testing.T) {
 	root := t.TempDir()
-	writeTestProviderAndModel(t, root, "useAccessToken: true\napiKey: dk_stale")
+	writeTestProviderAndModel(t, root, "useSsoIdToken: true\napiKey: dk_stale")
 	identity := filepath.Join(t.TempDir(), "access-token")
-	registry, err := LoadModelRegistryWithIdentityFile(root, identity)
+	registry, err := LoadModelRegistryWithSsoIdTokenFile(root, identity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +21,7 @@ func TestUseAccessTokenProviderReadsIdentityFilePerRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !provider.UseAccessToken || provider.APIKey != "" || !provider.HasCredential() {
+	if !provider.UseSsoIdToken || provider.APIKey != "" || !provider.HasCredential() {
 		t.Fatalf("access token provider: %+v", provider)
 	}
 	var coded *apperrors.Error
@@ -49,5 +49,13 @@ func TestStaticProviderKeepsProtocolAPIKeyHeader(t *testing.T) {
 	}
 	if (ProviderDefinition{Key: "empty"}).HasCredential() {
 		t.Fatal("empty provider reported a credential")
+	}
+}
+
+func TestProviderRejectsRetiredTokenField(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, "useAccessToken: true\napiKey: stale")
+	if _, err := LoadModelRegistryWithSsoIdTokenFile(root, ""); err == nil {
+		t.Fatal("retired credential field must not silently fall back to apiKey")
 	}
 }

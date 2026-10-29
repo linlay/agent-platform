@@ -554,9 +554,7 @@ func (s *ControlService) Prepare(c ControlChange, caller string) (*ControlPlan, 
 		if err != nil {
 			return nil, err
 		}
-		for _, file := range mutation.AgentKeys() {
-			p.DetachedAgentKeys = append(p.DetachedAgentKeys, file)
-		}
+		p.DetachedAgentKeys = append(p.DetachedAgentKeys, mutation.AgentKeys()...)
 		if len(p.DetachedAgentKeys) > 0 {
 			p.After = fmt.Sprintf("Remove connector mounts from %d Agents: %s", len(p.DetachedAgentKeys), strings.Join(p.DetachedAgentKeys, ", "))
 		}

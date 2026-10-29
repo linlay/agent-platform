@@ -134,15 +134,15 @@ func TestStartupValidationDefersDesktopTokenUntilInvocation(t *testing.T) {
 		}
 	}
 	for path, content := range map[string]string{
-		"providers/test.yml": "key: test\nbaseUrl: https://example.test\nuseAccessToken: true\n",
+		"providers/test.yml": "key: test\nbaseUrl: https://example.test\nuseSsoIdToken: true\n",
 		"models/embed.yml":   "key: embed\nprovider: test\ntype: embedding\nmodelId: embed\nembedding:\n  dimension: 8\n",
 	} {
 		if err := os.WriteFile(filepath.Join(root, path), []byte(content), 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	identity := filepath.Join(root, "identity", "access-token")
-	registry, err := models.LoadModelRegistryWithIdentityFile(root, identity)
+	identity := filepath.Join(root, "identity", "sso-id-token")
+	registry, err := models.LoadModelRegistryWithSsoIdTokenFile(root, identity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,4 +195,14 @@ func TestStartupValidationDefersDesktopTokenUntilInvocation(t *testing.T) {
 	if err := source.Validate(); err == nil {
 		t.Fatal("invalid prompt accepted at startup")
 	}
+}
+
+// NewConfiguredLibraryEngine validates deployment defaults. Each child receives
+// a private library-specific configuration snapshot via --config.
+func NewConfiguredLibraryEngine(file string, registry *models.ModelRegistry, modelKey, prompt string) (*LibraryEngine, error) {
+	source := &ModelConfigSource{File: file, Registry: registry, ModelKey: modelKey, Prompt: prompt}
+	if _, err := source.Snapshot(); err != nil {
+		return nil, err
+	}
+	return NewLibraryEngineWithSource(source), nil
 }

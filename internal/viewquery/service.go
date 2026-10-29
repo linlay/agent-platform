@@ -137,7 +137,7 @@ func (s *Service) connector(ctx context.Context, doc view.Document, query view.Q
 	}
 	req := connectorops.Request{ConnectorID: doc.View.ConnectorID, Adapter: query.Adapter}
 	if query.Adapter == "cli" {
-		if req.Args, err = CLIArgs(query.Args, values); err != nil {
+		if req.Args, err = view.CLIArgs(query.Args, values); err != nil {
 			return nil, err
 		}
 	} else {
@@ -197,64 +197,6 @@ func decodeParams(params json.RawMessage) (map[string]any, error) {
 		return nil, fmt.Errorf("%w: params", view.ErrDataInvalid)
 	}
 	return values, nil
-}
-
-// CLIArgs builds argv from the declared items. Values are passed as separate
-// argv entries, never through a shell. A missing or null param drops its item.
-func CLIArgs(items []view.QueryArg, params map[string]any) ([]string, error) {
-	argv := make([]string, 0, len(items))
-	for _, item := range items {
-		if item.Param == "" {
-			argv = append(argv, item.Literal)
-			continue
-		}
-		value, present := params[item.Param]
-		if !present || value == nil {
-			continue
-		}
-		if item.Flag != "" {
-			enabled, ok := value.(bool)
-			if !ok {
-				return nil, fmt.Errorf("%w: params.%s must be a boolean", view.ErrDataInvalid, item.Param)
-			}
-			if enabled {
-				argv = append(argv, item.Flag)
-			}
-			continue
-		}
-		text, err := scalarText(item.Param, value)
-		if err != nil {
-			return nil, err
-		}
-		if item.Opt != "" {
-			argv = append(argv, item.Opt, text)
-			continue
-		}
-		// A positional value must not be read as an option.
-		if strings.HasPrefix(text, "-") {
-			return nil, fmt.Errorf("%w: params.%s must not start with '-'", view.ErrDataInvalid, item.Param)
-		}
-		argv = append(argv, text)
-	}
-	return argv, nil
-}
-
-func scalarText(name string, value any) (string, error) {
-	switch v := value.(type) {
-	case string:
-		if strings.ContainsRune(v, 0) {
-			return "", fmt.Errorf("%w: params.%s contains NUL", view.ErrDataInvalid, name)
-		}
-		return v, nil
-	case json.Number:
-		return v.String(), nil
-	case bool:
-		if v {
-			return "true", nil
-		}
-		return "false", nil
-	}
-	return "", fmt.Errorf("%w: params.%s must be a string, number or boolean", view.ErrDataInvalid, name)
 }
 
 // MCPArguments merges the fixed arguments with params; params cannot replace

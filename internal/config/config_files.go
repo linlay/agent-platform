@@ -191,6 +191,22 @@ func (c *Config) applyRuntimeFile(path string) error {
 			c.Export.MaxSnapshotBytes = int(mib << 20)
 		}
 	}
+	if raw, exists := values["mail"]; exists {
+		settings, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("mail must be a mapping")
+		}
+		for key, value := range settings {
+			if key != "max-hops" {
+				return fmt.Errorf("unknown mail.%s", key)
+			}
+			n, ok := value.(int64)
+			if !ok || n < 1 {
+				return fmt.Errorf("mail.max-hops must be a positive integer")
+			}
+			c.Mail.MaxHops = int(n)
+		}
+	}
 	if raw, exists := values["kbx"]; exists {
 		if err := c.applyKBXValues(raw); err != nil {
 			return err
@@ -258,39 +274,6 @@ func (c *Config) applyRuntimeDefaultsValues(defaults map[string]any) {
 	}
 	c.Defaults.CoderPlanning.MaxSteps = intValue(anyValue(planning["maxSteps"], c.Defaults.CoderPlanning.MaxSteps), c.Defaults.CoderPlanning.MaxSteps)
 	c.Defaults.CoderPlanning.MaxSteps = intValue(anyValue(planning["max-steps"], c.Defaults.CoderPlanning.MaxSteps), c.Defaults.CoderPlanning.MaxSteps)
-}
-
-func durationValue(value any, fallback time.Duration) time.Duration {
-	switch v := value.(type) {
-	case time.Duration:
-		if v > 0 {
-			return v
-		}
-	case int:
-		if v > 0 {
-			return time.Duration(v) * time.Second
-		}
-	case int64:
-		if v > 0 {
-			return time.Duration(v) * time.Second
-		}
-	case float64:
-		if v > 0 {
-			return time.Duration(v) * time.Second
-		}
-	case string:
-		text := strings.TrimSpace(v)
-		if text == "" {
-			return fallback
-		}
-		if parsed, err := time.ParseDuration(text); err == nil && parsed > 0 {
-			return parsed
-		}
-		if seconds := parseInt(text, 0); seconds > 0 {
-			return time.Duration(seconds) * time.Second
-		}
-	}
-	return fallback
 }
 
 func (c *Config) applyBillingValues(values map[string]any) {

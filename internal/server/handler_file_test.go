@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/api"
 	channelpkg "agent-platform/internal/channel"
 	"agent-platform/internal/config"
+	"agent-platform/internal/documentmeta"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -123,7 +124,7 @@ func TestAgentFileEndpointKeepsUnsafeMarkdownReadOnly(t *testing.T) {
 	}
 
 	response := getAgentFileJSON(t, fixture.server, "coder-file", "docs/bad.md")
-	if response.DocumentKind != documentKindBinary || response.ContentKind != "binary" || response.Content != "" || response.MimeType != "application/octet-stream" {
+	if response.DocumentKind != documentmeta.KindBinary || response.ContentKind != "binary" || response.Content != "" || response.MimeType != "application/octet-stream" {
 		t.Fatalf("unsafe markdown response=%#v", response)
 	}
 }

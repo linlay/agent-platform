@@ -105,6 +105,7 @@ type QueryLineSystem struct {
 // Lines written before this layout have no top-level requestId and keep the
 // resolved request inside Query; see requestPayloadFromLine.
 type QueryLine struct {
+	*queryinput.MailInput
 	ChatID    string `json:"chatId"`
 	RunID     string `json:"runId"`
 	UpdatedAt int64  `json:"updatedAt"`

@@ -21,9 +21,6 @@ func TestAgentConnectorSkillsPromptSettingsAndPathIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	skill := filepath.Join(pkg, "skills", "builtin-dbx")
-	if err := os.Mkdir(filepath.Join(skill, ".bash-hooks"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(skill, ".runtime-env.json"), []byte(`{"SHARED_SETTING":"shared"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -34,9 +31,9 @@ func TestAgentConnectorSkillsPromptSettingsAndPathIsolation(t *testing.T) {
 	if !strings.Contains(prompt, "skillId: builtin-dbx\n") || !strings.Contains(prompt, "path: "+alias) || strings.Contains(prompt, "@skills/"+key) || strings.Contains(prompt, "connector-11-") {
 		t.Fatal(prompt)
 	}
-	hooks, env, err := resolveSkillRuntimeSettings(map[string]string{"SHARED_SETTING": "agent"}, def.RuntimeDir, "", def.EffectiveSkills(), def)
-	if err != nil || len(hooks) != 1 || hooks[0] != filepath.Join(skill, ".bash-hooks") || env["SHARED_SETTING"] != "shared" {
-		t.Fatalf("shared skill settings: %v %#v %v", hooks, env, err)
+	env, err := resolveSkillRuntimeSettings(map[string]string{"SHARED_SETTING": "agent"}, def.RuntimeDir, "", def.EffectiveSkills(), def)
+	if err != nil || env["SHARED_SETTING"] != "shared" {
+		t.Fatalf("shared skill settings: %#v %v", env, err)
 	}
 	session := contracts.QuerySession{ConnectorDirs: runtimeConnectorDirs(def), AccessLevel: contracts.AccessLevelFullAccess}
 	if err := addConnectorAccessRoots(&session.RunAccessRoots, def); err != nil {

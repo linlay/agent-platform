@@ -430,7 +430,7 @@ func TestAnthropicPrepareRequestSendsAccessTokenAsBearer(t *testing.T) {
 	if err := os.WriteFile(identity, []byte("employee-jwt\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	provider := models.ProviderDefinition{Key: "th-main", BaseURL: "https://example.com", UseAccessToken: true, AccessTokenFile: identity}
+	provider := models.ProviderDefinition{Key: "th-main", BaseURL: "https://example.com", UseSsoIdToken: true, SsoIdTokenFile: identity}
 	model := models.ModelDefinition{Protocol: "ANTHROPIC", ModelID: "claude-haiku-5-5"}
 	prepared, err := (&anthropicProtocol{}).PrepareRequest(protocolStreamParams{
 		provider: provider, model: model,

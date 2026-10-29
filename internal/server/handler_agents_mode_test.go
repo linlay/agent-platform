@@ -100,7 +100,6 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		t.Fatalf("scope and mode should combine with AND, got %#v", response.Data)
 	}
 
-	rec = httptest.NewRecorder()
 	for _, mode := range []string{"REACT", "react", "PLAN-EXECUTE", "PLAN_EXECUTE", "ACP-PROXY", "ONESHOT"} {
 		rec = httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents?mode="+mode, nil))
