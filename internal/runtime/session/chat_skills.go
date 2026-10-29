@@ -23,19 +23,26 @@ func (b *Builder) inheritChatSkills(ctx context.Context, session contracts.Query
 	if !ok {
 		return
 	}
-	ids, err := reader.PriorSkillReferenceIDs(req.ChatID, req.RunID, contracts.MaxReferencedSkills)
-	if err != nil {
-		log.Printf("[session][chat-skills] chat=%s run=%s: history unavailable: %v", req.ChatID, req.RunID, err)
-		return
-	}
 	known := map[string]bool{}
 	for _, id := range append(def.EffectiveSkills(), queryinput.ResourceIDs(req.References, "skill")...) {
 		known[strings.ToLower(strings.TrimSpace(id))] = true
 	}
+	// Known skills do not consume the historical candidate budget. Fetch enough
+	// distinct IDs to retain up to 32 candidates after those IDs are filtered.
+	ids, err := reader.PriorSkillReferenceIDs(req.ChatID, req.RunID, contracts.MaxReferencedSkills+len(known))
+	if err != nil {
+		log.Printf("[session][chat-skills] chat=%s run=%s: history unavailable: %v", req.ChatID, req.RunID, err)
+		return
+	}
+	remaining := contracts.MaxReferencedSkills
 	for _, id := range ids {
 		if known[strings.ToLower(strings.TrimSpace(id))] {
 			continue
 		}
+		if remaining == 0 {
+			break
+		}
+		remaining--
 		// Reapply this entry's current policy. Historical Agent-origin steers
 		// cannot carry their interaction-policy exemption into a user query.
 		grant, err := b.PrepareRunReferences(ctx, session, def, queryinput.MakeReferences("skill", []string{id}), false, true, options.SkipInteractionPolicy)

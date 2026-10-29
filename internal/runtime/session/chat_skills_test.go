@@ -104,6 +104,52 @@ func TestNewRunInheritsChatSkillGrantsWithoutReferencesOrReadonly(t *testing.T) 
 	}
 }
 
+func TestChatSkillInheritanceFiltersKnownSkillsBeforeCandidateLimit(t *testing.T) {
+	for _, overlap := range []bool{false, true} {
+		t.Run(fmt.Sprintf("known-in-history=%v", overlap), func(t *testing.T) {
+			b, store, def, _ := chatSkillFixture(t)
+			center := b.deps.Config.Paths.SkillsCenterDir
+			centerCatalog := b.deps.Registry.(skillCenterOnlyCatalog)
+			appendQuery := func(runID string, ids ...string) {
+				t.Helper()
+				if err := store.AppendQueryLine("current", chat.QueryLine{Type: "query", ChatID: "current", RunID: runID,
+					UpdatedAt: 1791777600001, Query: map[string]any{"message": "use skill"}, References: queryinput.MakeReferences("skill", ids)}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for i := 0; i < 33; i++ {
+				id := fmt.Sprintf("eligible-%02d", i)
+				dir := filepath.Join(center, id)
+				if err := os.MkdirAll(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# "+id+"\n\nTest skill"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				centerCatalog.skills[id] = catalog.SkillDefinition{ID: id}
+				appendQuery(id, id)
+			}
+			def.Skills = []string{"configured-a", "configured-b"}
+			req := runtimetypes.QueryCommand{ChatID: "current", RunID: "next", References: queryinput.MakeReferences("skill", []string{"explicit"})}
+			if overlap {
+				appendQuery("known", "configured-a", "configured-b", "explicit")
+			}
+			s := contracts.QuerySession{AgentKey: def.Key, ChatID: req.ChatID, RunID: req.RunID, ReferencesScope: contracts.NewRunReferences(nil)}
+			b.inheritChatSkills(t.Context(), s, req, def, Options{IncludeHistory: true})
+			roots := s.ReferencesScope.AccessRoots().ReadRoots
+			if len(roots) != contracts.MaxReferencedSkills {
+				t.Fatalf("inherited %d skills, want 32", len(roots))
+			}
+			for i := 1; i <= 32; i++ {
+				root, err := filepath.EvalSymlinks(filepath.Join(center, fmt.Sprintf("eligible-%02d", i)))
+				if err != nil || !containsPath(roots, root) {
+					t.Fatalf("missing recent eligible skill %d: roots=%v err=%v", i, roots, err)
+				}
+			}
+		})
+	}
+}
+
 func containsPath(paths []string, target string) bool {
 	for _, path := range paths {
 		if path == target {

@@ -19,8 +19,9 @@ func (s *FileStore) PriorSkillReferenceIDs(chatID, excludeRunID string, limit in
 	if limit <= 0 {
 		return nil, nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// Like LoadRawMessages, do not hold FileStore's global write lock while
+	// reading/parsing history. A concurrent partial append fails this optional
+	// lookup; session admission logs it and continues without inherited grants.
 	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
 	if err != nil {
 		return nil, err
