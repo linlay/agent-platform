@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -182,6 +183,14 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 				effects := shellanalysis.Operands(commandFamily(x.Argv[0]), x.Argv[1:])
 				repoDir := x.Cwd
 				for i, file := range effects.Files {
+					// curl/wget output options name a sink, just like shell > /dev/null.
+					// Keep ordinary files, uploads, and destructive commands under policy.
+					base := commandFamily(x.Argv[0])
+					if !effects.Incomplete && (base == "curl" || base == "wget") && file.Write && file.Path == "/dev/null" && (session.AgentHasRuntimeSandbox || runtime.GOOS != "windows") {
+						if p, err := BuildPathPlan(cfg, session, WriteAccess, file.Path); err == nil && !p.Blocked() {
+							continue
+						}
+					}
 					mode := ReadAccess
 					if file.Write {
 						mode = WriteAccess

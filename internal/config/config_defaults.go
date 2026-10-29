@@ -939,6 +939,6 @@ func defaultBashAllowedCommands(goos string) []string {
 		"cd", "stat", "file", "du", "test", "which", "mkdir", "touch", "cp", "mv", "rm", "ln", "chmod",
 		"env", "date", "bash", "sh",
 		"make", "go", "npm", "yarn", "pnpm", "node", "python", "python3", "pip",
-		"curl", "wget",
+		"curl", "wget", "lsof",
 	}
 }

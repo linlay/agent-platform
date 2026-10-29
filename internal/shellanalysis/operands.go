@@ -61,6 +61,8 @@ func Operands(base string, args []string) Effects {
 		return jqOperands(args)
 	case "pdftotext":
 		return pdftotextOperands(args)
+	case "lsof":
+		return lsofOperands(args)
 	case "tar", "bsdtar", "gtar":
 		return tarOperands(args)
 	case "echo", "printf", "pwd", "true", "false", "date", "sleep", "uname", "whoami", "id", "basename", "dirname", "which", "printenv", "test", "tr", "cd", "top", "free":

@@ -22,7 +22,7 @@ func TestSharedToolsTemplatePreservesPlatformDefaults(t *testing.T) {
 				t.Fatalf("Windows defaults: %v", want)
 			}
 			if goos != "windows" {
-				for _, command := range []string{"git", "dbx", "httpx", "pdftotext"} {
+				for _, command := range []string{"git", "dbx", "httpx", "pdftotext", "lsof"} {
 					found := false
 					for _, allowed := range want {
 						if allowed == command {
