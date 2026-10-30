@@ -8,11 +8,15 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"agent-platform/internal/shellreview/types"
 )
 
 // BashEnvironment inspects the actual execution filesystem. A missing/failed
 // container resolver is opaque; it must never fall back to the host PATH.
 type BashEnvironment struct {
+	// Launch is supplied only for Host commands; containers use their own Bash.
+	Launch    *types.LaunchBinding
 	Resolve   func(name, cwd string, env map[string]string) (string, error)
 	Canonical func(path, cwd string) (string, error)
 	Directory func(path string) (string, error)

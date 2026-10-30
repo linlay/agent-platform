@@ -63,7 +63,9 @@ func (s *llmRunStream) mailApprovalDelegator(calls ...*preparedToolInvocation) f
 			}
 			if isBashTool(inv.toolName) {
 				plan := review.rawBashAccessReview(&inv)
-				if plan.Blocked() || plan.RequiresApproval() {
+				// Unsupported grammar is an explicit human decision. A parent's
+				// higher level cannot turn the child's unknown call into a model grant.
+				if plan.UnknownDialect || plan.Blocked() || plan.RequiresApproval() {
 					return deny()
 				}
 				security := plan.SecurityReview(mapStringArg(inv.args, "command"), review.knownRuntimeVariables())

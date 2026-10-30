@@ -24,7 +24,7 @@ type ConnectorCall struct {
 // DirectConnectorInvocation permits credential injection only into one verified
 // child. Shell syntax/wrappers are never executed with connector credentials.
 func DirectConnectorInvocation(session QuerySession, command, cwd string, vars map[string]string) *ConnectorInvocation {
-	if session.AgentHasRuntimeSandbox {
+	if session.AgentHasRuntimeSandbox || len(session.ConnectorCLIEntries) == 0 {
 		return nil
 	}
 	cmd, ok := singleCall(command, vars)

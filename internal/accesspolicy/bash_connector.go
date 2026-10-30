@@ -1,6 +1,8 @@
 package accesspolicy
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"path"
 	"sort"
 	"strings"
@@ -135,9 +137,17 @@ func connectorReviewCommand(command string, words []bashast.WordSpan) string {
 // SecurityReview binds any residual shell approval to the original command,
 // never to the neutral projection used to exclude mounted CLI payloads.
 func (p BashPlan) SecurityReview(command string, variables map[string]string) bashsec.ReviewResult {
+	if p.UnknownDialect {
+		// The whole-call access requirement carries unsupported grammar review.
+		return bashsec.ReviewResult{Decision: bashsec.ReviewAllow}
+	}
 	result := bashsec.ReviewBashSecurityWithKnownVariables(p.ShellReviewCommand(command), variables)
 	if result.Fingerprint != "" {
 		result.Fingerprint = bashsec.ApprovalFingerprint(command)
+		if p.LaunchFingerprint != "" {
+			sum := sha256.Sum256([]byte(result.Fingerprint + "\x00" + p.LaunchFingerprint))
+			result.Fingerprint = hex.EncodeToString(sum[:])
+		}
 	}
 	return result
 }

@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
+	"agent-platform/internal/shellreview/types"
 )
 
 type BashPlan struct {
@@ -33,6 +34,11 @@ type BashPlan struct {
 	Scope         string
 	ScopeKind     string
 	ContentSHA256 string
+	// UnknownDialect prevents the Bash-only safety parser from approving or
+	// rejecting text executed by another grammar. Access policy reviews it whole.
+	UnknownDialect    bool
+	LaunchFingerprint string
+	Launch            *types.LaunchBinding
 	// UsesSSHAgent marks Git network operations that may authenticate with the
 	// user's SSH agent; only then is SSH_AUTH_SOCK passed to the process.
 	UsesSSHAgent bool

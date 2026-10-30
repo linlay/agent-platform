@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -71,101 +70,6 @@ func (s *collectingToolOutputSink) EmitToolOutput(ctx context.Context, output co
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	}
-}
-
-func TestResolveHostShellInvocationDefaultsToPowerShellOnWindows(t *testing.T) {
-	executable, args := resolveHostShellInvocation(config.BashConfig{}, "Get-Process", "windows")
-
-	if executable != "powershell.exe" {
-		t.Fatalf("expected powershell.exe, got %q", executable)
-	}
-	wantCommand := "$OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false; [Console]::OutputEncoding = $OutputEncoding; Get-Process"
-	wantArgs := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", wantCommand}
-	if !reflect.DeepEqual(args, wantArgs) {
-		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
-	}
-}
-
-func TestResolveHostShellInvocationDefaultsToUTF8CmdOnWindows(t *testing.T) {
-	executable, args := resolveHostShellInvocation(config.BashConfig{
-		ShellExecutable: "cmd.exe",
-	}, "dir", "windows")
-
-	if executable != "cmd.exe" {
-		t.Fatalf("expected cmd.exe, got %q", executable)
-	}
-	wantArgs := []string{"/d", "/s", "/c", "chcp 65001 >NUL & dir"}
-	if !reflect.DeepEqual(args, wantArgs) {
-		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
-	}
-}
-
-func TestResolveHostShellInvocationDefaultsToBashOnUnix(t *testing.T) {
-	executable, args := resolveHostShellInvocation(config.BashConfig{}, "pwd", "linux")
-
-	if executable != "bash" {
-		t.Fatalf("expected bash, got %q", executable)
-	}
-	wantArgs := []string{"--noprofile", "--norc", "-o", "pipefail", "-c", "pwd"}
-	if !reflect.DeepEqual(args, wantArgs) {
-		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
-	}
-}
-
-func TestResolveHostShellInvocationLeavesNonBashUnixDefaultsUnchanged(t *testing.T) {
-	executable, args := resolveHostShellInvocation(config.BashConfig{
-		ShellExecutable: "sh",
-	}, "pwd", "linux")
-
-	if executable != "sh" {
-		t.Fatalf("expected sh, got %q", executable)
-	}
-	wantArgs := []string{"-c", "pwd"}
-	if !reflect.DeepEqual(args, wantArgs) {
-		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
-	}
-}
-
-func TestResolveHostShellInvocationCustomBashArgsRemainAuthoritative(t *testing.T) {
-	executable, args := resolveHostShellInvocation(config.BashConfig{
-		ShellExecutable: "bash",
-		ShellArgs:       []string{"-lc", "{{command}}"},
-	}, "pwd", "linux")
-
-	if executable != "bash" {
-		t.Fatalf("expected bash, got %q", executable)
-	}
-	wantArgs := []string{"-lc", "pwd"}
-	if !reflect.DeepEqual(args, wantArgs) {
-		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
-	}
-}
-
-func TestResolveHostShellInvocationSupportsCustomArgs(t *testing.T) {
-	executable, args := resolveHostShellInvocation(config.BashConfig{
-		ShellExecutable: "cmd.exe",
-		ShellArgs:       []string{"/d", "/s", "/c", "{{command}}"},
-	}, "dir", "windows")
-
-	if executable != "cmd.exe" {
-		t.Fatalf("expected cmd.exe, got %q", executable)
-	}
-	wantArgs := []string{"/d", "/s", "/c", "dir"}
-	if !reflect.DeepEqual(args, wantArgs) {
-		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
-	}
-}
-
-func TestResolveHostShellInvocationAppendsCommandWithoutPlaceholder(t *testing.T) {
-	_, args := resolveHostShellInvocation(config.BashConfig{
-		ShellExecutable: "pwsh.exe",
-		ShellArgs:       []string{"-NoProfile", "-Command"},
-	}, "node --version", "windows")
-
-	wantArgs := []string{"-NoProfile", "-Command", "node --version"}
-	if !reflect.DeepEqual(args, wantArgs) {
-		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
 	}
 }
 
@@ -1040,15 +944,19 @@ func TestInvokeHostBashConsumesMatchingSoftSecurityApproval(t *testing.T) {
 	root := t.TempDir()
 	command := "printf ok | xargs printf"
 	execCtx := bashExecutionContext(root)
-	execCtx.BashSecurityApprovals = map[string]int{bashsec.ApprovalFingerprint(command): 1}
-	result, err := softSecurityExecutor().invokeHostBash(context.Background(), map[string]any{"command": command}, execCtx)
+	executor := softSecurityExecutor()
+	args := map[string]any{"command": command}
+	preflight := executor.ReviewBashAccess(context.Background(), args, execCtx, executor.cfg.AccessPolicy)
+	security := preflight.SecurityReview(command, bashSecurityKnownVariables(execCtx))
+	execCtx.BashSecurityApprovals = map[string]int{security.Fingerprint: 1}
+	result, err := executor.invokeHostBash(context.Background(), args, execCtx)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
 	if result.Error != "" || result.ExitCode != 0 {
 		t.Fatalf("expected approved command to execute, got %#v", result)
 	}
-	if _, ok := execCtx.BashSecurityApprovals[bashsec.ApprovalFingerprint(command)]; ok {
+	if _, ok := execCtx.BashSecurityApprovals[security.Fingerprint]; ok {
 		t.Fatalf("expected approval to be consumed, got %#v", execCtx.BashSecurityApprovals)
 	}
 }

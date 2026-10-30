@@ -7,9 +7,30 @@ import (
 	"strings"
 	"testing"
 
+	"agent-platform/internal/accesspolicy"
+	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
 )
+
+type unknownShellApprovalExecutor struct{ stubToolExecutor }
+
+func (unknownShellApprovalExecutor) ReviewBashAccess(context.Context, map[string]any, *contracts.ExecutionContext, config.AccessPolicyConfig) accesspolicy.BashPlan {
+	// At full_access an unknown call may be directly allowed, but that is not
+	// authorization for an agent to approve another run's human-only question.
+	return accesspolicy.BashPlan{Decision: accesspolicy.DecisionAllow, UnknownDialect: true}
+}
+
+func TestDelegatedApprovalCannotRelaxUnknownShellHumanReview(t *testing.T) {
+	for _, level := range []string{"ask_for_approval", "auto_approve", "full_access"} {
+		session := contracts.QuerySession{RunID: "child", AccessLevel: "ask_for_approval"}
+		s := &llmRunStream{ctx: context.Background(), session: session, engine: &LLMAgentEngine{tools: unknownShellApprovalExecutor{}}, execCtx: &contracts.ExecutionContext{Session: session}}
+		delegate := s.mailApprovalDelegator(&preparedToolInvocation{toolID: "shell-call", toolName: "bash", args: map[string]any{"command": "opaque command"}})
+		if err := delegate(context.Background(), level, queryinput.SubmitRequest{Param: queryinput.SubmitParam{"decision": "approve"}}); err == nil {
+			t.Fatalf("parent %s automatically approved unknown shell grammar", level)
+		}
+	}
+}
 
 func TestMailEnvelopeIsModelOnly(t *testing.T) {
 	raw := map[string]any{"role": "user", "content": "original input"}

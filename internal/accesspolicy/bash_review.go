@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"runtime"
 	"sort"
 	"strings"
@@ -22,7 +23,11 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 	if len(contexts) > 0 {
 		execCtx = contexts[0]
 	}
-	return reviewBashScript(cfg, session, command, cwd, variables, environment, execCtx, 0)
+	plan := reviewBashScript(cfg, session, command, cwd, variables, environment, execCtx, 0)
+	if environment != nil && environment.Launch != nil && !plan.ConnectorOnly {
+		plan = bindBashLaunch(plan, *environment.Launch)
+	}
+	return plan
 }
 
 // DefaultBashCwd is the working directory used when a Bash call names none.
@@ -90,11 +95,30 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 			add(bashPlanForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "container working directory cannot be resolved", "bash-access:complex"))
 		}
 	}
+	editingDisabled := sessionWorkspaceEditingDisabled(session)
+	if environment != nil && environment.Launch != nil && !environment.Launch.SyntaxSupported &&
+		DirectConnectorInvocation(session, command, workingDir, variables) == nil {
+		pathReview(ReadAccess, workingDir)
+		if editingDisabled && PathInSessionWorkspace(session, workingDir) {
+			add(bashPlan(command, accessLevel, DecisionBlock, workspaceReadOnlyExecutionReason, "bash-access:workspace-readonly", workingDir))
+		}
+		// Missing grammar support is always an exact human decision in the two
+		// restricted levels; auto_approve must not hide unknown remote/destructive effects.
+		decision := decisionForAction(level.Approvals.BashComplexFilesystem)
+		if decision != DecisionBlock && accessLevel != AccessLevelFullAccess {
+			decision = DecisionRequiresApproval
+		}
+		add(bashPlan(command, accessLevel, decision,
+			fmt.Sprintf("shell syntax is not analyzed (%s); executable=%q; startup=%q: %s", environment.Launch.Dialect, environment.Launch.Executable, environment.Launch.Template, environment.Launch.Reason),
+			"bash-access:complex:dialect", command))
+		plan := combineBashPlans(command, accessLevel, plans)
+		plan.UnknownDialect = true
+		return plan
+	}
 	parsed := bashast.ParseForSecurityWithKnownVariables(command, variables)
 	if len(session.ConnectorCLIEntries) > 0 {
 		parsed = bashast.ParseForExecution(command, variables)
 	}
-	editingDisabled := sessionWorkspaceEditingDisabled(session)
 	if parsed.Kind != bashast.Simple {
 		pathReview(ReadAccess, workingDir)
 		if editingDisabled && PathInSessionWorkspace(session, workingDir) {
@@ -481,11 +505,16 @@ func PendingBashPlan(ctx *ExecutionContext, p BashPlan) BashPlan {
 	result.HasConnector, result.ReviewCommand, result.ConnectorOnly = p.HasConnector, p.ReviewCommand, p.ConnectorOnly
 	result.ConnectorIDs = append([]string(nil), p.ConnectorIDs...)
 	result.ConnectorCall = p.ConnectorCall
+	result.UnknownDialect, result.LaunchFingerprint = p.UnknownDialect, p.LaunchFingerprint
+	result.Launch = p.Launch
 	return result
 }
 
 func BashPlanMetadata(p BashPlan) map[string]any {
 	out := map[string]any{"decision": string(p.Decision), "accessLevel": p.AccessLevel, "reason": p.Reason, "ruleKey": p.RuleKey}
+	if p.Launch != nil {
+		out["shell"] = map[string]any{"executable": p.Launch.Executable, "template": append([]string(nil), p.Launch.Template...), "dialect": string(p.Launch.Dialect), "syntaxSupported": p.Launch.SyntaxSupported}
+	}
 	if p.ScopeKind != "" {
 		out["scopeKind"], out["scope"] = p.ScopeKind, p.Scope
 	}

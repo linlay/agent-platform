@@ -32,7 +32,8 @@ func TestUnixDirectConnectorEntryRunsThroughItsOwnShebang(t *testing.T) {
 	ctx.Session.ConnectorDirs = map[string]string{"demo": packageRoot}
 	ctx.Session.ConnectorBinDirs = []string{bin}
 	ctx.Session.ConnectorCLIEntries = entries
-	executor := &RuntimeToolExecutor{cfg: config.Config{Bash: config.BashConfig{AllowedCommands: []string{"*"}, ShellFeaturesEnabled: true}}}
+	// Direct entry execution is independent of shell availability and grammar.
+	executor := &RuntimeToolExecutor{cfg: config.Config{Bash: config.BashConfig{AllowedCommands: []string{"*"}, ShellFeaturesEnabled: true, ShellExecutable: "/missing/configured-shell"}}}
 	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "tool.js 'a & b'"}, ctx)
 	if err != nil || result.Error != "" || result.ExitCode != 0 || !strings.Contains(result.Output, "shell:a & b") {
 		t.Fatalf("connector entry was not started by its own shebang: %+v %v", result, err)

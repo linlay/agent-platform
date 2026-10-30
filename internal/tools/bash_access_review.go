@@ -12,6 +12,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/hostshell"
 )
 
 // ReviewBashAccess preserves the runtime's execution-environment-aware review
@@ -32,11 +33,31 @@ func (t *RuntimeToolExecutor) ReviewBashAccess(ctx context.Context, args map[str
 	vars := bashSecurityKnownVariables(execCtx)
 	var environment *accesspolicy.BashEnvironment
 	if !session.AgentHasRuntimeSandbox {
+		var err error
+		execCtx, err = hostshell.FreezeContext(execCtx)
+		if err != nil {
+			return accesspolicy.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+		}
 		actual, err := t.commandEnv(execCtx)
 		if err != nil {
 			return accesspolicy.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
 		}
 		vars = bashEnvironmentVariables(actual)
+		cwd := stringArg(args, "cwd")
+		if strings.TrimSpace(cwd) == "" {
+			cwd = accesspolicy.DefaultBashCwd(session)
+		}
+		cwd, err = accesspolicy.ResolveSessionPath(session, cwd)
+		if err != nil {
+			return accesspolicy.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+		}
+		if accesspolicy.DirectConnectorInvocation(session, stringArg(args, "command"), cwd, vars) == nil {
+			launch, err := hostshell.ResolveTool(t.cfg.Bash, hostshell.Options{GOOS: t.runtimeInfo().GOOS, Command: stringArg(args, "command"), CWD: cwd, Env: actual})
+			if err != nil {
+				return accesspolicy.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+			}
+			environment = &accesspolicy.BashEnvironment{Launch: &launch.Binding}
+		}
 	}
 	if session.AgentHasRuntimeSandbox {
 		invocationEnv, err := sandboxInvocationEnvArg(args)
@@ -47,7 +68,11 @@ func (t *RuntimeToolExecutor) ReviewBashAccess(ctx context.Context, args map[str
 		vars = connector.ContainerEnvironment(vars, session.ConnectorBinDirs)
 		environment = t.sandboxBashEnvironment(ctx, execCtx)
 	}
-	return accesspolicy.ReviewBashCommandInEnvironment(cfg, session, stringArg(args, "command"), stringArg(args, "cwd"), vars, environment, execCtx)
+	plan := accesspolicy.ReviewBashCommandInEnvironment(cfg, session, stringArg(args, "command"), stringArg(args, "cwd"), vars, environment, execCtx)
+	if !t.cfg.Bash.ShellFeaturesEnabled && plan.UnknownDialect && !plan.Blocked() {
+		plan.Decision, plan.Reason = accesspolicy.DecisionBlock, "Strict command validation requires a supported shell grammar"
+	}
+	return plan
 }
 
 func bashEnvironmentVariables(env []string) map[string]string {
