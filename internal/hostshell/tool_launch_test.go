@@ -15,7 +15,7 @@ func TestToolLaunchIdentityTemplatesAndFingerprints(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix Bash launch contract")
 	}
-	if toolSystemShells["bash"].Path == "" {
+	if _, err := systemToolShell("bash", toolSystemSearchEnv); err != nil {
 		t.Skip("Bash unavailable")
 	}
 	opts := Options{GOOS: runtime.GOOS, Command: "echo ok", CWD: t.TempDir(), Env: os.Environ()}
@@ -49,6 +49,9 @@ func TestToolLaunchIdentityTemplatesAndFingerprints(t *testing.T) {
 	if err != nil || changed.Binding.ContractFingerprint == other.Binding.ContractFingerprint {
 		t.Fatal("environment must change contract binding", err)
 	}
+	if changed.Binding.RuleFingerprint != other.Binding.RuleFingerprint {
+		t.Fatal("environment changes must not narrow existing path-rule scope")
+	}
 	for _, args := range [][]string{
 		{"-lc", "{{command}}"}, {"-i", "-c", "{{command}}"},
 		{"-c", "echo hidden; {{command}}"}, {"-c", "{{command}}", "extra"},
@@ -65,6 +68,65 @@ func TestToolLaunchIdentityTemplatesAndFingerprints(t *testing.T) {
 	independent, err := ResolveTool(cfg, opts)
 	if err != nil || independent.GitBash || independent.Executable != launch.Executable {
 		t.Fatal("terminal configuration changed tool executable", err)
+	}
+}
+
+func TestSystemBashUpgradeRefreshesIdentityButInvalidatesGrants(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix package-manager installation fixture")
+	}
+	root := t.TempDir()
+	bin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	install := func(version, body string) string {
+		t.Helper()
+		path := filepath.Join(root, version, "bash")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	old := install("version-one", "fixture one")
+	link := filepath.Join(bin, "bash")
+	if err := os.Symlink(old, link); err != nil {
+		t.Fatal(err)
+	}
+	search := []string{"PATH=" + bin}
+	opts := Options{GOOS: runtime.GOOS, Command: "echo ok", CWD: root, Env: search}
+	before, err := resolveTool(config.BashConfig{}, opts, search)
+	if err != nil || !before.Binding.SyntaxSupported {
+		t.Fatal("initial system installation was not recognized", err)
+	}
+	// apt-style replacement at the same path does not revoke grammar support.
+	if err := os.WriteFile(old, []byte("upgraded bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	after, err := resolveTool(config.BashConfig{}, opts, search)
+	if err != nil || !after.Binding.SyntaxSupported || after.Binding.RuleFingerprint == before.Binding.RuleFingerprint || after.Binding.Fingerprint == before.Binding.Fingerprint {
+		t.Fatal("replacement must preserve syntax and invalidate existing grants", err)
+	}
+	// Homebrew-style symlink retargeting must use the new canonical installation.
+	newPath := install("version-two", "new installation")
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(newPath, link); err != nil {
+		t.Fatal(err)
+	}
+	next, err := resolveTool(config.BashConfig{}, opts, search)
+	if err != nil || !next.Binding.SyntaxSupported || next.Executable == after.Executable || next.Binding.Fingerprint == after.Binding.Fingerprint {
+		t.Fatal("symlink upgrade was not recognized without restart", err)
+	}
+	// A per-tool PATH is not allowed to redefine the system reference.
+	opts.Env = []string{"PATH=" + filepath.Dir(old)}
+	shadow, err := resolveTool(config.BashConfig{}, opts, search)
+	if err != nil || shadow.Binding.SyntaxSupported {
+		t.Fatal("tool PATH changed the frozen search reference", err)
 	}
 }
 
@@ -104,7 +166,7 @@ func TestToolLaunchDoesNotTrustShadowedShellOrUnstableEnv(t *testing.T) {
 func TestWindowsToolGrammarIsNeverTreatedAsBash(t *testing.T) {
 	for _, name := range []string{"powershell.exe", "pwsh.exe", "cmd.exe", "bash.exe"} {
 		program, args := ToolInvocation(config.BashConfig{ShellExecutable: name}, "{{command}}", "windows")
-		binding := classifyToolShell(program, program, "bytes", args, "windows")
+		binding := classifyToolShell(program, program, args, "windows", toolSystemSearchEnv)
 		if binding.SyntaxSupported || binding.Dialect == dialect.Bash {
 			t.Fatalf("Windows shell %q incorrectly gained Bash analysis: %+v", name, binding)
 		}

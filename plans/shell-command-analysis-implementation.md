@@ -3,6 +3,7 @@
 > 状态：实施中。首批 Host 启动绑定、基线与方言保护已实现，范围及验证见第 8 节；完整目录迁移与 PowerShell 语义仍未完成，未部署。
 > 日期：2026-10-30。评审代码基线：`509b81a5`；原方案使用本次评审读取的版本，指纹见下行。
 > 依据：[分层流水线与目录方案](shell-command-analysis.md)。本次读取版本 SHA-256：`3c4e8713b113a506c958acd285a7173cab85558c73e18291923fff08871e2092`。
+> 2026-10-30 复审：R1–R8 已并入方案正文（层次、资源三态、registry、Windows 身份与 6.6 未知方言合同），第 5 节的待定项汇总在方案 §8.2；对 `5554545f` 的代码复审发现见 §8.4。
 
 ## 1. 评审结论与本次范围
 
@@ -222,3 +223,35 @@ git diff --check
 以上均通过，部分 Go 测试命中缓存。Windows 仅交叉编译，未在 Windows 执行测试；也未做本批真实容器端到端验收。未重启或部署运行实例。
 
 下一批按 S3/S4 实施：建立中立 Invocation/Effects 合同，按命令拆迁现有分析器，统一注册及身份约束的有界包装展开。PowerShell AST 仍按 S5 提前接入，不等全部审批对象合并；真实 Windows 与容器验证未完成前保持相应状态为未验收。
+
+### 8.4 复审发现（2026-10-30，针对 `5554545f`）
+
+复审时在 macOS 上重跑 `go test ./internal/hostshell ./internal/accesspolicy ./internal/tools ./internal/llm`，全部通过。以下各项均由读代码得出，未在 Windows 上运行。
+
+| # | 级别 | 发现 | 建议 |
+| --- | --- | --- | --- |
+| 1 | P2 | 未知方言时 `BashPlan.SecurityReview` 直接返回 Allow，`reviewBashScript` 也在 `bashast` 预检之前返回，控制字符与 Unicode 空白检查都不再运行。Windows 现在每条命令都靠人读审批卡片，ESC 序列、零宽或双向控制字符可以让卡片显示的内容与实际字节不一致。另外，零宽与双向控制字符（U+200B–U+200F、U+202A–U+202E、U+2066–U+2069）目前对 Bash 也不在检查范围内 | 把与语法无关的文本检查独立出来，对所有方言（含未知方言）执行，命中即硬阻断；归入 S2 的补丁，不等 S3 |
+| 2 | P2 | `classifyToolShell` 要求 Shell 的 canonical 路径与内容摘要都等于 Platform 启动时冻结的值。apt 升级 bash、Homebrew 升级（Cellar 路径变化）后，所有 Bash 调用都转为未知方言，直到重启：ask/auto 每条命令都要人工审批。显式配置另一个 bash（如 `/usr/local/bin/bash`）也会一直走未知方言 | 方案 §8.2 第 9 项：调用时按启动 PATH 重新解析系统 Bash，比较 canonical 路径；摘要只进批准指纹 |
+| 3 | P3 | 本轮规则批准的 RuleKey 追加了 `ContractFingerprint`，其中含 cwd 与完整环境。同一路径规则换个 cwd，或 run.env 变化后就要重新批准，比改动前收窄 | 方案 §8.2 第 8 项：规则只绑定 Shell 身份、模板与方言 |
+| 4 | P3 | Shell 改为按工具环境的 PATH 解析（原先由 `exec.Command` 按 Platform 进程 PATH 解析），且 `hostenv.LookPath` 不接受 `./bash` 这类相对路径的 `shell-executable`，现在会返回 `bash_launch_unavailable`。Windows 上从商店安装的 `pwsh` 是应用执行别名（reparse point），`EvalSymlinks` 与读取内容是否成功未验证 | 相对路径要么文档写明不支持，要么在配置加载时拒绝；`pwsh` 别名列入 Windows 验收 |
+| 5 | 说明 | Windows 上关闭 Shell 特性（`shell-features-enabled: false`）后，所有命令都被拒绝；以前简单的 PowerShell 命令可以按白名单执行 | 属于有意变化；在工具目录权限文档里写明 Windows 严格模式当前不可用 |
+
+R1–R8 本次逐条核对，均成立，已并入方案。
+
+### 8.5 S2 复审补丁（2026-10-30）
+
+本批按 §8.4 修补代码，不推进 S3 或 PowerShell AST。相关进度如下：
+
+| 复审项 | 本批处理 |
+| --- | --- |
+| 1：所有方言的原始文本检查 | 已新增 `shellreview/syntax.CheckText`，在未知方言回退、连接器投影和字符串裁剪之前检查；Bash 预检也复用同一入口。控制字符、Unicode 空白、零宽/双向及其他格式控制字符、无效 UTF-8 一律硬拒绝。普通空格、Tab、LF、CRLF 允许，孤立 CR 拒绝；引号与 heredoc 不提供豁免 |
+| 2：系统 Bash 安装更新 | 已改为保存启动时的搜索路径，每次重新解析当前系统 Bash canonical 路径。文件原地替换和安装符号链接切换不取消语法支持；内容摘要仍使旧批准失效。工具环境的 PATH 不能改写系统参考路径 |
+| 3：本轮路径规则的范围 | 新增 RuleFingerprint，额外绑定只包括 Shell canonical 路径、内容摘要、模板与方言。cwd/环境只参与精确启动批准；原路径规则的目标限制以及其他规则自身的调用限制保留 |
+| 4：相对 Shell 路径与商店 pwsh | 配置 normalize 阶段拒绝相对 shell-executable，允许程序名或绝对路径；商店 pwsh 应用执行别名已列入原生 Windows 验收，尚未验证 |
+| 5：Windows 严格模式 | 已在现行工具目录权限文档中说明：不支持的 Shell 语法在严格模式下拒绝，直接连接器例外仍沿用原合同 |
+
+行为变化：此前允许的引号内全角空格、连接器 JSON 中的 Unicode 空白，现在也受统一文本检查约束。已将相关测试拆成普通中文载荷的正向用例与不可见/特殊空白载荷的拒绝用例，不因冻结 CLI 入口而跳过原始文本检查。
+
+新增回归覆盖所有方言与三档、已有批准不能放宽文本硬拒绝、原始命令裁剪前检查、真实挂载连接器、安装原地替换/符号链接切换、PATH 阴影、同一绝对目标跨 cwd/环境复用及 Shell/目标变化不复用。Windows 应用执行别名、真实系统包升级及目标环境端到端行为仍需分别验收，模拟安装测试不等于现场升级验证。
+
+本批最终验证：`go test ./...`、`git diff --check` 通过；`internal/tools` 与 `internal/config` 的 Windows amd64 测试交叉编译通过。部分测试命中缓存；没有执行原生 Windows 测试、重启或部署。当前工作区另有部署恢复相关改动，本批未修改那些文件。

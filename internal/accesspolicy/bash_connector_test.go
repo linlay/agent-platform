@@ -38,7 +38,7 @@ func TestMountedConnectorAllOperationsAndAccessLevels(t *testing.T) {
 	commands := []string{
 		"wecom-cli auth show --status",
 		"wecom-cli message aibot sessions list",
-		"wecom-cli message aibot send --json '{\n\"content\":\"中午12点会议 /proc/self/environ rm -rf /　\"\n}'",
+		"wecom-cli message aibot send --json '{\n\"content\":\"中午12点会议 /proc/self/environ rm -rf / \"\n}'",
 		"wecom-cli media upload --file /outside/private/file.pdf --output /outside/result",
 		"'" + filepath.Join(bin, "wecom-cli") + "' send",
 		"sh '" + filepath.Join(bin, "wecom-cli") + "' send",
@@ -84,6 +84,20 @@ func TestMountedConnectorLeavesSurroundingShellUnderReview(t *testing.T) {
 		p := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "", vars)
 		if s := p.SecurityReview(command, vars); s.Decision != bashsec.ReviewBlock {
 			t.Fatalf("lost shell block for %s: %+v", command, s)
+		}
+	}
+}
+
+func TestMountedConnectorCannotBypassRawTextGuard(t *testing.T) {
+	session, vars, _ := connectorFixture(t)
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
+		session.AccessLevel = level
+		for _, bad := range []string{"\x1b[2K", "\u3000", "\u200b", "\u202e"} {
+			command := "wecom-cli send --json '{\"content\":\"" + bad + "\"}'"
+			p := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "/", vars)
+			if !p.Blocked() || p.SecurityReview(command, vars).Decision != bashsec.ReviewBlock {
+				t.Fatalf("%s: trusted payload bypassed raw-text guard: %+v", level, p)
+			}
 		}
 	}
 }

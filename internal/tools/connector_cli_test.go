@@ -38,7 +38,7 @@ func TestMountedConnectorHostExecutesOriginalPayloadWithoutApprovals(t *testing.
 			ctx.Session.ConnectorBinDirs = []string{bin}
 			ctx.Session.ConnectorCLIEntries = entries
 			executor := &RuntimeToolExecutor{cfg: config.Config{Bash: config.BashConfig{ShellFeaturesEnabled: !strict}}}
-			payload := "{\n\"content\":\"中午12点会议 /proc/self/environ rm -rf /　\"\n}"
+			payload := "{\n\"content\":\"中午12点会议 /proc/self/environ rm -rf / \"\n}"
 			command := "wecom-cli message aibot send --json '" + payload + "'"
 			result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": command, "cwd": "/"}, ctx)
 			if err != nil || result.Error != "" || result.ExitCode != 0 || !strings.Contains(result.Output, payload) {

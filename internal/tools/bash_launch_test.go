@@ -125,3 +125,20 @@ func TestHostLaunchConsumesCombinedApproval(t *testing.T) {
 		t.Fatal("combined exact approval was not consumed")
 	}
 }
+
+func TestUnsafeRawTextIsRejectedBeforeTrimmingOrShellResolution(t *testing.T) {
+	executor := &RuntimeToolExecutor{cfg: config.Config{Bash: config.BashConfig{ShellExecutable: "/missing/shell", ShellFeaturesEnabled: true}}}
+	ctx := bashExecutionContext(t.TempDir())
+	ctx.Session.AccessLevel = AccessLevelFullAccess
+	for _, command := range []string{"\u00a0echo ok", "echo ok\u00a0", "echo '\u202ehidden'", "echo '\x1b[2Khidden'"} {
+		args := map[string]any{"command": command}
+		p := executor.ReviewBashAccess(context.Background(), args, ctx, executor.cfg.AccessPolicy)
+		if !p.Blocked() {
+			t.Fatalf("unsafe preflight passed: %+v", p)
+		}
+		result, err := executor.invokeHostBash(context.Background(), args, ctx)
+		if err != nil || result.Error != "bash_security_blocked" {
+			t.Fatalf("unsafe raw text reached shell launch: %+v %v", result, err)
+		}
+	}
+}

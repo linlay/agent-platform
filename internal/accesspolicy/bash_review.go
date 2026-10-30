@@ -13,12 +13,16 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/shellanalysis"
+	shellsyntax "agent-platform/internal/shellreview/syntax"
 )
 
 // maxShellScriptDepth bounds recursive analysis of literal `bash -c` scripts.
 const maxShellScriptDepth = 3
 
 func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, command, cwd string, variables map[string]string, environment *BashEnvironment, contexts ...*ExecutionContext) BashPlan {
+	if reason := shellsyntax.CheckText(command); reason != "" {
+		return bashPlan(command, sessionAccessLevel(session), DecisionBlock, reason, "bash-access:text", command)
+	}
 	var execCtx *ExecutionContext
 	if len(contexts) > 0 {
 		execCtx = contexts[0]

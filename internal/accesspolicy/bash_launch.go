@@ -8,9 +8,10 @@ import (
 )
 
 // bindBashLaunch freezes exact grants to the complete invocation and reusable
-// rules to its shell/startup/environment/cwd contract (not to the command text).
+// rules to shell identity/template/dialect. Original rule keys keep their own
+// target or invocation constraints; cwd/environment are not added to path rules.
 func bindBashLaunch(p BashPlan, launch types.LaunchBinding) BashPlan {
-	if launch.Fingerprint == "" || launch.ContractFingerprint == "" {
+	if launch.Fingerprint == "" || launch.ContractFingerprint == "" || launch.RuleFingerprint == "" {
 		p.Decision, p.Reason = DecisionBlock, "shell launch binding is incomplete"
 		return p
 	}
@@ -28,7 +29,7 @@ func bindBashLaunch(p BashPlan, launch types.LaunchBinding) BashPlan {
 		sum := sha256.Sum256([]byte(p.Fingerprint + "\x00" + launch.Fingerprint))
 		p.Fingerprint = hex.EncodeToString(sum[:])
 		if p.RequiresApproval() || p.AutoApproved() {
-			p.RuleKey += ":launch:" + launch.ContractFingerprint
+			p.RuleKey += ":launch:" + launch.RuleFingerprint
 		}
 	}
 	p.LaunchFingerprint = launch.Fingerprint

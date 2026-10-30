@@ -1,7 +1,7 @@
 # Shell 命令审批：分层流水线与目录方案
 
-> 状态：待实施方案。除附录 A 记录的局部修复外，本文内容均未实现。
-> 核对日期：2026-10-30。事实来源为本地源码、配置默认值与包测试；Windows 结论只在 macOS 上做过解析层探针，未在 Windows 上端到端运行。
+> 状态：部分实施。启动合同与方言保护（实施计划 S0–S2）已在 `5554545f` 实现；目录迁移、命令事实细化、PowerShell AST 和两套审批合并尚未实施。
+> 核对日期：2026-10-30。步骤、验收门槛与实施记录见 [实施计划](shell-command-analysis-implementation.md)，其评审意见 R1–R8 已并入本文。Windows 结论未在 Windows 上端到端运行。
 
 ## 1. 目标
 
@@ -18,9 +18,9 @@
 
 ## 2. 现状问题
 
-### 2.1 Windows：审批看的和实际跑的不是同一条命令（优先修）
+### 2.1 Windows：审批看的和实际跑的不是同一条命令
 
-Windows Host 的 Bash 工具默认用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command` 执行（`internal/tools/tool_bash.go` 的 `defaultHostShellExecutable`），但 `accesspolicy` 与 `bashsec` 始终用 Bash 语法（`bashast`，基于 mvdan/sh）解析命令。两种语法的引号、转义和分隔规则不同：
+Windows Host 的 Bash 工具默认用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command` 执行，但审查原先始终用 Bash 语法（`bashast`，基于 mvdan/sh）解析命令。两种语法的引号、转义和分隔规则不同：
 
 ```text
 echo "\" ; Remove-Item -Recurse C:\x ; echo "\"
@@ -29,18 +29,20 @@ echo "\" ; Remove-Item -Recurse C:\x ; echo "\"
 - Bash 语法：一个 `echo`，带一个字面量参数。`echo` 没有效果，审查结果为放行。
 - PowerShell：`\` 不是转义符，`;` 分隔三条语句，`Remove-Item` 会执行。
 
-解析结果已用 `go test -overlay` 探针在 macOS 上确认；"放行"由代码路径推出，未在 Windows 上端到端运行。
+解析结果已用 `go test -overlay` 探针在 macOS 上确认，未在 Windows 上端到端运行。
+
+**处理状态（`5554545f`）**：Host Bash 工具改由 `hostshell.ResolveTool` 生成工具专用启动合同，按实际 Shell 与启动模板判定方言。Windows 的 PowerShell、cmd、MSYS，以及 Unix 上非系统 Bash、登录/交互模板，都不再交给 Bash 解析器，整条命令按未知方言审批（6.6）。这只是止血：正文里的删除、远端修改仍然识别不出来，要等 PowerShell AST（6.2）。
 
 相关事实：
 
-- Host Bash 没有接 `internal/hostshell`，`tool_bash.go` 另有一份 Shell 选择逻辑；Git Bash 目前只用于 Terminal（见 [Windows Git Bash](../docs/WindowsGitBash实施进度.md)）。
+- 工具启动与 Terminal 分开；Git Bash 开关只影响 Terminal（见 [Windows Git Bash](../docs/WindowsGitBash实施进度.md)）。
 - PowerShell 先按别名、函数、cmdlet 解析命令名，再找 exe。`cat`、`ls`、`rm`、`cp`、`mv`、`sort`、`tee` 是 cmdlet 别名；Windows PowerShell 5.1 的 `curl`、`wget` 是 `Invoke-WebRequest`。按名字套用 GNU 语义是错的身份。
 - Windows 默认命令白名单是 `*`。
 - 单条直接连接器调用不经 Shell，按审查得到的 argv 直接启动，不受此问题影响。
 
 ### 2.2 一个函数做了所有层的事
 
-`reviewBashScript`（`internal/accesspolicy/bash_review.go`）约 250 行，cwd 解析、容器目录、程序身份、连接器、opaque、技能/自写脚本豁免、路径、glob、子树、Git、curl 特例、重定向、cd 跟踪和连接器汇总都在一个循环里。新增一个特殊情况只能再加一个分支。
+`reviewBashScript`（`internal/accesspolicy/bash_review.go`）约 270 行，cwd 解析、容器目录、方言早返回、程序身份、连接器、opaque、技能/自写脚本豁免、路径、glob、子树、Git、curl 特例、重定向、cd 跟踪和连接器汇总都在一个循环里。新增一个特殊情况只能再加一个分支。
 
 ### 2.3 "认识哪些命令"分散在约 9 处
 
@@ -76,55 +78,76 @@ echo "\" ; Remove-Item -Recurse C:\x ; echo "\"
 
 | 层 | 回答的问题 | 输出 | 失败时 |
 | --- | --- | --- | --- |
-| 0 方言 | 实际由哪个 Shell 执行 | `bash` / `powershell` / `container-bash` / `direct`；其他（cmd、Windows 上配置的 bash.exe）为不支持 | 不支持的方言：整条命令 Unknown(dialect) |
+| 0 启动与方言 | 实际由哪个 Shell、以什么模板执行 | LaunchSpec：Shell canonical 路径与摘要、模板、参数、有效环境、cwd、方言（已实现） | 方言或模板不支持：整条命令走未知方言合同（6.6） |
 | 1 语法 | 拆成哪些调用？有没有无法表达的 Shell 行为 | 调用列表（argv、重定向、环境赋值、源位置） | 硬阻断，或 Unknown(syntax) |
-| 2 包装 | env、nohup、nice、timeout、stdbuf、command、`bash -c`、xargs 背后实际跑什么 | 展开后的调用与 cwd、环境变化 | Unknown(wrapper) |
-| 3 身份 | argv[0] 实际是哪个程序 | Identity（见 3.2） | 未知程序 |
+| 2 身份 | 当前调用的 argv[0] 实际是哪个程序 | Identity（见 3.2） | 未知程序，即 Exec |
+| 3 包装 | 已验证的包装命令背后跑什么 | 展开后的调用，回到第 2 层重新绑定身份 | Unknown(wrapper) |
 | 4 语义 | 这组参数做什么 | Effects：Ops、Unknowns、Deps（见 4.3） | 由命令文件给出 Unknown |
-| 5 资源 | 这些路径和依赖实际是什么 | canonical 路径、空设备、glob 展开、Git 状态、脚本摘要 | 无法解析：Unknown(path) |
+| 5 资源 | 这些路径和依赖实际是什么 | 每项为 Known / Unresolved / HardViolation | Unresolved 为 Unknown(path)；HardViolation 直接阻断 |
 | 6 策略 | 每个事实对应哪条政策 | 一组 Requirement（block / hitl / auto / allow） | — |
-| 7 合并 | 整条命令怎么审批？批准绑定什么 | BashPlan（叶子要求、指纹、展示原因） | — |
+| 7 合并 | 整条命令怎么审批？批准绑定什么 | BashPlan（叶子要求、指纹、启动绑定） | — |
 
-预审和启动前复审都完整运行 0–7 层；启动前复审使用实际子进程环境，只有这次复审消费一次性批准（与现状一致）。
+第 2、3 层是有界交替，不是两个单向阶段：先绑定身份，只有已验证的方言内建包装、系统包装或系统解释器才展开；展开出的子调用回到第 2 层重新绑定。若按名字展开 Workspace 里同名的假 `env`、`bash`，只审内层命令，就会漏掉实际执行的外层程序（R1）。现有 `analyzeBashExecution` 已先识别身份再展开，重构必须保持。
+
+预审与启动前复审都完整运行 0–7 层，共用同一份 LaunchSpec。启动前重新解析 Shell，指纹不一致返回 `bash_launch_changed`；只有启动前复审消费一次性批准（已实现）。
 
 ### 3.2 各层合同
 
-**0 方言**：由 `hostshell` 根据 Shell 配置、GOOS 和是否容器给出，Host Bash 的启动也使用同一结果，保证审查与执行方言一致。单条直接连接器调用的方言是 `direct`，不经 Shell。
+**0 启动与方言**（已实现）：`hostshell.ResolveTool` 生成 Bash 工具专用的 LaunchSpec，与 Terminal、Git Bash 开关分开；Unix 默认参数保持 `--noprofile --norc -o pipefail -c`。只有同时满足以下条件，才是 Bash 方言且进入语法分析：
+
+- Shell 是按 Platform 启动时保存的搜索路径重新解析的系统 Bash，比较当前 canonical 路径；内容摘要只绑定批准，安装升级和符号链接切换后无需为语法识别重启 Platform（S2 复审补丁）。
+- 模板只含已知的非交互参数，并且最后是一个 `-c {{command}}`。
+
+其余都是不支持的方言或模板：Windows 的 PowerShell、cmd、bash.exe（MSYS），以及其他 Shell、登录/交互模板、附加源码的模板。容器使用容器内 bash，不经 LaunchSpec。单条直接连接器调用不经 Shell。
 
 **1 语法**：每种方言一个解析器，输出相同的调用结构。Bash 使用 mvdan/sh；PowerShell 使用 PowerShell 自带的 AST 解析器（6.2）。Shell 级硬阻断归这一层：
 - Bash：控制字符、Unicode 空白、IFS、`/proc/*/environ`、`eval`/`source`/`exec`/`trap`/`alias` 等改变 Shell 自身状态的内建命令、zsh 模块命令。`bashsec` 与严格模式的同类名单合并到这里。
 - PowerShell：改变命令解析的命令（6.2）。
+- 所有方言（包括未知方言）：控制字符、Unicode 空白、零宽与双向控制字符。这些检查与语法无关；未知方言只能靠人工审批时，审批卡片上的命令必须与实际字节一致。
 
-**2 包装**：只有一份实现。包装命令不授予目标额外权限；`bash -c` 的字面量脚本回到第 1 层递归，深度上限只有一个常量；`xargs`、`find -exec` 的运行时目标无法静态确定，产出 Exec。
-
-**3 身份**：
+**2 身份**：
 
 | Identity 类型 | 判定 | 后续 |
 | --- | --- | --- |
 | ShellBuiltin | 方言内建命令（未被包装命令绕过） | 进入第 4 层 |
 | System | canonical 路径等于启动时记录的系统安装 | registry 中有分析器则进入第 4 层，否则 opaque |
 | PlatformBuiltin | rg、pdftotext、dbx、httpx 等平台内置程序的 canonical 路径 | 同上 |
-| Cmdlet | PowerShell 中名称（含别名）解析为内置模块的 cmdlet | 以正式名查 registry，有分析器则进入第 4 层，否则 Exec |
+| Cmdlet | PowerShell 中名称（含别名）解析为可信内置模块的 cmdlet | 以正式名查 registry，有分析器则进入第 4 层，否则 Exec |
 | Connector | 已挂载连接器的冻结入口，路径与摘要核验通过 | 连接器规则，不走命令分析 |
-| Interpreter | 系统解释器加脚本（含 shebang） | Exec；可能被技能脚本或自写脚本凭据豁免 |
+| Interpreter | 系统解释器加脚本（含 shebang） | Exec；可能被技能脚本或自写脚本凭据抵消 |
 | BuildTool | go、npm、make 等 | Exec |
 | Shadowed | PowerShell 函数、外部脚本、非内置模块命令，或指向它们的别名 | Exec |
 | Unknown | 其他 | Exec |
 
 同名 Workspace 程序、PATH 前置目录中的同名程序都拿不到 System 身份。PowerShell 中只有解析为外部程序（Application）的名字才可能取得 System / PlatformBuiltin 身份（6.3）。
 
+**3 包装**：只有一份实现。只展开第 2 层确认过的包装；包装不授予目标额外权限；外围的重定向、环境与 cwd 变化保留。`bash -c` 的字面量脚本回到第 1 层递归，深度上限只有一个常量；`xargs`、`find -exec` 的运行时目标无法静态确定，产出 Exec。
+
 **4 语义**：命令文件是纯函数，不做 IO、不读部署凭据。输入 argv，输出事实。详见第 4 节。
 
-**5 资源**：解析相对路径、symlink/junction、容器 guest 路径、glob；识别空设备；核验 Git 配置与 hooks；对脚本和入口计算摘要。只有这一层和第 3 层访问文件系统或容器探针。
+**5 资源**：解析相对路径、symlink/junction、容器 guest 路径、glob；识别空设备；核验 Git 配置与 hooks；对脚本和入口计算摘要。只有这一层和第 2 层访问文件系统或容器探针。每个结果三选一（R6）：
+
+| 结果 | 含义 | 去向 |
+| --- | --- | --- |
+| Known | 已确认的路径、设备、依赖状态 | 按事实查表 |
+| Unresolved | 无法确定：不支持的路径形式、探针暂不可用 | Unknown(path)，走 complex |
+| HardViolation | 已确认命中 readonly、平台保护目录、临时根逃逸、非法路径 | 直接阻断，任何档位与批准都不能放宽 |
+
+探针失败不能擦掉已经发现的 HardViolation，也不能覆盖已识别的读写、删除和远端事实。
 
 **6 策略**：见 3.3、3.4。
 
-**7 合并**：沿用现有 BashPlan 的叶子要求、指纹、规则批准与精确批准语义；Bash 工具只有这一种审批对象（阶段 5 合并 `bashsec` 的批准）。
+**7 合并**：沿用现有 BashPlan 的叶子要求、规则批准与精确批准语义。每个叶子关联调用、事实来源（argv 下标、规则）与启动绑定：
+
+- 精确批准绑定完整调用：命令正文加 LaunchSpec 指纹。
+- 本轮规则批准追加 Shell 身份（canonical 路径及摘要）、模板与方言指纹；不额外加入 cwd、完整环境或命令正文，原规则自身的目标/调用限制不变（S2 复审补丁，见 §8.2 第 8 项）。
+
+S7 合并 `bashsec` 的批准时，保持 HITL 公开形状与规则语义，协议调整另行讨论。
 
 ### 3.3 策略层判断顺序
 
-1. **硬阻断**（任何档位、任何批准都不能放宽）：Shell 级硬阻断、readonly 与可信只读根、平台保护目录（StateDir、identity）、临时根逃逸、递归目标包含受保护子树、容器 glob、editing=false 时在 Workspace 内写入或执行 Exec。
-2. **身份豁免**：连接器入口、本次选中技能脚本、本 Run 自写脚本，只抵消对应调用的 Exec，不抵消它可见的文件、远端或破坏性事实。
+1. **硬阻断**（任何档位、任何批准都不能放宽）：Shell 级硬阻断、资源层 HardViolation、递归目标包含受保护子树、容器 glob、editing=false 时在 Workspace 内写入或执行 Exec、管理员显式 block。
+2. **按合同抵消**：资源层确认的空设备只抵消该 Output 的路径要求；连接器入口、本次选中技能脚本、本 Run 自写脚本的凭据只抵消对应调用的 Exec。两者都不能删除兄弟要求（R8）。
 3. **逐个事实查映射表**（3.4）。
 4. **合并**：同一调用的多个要求各自成为叶子，规则批准只覆盖对应叶子。
 
@@ -135,17 +158,19 @@ echo "\" ; Remove-Item -Recurse C:\x ; echo "\"
 | 事实 | 条件 | 政策键 |
 | --- | --- | --- |
 | Read | 越出读根 | `read-outside-roots` |
-| Output / Create / Delete / Rename / Chmod | 越出写根 | `write-outside-roots` |
+| Output / Create / Delete / Rename / Chmod / Link | 越出写根 | `write-outside-roots` |
 | 同上 | 在写根内 | `bash-write-in-write-roots` |
 | 写入 Git 可执行配置路径 | — | `executable-config`（由路径规则判定，现状） |
 | Output | 目标经第 5 层确认为空设备 | 无要求 |
 | Delete（递归）/ Discard（丢弃未提交修改） | — | `destructive` |
 | RemoteMutation | — | `remote-mutation` |
-| Exec、UnknownBehavior、Dep 核验失败 | 无身份豁免 | `bash-opaque-command` |
-| UnknownOption | — | 可见文件升级为写入（现状；是否追加审批见待决定 1） |
-| Unknown(syntax / wrapper / path / dialect)、动态 cwd、动态值 | — | `bash-complex-filesystem` |
+| Exec、UnknownBehavior、Dep 核验失败 | 无凭据抵消 | `bash-opaque-command` |
+| UnknownOption | — | 现状只把可见文件升级为写入；建议另加 `bash-complex-filesystem`（待确认 1） |
+| Unknown(syntax / wrapper / path)、动态 cwd、动态值 | — | `bash-complex-filesystem` |
+| 不支持的方言或启动模板 | — | 未知方言合同（6.6，已实现） |
+| HardViolation | — | block |
 
-默认三档（`internal/config/config_defaults.go`）：
+默认三档（`internal/config/config_defaults.go`；最后一行是代码中的固定合同，不是配置项）：
 
 | 政策键 | ask_for_approval | auto_approve | full_access |
 | --- | --- | --- | --- |
@@ -154,15 +179,17 @@ echo "\" ; Remove-Item -Recurse C:\x ; echo "\"
 | bash-write-in-write-roots | allow | allow | allow |
 | bash-opaque-command / bash-complex-filesystem | hitl | auto | allow |
 | destructive / executable-config / remote-mutation | hitl | hitl | allow |
+| 未知方言 | 单次人工 | 单次人工 | 按 `bash-complex-filesystem` |
 
 ### 3.5 不变式
 
 1. 命令文件只产出事实，永远不返回 allow 或 hitl。
-2. 命令文件只能增加要求，不能减少。唯一的"减法"是第 5 层的空设备规则，且只对 Output 生效；Delete、Chmod、Rename 指向空设备不豁免。
+2. 命令文件只能增加要求。要求只能按 3.3 第 2 步的两类合同、在各自范围内抵消，不能删除兄弟要求。
 3. Unknown 与已识别的事实同时保留：未知参数之前识别出的删除、上传不会丢。
 4. 命令名单只有 registry 一处；身份层、opaque 判定、解释器列表都从 registry 读。部署白名单 `bash.allowed-commands` 仍独立，登记分析器不等于默认允许。
-5. 方言没有解析器时，整条命令记为 Unknown(dialect)，不经过任何"简单命令"快速放行。
+5. 方言或启动模板不支持时，整条命令走未知方言合同，不经过任何"简单命令"快速放行（已实现）。
 6. 既有的连接器、技能脚本、自写脚本凭据合同不变，重构不能扩大它们的豁免范围。
+7. 预审与执行使用同一份 LaunchSpec；Shell、模板、环境或 cwd 变化使旧批准失效（已实现）。
 
 ## 4. 命令知识：registry 与命令文件
 
@@ -170,18 +197,21 @@ echo "\" ; Remove-Item -Recurse C:\x ; echo "\"
 
 ```go
 type Command struct {
-    Names   []string               // 名称与别名，如 awk/gawk/mawk/nawk
-    Kind    Kind                   // Analyzed / ShellBuiltin / Wrapper / Interpreter / BuildTool
-    Source  Source                 // System / PlatformBuiltin / Cmdlet
-    Options *OptionSpec            // 声明表：带值/不带值/可选值，值是读文件、写文件、目录、URL 还是普通值
-    Analyze func(p Parsed, e *Effects) // 声明表表达不了的条件；可为空
+    Dialect dialect.Dialect          // 按方言登记：Bash 的 rm 与 PowerShell 的 Remove-Item 是不同条目
+    Names   []string                 // 名称与别名，如 awk/gawk/mawk/nawk
+    Kind    Kind                     // Analyzed / ShellBuiltin / Wrapper / Interpreter / BuildTool
+    Sources []Source                 // 允许的身份来源：System / PlatformBuiltin / Cmdlet，可多个
+    Options *OptionSpec              // 声明表：带值/不带值/可选值，值是读文件、写文件、目录、URL 还是普通值
+    Analyze func(p Parsed, e *types.Effects) // 声明表表达不了的条件；可为空
 }
 ```
 
-- 简单命令只写 `Options`，由共享解析器得出文件操作数。
-- 有子命令、内嵌语言或特殊条件的命令写 `Analyze`。
+- 按 Dialect + Name 查找；同名程序在不同方言下互不借用语义（R7）。
+- `Sources` 允许一个名字同时有系统安装与平台内置两种来源，身份层按实际来源核对。
+- 简单命令只写 `Options`，由共享解析器得出文件操作数；有子命令、内嵌语言或特殊条件的命令写 `Analyze`。
 - `Kind` 取代 `ordinaryCommands`、`shellBuiltins`、`wrapperNames`、`isInterpreter`、`isOpaqueCommand`。启动时记录系统安装路径的名单也从 registry 生成。
 - cmdlet 只按正式名登记（`Remove-Item`），别名到 cmdlet 的解析归身份层（`identity/powershell.go`）。
+- 中立类型（Invocation、Effects、Op、Unknown、Dep、证据）放在只依赖标准库的 `shellreview/types`。`commands` 根包只聚合描述符，各命令分析器与 `commands/powershell` 只依赖 `types` 与 `options`，避免父子包循环（R7）。
 
 ### 4.2 命令文件示例
 
@@ -190,11 +220,12 @@ type Command struct {
 ```go
 // commands/curl.go
 var curl = Command{
+    Dialect: dialect.Bash,
     Names:   []string{"curl"},     // PS 5.1 的 curl 别名由身份层解析为 Invoke-WebRequest，不归这里
     Kind:    Analyzed,
-    Source:  System,
+    Sources: []Source{System},
     Options: curlOptions,          // -o/--output 为写文件，-T 为读文件，-d/-F 为远端数据……
-    Analyze: func(p Parsed, e *Effects) {
+    Analyze: func(p Parsed, e *types.Effects) {
         e.Output(p.Values("o", "output")...)            // 空设备由资源层识别，这里不判断
         if p.MethodNot("GET", "HEAD", "OPTIONS") || p.HasAny("d", "F", "T", "json") {
             e.RemoteMutation("curl:method-or-data")
@@ -228,11 +259,16 @@ type Effects struct {
 }
 
 type Op struct {
-    Kind      OpKind // Read / Output / Create / Delete / Rename / Chmod / Exec / RemoteMutation / RepoWrite / Discard
-    Path      string // 文件类操作的原始操作数，由资源层解析
+    Kind      OpKind   // Read / Output / Create / Delete / Rename / Chmod / Link / Exec / RemoteMutation / RepoWrite / Discard
+    Targets   []Target // 文件类操作的目标；复制、移动、链接有多个
     Recursive bool
-    Arg       int    // 证据：argv 下标
-    Rule      string // 证据：规则 ID，如 "curl:-o"
+    Arg       int      // 证据：argv 下标
+    Rule      string   // 证据：规则 ID，如 "curl:-o"
+}
+
+type Target struct {
+    Path string // 原始操作数，由资源层解析
+    Role Role   // Source / Destination / Replaced / LinkTarget
 }
 
 type Unknown struct {
@@ -248,15 +284,15 @@ type Dep struct {
 }
 ```
 
-`Arg` 与 `Rule` 用于 HITL 展示原因，以及说明哪些输入变化会使批准失效。字段名称在实现阶段确定，含义以本节为准。
+复制、移动、链接必须同时检查源、目标、被替换对象与递归范围（R7）。`Arg` 与 `Rule` 用于 HITL 展示原因，以及说明哪些输入变化会使批准失效。字段名称在实现阶段确定，含义以本节为准。
 
 ### 4.4 新增或修改命令的检查清单
 
 每个命令文件的注释或测试需要回答：
 
-1. 识别哪个实际程序与别名？同名 Workspace/PATH 程序如何拿不到 System 身份？
+1. 按哪个方言登记？识别哪个实际程序、别名与身份来源？同名 Workspace/PATH 程序如何拿不到 System 身份？
 2. 哪些参数带值、可选值？组合短参数和 `--` 怎么解释？
-3. 哪些值是文件、目录、URL、表达式、脚本？各自是 Read、Output、Delete、Rename、Chmod，还是递归范围？
+3. 哪些值是文件、目录、URL、表达式、脚本？各自是 Read、Output、Delete、Rename、Chmod、Link，还是递归范围？多目标操作的每个角色是什么？
 4. 是否读取默认配置、环境、插件、hooks？由资源层核验，还是记为 UnknownBehavior？
 5. 哪些参数会启动其他程序或让目标在运行时才确定？
 6. 未知选项、缺失参数如何返回，是否保留已识别的危险事实？
@@ -268,86 +304,95 @@ type Dep struct {
 ### 5.1 目标结构
 
 ```text
-internal/shellreview/              # Shell 审批唯一入口
-  review.go                        # Review(Input) BashPlan：按层调用，不出现任何命令名
-  input.go                         # 命令、cwd、环境、方言、session、执行环境探针
-  dialect/                         # 第0层：方言枚举（叶子包，hostshell 也依赖它）
+internal/hostshell/tool.go           # 第0层（已实现）：工具专用 LaunchSpec 与方言判定，与 Terminal 分开
+internal/shellreview/                # Shell 审批唯一入口
+  review.go                          # Review(Input) BashPlan：按层调用，不出现任何命令名
+  input.go                           # 命令、cwd、环境、LaunchSpec、session、执行环境探针
+  dialect/                           # 方言枚举（已建；叶子包，hostshell 也依赖它）
+  types/                             # 中立类型（已建 LaunchBinding）；后续加入 Invocation、Effects、Op、Unknown、Dep
   syntax/
-    invocation.go                  # 各方言共用的调用结构
-    bash/                          # 第1层 Bash：现 bashast + bashsec 的 Shell 级检查
-    powershell/                    # 第1层 PowerShell（阶段 6a）
-      helper.ps1                   # 固定 helper 脚本（go:embed）：只解析，不执行
-      helper.go                    # 常驻 helper 进程：启动、请求、超时、重启
-      ast.go                       # AST 节点白名单 → 调用结构；硬阻断名单
-  unwrap/                          # 第2层：包装命令与 bash -c，只此一份
-  identity/                        # 第3层
-    identity.go                    # Identity 类型与 Resolve 入口
-    unix.go                        # PATH 解析、系统安装记录
-    windows.go                     # PATHEXT 解析
-    powershell.go                  # 别名 → 函数 → cmdlet → 外部程序；内置模块判定
-    container.go                   # 容器内解析探针
-    scripts.go                     # 解释器脚本识别、shebang
-    connector.go                   # 连接器入口核验与直接调用
-  commands/                        # 第4层：纯函数，无 IO
-    registry.go                    # Command 表、Kind、Lookup
-    effects.go                     # Op / Unknown / Dep
-    options.go                     # 共享选项解析
-    simple.go                      # echo printf pwd true false date sleep uname whoami id basename dirname which printenv test tr cd top free
-    files.go                       # cat head tail wc file stat readlink realpath cut sort uniq du ls diff grep rg
-    fileops.go                     # mkdir touch tee chmod rmdir rm cp mv ln
+    bash/                            # 第1层 Bash：现 bashast + bashsec 的 Shell 级检查
+    powershell/                      # 第1层 PowerShell（S5）
+      helper.ps1                     # 固定 helper 脚本（go:embed）：只解析，不执行
+      helper.go                      # helper 进程：启动、请求、超时、输出上限
+      ast.go                         # AST 节点白名单 → 调用结构；硬阻断名单
+    text.go                          # 与语法无关的文本检查：控制字符、Unicode 空白、零宽与双向控制字符
+  identity/                          # 第2层
+    identity.go                      # Identity 类型与 Resolve 入口
+    unix.go                          # PATH 解析、系统安装记录
+    windows.go                       # PATHEXT 解析
+    powershell.go                    # 别名 → 函数 → cmdlet → 外部程序；可信模块判定
+    container.go                     # 容器内解析探针
+    scripts.go                       # 解释器脚本识别、shebang
+    connector.go                     # 连接器入口核验与直接调用
+  unwrap/                            # 第3层：包装命令与 bash -c，只此一份；由 review.go 与身份交替调度
+  commands/                          # 第4层：纯函数，无 IO
+    registry.go                      # 描述符聚合、Kind、按 Dialect + Name 查找
+    options.go                       # 共享选项解析
+    simple.go                        # echo printf pwd true false date sleep uname whoami id basename dirname which printenv test tr cd top free
+    files.go                         # cat head tail wc file stat readlink realpath cut sort uniq du ls diff grep rg
+    fileops.go                       # mkdir touch tee chmod rmdir rm cp mv ln
     curl.go  wget.go  lsof.go  git.go  find.go
     sed.go   awk.go   jq.go    tar.go  pdftotext.go
-    *_test.go                      # 每个命令文件各自的语义测试
-    powershell/                    # cmdlet 分析器（阶段 6b）
-      params.go                    # 参数绑定：大小写、前缀缩写、位置参数、公共参数
-      items.go                     # Get-ChildItem Get-Content Copy-Item Move-Item Remove-Item New-Item Set-Content Out-File …
-      web.go                       # Invoke-WebRequest Invoke-RestMethod
-  resources/                       # 第5层
-    paths.go                       # 相对路径、glob、容器目录
-    windows.go                     # 盘符、UNC、ADS、PowerShell provider 路径
-    devices.go                     # 空设备：Unix /dev/null；Windows NUL、$null 及保留设备名
-    gitstate.go                    # Git 配置与 hooks 核验
-    fingerprint.go                 # 执行环境与内容版本指纹
-  policy/                          # 第6层
-    hardlimits.go                  # 3.3 第 1 步
-    exemptions.go                  # 3.3 第 2 步
-    mapping.go                     # 3.4 映射表
-  plan/                            # 第7层
-    plan.go                        # BashPlan 与构造
-    combine.go                     # 合并、待批准叶子、审批规则
-    approval.go                    # 批准登记、查询、消费、来源与元数据
+    *_test.go                        # 每个命令文件各自的语义测试
+    powershell/                      # cmdlet 分析器（S8）
+      params.go                      # 参数绑定：大小写、前缀缩写、位置参数、公共参数
+      items.go                       # Get-ChildItem Get-Content Copy-Item Move-Item Remove-Item New-Item Set-Content Out-File …
+      web.go                         # Invoke-WebRequest Invoke-RestMethod
+  resources/                         # 第5层
+    result.go                        # Known / Unresolved / HardViolation
+    paths.go                         # 相对路径、glob、容器目录
+    windows.go                       # 盘符、UNC、ADS、PowerShell provider 路径
+    devices.go                       # 空设备：确认实际设备身份；Unix /dev/null、Windows NUL 与 $null
+    gitstate.go                      # Git 配置与 hooks 核验
+    fingerprint.go                   # 执行环境与内容版本指纹
+  policy/                            # 第6层
+    hardlimits.go                    # 3.3 第 1 步
+    offsets.go                       # 3.3 第 2 步：空设备与凭据抵消
+    mapping.go                       # 3.4 映射表
+  plan/                              # 第7层
+    plan.go                          # BashPlan 与构造
+    launch.go                        # 启动绑定（现 accesspolicy/bash_launch.go）
+    combine.go                       # 合并、待批准叶子、审批规则
+    approval.go                      # 批准登记、查询、消费、来源与元数据
 ```
 
 ### 5.2 现有代码去向
 
 | 现有位置 | 去向 |
 | --- | --- |
+| `tools/tool_bash.go` 的 `resolveHostShellInvocation` 等 | 已移到 `hostshell.ToolInvocation` / `ResolveTool`（`5554545f`） |
 | `internal/bashast/*` | `syntax/bash/` |
-| `internal/bashsec/bash_checks.go`、`bash_patterns.go`、`bash_security.go`、`bash_ast.go` | `syntax/bash/`（Shell 级硬阻断）；审批结果并入 `plan/`（阶段 5） |
+| `internal/bashsec/bash_checks.go`、`bash_patterns.go`、`bash_security.go`、`bash_ast.go` | `syntax/bash/`（Shell 级硬阻断）与 `syntax/text.go`；审批结果并入 `plan/`（S7） |
 | `internal/bashsec/bash_wrappers.go`、`accesspolicy.unwrapExecution`、`shellanalysis/command.go` | `unwrap/` |
 | `accesspolicy/bash_execution.go` | `identity/`（身份）与 `unwrap/`（包装） |
 | `accesspolicy/bash_connector.go`、`connector_invocation.go` | `identity/connector.go` |
-| `internal/shellanalysis/*` | `commands/`（`operands.go` 的 switch 拆进各命令文件，`specs.go` 拆成各命令的 `Options`） |
+| `internal/shellanalysis/*` | `commands/`（`operands.go` 的 switch 拆进各命令文件，`specs.go` 拆成各命令的 `Options`）；`Effects` 移到 `types/` |
 | `accesspolicy/git_state.go`、`bash_environment.go`、Bash 用的 glob 展开 | `resources/` |
 | `accesspolicy/bash_review.go` | `review.go`、`policy/`、`plan/` |
-| `accesspolicy/bash.go` | `plan/`（BashPlan、批准）与 `resources/`（重定向分类） |
-| `tools/tool_bash.go` 的 `resolveHostShellInvocation`、`unsupportedBashCommands` | 前者改用 `hostshell`；后者并入 `syntax/bash/` |
+| `accesspolicy/bash.go`、`bash_launch.go` | `plan/`（BashPlan、启动绑定、批准）与 `resources/`（重定向分类） |
+| `tools/tool_bash.go` 的 `unsupportedBashCommands` | `syntax/bash/` |
 
-保留不动：`internal/accesspolicy` 只保留文件工具也要用的通用路径策略（`BuildPathPlan`、`BuildSubtreePlan`、档位、session 路径解析、保护目录）；`internal/hostshell` 负责启动并给出方言；`internal/shellenv`、`internal/scriptstate`、`internal/skillsexec` 不变。
+保留不动：`internal/accesspolicy` 只保留文件工具也要用的通用路径策略（`BuildPathPlan`、`BuildSubtreePlan`、档位、session 路径解析、保护目录）；`internal/hostshell` 负责启动合同；`internal/shellenv`、`internal/scriptstate`、`internal/skillsexec` 不变；进程启动、凭据注入与进程生命周期仍归 `tools`。
 
-旧包与旧 API 一次切换，调用方（`internal/tools`、`internal/llm`）在同一变更中改完，不保留转发别名。
+迁移某个旧入口时，同一变更改完所有调用方（`internal/tools`、`internal/llm`）并删除旧入口，不保留转发别名。两套授权对象在 S7 之前按现有合同共存，纯搬家时不改它们的形状。
 
 ### 5.3 依赖方向
 
 ```text
-tools, llm ──> shellreview ──> syntax/*, unwrap, identity, commands, resources, policy, plan
-                                     resources, policy ──> accesspolicy（通用路径策略）
-hostshell ──> shellreview/dialect（叶子包）
-commands：只依赖标准库
-syntax/bash：只依赖 mvdan/sh
-syntax/powershell：启动平台自带的 helper 进程，不执行被审查的命令
-accesspolicy：不依赖 shellreview
+hostshell ─────────────> shellreview/dialect, shellreview/types
+tools / llm ───────────> shellreview
+shellreview ───────────> syntax / identity / unwrap / commands / resources / policy / plan
+上述各层 ──────────────> types / dialect（中立叶子包，只依赖标准库）
+commands（聚合）───────> 各命令分析器 / commands/powershell
+命令分析器 ────────────> types / options（纯函数）
+resources / policy ────> accesspolicy（通用路径策略）
+syntax/bash ───────────> mvdan/sh
+syntax/powershell ─────> 启动平台自带的 helper 进程，不执行被审查的命令
+accesspolicy ──────────> 不依赖 shellreview
 ```
+
+递归（`bash -c`、身份—包装交替）由 `review.go` 调度，子包不反向调用 review。收据登记与消费使用窄接口，不把整个 ExecutionContext 交给纯分析器。
 
 ## 6. Windows
 
@@ -355,14 +400,15 @@ accesspolicy：不依赖 shellreview
 
 ### 6.1 方言矩阵
 
-| 执行环境 | 实际执行 | 现状 | 目标 |
+| 执行环境 | 实际执行 | 现状（`5554545f`） | 目标 |
 | --- | --- | --- | --- |
-| Unix/macOS Host | `bash --noprofile --norc -o pipefail -c` | Bash 审查，一致 | 不变 |
-| 容器（含 Windows 宿主上的容器） | 容器内 bash | Bash 审查，一致 | 不变 |
-| Windows Host 默认 | `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command`，或配置的 `pwsh` | 按 Bash 审查，不一致 | 阶段 0 闸门；阶段 6a 起按 PowerShell AST 审查 |
-| Windows 配置 `cmd` | `cmd.exe /d /s /c` | 按 Bash 审查，不一致 | 始终 Unknown(dialect)，不支持 cmd 语法 |
-| Windows 配置 `bash.exe` | MSYS bash | Bash 语法一致，MSYS 路径未映射 | 始终 Unknown(dialect)；Git Bash 启用时另行设计 |
-| 单条直接连接器调用 | 不经 Shell，按 argv 启动 | 一致 | 不变 |
+| Unix/macOS Host，系统 Bash + 默认模板 | `bash --noprofile --norc -o pipefail -c` | Bash 语义分析 | 不变 |
+| Unix 配置其他 Shell、非系统 Bash、登录/交互或附加源码模板 | 按配置 | 未知方言合同 | 不变，不计划支持 |
+| 容器（含 Windows 宿主上的容器） | 容器内 bash | Bash 语义分析 | 不变 |
+| Windows Host 默认 | `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command`，或配置的 `pwsh` | 未知方言合同 | S5 起按 PowerShell AST 审查 |
+| Windows 配置 `cmd` | `cmd.exe /d /s /c` | 未知方言合同 | 不变，不支持 cmd 语法 |
+| Windows 配置 `bash.exe` | MSYS bash | 未知方言合同 | 不变；Git Bash 启用时另行设计 |
+| 单条直接连接器调用 | 不经 Shell，按 argv 启动 | 冻结 argv 合同 | 不变 |
 
 ### 6.2 PowerShell 语法：自带 AST 解析器
 
@@ -370,8 +416,9 @@ accesspolicy：不依赖 shellreview
 
 - 用与执行相同的 PowerShell 可执行文件解析。`powershell.exe`（5.1）与 `pwsh`（7）语法不同，例如 `&&`、`||` 只有 7 支持，所以不能用一个版本代替另一个。
 - 平台自带一个固定 helper 脚本（`go:embed`），以 `-NoProfile -NonInteractive` 启动，只调用 `[System.Management.Automation.Language.Parser]::ParseInput`，不执行被审查的命令。命令文本经 stdin 传入，不拼接进 helper 脚本或命令行。
-- helper 输出 JSON：语句、调用、参数、重定向，以及每个命令名的解析结果（6.3）。Go 端按下方白名单映射为与 Bash 相同的调用结构。
-- 常驻：每个 PowerShell 可执行文件一个 helper 进程，按行收发 JSON；超时或崩溃即重启。helper 不可用、有解析错误或输出不符合预期时，整条命令为 Unknown(dialect)。
+- helper 使用与执行相同的环境（PATH、PATHEXT、PSModulePath）与 cwd，输出 JSON：语句、调用、参数、重定向，以及每个命令名的解析结果（6.3）。Go 端按下方白名单映射为与 Bash 相同的调用结构。
+- 生命周期：先做无状态请求，每次审查启动一次 helper，正确性优先；有基准数据后再考虑常驻。常驻时每个请求带独立 ID、超时与输出上限，不在不同 Run 之间共享环境或会话状态（R4）。
+- helper 不可用、有解析错误、超时或输出不符合预期时，整条命令走未知方言合同。
 - 解析对象是用户命令本身。平台前置的 UTF-8 输出设置和 `$env:PATH=` 环境绑定是固定模板，由单独测试覆盖其转义。
 - 预审与启动前复审都重新解析，不复用缓存的 AST。
 
@@ -392,70 +439,110 @@ accesspolicy：不依赖 shellreview
 
 **硬阻断**：改变后续命令解析的命令。它们会让同一条命令里后面的调用身份判断出错，与 Bash 的 `alias`、`source` 同类：`Set-Alias`、`New-Alias`（及别名 `sal`、`nal`）、`Import-Module`（`ipmo`）、对 `Alias:`、`Function:` 驱动器的写入。
 
-**外部程序参数**：PowerShell 5.1 与 7.3+ 向 exe 传参的引号规则不同。参数含 `"`、为空字符串或含需要转义的字符时为 Unknown(syntax)，避免审查的 argv 与 exe 实际收到的不一致。
+**外部程序参数**：AST 只给出 PowerShell 层面的参数，不能证明 exe 实际收到相同的 argv。PowerShell 5.1 与 7.3+ 向 exe 传参的引号规则不同（受 `$PSNativeCommandArgumentPassing` 影响）：
+
+- 参数含 `"`、为空字符串或含需要转义的字符时为 Unknown(syntax)。
+- 首批只分析经 5.1 与 7 实测、确认 argv 一致的外部程序参数形态（6.7）。
+- `.cmd`、`.bat` 与 cmd.exe 脚本入口不继承普通 exe 的分析假设。
 
 ### 6.3 PowerShell 身份
 
-- helper 对每个命令名返回 PowerShell 的解析结果：命令类型（Alias / Function / Cmdlet / ExternalScript / Application）与所属模块。解析顺序与 PowerShell 一致：别名 → 函数 → cmdlet → 外部程序。
-- 别名或名称指向内置模块（`Microsoft.PowerShell.Management`、`Microsoft.PowerShell.Utility`、`Microsoft.PowerShell.Core` 等）的 cmdlet，身份为 Cmdlet，以正式名查 registry（`rm` → `Remove-Item`，PS 5.1 的 `curl` → `Invoke-WebRequest`）。
-- Application（按 PATH/PATHEXT 找到的 exe）走与 Unix 相同的 System / PlatformBuiltin 判定，按 registry 分析 argv（`curl.exe`、`git`、`rg`）。
-- 函数、`.ps1` 外部脚本、非内置模块命令为 Shadowed，即 Exec。`.ps1` 以后可接入技能脚本、自写脚本凭据，不在首批。
-- 待核实：helper 查询命令时模块自动加载是否会执行模块代码。若会，helper 禁用自动加载，并把"可能被模块命令遮蔽"列为验收项（待决定 7）。
+要求（R4）：
+
+- 身份查询不能执行模块代码。按精确名称调用 `Get-Command` 会自动导入模块，而自动导入会运行模块脚本（[Get-Command 文档](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/get-command?view=powershell-7.5)），所以 helper 不能直接用它做身份查询。
+- helper 与执行进程必须采用同一套模块加载规则：要么两端一致，要么在执行进程中核对冻结的解析结果。不能只在 helper 里禁用加载，执行端却继续默认加载。
+- 身份记录至少包含：Shell 路径与版本、环境与 cwd 指纹、模块的真实路径（不只是模块名）、正式命令名、外部程序 canonical 路径。
+- 无法确认的项一律 Unknown，即 Exec，不按名称授予 Cmdlet 或 System 身份。
+
+解析顺序与 PowerShell 一致：别名 → 函数 → cmdlet → 外部程序。
+
+- 别名或名称指向可信内置模块（`Microsoft.PowerShell.Management`、`Microsoft.PowerShell.Utility`、`Microsoft.PowerShell.Core` 等，按真实安装路径核对）的 cmdlet，身份为 Cmdlet，以正式名查 registry（`rm` → `Remove-Item`，PS 5.1 的 `curl` → `Invoke-WebRequest`）。
+- Application（按 PATH/PATHEXT 找到的 exe）走与 Unix 相同的 System / PlatformBuiltin 判定。
+- 函数、`.ps1` 外部脚本、非内置模块命令为 Shadowed，即 Exec。
+
+候选做法（待确认 5，需在 Windows 上核实）：
+
+- 别名表：用同一可执行文件、在 `-NoProfile` 的干净会话里读取默认别名表。
+- 外部程序：在 Go 中按 PATHEXT 查找。
+- 与模块导出命令同名：只读取模块清单判断，不导入模块。
+- 自动加载与外部程序的优先顺序：在 Windows 上实测确认。
 
 ### 6.4 PowerShell 命令语义（cmdlet）
 
-- 阶段 6a：所有 cmdlet 为 Exec；外部程序按现有 registry 分析。这时 Windows 上 `git status`、`rg`、`curl.exe` 恢复与 Unix 相同的分析，cmdlet 按 opaque 审批。
-- 阶段 6b：在 `commands/powershell/` 为常用 cmdlet 增加分析器。共享参数绑定规则：参数名大小写不敏感；可用唯一前缀缩写（`-Rec` 即 `-Recurse`，有歧义为 Unknown(option)）；位置参数；`-Force:$false` 形式；公共参数（`-WhatIf`、`-ErrorAction`、`-OutVariable` 等）；`-Path` 支持通配符，`-LiteralPath` 不支持。
-- 首批候选（待决定 8）：
-  - 只读：Get-ChildItem、Get-Content、Select-String、Test-Path、Get-Location、Write-Output、Get-Process、Get-NetTCPConnection（端口查询，对应 lsof 场景）。
-  - 写入：New-Item、Set-Content、Add-Content、Out-File、Copy-Item、Move-Item、Remove-Item（`-Recurse` 为 destructive）。
-  - 网络：Invoke-WebRequest、Invoke-RestMethod（非 GET/HEAD 方法、`-Body`、`-InFile` 为 RemoteMutation；`-OutFile` 为 Output）。
+- S5：所有 cmdlet 为 Exec；外部程序按现有 registry 分析。这时 Windows 上 `git status`、`rg`、`curl.exe` 恢复与 Unix 相同的分析，cmdlet 按 opaque 审批。
+- S8：在 `commands/powershell/` 为常用 cmdlet 增加分析器。共享参数绑定规则：
+  - 参数名大小写不敏感；可用唯一前缀缩写（`-Rec` 即 `-Recurse`），有歧义为 Unknown(option)。
+  - 位置参数；`-Force:$false` 形式。
+  - 公共参数（`-WhatIf`、`-ErrorAction`、`-OutVariable` 等）。
+  - `-Path` 支持通配符，`-LiteralPath` 不支持。
+- 首批顺序：
+  1. 只读：Get-Location、Test-Path、Get-Content、Get-ChildItem、Write-Output。
+  2. 写入：New-Item、Set-Content、Add-Content、Out-File、Copy-Item、Move-Item、Remove-Item（`-Recurse` 为 destructive）。
+  3. 网络：Invoke-WebRequest、Invoke-RestMethod。非 GET/HEAD 方法、`-Body`、`-InFile` 为 RemoteMutation；`-OutFile` 为 Output。
+- 每个 cmdlet 都要核验真实类型与来源，名称带 `Get-` 不等于免审批。
 
 ### 6.5 Windows 资源
 
-- 空设备：`NUL`、PowerShell 的 `$null` 重定向。Windows 上任意目录下的保留设备名（`NUL`、`CON`、`PRN`、`AUX`、`COM1`…，含带扩展名的形式）都指向设备而不是普通文件；只有 `NUL` 视为空设备，其他保留名为 Unknown(path)。
-- 路径：盘符绝对 `C:\`、盘符相对 `C:foo`、UNC `\\server\share`、`\\?\` 前缀、大小写不敏感、8.3 短名、ADS `file.txt:stream`、junction。无法确定为普通路径时为 Unknown(path)。
-- PowerShell provider 路径：`Env:`、`Alias:`、`Function:`、`Variable:`、`HKLM:`、`HKCU:`、`Cert:`、`WSMan:` 不是文件系统，一律 Unknown(path)；`Alias:`、`Function:` 的写入为 6.2 的硬阻断。`FileSystem::C:\x` 这类 provider 限定路径首批也按 Unknown(path) 处理。
+- 空设备：`NUL`、PowerShell 的 `$null` 重定向。Windows 上任意目录下的保留设备名（`NUL`、`CON`、`PRN`、`AUX`、`COM1`…，含带扩展名的形式）都指向设备而不是普通文件；只有 `NUL` 视为空设备，其他保留名为 Unresolved。
+- 路径：盘符绝对 `C:\`、盘符相对 `C:foo`、UNC `\\server\share`、`\\?\` 前缀、大小写不敏感、8.3 短名、ADS `file.txt:stream`、junction。无法确定为普通路径时为 Unresolved。
+- PowerShell provider 路径：`Env:`、`Alias:`、`Function:`、`Variable:`、`HKLM:`、`HKCU:`、`Cert:`、`WSMan:` 不是文件系统，一律 Unresolved；`Alias:`、`Function:` 的写入为 6.2 的硬阻断。`FileSystem::C:\x` 这类 provider 限定路径首批也按 Unresolved 处理。
 
-### 6.6 阶段 0 闸门
+### 6.6 未知方言合同（已实现，`5554545f`）
 
-规则：阶段 6a 完成前，Windows Host（非容器）上除单条直接连接器调用外，整条命令按 Unknown(dialect) 处理，即 `bash-complex-filesystem`；同时保留 cwd 读审查与 editing=false 的执行限制（复用现有"非简单命令"分支）。阶段 6a 完成后，闸门只对 cmd 和 Windows 上配置的 bash.exe 保留。
+适用于 6.1 中"未知方言合同"的所有行。单条直接连接器调用除外，它按冻结 argv 合同执行。
 
-可见变化：
-
-| 档位 | 影响 |
+| 档位 | 处理 |
 | --- | --- |
-| ask_for_approval | Windows Host 上几乎每条命令都需要审批 |
-| auto_approve | 自动通过并记审计 |
-| full_access | 不变 |
+| ask_for_approval | 每条命令单次人工批准，不可本轮复用 |
+| auto_approve | 每条命令单次人工批准，不可本轮复用（R3：不自动运行） |
+| full_access | 按 `bash-complex-filesystem` 配置，默认 allow |
 
-Unix、macOS、容器不受影响。
+所有档位都保持：
+
+- 管理员显式 block 生效。
+- cwd 读审查与 editing=false 的执行限制优先于批准。
+- 严格命令模式（`shell-features-enabled: false`）直接拒绝。
+- Mailbox 上级代批不能放宽为自动批准。
+- 不再对正文做 Bash 安全分析。
+
+这只阻止 Bash 误判，识别不出正文里的删除和远端修改。人工批准只表示用户批准了这次完整调用，不代表正文已经审查过，也不提供脚本内部访问隔离。PowerShell 在 S5 后改为按 AST 审查；cmd、MSYS 和其他 Shell 长期保持此合同。
 
 ### 6.7 Windows 验收
 
-- 2.1 的样例：阶段 0 后需要审批；阶段 6a 后解析为三条语句，`Remove-Item` 为 Exec。
+- 2.1 的样例：当前需要单次人工（单测覆盖，未在 Windows 实测）；S5 后解析为三条语句，`Remove-Item` 为 Exec。
 - `Set-Alias rg Remove-Item; rg ...` 硬阻断。
 - PowerShell 别名（`rm`、`cp`、`curl`）不得取得 GNU 命令的语义。
-- helper 不可用、解析错误、超时：整条命令 Unknown(dialect)。
+- 带初始化标记的测试模块，不得在审批前被 helper 加载。
+- 同名模块、别名、PATH 差异下身份判断正确；启动前环境或解析目标变化，旧批准失效。
+- helper 不可用、解析错误、超时：整条命令走未知方言合同。
 - 用 powershell.exe 与 pwsh 分别解析 `a && b`，结果与各自的执行行为一致。
-- 外部程序参数含引号、空字符串：Unknown(syntax)。
+- 商店安装的 pwsh 应用执行别名需验证 LookPath、EvalSymlinks、内容摘要及实际启动，失败时保守拒绝；当前仅列入验收，未在原生 Windows 验证。
+- PowerShell 5.1 与 7 各用无害的 argv 回显程序，核对引号、空参数、空格、反斜杠、尾随斜杠和 Unicode。
 - 直接连接器调用在三档下行为不变。
 - 原生 Windows 运行：中文/空格路径、跨盘、UNC、junction、`NUL` 输出；交叉编译与 macOS 模拟不算验收。
+- 破坏性样例只解析，或在隔离临时目录用无害替身运行。
 
-## 7. 实施阶段
+## 7. 实施步骤
 
-结构迁移、语义修正、政策调整分开提交。阶段 1 之前先生成"审批快照"：对现有测试中的命令与附录 B 的样例，记录当前的 Decision、RuleKey、Fingerprint 和叶子要求，作为后续阶段的对比基准。
+步骤、依赖与验收门槛以 [实施计划 §4](shell-command-analysis-implementation.md#4-可执行工作计划) 的 S0–S8 为准，本文不再另列阶段。顺序要点：
 
-| 阶段 | 内容 | 验收 | 可见行为变化 |
-| --- | --- | --- | --- |
-| 0 Windows 闸门 | 6.6 规则；`hostshell` 给出方言，Host Bash 审查读取它 | 6.7 第 1 条（阶段 0 部分）与直接连接器调用；Unix/容器快照不变 | 有，见 6.6 |
-| 1 建目录、纯搬家 | 按第 5 节移动代码，调用方一次改完 | 全仓 `go test ./...`；审批快照完全一致 | 无 |
-| 2 统一名单与包装 | registry 取代 2.3 的名单；`unwrap` 与 `bash -c` 递归各只留一份 | 审批快照一致；`df`、`dbx`、`httpx`、`Get-*` 的处理逐条列出并确认 | 仅确认过的条目 |
-| 3 拆主函数 | `reviewBashScript` 按层拆开；curl 的空设备豁免改为资源层规则，覆盖所有命令的 Output 和重定向；`git -C` 移入 `git.go` | 审批快照一致；`tee /dev/null` 等新用例；`rm`/`chmod` 指向空设备不豁免 | 其他命令输出到空设备不再审批 |
-| 4 事实细化 | Effects 改为 Ops / Unknowns / Deps 与证据；HITL 原因带参数位置 | 性质测试：增加未知项不丢已识别的删除/上传；更换程序身份不继承分析结果 | 视待决定 1 |
-| 5 合并两套审批 | `bashsec` 的结果并入 BashPlan 叶子；`internal/llm` 只处理一种 Bash 审批 | HITL 请求、精确/规则批准消费、邮件代批、恢复用例 | HITL 请求形状可能变化，与 WebClient 同步 |
-| 6a PowerShell 语法与身份 | helper 与 AST 白名单（6.2）；PowerShell 身份解析（6.3）；外部程序按 registry 分析，cmdlet 为 Exec；Host Bash 启动改用 `hostshell` 给出的同一方言与可执行文件 | 6.7 全部 | Windows 外部程序恢复与 Unix 相同的分析；阶段 0 闸门对 PowerShell 解除 |
-| 6b PowerShell cmdlet 语义 | 共享参数绑定与首批 cmdlet 分析器（6.4） | 每个 cmdlet 的语义测试；缩写与歧义；provider 路径；`Remove-Item -Recurse` 为 destructive | 首批 cmdlet 不再一律 opaque |
+- 方言保护先行（已完成）。PowerShell AST（S5）不等两套审批合并（S7）。
+- 先细化事实（S4），再做通用空设备规则并删除 curl/wget 特例（S6）（R5）。
+- 纯结构迁移与行为变化分开提交。行为快照使用规范化表示：路径、环境、叶子顺序规范化后比较；原始指纹只在固定 fixture 中逐值验证（R8）。
+
+| 步骤 | 内容 | 状态 |
+| --- | --- | --- |
+| S0 | 合同与基线 | 部分完成：首批 Unix 行为基线；完整命令清单与待确认项待补 |
+| S1 | 工具专用 LaunchSpec | 完成（`5554545f`） |
+| S2 | 未知方言合同 | 首批完成（`5554545f`），复审补丁补齐通用文本检查、安装升级识别与规则绑定；Windows 未实测 |
+| S3 | 中立类型与目录迁移 | 未开始；`dialect`、`types` 叶子包已建 |
+| S4 | registry、身份—包装交替、细化事实 | 未开始 |
+| S5 | PowerShell AST 与身份 | 未开始 |
+| S6 | 资源三态与通用空设备规则 | 未开始 |
+| S7 | 合并两套审批 | 未开始 |
+| S8 | cmdlet 语义与收尾 | 未开始 |
+
+S5 依赖 S3、S4，在这之前 Windows 两档每条命令都要人工审批。如果这段时间太长，可以先在现有结构上接入 AST，只放行外部程序，再随 S3/S4 迁移。
 
 实施完成后同步更新：`AGENTS.md`（命令语义包名）、[工具目录权限](../docs/工具目录权限.md)、[AccessPolicy 与 HITL 边界](../docs/AccessPolicy与HITL改造.md)、[Runtime 模块边界](../docs/Runtime模块边界.md)、[Windows Git Bash](../docs/WindowsGitBash实施进度.md)（注明 Host Bash 仍为 PowerShell）。
 
@@ -463,40 +550,58 @@ Unix、macOS、容器不受影响。
 
 ### 8.1 已决定
 
-- Windows Host 继续使用 PowerShell，不改为 Git Bash。阶段 0 闸门接受 ask_for_approval 下审批增加，直到阶段 6a 完成。
+- Windows Host 继续使用 PowerShell，不改为 Git Bash。
 - PowerShell 语法使用 PowerShell 自带的 AST 解析器，用与执行相同的可执行文件。
-- Git Bash 尚未启用，本期不设计 MSYS 方言；Windows 上配置的 bash.exe 与 cmd 一样按 Unknown(dialect) 处理。
+- Git Bash 尚未启用，本期不设计 MSYS 方言；Windows 上配置的 bash.exe 与 cmd 一样走未知方言合同。
+- 未知方言合同按 6.6 执行：ask_for_approval 与 auto_approve 单次人工，full_access 按配置，严格模式拒绝，代批不放宽（已实现）。
+- 工具启动与 Terminal 分开，Unix 默认启动参数不变（已实现）。
+- 首批不新增 ps、ss、netstat，先完成已有命令归属与授权合同。
 
-### 8.2 待决定
+### 8.2 待确认
 
-1. UnknownOption 是否追加 `bash-complex-filesystem` 审批？现状只把可见文件升级为写入，没有文件操作数时不审批。
-2. 默认白名单是否由 registry 生成？生成时显式配置仍优先。
-3. 首批是否新增 ps、ss、netstat 等查询命令？
-4. curl `-K`、命令自身配置文件：解析内容，还是一律 UnknownBehavior？
-5. 空设备确认：只认路径字符串，还是 Host 上额外确认为字符设备？容器内无法确认时如何回退？
-6. PowerShell helper 常驻还是每次审查启动？建议常驻：PowerShell 5.1 冷启动通常要数百毫秒，而每次调用要解析两次（预审、启动前复审）。
-7. helper 查询命令时若模块自动加载会执行模块代码：禁用自动加载并接受"模块命令遮蔽"的残余风险，还是改用其他方式判断遮蔽？
-8. 阶段 6b 首批 cmdlet 范围（6.4 的候选是否全做）。
+S0 需要关闭以下事项。第 8、9 项来自本次代码复审，已采纳并实现于 S2 复审补丁；其余项目仍按建议状态处理。
 
-## 附录 A：已有局部修复（2026-10-30，commit 9731155e）
+| # | 事项 | 建议 |
+| --- | --- | --- |
+| 1 | UnknownOption 是否追加要求 | 追加与调用绑定的 `bash-complex-filesystem`，同时保留已知事实。先用快照列出受影响的常见命令，作为单独的行为变化提交 |
+| 2 | curl `-K`、命令默认配置等隐式行为 | 首期记录 Dep 与 UnknownBehavior，不解析配置语言；默认配置是否存在要探测，不能忽略 |
+| 3 | 空设备身份 | 确认实际设备身份，不能只看路径字符串或"是字符设备"；`/dev/zero`、`/dev/tty` 不算丢弃输出 |
+| 4 | PowerShell helper 生命周期 | 先无状态请求，有基准数据再考虑常驻（6.2） |
+| 5 | PowerShell 模块与身份规则 | helper 与执行端一致且可验证；候选做法见 6.3，需在 Windows 核实 |
+| 6 | 默认白名单 | 保持现有部署政策，不由"存在解析器"生成 |
+| 7 | 首批 cmdlet | 按 6.4 的顺序，先只读，再文件修改，最后网络 |
+| 8 | 本轮规则批准绑定的启动合同范围 | 已采纳：额外绑定仅包含 Shell 身份、模板与方言。相同绝对目标可跨 cwd/环境复用路径规则；原规则自身的其他限制保留，精确批准仍绑定完整调用 |
+| 9 | 系统 Bash 身份的判定方式 | 已采纳：每次按启动搜索路径重新解析系统 Bash，比较当前 canonical 路径；摘要只绑定批准。apt 原地替换与 Homebrew 符号链接切换后仍可分析，旧批准失效 |
+
+## 附录 A：已有局部修复
+
+### A.1 lsof 与 curl/wget 空设备（`9731155e`）
 
 **lsof**：新增 `internal/shellanalysis/lsof.go`，接入分派、系统命令识别和 Unix/macOS 默认白名单。识别 `-a/-b/-h/-l/-n/-P/-R/-t/-v/-w` 标志与 `-c/-p/-u/-i/-s/-F` 参数（附着或分离形式）；普通操作数为读取，`--` 后按文件名处理；`-D`、`+d/+D`、未知选项和缺少必要参数回退到 opaque。只消费参数，不校验 PID、用户名、协议状态等值域。
 
-**curl/wget 输出到 `/dev/null`**：`bash_review.go` 中的局部规则。命令为 curl/wget、分析完整、写入目标字符串精确为 `/dev/null`，且处于非 Windows Host 或容器时，`BuildPathPlan` 无错误且未阻断则跳过该输出的路径审批。普通文件、上传、远端修改和 readonly 继续检查。阶段 3 由资源层空设备规则取代。
+**curl/wget 输出到 `/dev/null`**：`bash_review.go` 中的局部规则。命令为 curl/wget、分析完整、写入目标字符串精确为 `/dev/null`，且处于非 Windows Host 或容器时，`BuildPathPlan` 无错误且未阻断则跳过该输出的路径审批。普通文件、上传、远端修改和 readonly 继续检查。S6 由资源层空设备规则取代。
 
-**验证**：`go test ./internal/shellanalysis ./internal/accesspolicy ./internal/config ./internal/tools ./internal/bashsec` 通过（部分命中缓存）。新增 `lsof_test.go`、`bash_diagnostics_test.go`。容器用例使用模拟解析环境；Host 用例在缺少程序时跳过；Windows Host 跳过这组 Unix 诊断用例。未执行全仓测试、真实容器和跨平台验收。
+**验证**：`go test ./internal/shellanalysis ./internal/accesspolicy ./internal/config ./internal/tools ./internal/bashsec` 通过（部分命中缓存）。容器用例使用模拟解析环境；Host 用例在缺少程序时跳过；Windows Host 跳过这组 Unix 诊断用例。
+
+### A.2 启动合同与方言保护（`5554545f`）
+
+范围、可见行为变化与验证见实施计划 §8。
 
 ## 附录 B：触发场景与回归样例
 
 | 样例 | 原问题 | 期望 |
 | --- | --- | --- |
 | `lsof -nP -iTCP:8080 -iTCP:8081 -sTCP:LISTEN` | lsof 未登记，按 opaque 审批 | 只读查询，无需审批（已修复） |
-| `curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8081/healthz` | `-o /dev/null` 被当成越界写入 | 无需审批（已修复，阶段 3 改为通用规则） |
+| `curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8081/healthz` | `-o /dev/null` 被当成越界写入 | 无需审批（已修复，S6 改为通用规则） |
 | `curl -X POST ...`、`curl -T file ...` | — | `remote-mutation`，空设备输出不豁免 |
-| `tee /dev/null`、`cmd > /dev/null` | tee 尚未豁免 | 阶段 3 后无需审批 |
+| `tee /dev/null` | tee 的输出目标仍按写入审查 | S6 后去掉这一项路径要求，tee 的其他要求照常 |
+| `cmd > /dev/null` | — | 重定向本身现已不产生要求；`cmd` 自己的要求（Exec、上传等）照常，不能笼统写成无需审批 |
 | `rm /dev/null`、`chmod 600 /dev/null` | — | 不豁免 |
-| 同名 Workspace 程序 `./lsof` | — | 不取得 System 身份 |
-| 2.1 的 PowerShell 样例（Windows Host） | 被当成单个 echo 放行 | 阶段 0 后需要审批；阶段 6a 后解析出 `Remove-Item` 为 Exec |
+| 同名 Workspace 程序 `./lsof`，假 `env` / `bash` 包装 | — | 不取得 System 身份，不按包装展开 |
+| `cp a b`（`b` 已存在） | 只看最后一个操作数 | 源读、目标写、被替换对象都检查 |
+| 2.1 的 PowerShell 样例（Windows Host） | 被当成单个 echo 放行 | 当前单次人工（已实现）；S5 后解析出 `Remove-Item` 为 Exec |
 | `Set-Alias rg Remove-Item; rg -r . C:\x`（PowerShell） | — | 硬阻断 |
-| `git status`（PowerShell，git 为 Application） | 阶段 0 期间为 complex | 阶段 6a 后与 Unix 相同 |
-| `rm -Recurse C:\x`（PowerShell，`rm` 为 Remove-Item 别名） | — | 阶段 6a 为 Exec；阶段 6b 为 destructive |
+| `git status`（PowerShell，git 为 Application） | 当前单次人工 | S5 后与 Unix 相同 |
+| `rm -Recurse C:\x`（PowerShell，`rm` 为 Remove-Item 别名） | — | S5 为 Exec；S8 为 destructive |
+| Unix 配置 `shell-executable: sh` 或登录模板 | — | 未知方言合同（已实现） |
+| 含 ESC 序列或零宽字符的未知方言命令 | 当前跳过全部文本检查 | 与语法无关的文本检查对所有方言生效（实施计划 §8.4） |

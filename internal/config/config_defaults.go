@@ -305,6 +305,9 @@ func DefaultBashInheritEnv() []string {
 }
 
 func (c *Config) normalize(configRoot string) error {
+	if err := validateBashShellConfig(c.Bash); err != nil {
+		return err
+	}
 	stateDir, err := resolveStatePath(configRoot, c.Paths.EffectiveStateDir())
 	if err != nil {
 		return err

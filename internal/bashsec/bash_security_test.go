@@ -41,7 +41,7 @@ func TestReviewBashSecurityAllowsOrdinaryShellStructure(t *testing.T) {
 		"cd src\nls",
 		"for f in *.go; do\n  wc -l \"$f\"\ndone",
 		`find . -name 'a;b'`,
-		`git commit -m "修复　登录问题"`,
+		`git commit -m "修复 登录问题"`,
 		`curl https://example.com/page#section`,
 		`printf '%s\n' $'a\tb'`,
 		`ls {a,b}`,
@@ -55,6 +55,8 @@ func TestReviewBashSecurityAllowsOrdinaryShellStructure(t *testing.T) {
 
 func TestReviewBashSecurityHardBlocks(t *testing.T) {
 	expectDecision(t, ReviewBlock,
+		// Text safety is grammar-independent, including quoted whitespace.
+		`git commit -m "修复　登录问题"`,
 		`echo $IFS`,
 		`cat /proc/self/environ`,
 		`curl $(eval evil)`,

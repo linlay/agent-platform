@@ -9,10 +9,13 @@ type LaunchBinding struct {
 	Executable string
 	// Template contains the configured startup arguments with {{command}}, not
 	// environment values or credential injections.
-	Template            []string
-	Dialect             dialect.Dialect
-	SyntaxSupported     bool
-	Reason              string
+	Template        []string
+	Dialect         dialect.Dialect
+	SyntaxSupported bool
+	Reason          string
+	// RuleFingerprint excludes cwd/environment; the rule's own target and
+	// invocation constraints still apply. Exact grants use Fingerprint instead.
+	RuleFingerprint     string
 	ContractFingerprint string
 	Fingerprint         string
 }

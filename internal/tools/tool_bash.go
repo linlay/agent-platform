@@ -24,12 +24,16 @@ import (
 	"agent-platform/internal/hostshell"
 	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/shellenv"
+	shellsyntax "agent-platform/internal/shellreview/syntax"
 	"agent-platform/internal/textcodec"
 )
 
 const defaultBashTimeoutSeconds int64 = 60
 
 func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	if reason := shellsyntax.CheckText(stringArg(args, "command")); reason != "" {
+		return ToolExecutionResult{Output: reason, Error: "bash_security_blocked", ExitCode: -1}, nil
+	}
 	command := strings.TrimSpace(stringArg(args, "command"))
 	if command == "" {
 		return ToolExecutionResult{Output: "Missing argument: command", Error: "missing_command", ExitCode: -1}, nil
