@@ -65,7 +65,7 @@ func Open(root string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 	create := func(db *sql.DB) error { _, err := db.Exec(schema); return err }
-	spec := sqlitecontract.Spec{Name: "mail-v2", ApplicationID: 0x41504D4C, UserVersion: 2, BuildCanonical: create}
+	spec := sqlitecontract.Spec{Name: "mail-v1", ApplicationID: 0x41504D4C, UserVersion: 1, BuildCanonical: create}
 	if err = sqlitecontract.InitializeOrVerify(db, path, path, spec, nil, func() error { return create(db) }); err != nil {
 		db.Close()
 		return nil, err

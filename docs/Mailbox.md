@@ -6,7 +6,7 @@ Mailbox 通过 `builtin.task-control` 提供 `chat_send`、`chat_notify`、`chat
 
 地址始终是 Chat：省略 chatId/newChat 寄给 Agent 主要对话，缺失才补建；newChat:true 开独立工作；chatId 补充已有工作。指定地址只能是本 Agent 开出的、用户最近一次直接输入引用的、目标 Agent 的主要对话，且属于同一用户；当前、归档、已删除会话拒绝。
 
-mail.db 位于 AP_RUNTIME_CHATS_DIR，application_id=0x41504D4C、user_version=2，使用严格 sqlitecontract。先落 accepting 和附件摘要，再创建会话/复制文件；投递前以事务占 inflight、attempt、run/steer ID，消费 query/steer 后才记 delivered。回调按 attempt 隔离。插入后 Run 结束仍未消费的退回 queued；为它开出的 Run 未读取就结束的转为 failed，避免反复开 Run；结果未知的 letter/reply 挂起。投递复核只有确定的结论（目标 Agent、会话、归属、引用、模型、附件不再成立）才转为 failed 并寄失败回信；读盘、关停等临时错误保持 queued，等下一次触发或重启后挂起。
+mail.db 位于 AP_RUNTIME_CHATS_DIR，application_id=0x41504D4C、user_version=1，使用严格 sqlitecontract。先落 accepting 和附件摘要，再创建会话/复制文件；投递前以事务占 inflight、attempt、run/steer ID，消费 query/steer 后才记 delivered。回调按 attempt 隔离。插入后 Run 结束仍未消费的退回 queued；为它开出的 Run 未读取就结束的转为 failed，避免反复开 Run；结果未知的 letter/reply 挂起。投递复核只有确定的结论（目标 Agent、会话、归属、引用、模型、附件不再成立）才转为 failed 并寄失败回信；读盘、关停等临时错误保持 queued，等下一次触发或重启后挂起。
 
 空闲会话开 Run，活动普通 Run 插入 steer 并唤醒 wait；提问、审批、表单继续等待原 submit。规划、压缩、收尾和无 Run 的未决等待项排队，在维护/续接仲裁后重新投递。Run 结束时，每个发信会话收到一份完整 AssistantText 和本 Run 发布附件；原信 done 与唯一 reply_key 在同一事务写入。信封头只在模型边界生成，不污染原 query/message。
 
@@ -41,7 +41,9 @@ letter 在受理时、平台生成的 reply/notify/ask 在创建时，从收件 
 
 `mail.db` 的 `MAILS` 表沿用 `chats.db` 风格：大写表名，字段为大写下划线加尾部 `_`，索引以 `IDX_` 开头。主键为 `MAIL_ID_`；父邮件、回信、结果 Run 分别使用 `PARENT_MAIL_ID_`、`ANSWERED_BY_MAIL_ID_`、`REPLY_OF_RUN_ID_`。完整 DDL 以 [store.go](../internal/mailbox/store.go) 为准，Go DTO 和 HTTP JSON 字段名保持原协议。
 
-本次 schema V2 为上线前不兼容变更。旧开发库会被严格校验拒绝，程序不迁移、删除或自动重建；开发环境需停服后显式备份并重建旧 `mail.db`。`chats.db` 和 Chat 资源不因该 schema 变更而重建。
+Mailbox 尚未上线，当前结构作为 schema V1 基线，不因开发期结构调整递增版本号。旧开发库会被严格校验拒绝，程序不迁移、删除或自动重建；开发环境需停服后显式备份并重建旧 `mail.db`。`chats.db` 和 Chat 资源不因该 schema 变更而重建。
+
+V1 基线调整仅针对 Mailbox 的数据库契约，不回退产品版本或表结构。当前结构的 V1 可正常重新打开；旧结构的 V1 及此前开发构建写出的 V2 均拒绝打开，并保留原版本标记和数据，不自动改写 `user_version`。该规则适用于尚未发布的 Mailbox 开发基线，不作为已发布存储版本的通用降级策略。
 
 `mail.retention-days` 默认 30（正整数，最多 365000），启动后和此后每 24 小时运行清理：
 

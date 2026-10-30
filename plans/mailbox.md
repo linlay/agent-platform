@@ -347,9 +347,9 @@ Options: approve | approve_rule_run | reject. Approval is accepted only if your 
 
 ### mail.db
 
-位于 `AP_RUNTIME_CHATS_DIR/mail.db`，独立库，`application_id = 0x41504D4C`（APML），`user_version = 2`，遵守 `sqlitecontract` 的身份规则。不改 `chats.db`。
+位于 `AP_RUNTIME_CHATS_DIR/mail.db`，独立库，`application_id = 0x41504D4C`（APML），`user_version = 1`，遵守 `sqlitecontract` 的身份规则。不改 `chats.db`。
 
-建表与索引以 [internal/mailbox/store.go](../internal/mailbox/store.go) 为事实源：表名 `MAILS`，列名使用大写下划线加尾部 `_`，索引使用 `IDX_` 前缀。关系字段为 `ANSWERED_BY_MAIL_ID_`、`PARENT_MAIL_ID_`、`REPLY_OF_RUN_ID_`；`TERMINAL_AT_`、`BODY_PURGED_AT_` 与两端 `*_CHAT_DELETED_AT_` 分别表达终态、正文清理和会话删除。本次为未上线的 V2 不兼容变更，不迁移或自动清理旧开发库。
+建表与索引以 [internal/mailbox/store.go](../internal/mailbox/store.go) 为事实源：表名 `MAILS`，列名使用大写下划线加尾部 `_`，索引使用 `IDX_` 前缀。关系字段为 `ANSWERED_BY_MAIL_ID_`、`PARENT_MAIL_ID_`、`REPLY_OF_RUN_ID_`；`TERMINAL_AT_`、`BODY_PURGED_AT_` 与两端 `*_CHAT_DELETED_AT_` 分别表达终态、正文清理和会话删除。尚未上线的结构以 V1 为基线，不迁移或自动清理结构不匹配的旧开发库。
 
 各类型的终态：
 

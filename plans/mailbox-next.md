@@ -1,5 +1,7 @@
 # Mailbox 与主要聊天：后续方案（Platform + WebClient）
 
+> 本文件保留原始分阶段提案。2026-10-30 的用户质疑、方案调整和代码核对见 [讨论汇总与代码现状](mailbox-opened-chats-review.md)。其中 opened 查询当前推荐扩展 `/api/chats?openedBy=` 并将创建关系投影到 CHATS，仍未实施；原文的 `/api/chats/opened` 和 `/api/send` 都不是现有接口。第一批已完成项及 Mailbox V1 修复状态以汇总文档为准。
+
 接续 [mailbox.md](mailbox.md)（已实现）与 [primary-chat-dispatch.md](primary-chat-dispatch.md)（探讨稿）。本方案只覆盖 Platform 与 WebClient；Desktop 在 WebClient 定稿后对齐。
 
 ## 现状
@@ -103,6 +105,6 @@
 
 ## 第一批实施范围（2026-10-29）
 
-本批为上线前不兼容存储调整，不提供旧 mail.db 迁移，不自动清库。包括 MAILS/字段/索引命名统一、关系字段明确、独立终态与正文清理时间、生成邮件默认权限、notify 附件先受理后复制、删除分身后保留已受理回信、默认 30 天的终态正文保留期与删除对账。验收以本批针对性测试及项目检查结果为准，尚未部署验证。
+本批为上线前不兼容存储调整，user_version 保持 1，不提供旧 mail.db 迁移，不自动清库。包括 MAILS/字段/索引命名统一、关系字段明确、独立终态与正文清理时间、生成邮件默认权限、notify 附件先受理后复制、删除分身后保留已受理回信、默认 30 天的终态正文保留期与删除对账。验收以本批针对性测试及项目检查结果为准，尚未部署验证。
 
 摘要/详情 API 与 WebClient 联动、归档投递状态细化、自动退避重试及 /api/send 均不属于本批；上表保留为后续规划。保留期不清理 suspended，物理附件按收件 Chat 生命周期保留，正文清理不删除创建会话与回信关系。

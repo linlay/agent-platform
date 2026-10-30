@@ -19,6 +19,73 @@ import (
 	"agent-platform/internal/stream"
 )
 
+func TestUnreleasedMailSchemaKeepsVersionOne(t *testing.T) {
+	root := t.TempDir()
+	store, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	var applicationID, version int
+	if err := store.db.QueryRow("PRAGMA application_id").Scan(&applicationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if applicationID != 0x41504D4C || version != 1 {
+		t.Fatalf("unreleased mailbox identity changed: application_id=%d user_version=%d", applicationID, version)
+	}
+	put(t, store, sample("preserved", Letter, Queued))
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if m, err := reopened.Get("preserved"); err != nil || m.Message != "work" {
+		t.Fatalf("current V1 did not reopen: %#v %v", m, err)
+	}
+}
+
+func TestVersionTwoMailDatabaseRejectedWithoutDowngradingData(t *testing.T) {
+	root := t.TempDir()
+	store, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	put(t, store, sample("preserved-v2", Letter, Queued))
+	// Simulate the previous development build: identical DDL, V2 marker.
+	if _, err := store.db.Exec("PRAGMA user_version=2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if reopened, err := Open(root); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+		if reopened != nil {
+			reopened.Close()
+		}
+		t.Fatalf("V2 database was silently accepted or downgraded: %v", err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(root, "mail.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var version int
+	var message string
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 2 {
+		t.Fatalf("rejected V2 marker changed: version=%d err=%v", version, err)
+	}
+	if err := db.QueryRow("SELECT MESSAGE_ FROM MAILS WHERE MAIL_ID_='preserved-v2'").Scan(&message); err != nil || message != "work" {
+		t.Fatalf("rejected V2 data changed: message=%q err=%v", message, err)
+	}
+}
+
 func TestLegacyMailSchemaRejectedWithoutChangingData(t *testing.T) {
 	root := t.TempDir()
 	db, err := sql.Open("sqlite", filepath.Join(root, "mail.db"))
