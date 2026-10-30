@@ -408,19 +408,22 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	chatResourceService := chatresource.NewService(chatStore)
 	terminalManager := terminal.NewManager()
 	conversationService := conversation.NewService(chatStore, archiveStore, archiver, runManager)
-	mailStore, err := mailbox.Open(cfg.Paths.ChatsDir)
-	if err != nil {
-		return nil, fmt.Errorf("initialize mailbox: %w", err)
+	var mailService *mailbox.Service
+	if cfg.Mail.Enabled {
+		mailStore, err := mailbox.Open(cfg.Paths.ChatsDir)
+		if err != nil {
+			return nil, fmt.Errorf("initialize mailbox: %w", err)
+		}
+		mailService = mailbox.New(backgroundCtx, mailStore, cfg.Paths.ChatsDir, cfg.Mail.MaxHops, notifications)
+		conversationService.MailboxPurge = mailService.PurgeChat
+		conversationService.MailboxOpened = mailService.OpenedChats
 	}
-	mailService := mailbox.New(backgroundCtx, mailStore, cfg.Paths.ChatsDir, cfg.Mail.MaxHops, notifications)
 	cleanupMail := true
 	defer func() {
-		if cleanupMail {
+		if cleanupMail && mailService != nil {
 			_ = mailService.Close()
 		}
 	}()
-	conversationService.MailboxPurge = mailService.PurgeChat
-	conversationService.MailboxOpened = mailService.OpenedChats
 	conversationService.ExportMaxBytes = cfg.Export.MaxSnapshotBytes
 	conversationService.Notifications = notifications
 	conversationService.ControlReceipts = &operationstate.Receipts[conversation.ControlReceipt]{}
@@ -551,25 +554,31 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		PrimaryChats: conversationService,
 	})
 	runtimeService.Bind(queryService)
-	queryService.BindMailbox(mailService)
+	if mailService != nil {
+		queryService.BindMailbox(mailService)
+	}
 	runtimeToolExecutor.WithWaitConditionProvider(waitEventProvider{runs: runops.NewToolHandler(runtimeService, runManager), auth: srv})
 	if err := queryService.Reconcile(); err != nil {
 		return nil, fmt.Errorf("reconcile persisted awaitings: %w", err)
 	}
-	// Mail recovery never blocks startup; unreconciled mail is suspended by
-	// dispatch once it finds no delivery identity.
-	if err := mailService.Reconcile(queryService.MailConsumedEvidence); err != nil {
-		log.Printf("[mailbox] reconcile: %v", err)
-	}
-	mailService.StartRetention(cfg.Mail.RetentionDays, func(chatID string) (bool, error) {
-		release := conversationService.LockMutation()
-		defer release()
-		summary, err := chatStore.Summary(chatID)
-		if err != nil || summary != nil {
-			return summary != nil, err
+	if mailService != nil {
+		// Mail recovery never blocks startup; unreconciled mail is suspended by
+		// dispatch once it finds no delivery identity.
+		if err := mailService.Reconcile(queryService.MailConsumedEvidence); err != nil {
+			log.Printf("[mailbox] reconcile: %v", err)
 		}
-		return archiveStore.HasChat(chatID)
-	})
+		mailService.StartRetention(cfg.Mail.RetentionDays, func(chatID string) (bool, error) {
+			release := conversationService.LockMutation()
+			defer release()
+			summary, err := chatStore.Summary(chatID)
+			if err != nil || summary != nil {
+				return summary != nil, err
+			}
+			return archiveStore.HasChat(chatID)
+		})
+	} else {
+		log.Printf("mailbox disabled")
+	}
 
 	if err := toolExecutor.RegisterHandler(runops.NewToolHandler(runtimeService, runManager).WithMailbox(mailService)); err != nil {
 		return nil, fmt.Errorf("register run tools: %w", err)

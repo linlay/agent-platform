@@ -141,8 +141,10 @@ document-preview:
 conversation-export:
   max-snapshot-mib: 50
 
-# Maximum causal mailbox distance; terminal replies may exceed this limit.
+# Mailbox is opt-in; restart to apply. Disabled leaves mail.db untouched.
 mail:
+  enabled: false
+  # Maximum causal mailbox distance; terminal replies may exceed this limit.
   max-hops: 4
   # Clear terminal mail bodies after this many days; retain receipts and relations.
   retention-days: 30

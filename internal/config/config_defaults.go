@@ -71,7 +71,7 @@ func defaultConfig(options LoadOptions) Config {
 		},
 		Providers: CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "providers")},
 		Models:    CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "models")},
-		Mail:      MailConfig{MaxHops: 4, RetentionDays: 30},
+		Mail:      MailConfig{Enabled: false, MaxHops: 4, RetentionDays: 30},
 		Automation: AutomationConfig{
 			ExternalDir: paths.AutomationsDir,
 			Enabled:     true,

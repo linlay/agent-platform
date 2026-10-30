@@ -81,6 +81,7 @@ type LoadOptions struct {
 }
 
 type MailConfig struct {
+	Enabled       bool
 	MaxHops       int
 	RetentionDays int
 }

@@ -197,6 +197,14 @@ func (c *Config) applyRuntimeFile(path string) error {
 			return fmt.Errorf("mail must be a mapping")
 		}
 		for key, value := range settings {
+			if key == "enabled" {
+				enabled, ok := value.(bool)
+				if !ok {
+					return fmt.Errorf("mail.enabled must be a boolean")
+				}
+				c.Mail.Enabled = enabled
+				continue
+			}
 			if key != "max-hops" && key != "retention-days" {
 				return fmt.Errorf("unknown mail.%s", key)
 			}

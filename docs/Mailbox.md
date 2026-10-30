@@ -2,6 +2,17 @@
 
 Mailbox 通过 `builtin.task-control` 提供 `chat_send`、`chat_notify`、`chat_submit`；`chat_start`、`chat_steer` 继续保留。每条记录叫 mail，kind 为 letter、reply、notify、ask。完整设计及状态表见 [方案](../plans/mailbox.md)，工具参数见内置 task-control 的 [Mailbox 手册](../internal/resources/connectors/builtin.task-control/skills/task-control/references/mailbox.md)。
 
+## 启用与关闭
+
+Mailbox 默认关闭，在 `configs/runtime.yml` 中显式启用，重启后生效：
+
+```yaml
+mail:
+  enabled: true
+```
+
+设置 `mail.enabled: false` 或省略该项即可关闭。关闭时不打开或创建 `mail.db`，不绑定 Mailbox 运行时钩子，不执行邮件恢复或保留期清理；已有数据库保持原样。邮件 HTTP 接口返回 503，`chat_send`、`chat_notify`、`chat_submit` 及邮件状态查询返回 `mail_unavailable`；普通 `chat_start`、`chat_steer` 等会话控制继续可用。启用后才校验已有数据库的 schema。
+
 ## 投递与回信
 
 地址始终是 Chat：省略 chatId/newChat 寄给 Agent 主要对话，缺失才补建；newChat:true 开独立工作；chatId 补充已有工作。指定地址只能是本 Agent 开出的、用户最近一次直接输入引用的、目标 Agent 的主要对话，且属于同一用户；当前、归档、已删除会话拒绝。
