@@ -16,6 +16,10 @@ printf '{}\n' >"$bundle_root/manifest.json"
 printf 'AP_RUNTIME_DIR=\nAP_CONTAINER_HUB_BASE_URL=\n' >"$bundle_root/.env.example"
 cat >"$bundle_root/backend/agent-platform" <<'EOF'
 #!/usr/bin/env bash
+if [[ "${1:-}" == "runtime-recovery" ]]; then
+  printf '%s\n' "$@" >"$AGENT_PLATFORM_TEST_CAPTURE_RECOVERY_ARGS"
+  exit "${AGENT_PLATFORM_TEST_RECOVERY_EXIT_CODE:-0}"
+fi
 if [[ "${1:-}" == "runtime-resource-sync" ]]; then
   if [[ -n "${AGENT_PLATFORM_TEST_CAPTURE_RESOURCE_ARGS:-}" ]]; then
     printf '%s\n' "$@" >"$AGENT_PLATFORM_TEST_CAPTURE_RESOURCE_ARGS"
@@ -300,3 +304,27 @@ if (program_migrate_sso_provider_config) >/dev/null 2>&1; then
   exit 1
 fi
 echo '[program-deploy-test] SSO provider migration, idempotence and conflicts passed'
+
+# Recovery is an offline deploy branch: no identity key, preview URL or config
+# initialization may be required, and arguments with spaces must be preserved.
+recovery_config="$tmp_dir/recovery config"
+recovery_capture="$tmp_dir/recovery args"
+AGENT_PLATFORM_TEST_CAPTURE_RECOVERY_ARGS="$recovery_capture" "$bundle_root/deploy.sh" \
+  --output-dir "$recovery_config" --ap-runtime-dir "$tmp_dir/new runtime" \
+  --runtime-recovery-source "$tmp_dir/old runtime" --runtime-recovery-action restore \
+  --runtime-recovery-config-dir "$tmp_dir/old config" >"$tmp_dir/recovery.log"
+[[ ! -e "$recovery_config/.env" ]]
+python3 - "$recovery_capture" "$tmp_dir" <<'PYTEST'
+import pathlib, sys
+root=sys.argv[2]
+assert pathlib.Path(sys.argv[1]).read_text().splitlines() == [
+ 'runtime-recovery','--source-config-dir',root+'/old config','--source',root+'/old runtime',
+ '--ap-runtime-dir',root+'/new runtime','--action','restore']
+PYTEST
+if AGENT_PLATFORM_TEST_CAPTURE_RECOVERY_ARGS="$recovery_capture" AGENT_PLATFORM_TEST_RECOVERY_EXIT_CODE=29 "$bundle_root/deploy.sh" \
+  --ap-runtime-dir "$tmp_dir/new runtime" --runtime-recovery-source "$tmp_dir/old runtime" \
+  --runtime-recovery-action check >"$tmp_dir/recovery-failed.log" 2>&1; then
+  echo '[test] recovery failure was ignored' >&2
+  exit 1
+fi
+echo '[program-deploy-test] offline recovery forwarding and failure passed'

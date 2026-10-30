@@ -92,6 +92,7 @@
     "defaultPort": 11949
   },
   "desktop": {
+    "runtimeRecovery": "v1",
     "runtimeResources": "v1",
     "ssoIdTokenFile": "v1",
     "displayOrder": 2,

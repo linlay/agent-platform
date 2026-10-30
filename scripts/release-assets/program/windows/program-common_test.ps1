@@ -167,6 +167,23 @@ public static class FakeAgentPlatformBackend
     throw "runtime resource arguments were not forwarded exactly: $($capturedResourceArgs -join ' | ')"
   }
   Write-Host '[test] runtime resource sync allows stderr with a zero exit code'
+  $Script:DeployRuntimeRecoverySource = Join-Path $processTestRoot 'old runtime'
+  $Script:DeployRuntimeRecoveryConfigDir = Join-Path $processTestRoot 'old config'
+  $Script:DeployRuntimeRecoveryAction = 'restore'
+  Invoke-ProgramRuntimeRecovery
+  $expectedRecoveryArgs = @('runtime-recovery', '--source-config-dir', $Script:DeployRuntimeRecoveryConfigDir,
+    '--source', $Script:DeployRuntimeRecoverySource, '--ap-runtime-dir', $Script:DeployAPRuntimeDir, '--action', 'restore')
+  if ((@(Get-Content -LiteralPath $capturedArgsFile) -join "`n") -cne ($expectedRecoveryArgs -join "`n")) { throw 'recovery arguments were not forwarded exactly' }
+  $env:AGENT_PLATFORM_TEST_BACKEND_EXIT_CODE = '29'
+  $recoveryFailed = $false
+  try { Invoke-ProgramRuntimeRecovery } catch { $recoveryFailed = $true }
+  if (-not $recoveryFailed) { throw 'recovery failure was ignored' }
+  $env:AGENT_PLATFORM_TEST_BACKEND_EXIT_CODE = '0'
+  $Script:DeployRuntimeRecoverySource = ''
+  $Script:DeployRuntimeRecoveryConfigDir = ''
+  $Script:DeployRuntimeRecoveryAction = ''
+  Write-Host '[test] offline recovery forwards arguments and preserves failures'
+
   $env:AGENT_PLATFORM_TEST_BACKEND_STDERR = ''
   $env:AGENT_PLATFORM_TEST_BACKEND_EXIT_CODE = '23'
   $syncFailed = $false
