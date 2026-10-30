@@ -125,19 +125,42 @@ func TestUnsafeTextCannotBeApprovedInAnyDialect(t *testing.T) {
 		for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 			f := newCapabilityFixture(t, level)
 			binding := types.LaunchBinding{Dialect: grammar, SyntaxSupported: grammar == dialect.Bash, RuleFingerprint: "shell", ContractFingerprint: "contract", Fingerprint: "launch"}
-			for _, bad := range []string{"\x1b[2K", "\u00a0", "\u200b", "\u202e", "\u2066"} {
-				command := "echo '" + bad + "hidden'"
+			blocked := func(command string) bool {
 				p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, f.workspace, nil, &BashEnvironment{Launch: &binding}, nil)
 				ctx := &ExecutionContext{}
 				RegisterExactApproval(ctx, p.Fingerprint)
-				if !p.Blocked() || HasApproval(ctx, p) || p.SecurityReview(command, nil).Decision != bashsec.ReviewBlock {
-					t.Fatalf("%s/%s unsafe text bypassed block: %+v", grammar, level, p)
+				security := p.SecurityReview(command, nil).Decision == bashsec.ReviewBlock
+				if p.Blocked() != security || p.Blocked() && HasApproval(ctx, p) {
+					t.Fatalf("%s/%s review and security disagree on %q: %+v", grammar, level, command, p)
 				}
-				projection := BashPlan{UnknownDialect: true, HasConnector: true, ReviewCommand: ":"}
-				if projection.SecurityReview(command, nil).Decision != bashsec.ReviewBlock {
-					t.Fatal("unknown dialect or connector projection bypassed raw-text check")
+				return p.Blocked()
+			}
+			// Display-altering text is rejected even inside quotes.
+			for _, bad := range []string{"\x1b[2K", "\u202e", "\u2066"} {
+				if !blocked("echo '" + bad + "hidden'") {
+					t.Fatalf("%s/%s display-altering text bypassed block: %q", grammar, level, bad)
+				}
+			}
+			// Unicode spaces and invisible joiners only matter where quoting is
+			// unknown or absent; Bash keeps quoted data such as emoji sequences.
+			for _, hidden := range []string{"\u00a0", "\u3000", "\u200b", "\u200d", "\u200f"} {
+				if !blocked("echo" + hidden + "hidden") {
+					t.Fatalf("%s/%s unquoted hidden character bypassed block: %q", grammar, level, hidden)
+				}
+				if quoted := blocked("echo '" + hidden + "hidden'"); quoted != (grammar != dialect.Bash) {
+					t.Fatalf("%s/%s quoted hidden character %q: blocked=%v", grammar, level, hidden, quoted)
 				}
 			}
 		}
+	}
+	unknownProjection := BashPlan{UnknownDialect: true, HasConnector: true, ReviewCommand: ":"}
+	bashProjection := BashPlan{HasConnector: true, ReviewCommand: ":"}
+	for _, command := range []string{"echo '\u202ehidden'", "echo\u3000hidden"} {
+		if unknownProjection.SecurityReview(command, nil).Decision != bashsec.ReviewBlock || bashProjection.SecurityReview(command, nil).Decision != bashsec.ReviewBlock {
+			t.Fatalf("connector projection bypassed raw-text check: %q", command)
+		}
+	}
+	if unknownProjection.SecurityReview("echo '\u3000hidden'", nil).Decision != bashsec.ReviewBlock || bashProjection.SecurityReview("echo '\u3000hidden'", nil).Decision == bashsec.ReviewBlock {
+		t.Fatal("quoted hidden character must depend on the reviewed grammar")
 	}
 }

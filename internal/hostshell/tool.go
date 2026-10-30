@@ -26,17 +26,24 @@ type LaunchSpec struct {
 	Binding types.LaunchBinding
 }
 
-// Freeze search paths, not installation targets/bytes. Package-manager updates
-// may replace the file or retarget a symlink while Platform keeps running.
-var toolSystemSearchEnv = func() []string {
-	env := hostenv.WithSystemPaths(os.Environ())
-	return []string{"PATH=" + hostenv.Value(env, "PATH"), "PATHEXT=" + hostenv.Value(env, "PATHEXT")}
-}()
+// Freeze the entry the startup search path selected (the link, not its target
+// or bytes). Package-manager updates may replace the file or retarget the link
+// while Platform keeps running; a same-name file added earlier in PATH later
+// is not the system installation.
+var toolSystemShells = captureToolSystemShells(hostenv.WithSystemPaths(os.Environ()))
 
-func systemToolShell(name string, searchEnv []string) (string, error) {
-	p, err := hostenv.LookPath(name, searchEnv)
-	if err != nil {
-		return "", err
+func captureToolSystemShells(searchEnv []string) map[string]string {
+	out := map[string]string{}
+	if p, err := hostenv.LookPath("bash", searchEnv); err == nil {
+		out["bash"] = p
+	}
+	return out
+}
+
+func systemToolShell(name string, shells map[string]string) (string, error) {
+	p, ok := shells[name]
+	if !ok {
+		return "", fmt.Errorf("%s was not on the startup search path", name)
 	}
 	return filepath.EvalSymlinks(p)
 }
@@ -95,15 +102,17 @@ func ToolInvocation(cfg config.BashConfig, command, goos string) (string, []stri
 // hashes the executable and freezes the reviewed environment before binding the
 // fixed PATH preamble. Unsupported grammars remain facts for access policy.
 func ResolveTool(cfg config.BashConfig, opts Options) (LaunchSpec, error) {
-	return resolveTool(cfg, opts, toolSystemSearchEnv)
+	return resolveTool(cfg, opts, toolSystemShells)
 }
 
-func resolveTool(cfg config.BashConfig, opts Options, systemSearchEnv []string) (LaunchSpec, error) {
+// Hidden characters in the command depend on the grammar and are judged by
+// access policy; the configured shell and template have no quoting.
+func resolveTool(cfg config.BashConfig, opts Options, systemShells map[string]string) (LaunchSpec, error) {
 	if reason := shellsyntax.CheckText(opts.Command); reason != "" {
 		return LaunchSpec{}, fmt.Errorf("shell_text_rejected: %s", reason)
 	}
 	for _, arg := range append([]string{cfg.ShellExecutable}, cfg.ShellArgs...) {
-		if reason := shellsyntax.CheckText(arg); reason != "" {
+		if reason := shellsyntax.CheckAll(arg); reason != "" {
 			return LaunchSpec{}, fmt.Errorf("shell_text_rejected: %s", reason)
 		}
 	}
@@ -121,7 +130,7 @@ func resolveTool(cfg config.BashConfig, opts Options, systemSearchEnv []string) 
 	if err != nil {
 		return LaunchSpec{}, fmt.Errorf("shell_unavailable: %w", err)
 	}
-	if reason := shellsyntax.CheckText(program); reason != "" {
+	if reason := shellsyntax.CheckAll(program); reason != "" {
 		return LaunchSpec{}, fmt.Errorf("shell_text_rejected: %s", reason)
 	}
 	content, err := toolFileFingerprint(program)
@@ -129,7 +138,7 @@ func resolveTool(cfg config.BashConfig, opts Options, systemSearchEnv []string) 
 		return LaunchSpec{}, fmt.Errorf("shell_unavailable: %w", err)
 	}
 	_, template := ToolInvocation(cfg, "{{command}}", opts.GOOS)
-	binding := classifyToolShell(name, program, template, opts.GOOS, systemSearchEnv)
+	binding := classifyToolShell(name, program, template, opts.GOOS, systemShells)
 	binding.Executable = program
 	binding.Template = append([]string(nil), template...)
 	binding.RuleFingerprint = toolFingerprint(struct {
@@ -151,7 +160,7 @@ func resolveTool(cfg config.BashConfig, opts Options, systemSearchEnv []string) 
 	return LaunchSpec{Invocation: Invocation{Executable: program, Args: args, Env: env, CWD: cwd.Host}, Binding: binding}, nil
 }
 
-func classifyToolShell(name, canonical string, args []string, goos string, systemSearchEnv []string) types.LaunchBinding {
+func classifyToolShell(name, canonical string, args []string, goos string, systemShells map[string]string) types.LaunchBinding {
 	base := CommandBase(name, goos == "windows")
 	b := types.LaunchBinding{Dialect: dialect.Unknown, Reason: "configured shell grammar or startup template is not supported"}
 	if goos == "windows" {
@@ -169,9 +178,9 @@ func classifyToolShell(name, canonical string, args []string, goos string, syste
 		return b
 	}
 	b.Dialect = dialect.Bash
-	system, err := systemToolShell(base, systemSearchEnv)
+	system, err := systemToolShell(base, systemShells)
 	if err != nil || system != canonical {
-		b.Reason = "configured shell does not match the system installation resolved through the startup search path"
+		b.Reason = "configured shell does not match the system installation selected by the startup search path"
 		return b
 	}
 	// Accept only a literal command slot and understood non-interactive flags.

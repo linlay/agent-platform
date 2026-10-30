@@ -15,7 +15,7 @@ func TestToolLaunchIdentityTemplatesAndFingerprints(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix Bash launch contract")
 	}
-	if _, err := systemToolShell("bash", toolSystemSearchEnv); err != nil {
+	if _, err := systemToolShell("bash", toolSystemShells); err != nil {
 		t.Skip("Bash unavailable")
 	}
 	opts := Options{GOOS: runtime.GOOS, Command: "echo ok", CWD: t.TempDir(), Env: os.Environ()}
@@ -98,7 +98,8 @@ func TestSystemBashUpgradeRefreshesIdentityButInvalidatesGrants(t *testing.T) {
 	}
 	search := []string{"PATH=" + bin}
 	opts := Options{GOOS: runtime.GOOS, Command: "echo ok", CWD: root, Env: search}
-	before, err := resolveTool(config.BashConfig{}, opts, search)
+	shells := captureToolSystemShells(search)
+	before, err := resolveTool(config.BashConfig{}, opts, shells)
 	if err != nil || !before.Binding.SyntaxSupported {
 		t.Fatal("initial system installation was not recognized", err)
 	}
@@ -106,7 +107,7 @@ func TestSystemBashUpgradeRefreshesIdentityButInvalidatesGrants(t *testing.T) {
 	if err := os.WriteFile(old, []byte("upgraded bytes"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	after, err := resolveTool(config.BashConfig{}, opts, search)
+	after, err := resolveTool(config.BashConfig{}, opts, shells)
 	if err != nil || !after.Binding.SyntaxSupported || after.Binding.RuleFingerprint == before.Binding.RuleFingerprint || after.Binding.Fingerprint == before.Binding.Fingerprint {
 		t.Fatal("replacement must preserve syntax and invalidate existing grants", err)
 	}
@@ -118,15 +119,47 @@ func TestSystemBashUpgradeRefreshesIdentityButInvalidatesGrants(t *testing.T) {
 	if err := os.Symlink(newPath, link); err != nil {
 		t.Fatal(err)
 	}
-	next, err := resolveTool(config.BashConfig{}, opts, search)
+	next, err := resolveTool(config.BashConfig{}, opts, shells)
 	if err != nil || !next.Binding.SyntaxSupported || next.Executable == after.Executable || next.Binding.Fingerprint == after.Binding.Fingerprint {
 		t.Fatal("symlink upgrade was not recognized without restart", err)
 	}
 	// A per-tool PATH is not allowed to redefine the system reference.
 	opts.Env = []string{"PATH=" + filepath.Dir(old)}
-	shadow, err := resolveTool(config.BashConfig{}, opts, search)
+	shadow, err := resolveTool(config.BashConfig{}, opts, shells)
 	if err != nil || shadow.Binding.SyntaxSupported {
 		t.Fatal("tool PATH changed the frozen search reference", err)
+	}
+}
+
+func TestSystemBashIsTheStartupPathEntryNotALaterShadow(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix shadow shell fixture")
+	}
+	root := t.TempDir()
+	early, system := filepath.Join(root, "writable"), filepath.Join(root, "system")
+	for _, dir := range []string{early, system} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(system, "bash"), []byte("system"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	search := []string{"PATH=" + early + string(os.PathListSeparator) + system}
+	shells := captureToolSystemShells(search)
+	opts := Options{GOOS: runtime.GOOS, Command: "echo ok", CWD: root, Env: search}
+	if before, err := resolveTool(config.BashConfig{}, opts, shells); err != nil || !before.Binding.SyntaxSupported {
+		t.Fatal("startup system Bash was not recognized", err)
+	}
+	// A same-name program created later in an earlier PATH directory runs
+	// instead of the system Bash, so it must not inherit Bash analysis.
+	if err := os.WriteFile(filepath.Join(early, "bash"), []byte("shadow"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shadow, _ := filepath.EvalSymlinks(filepath.Join(early, "bash"))
+	after, err := resolveTool(config.BashConfig{}, opts, shells)
+	if err != nil || after.Invocation.Executable != shadow || after.Binding.SyntaxSupported || after.Binding.Dialect != dialect.Bash {
+		t.Fatalf("later PATH shadow was trusted as the system Bash: %+v %v", after, err)
 	}
 }
 
@@ -166,7 +199,7 @@ func TestToolLaunchDoesNotTrustShadowedShellOrUnstableEnv(t *testing.T) {
 func TestWindowsToolGrammarIsNeverTreatedAsBash(t *testing.T) {
 	for _, name := range []string{"powershell.exe", "pwsh.exe", "cmd.exe", "bash.exe"} {
 		program, args := ToolInvocation(config.BashConfig{ShellExecutable: name}, "{{command}}", "windows")
-		binding := classifyToolShell(program, program, args, "windows", toolSystemSearchEnv)
+		binding := classifyToolShell(program, program, args, "windows", toolSystemShells)
 		if binding.SyntaxSupported || binding.Dialect == dialect.Bash {
 			t.Fatalf("Windows shell %q incorrectly gained Bash analysis: %+v", name, binding)
 		}

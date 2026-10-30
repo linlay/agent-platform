@@ -1,9 +1,79 @@
 # Shell 命令审批：方案评审与实施计划
 
-> 状态：实施中。首批 Host 启动绑定、基线与方言保护已实现，范围及验证见第 8 节；完整目录迁移与 PowerShell 语义仍未完成，未部署。
+> 状态：实施中，暂停。S1、S2 已完成（含两轮复审修正），S0 部分完成，S3–S8 未开始；未部署。接手从第 0 节开始。
 > 日期：2026-10-30。评审代码基线：`509b81a5`；原方案使用本次评审读取的版本，指纹见下行。
 > 依据：[分层流水线与目录方案](shell-command-analysis.md)。本次读取版本 SHA-256：`3c4e8713b113a506c958acd285a7173cab85558c73e18291923fff08871e2092`。
 > 2026-10-30 复审：R1–R8 已并入方案正文（层次、资源三态、registry、Windows 身份与 6.6 未知方言合同），第 5 节的待定项汇总在方案 §8.2；对 `5554545f` 的代码复审发现见 §8.4。
+
+## 0. 当前进度与接手入口
+
+本节只列进度、下一步和遗留项；设计见[方案](shell-command-analysis.md)，按时间的实施记录见第 8 节。
+
+### 0.1 进度
+
+| 步骤 | 状态 | 记录 |
+| --- | --- | --- |
+| S0 合同与基线 | 部分完成：首批 Unix 行为基线已有；完整命令清单、规范化快照，以及方案 §8.2 第 1–7 项未完成 | §8.1 |
+| S1 工具专用 LaunchSpec | 完成 | §8.1 |
+| S2 未知方言合同 | 完成，含两轮复审修正；Windows 未实测 | §8.1、§8.4–§8.6 |
+| S3 中立类型与目录迁移 | 未开始；`shellreview/dialect`、`shellreview/types`、`shellreview/syntax`（文本检查）已建 | — |
+| S4–S8 | 未开始 | — |
+
+当前实现的入口：
+
+- 启动合同与系统 Bash 判定：`internal/hostshell/tool.go`（`ResolveTool`、`classifyToolShell`、`toolSystemShells`）。
+- 文本检查：`internal/shellreview/syntax/text.go`（`CheckText`、`CheckHidden`、`CheckAll`）、`internal/bashast/prechecks.go`（`CheckRawText`，Bash 引号外）。
+- 未知方言与按方言选择文本检查：`internal/accesspolicy/bash_review.go`（`reviewBashExecution`、`rawTextRejection`）、`bash_connector.go`（`SecurityReview`）。
+- 批准绑定：`internal/accesspolicy/bash_launch.go`（精确批准用 `Fingerprint`，规则用 `RuleFingerprint`）。
+- 行为基线：`internal/accesspolicy/bash_baseline_test.go`。
+
+### 0.2 下一步
+
+1. **关闭方案 §8.2 第 1–7 项。** 建议值已写在方案里，确认即可；确认后移到方案 §8.1。各项需要在哪一步之前定：
+
+   | 待确认项 | 最晚在 |
+   | --- | --- |
+   | 1 UnknownOption 是否追加要求 | S4（行为变化单独提交） |
+   | 2 curl `-K` 等隐式行为 | S4 |
+   | 3 空设备身份 | S6 |
+   | 4 PowerShell helper 生命周期 | S5 |
+   | 5 PowerShell 模块与身份规则 | S5（需 Windows 实测） |
+   | 6 默认白名单 | S4 |
+   | 7 首批 cmdlet | S8 |
+
+   S3 是纯结构迁移，不依赖这些决定，可以先做。
+
+2. **补完 S0 基线。** 在 `bash_baseline_test.go` 覆盖方案 §2.3 各名单的全部命令与入口：普通命令、内建、包装、解释器、opaque、连接器、技能脚本与自写脚本。路径、环境与叶子顺序规范化后，比较决策、规则类别与叶子数量；另列授权作用域（单次、规则、跨 cwd/环境）和硬阻断用例。S3 的每个提交都用它证明行为不变。
+
+3. **S3 迁移**，按方案 §5.2 的去向表。建议拆成以下提交，每个只挪结构，同一提交改完调用方并删除旧入口：
+   1. `types`：Invocation、Effects、Op、Unknown、Dep；先等价搬入 `shellanalysis.Effects`，不改字段语义。
+   2. `syntax/bash`：`internal/bashast` 整包迁入，随后迁入 `bashsec` 的 Shell 级检查。
+   3. `identity` 与 `unwrap`：拆分 `accesspolicy/bash_execution.go` 与 `bashsec/bash_wrappers.go`，保持"先确认身份再展开包装"。
+   4. `resources`：`git_state.go`、`bash_environment.go`、glob 展开。
+   5. `plan` 与 `policy`：BashPlan、启动绑定与批准；`bash_review.go` 拆成 `review.go`、`policy/`、`plan/`。
+
+   完成标志：包图无环；`accesspolicy` 不依赖 `shellreview`；基线不变。
+
+4. **之后按 S4 → S6 → S7 → S8。** S5 依赖 S3、S4，不等 S7。如果 Windows 上 ask/auto 每条命令都要人工审批的代价太高，可以先在现有结构上接入 PowerShell AST，只放行外部程序（方案 §7）。
+
+### 0.3 待做的目标环境验收（可并行）
+
+- 原生 Windows：在 Windows 上运行 `internal/hostshell`、`internal/tools`、`internal/accesspolicy` 的测试；方案 §2.1 样例需要单次人工；商店版 `pwsh` 应用执行别名的查找、链接解析、摘要与启动；中文/空格路径、UNC、junction；严格模式拒绝普通 Shell 调用。
+- PowerShell 外部程序传参：5.1 与 7 各用无害的 argv 回显程序核对（S5 前置条件，方案 §6.7）。
+- 真实系统包升级：apt 原地替换、Homebrew 切换链接后无需重启仍按 Bash 分析，旧批准失效。目前只有模拟测试。
+- 真实容器端到端：身份、路径、摘要、探针失败。
+
+### 0.4 已知限制（当前保留）
+
+- Bash 文本检查按 AST 确认引用数据；heredoc 正文与注释按引号外处理，正文里的全角空格等会被拒绝。解析失败或超时时不提供引号豁免。
+- 显式配置的 bash 绝对路径，如果不是启动时 PATH 选中的那一项，按未知方言处理。
+- Platform 启动后新装的 Bash（包括装进更靠前 PATH 目录的），要重启后才按 Bash 分析。
+- S5 之前的 Windows：ask/auto 档每条普通 Shell 调用都要单次人工审批；严格模式全部拒绝。
+- Host 只做执行前检查，不隔离任意代码的内部访问；未知方言的人工批准不代表正文已经审查。
+
+### 0.5 收尾
+
+S8 完成后按方案 §7 更新 `AGENTS.md` 与相关文档，然后删除本文件与方案文件。
 
 ## 1. 评审结论与本次范围
 
@@ -140,7 +210,7 @@ LaunchSpec 建议包含实际 Shell canonical 路径、方言与版本、命令�
 
 | 决定 | 本稿建议 | 与原方案的关系 |
 | --- | --- | --- |
-| 未支持方言在 auto_approve 下怎样处理 | 不自动运行；采用显式人工或拒绝的受控回退，错误原因清晰 | 政策变化，需审核；原方案为自动通过 |
+| 未支持方言在 auto_approve 下怎样处理 | 不自动运行；采用显式人工或拒绝的受控回退，错误原因清晰 | 已采纳并实现（§8.1）；原方案为自动通过 |
 | UnknownOption 是否追加要求 | 追加与调用绑定的 complex 要求，同时保留已知效果 | 原方案待定；不能只升级已看到的文件 |
 | curl -K/默认配置等隐式行为 | 首期记录依赖与 UnknownBehavior；不在首期重写完整配置语言 | 收敛首批范围；默认配置是否存在须探测，不能忽略 |
 | 空设备身份 | 确认实际类型及空设备身份，不能仅以“字符设备”或字符串判断 | 原方案待定；不把 /dev/zero 等视为丢弃输出 |
@@ -149,7 +219,7 @@ LaunchSpec 建议包含实际 Shell canonical 路径、方言与版本、命令�
 | 默认白名单 | 首期保持现有部署政策，不由“存在解析器”直接生成 | 原方案待定；减少无关授权变化 |
 | 首批 cmdlet | 先 Get-Location/Test-Path/Get-Content/Get-ChildItem/Write-Output，再文件修改与网络 | 原方案范围待定；每个命令需核验真实类型与来源，不因名称带 Get 就免审批 |
 
-本表为评审阶段建议。首批已采用的方言政策见第 8 节；其余尚未实施的项不能视为当前配置或运行合同。
+本表为评审阶段建议。第一项已实现；其余项的当前状态以方案 §8.2 为准，确认前不能视为当前配置或运行合同。
 
 ## 6. 验证方案与完成定义
 
@@ -185,12 +255,14 @@ LaunchSpec 建议包含实际 Shell canonical 路径、方言与版本、命令�
 
 ## 8. 实施记录：首批启动合同与方言保护
 
+以下按时间记录，较晚的小节修正较早的内容。当前有效的合同以方案正文和 `docs/工具目录权限.md` 为准。
+
 ### 8.1 已实现范围
 
 - S0：新增 `internal/accesspolicy/bash_baseline_test.go` 固定首批 Unix 行为基线，以决策及规则类别比较，避免保存机器相关路径 hash；补充三档方言回退、readonly、管理员 block、单次批准及独立叶子测试。完整命令清单与后续迁移基线仍需继续补齐。
 - S1：新增 `internal/hostshell/tool.go` 的 ToolInvocation、ResolveTool 与 LaunchSpec。把工具启动规则从 tools 移入 hostshell，原 Terminal 入口及 Git Bash 开关不变，Unix 默认继续无 profile 的 Bash。Shell canonical 路径、文件内容 SHA-256、模板、实际参数、排序且按有效值去重的环境、canonical cwd 进入绑定；内容摘要用于绑定 Shell 版本，不启动 Shell 查询版本。
 - 一次 Executor 调用仅取一次 run.env 快照，实际进程使用冻结的 Executable/Args/Env/CWD；启动前再次解析/摘要 Shell，变化时返回 `bash_launch_changed`，不消费旧批准。
-- 精确 access/security 批准绑定完整启动调用；可复用路径规则额外绑定不含用户命令正文的启动合同，保留同合同下按路径复用的范围。过滤已批准叶子时保留启动绑定与方言状态。
+- 精确 access/security 批准绑定完整启动调用；可复用路径规则额外绑定不含用户命令正文的启动合同，保留同合同下按路径复用的范围（8.5 起规则只绑定 Shell 身份、模板与方言，不再含 cwd 与环境）。过滤已批准叶子时保留启动绑定与方言状态。
 - S2：已确认的系统 Bash 及受支持非交互模板使用原 Bash 语义分析；Windows PowerShell/cmd/MSYS、其他 Shell、登录/交互或带额外源码的模板、同名替代 Shell 使用整条未知调用合同，不再把其正文交给 Bash 安全分析作放行依据。
 - 未支持语法时，ask_for_approval/auto_approve 强制单次人工；full_access 按 bash-complex-filesystem 配置决定。显式 block 始终保留；cwd 及 editing=false 的已知硬限制仍优先；严格命令模式直接拒绝未支持语法，预审不再请求无法执行的批准。Mailbox 代批不能因上级档位更高而放宽未知语法的人工要求。
 - policy.shell 展示实际 Shell 路径、模板与方言；原因中也包含未支持启动形式，未输出环境值。已验证单条直接连接器使用原冻结 argv 合同，不依赖配置 Shell 的存在；没有为其他 Shell 调用增加连接器凭据。
@@ -204,7 +276,7 @@ LaunchSpec 建议包含实际 Shell canonical 路径、方言与版本、命令�
 | 配置 sh/zsh 等尚未接入的语法，或 Bash 登录/附加源码模板 | 受限两档要求本次人工批准；不按 Bash 猜测正文 |
 | Windows Host 普通 Shell 调用 | 语法分析器接入前，受限两档不自动执行；目标环境端到端尚未验收 |
 | 未知语法且严格命令模式 | 预审和执行均拒绝 |
-| Shell、启动模板、环境或物理 cwd 改变 | 旧启动批准失效；原始命令字符串相同也不能复用 |
+| Shell、启动模板、环境或物理 cwd 改变 | 旧的单次批准失效，原始命令字符串相同也不能复用；本轮路径规则自 8.5 起只随 Shell 身份、模板或方言变化失效 |
 | 单条已核验直接连接器 | 不经过 Shell，保留原路径/摘要/argv/凭据合同 |
 
 未知语法的人工授权只表示用户批准了该次完整调用，不证明正文没有文件、远端或破坏性行为；Host 任意代码内部访问仍不隔离。
@@ -222,7 +294,7 @@ git diff --check
 
 以上均通过，部分 Go 测试命中缓存。Windows 仅交叉编译，未在 Windows 执行测试；也未做本批真实容器端到端验收。未重启或部署运行实例。
 
-下一批按 S3/S4 实施：建立中立 Invocation/Effects 合同，按命令拆迁现有分析器，统一注册及身份约束的有界包装展开。PowerShell AST 仍按 S5 提前接入，不等全部审批对象合并；真实 Windows 与容器验证未完成前保持相应状态为未验收。
+下一批按 S3/S4 实施（当前下一步以第 0 节为准）：建立中立 Invocation/Effects 合同，按命令拆迁现有分析器，统一注册及身份约束的有界包装展开。PowerShell AST 仍按 S5 提前接入，不等全部审批对象合并；真实 Windows 与容器验证未完成前保持相应状态为未验收。
 
 ### 8.4 复审发现（2026-10-30，针对 `5554545f`）
 
@@ -244,14 +316,33 @@ R1–R8 本次逐条核对，均成立，已并入方案。
 
 | 复审项 | 本批处理 |
 | --- | --- |
-| 1：所有方言的原始文本检查 | 已新增 `shellreview/syntax.CheckText`，在未知方言回退、连接器投影和字符串裁剪之前检查；Bash 预检也复用同一入口。控制字符、Unicode 空白、零宽/双向及其他格式控制字符、无效 UTF-8 一律硬拒绝。普通空格、Tab、LF、CRLF 允许，孤立 CR 拒绝；引号与 heredoc 不提供豁免 |
-| 2：系统 Bash 安装更新 | 已改为保存启动时的搜索路径，每次重新解析当前系统 Bash canonical 路径。文件原地替换和安装符号链接切换不取消语法支持；内容摘要仍使旧批准失效。工具环境的 PATH 不能改写系统参考路径 |
+| 1：所有方言的原始文本检查 | （8.6 已改为两级检查，引号内的 Unicode 空白与零宽字符在 Bash 中放行）已新增 `shellreview/syntax.CheckText`，在未知方言回退、连接器投影和字符串裁剪之前检查；Bash 预检也复用同一入口。控制字符、Unicode 空白、零宽/双向及其他格式控制字符、无效 UTF-8 一律硬拒绝。普通空格、Tab、LF、CRLF 允许，孤立 CR 拒绝；引号与 heredoc 不提供豁免 |
+| 2：系统 Bash 安装更新 | （8.6 已改为冻结启动时 PATH 选中的那一项）已改为保存启动时的搜索路径，每次重新解析当前系统 Bash canonical 路径。文件原地替换和安装符号链接切换不取消语法支持；内容摘要仍使旧批准失效。工具环境的 PATH 不能改写系统参考路径 |
 | 3：本轮路径规则的范围 | 新增 RuleFingerprint，额外绑定只包括 Shell canonical 路径、内容摘要、模板与方言。cwd/环境只参与精确启动批准；原路径规则的目标限制以及其他规则自身的调用限制保留 |
 | 4：相对 Shell 路径与商店 pwsh | 配置 normalize 阶段拒绝相对 shell-executable，允许程序名或绝对路径；商店 pwsh 应用执行别名已列入原生 Windows 验收，尚未验证 |
 | 5：Windows 严格模式 | 已在现行工具目录权限文档中说明：不支持的 Shell 语法在严格模式下拒绝，直接连接器例外仍沿用原合同 |
 
-行为变化：此前允许的引号内全角空格、连接器 JSON 中的 Unicode 空白，现在也受统一文本检查约束。已将相关测试拆成普通中文载荷的正向用例与不可见/特殊空白载荷的拒绝用例，不因冻结 CLI 入口而跳过原始文本检查。
+行为变化（8.6 已撤回）：此前允许的引号内全角空格、连接器 JSON 中的 Unicode 空白，现在也受统一文本检查约束。已将相关测试拆成普通中文载荷的正向用例与不可见/特殊空白载荷的拒绝用例，不因冻结 CLI 入口而跳过原始文本检查。
 
 新增回归覆盖所有方言与三档、已有批准不能放宽文本硬拒绝、原始命令裁剪前检查、真实挂载连接器、安装原地替换/符号链接切换、PATH 阴影、同一绝对目标跨 cwd/环境复用及 Shell/目标变化不复用。Windows 应用执行别名、真实系统包升级及目标环境端到端行为仍需分别验收，模拟安装测试不等于现场升级验证。
 
 本批最终验证：`go test ./...`、`git diff --check` 通过；`internal/tools` 与 `internal/config` 的 Windows amd64 测试交叉编译通过。部分测试命中缓存；没有执行原生 Windows 测试、重启或部署。当前工作区另有部署恢复相关改动，本批未修改那些文件。
+
+### 8.6 对 `ef0b41f4` 的复审修正（2026-10-30）
+
+复审 `ef0b41f4` 发现两处问题，本批修正，不推进 S3。
+
+| 问题 | 修正 |
+| --- | --- |
+| 文本检查对引号内、连接器载荷也硬拒绝 Unicode 空白与零宽字符，full_access 放不开。组合 Emoji（U+200D）、中文全角空格缩进、波斯语 U+200C、希伯来文 U+200F 都无法出现在提交信息或连接器 JSON 里；而放行的连接器调用没有人看卡片，Bash 引号内的数据也不影响解析 | 分两级。`CheckText` 只保留所有位置都拒绝的控制字符、双向覆盖/隔离（U+202A–U+202E、U+2066–U+2069）与无效 UTF-8；新增 `CheckHidden` 检查 Unicode 空白与 Cf 格式字符，Bash（含直接连接器 argv）通过 `bashast.CheckRawText` 只查引号外（heredoc 正文按引号外，与改动前一致），未知方言与配置的 Shell 路径/参数用 `CheckAll` 全部检查。Host 命令首尾只裁剪 ASCII 空白，其他空白留给检查 |
+| 系统 Bash 按启动时的 PATH 每次重新查找：启动后在更靠前、Agent 可免审批写入的 PATH 目录放一个同名 `bash`，会被当成系统 Bash 分析（已用临时测试复现） | 启动时冻结搜索路径选中的那一项（链接本身），每次只重新解析它的链接目标。apt 原地替换、Homebrew 切换链接照常识别；后来出现的靠前同名程序按未知方言审查 |
+
+测试：
+- 恢复改动前的正向用例：引号内全角空格的提交信息、连接器载荷中的全角空格。
+- 新增引号内组合 Emoji 原样执行、引号外与首尾 Unicode 空白拒绝、各方言按引号区分、启动后 PATH 阴影不被信任。
+
+提交前复核发现简单引号扫描会把双引号内的 `$(...)` 一并当成数据，漏查内部命令引号外的隐藏字符；heredoc 正文和注释中的引号也会错误地产生豁免。已改为复用有超时限制的 Bash 解析器，用 AST 只豁免引用数据，并为嵌套替换恢复独立的引号上下文。新增相应拒绝用例、嵌套引用数据的放行用例，以及实际 Host 预审和执行入口的回归。
+
+验证：`go test ./...` 通过（`internal/hostenv` 的 npm 计时用例首次超时，单独重跑通过，与本批无关），`go vet` 覆盖改动包；`gofmt -l` 只列出 HEAD 中已有的三个测试文件。未在原生 Windows 运行，未部署。
+
+提交前追加验证：上述 AST 修正后，改动包测试与 `go vet` 通过，`internal/tools` 的 Windows amd64 测试交叉编译通过，改动 Go 文件的格式检查及 `git diff --check` 通过。全仓首跑的 Server 集成测试 `TestQueryStreamsToolPayloadEventsAndPersistsToolSnapshot` 未读到持久化的 `run.complete`；该用例只调用 `datetime`，单独连续运行 5 次通过，之后 `go test ./...` 全仓复跑通过。保留该偶发失败记录，不将交叉编译视为原生 Windows 验收。

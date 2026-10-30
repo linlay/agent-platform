@@ -7,7 +7,7 @@ import (
 )
 
 func TestShellExecutableRejectsRelativePathsAtLoad(t *testing.T) {
-	for _, name := range []string{".", "..", "./bash", "../bin/bash", "bin/bash", `.\pwsh.exe`, `C:pwsh.exe`, `\pwsh.exe`, "bash\u202e"} {
+	for _, name := range []string{".", "..", "./bash", "../bin/bash", "bin/bash", `.\pwsh.exe`, `C:pwsh.exe`, `\pwsh.exe`, "bash\u202e", "bash\u00a0"} {
 		cfg := defaultConfig(LoadOptions{})
 		cfg.Bash.ShellExecutable = name
 		if err := cfg.normalize(t.TempDir()); err == nil || !strings.Contains(err.Error(), "bash.shell-executable") {

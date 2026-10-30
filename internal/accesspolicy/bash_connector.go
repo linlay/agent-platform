@@ -12,7 +12,6 @@ import (
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
-	shellsyntax "agent-platform/internal/shellreview/syntax"
 )
 
 // connectorExecution checks the actual target, including interpreter script
@@ -138,7 +137,7 @@ func connectorReviewCommand(command string, words []bashast.WordSpan) string {
 // SecurityReview binds any residual shell approval to the original command,
 // never to the neutral projection used to exclude mounted CLI payloads.
 func (p BashPlan) SecurityReview(command string, variables map[string]string) bashsec.ReviewResult {
-	if reason := shellsyntax.CheckText(command); reason != "" {
+	if reason := rawTextRejection(command, p.UnknownDialect); reason != "" {
 		return bashsec.ReviewResult{Decision: bashsec.ReviewBlock, Reason: reason}
 	}
 	if p.UnknownDialect {

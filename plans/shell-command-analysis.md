@@ -1,7 +1,7 @@
 # Shell 命令审批：分层流水线与目录方案
 
-> 状态：部分实施。启动合同与方言保护（实施计划 S0–S2）已在 `5554545f` 实现；目录迁移、命令事实细化、PowerShell AST 和两套审批合并尚未实施。
-> 核对日期：2026-10-30。步骤、验收门槛与实施记录见 [实施计划](shell-command-analysis-implementation.md)，其评审意见 R1–R8 已并入本文。Windows 结论未在 Windows 上端到端运行。
+> 状态：部分实施。启动合同与方言保护（实施计划 S0–S2）已在 `5554545f` 实现，复审补丁见 `ef0b41f4` 与实施计划 §8.6；目录迁移、命令事实细化、PowerShell AST 和两套审批合并尚未实施。
+> 核对日期：2026-10-30。进度、下一步与遗留项见[实施计划](shell-command-analysis-implementation.md)第 0 节；其评审意见 R1–R8 已并入本文。Windows 结论未在 Windows 上端到端运行。
 
 ## 1. 目标
 
@@ -95,15 +95,16 @@ echo "\" ; Remove-Item -Recurse C:\x ; echo "\"
 
 **0 启动与方言**（已实现）：`hostshell.ResolveTool` 生成 Bash 工具专用的 LaunchSpec，与 Terminal、Git Bash 开关分开；Unix 默认参数保持 `--noprofile --norc -o pipefail -c`。只有同时满足以下条件，才是 Bash 方言且进入语法分析：
 
-- Shell 是按 Platform 启动时保存的搜索路径重新解析的系统 Bash，比较当前 canonical 路径；内容摘要只绑定批准，安装升级和符号链接切换后无需为语法识别重启 Platform（S2 复审补丁）。
+- Shell 是系统 Bash：Platform 启动时搜索路径选中的那一项（链接本身），每次调用重新解析其链接目标并与实际执行的 canonical 路径比较。内容摘要只绑定批准；安装原地更新和符号链接切换后无需重启，之后在更靠前的 PATH 目录出现的同名程序不算系统 Bash（S2 复审补丁）。
 - 模板只含已知的非交互参数，并且最后是一个 `-c {{command}}`。
 
 其余都是不支持的方言或模板：Windows 的 PowerShell、cmd、bash.exe（MSYS），以及其他 Shell、登录/交互模板、附加源码的模板。容器使用容器内 bash，不经 LaunchSpec。单条直接连接器调用不经 Shell。
 
 **1 语法**：每种方言一个解析器，输出相同的调用结构。Bash 使用 mvdan/sh；PowerShell 使用 PowerShell 自带的 AST 解析器（6.2）。Shell 级硬阻断归这一层：
-- Bash：控制字符、Unicode 空白、IFS、`/proc/*/environ`、`eval`/`source`/`exec`/`trap`/`alias` 等改变 Shell 自身状态的内建命令、zsh 模块命令。`bashsec` 与严格模式的同类名单合并到这里。
+- Bash：引号外的 Unicode 空白与零宽/格式字符（引号内是数据，原样保留）、IFS、`/proc/*/environ`、`eval`/`source`/`exec`/`trap`/`alias` 等改变 Shell 自身状态的内建命令、zsh 模块命令。`bashsec` 与严格模式的同类名单合并到这里。
 - PowerShell：改变命令解析的命令（6.2）。
-- 所有方言（包括未知方言）：控制字符、Unicode 空白、零宽与双向控制字符。这些检查与语法无关；未知方言只能靠人工审批时，审批卡片上的命令必须与实际字节一致。
+- 所有方言（包括未知方言），任何位置：控制字符、双向覆盖与隔离字符、无效 UTF-8。它们会让审批卡片显示的内容与实际字节不一致，与语法无关。
+- 未知方言：无法区分引号，Unicode 空白与零宽/格式字符对整条命令检查。
 
 **2 身份**：
 
@@ -140,7 +141,7 @@ echo "\" ; Remove-Item -Recurse C:\x ; echo "\"
 **7 合并**：沿用现有 BashPlan 的叶子要求、规则批准与精确批准语义。每个叶子关联调用、事实来源（argv 下标、规则）与启动绑定：
 
 - 精确批准绑定完整调用：命令正文加 LaunchSpec 指纹。
-- 本轮规则批准追加 Shell 身份（canonical 路径及摘要）、模板与方言指纹；不额外加入 cwd、完整环境或命令正文，原规则自身的目标/调用限制不变（S2 复审补丁，见 §8.2 第 8 项）。
+- 本轮规则批准追加 Shell 身份（canonical 路径及摘要）、模板与方言指纹；不额外加入 cwd、完整环境或命令正文，原规则自身的目标/调用限制不变（S2 复审补丁，见 §8.1）。
 
 S7 合并 `bashsec` 的批准时，保持 HITL 公开形状与规则语义，协议调整另行讨论。
 
@@ -189,7 +190,7 @@ S7 合并 `bashsec` 的批准时，保持 HITL 公开形状与规则语义，协
 4. 命令名单只有 registry 一处；身份层、opaque 判定、解释器列表都从 registry 读。部署白名单 `bash.allowed-commands` 仍独立，登记分析器不等于默认允许。
 5. 方言或启动模板不支持时，整条命令走未知方言合同，不经过任何"简单命令"快速放行（已实现）。
 6. 既有的连接器、技能脚本、自写脚本凭据合同不变，重构不能扩大它们的豁免范围。
-7. 预审与执行使用同一份 LaunchSpec；Shell、模板、环境或 cwd 变化使旧批准失效（已实现）。
+7. 预审与执行使用同一份 LaunchSpec。Shell、模板、环境或 cwd 变化使旧的单次批准失效；本轮路径规则只随 Shell 身份、模板或方言变化失效（已实现）。
 
 ## 4. 命令知识：registry 与命令文件
 
@@ -316,7 +317,7 @@ internal/shellreview/                # Shell 审批唯一入口
       helper.ps1                     # 固定 helper 脚本（go:embed）：只解析，不执行
       helper.go                      # helper 进程：启动、请求、超时、输出上限
       ast.go                         # AST 节点白名单 → 调用结构；硬阻断名单
-    text.go                          # 与语法无关的文本检查：控制字符、Unicode 空白、零宽与双向控制字符
+    text.go                          # 文本检查：所有位置的控制/双向/编码检查；隐藏字符检查由调用方按引号规则选择范围
   identity/                          # 第2层
     identity.go                      # Identity 类型与 Resolve 入口
     unix.go                          # PATH 解析、系统安装记录
@@ -524,27 +525,15 @@ accesspolicy ──────────> 不依赖 shellreview
 
 ## 7. 实施步骤
 
-步骤、依赖与验收门槛以 [实施计划 §4](shell-command-analysis-implementation.md#4-可执行工作计划) 的 S0–S8 为准，本文不再另列阶段。顺序要点：
+步骤、依赖与验收门槛以[实施计划 §4](shell-command-analysis-implementation.md#4-可执行工作计划) 的 S0–S8 为准；当前进度与下一步见实施计划第 0 节。本文不再另列阶段。顺序要点：
 
 - 方言保护先行（已完成）。PowerShell AST（S5）不等两套审批合并（S7）。
 - 先细化事实（S4），再做通用空设备规则并删除 curl/wget 特例（S6）（R5）。
 - 纯结构迁移与行为变化分开提交。行为快照使用规范化表示：路径、环境、叶子顺序规范化后比较；原始指纹只在固定 fixture 中逐值验证（R8）。
 
-| 步骤 | 内容 | 状态 |
-| --- | --- | --- |
-| S0 | 合同与基线 | 部分完成：首批 Unix 行为基线；完整命令清单与待确认项待补 |
-| S1 | 工具专用 LaunchSpec | 完成（`5554545f`） |
-| S2 | 未知方言合同 | 首批完成（`5554545f`），复审补丁补齐通用文本检查、安装升级识别与规则绑定；Windows 未实测 |
-| S3 | 中立类型与目录迁移 | 未开始；`dialect`、`types` 叶子包已建 |
-| S4 | registry、身份—包装交替、细化事实 | 未开始 |
-| S5 | PowerShell AST 与身份 | 未开始 |
-| S6 | 资源三态与通用空设备规则 | 未开始 |
-| S7 | 合并两套审批 | 未开始 |
-| S8 | cmdlet 语义与收尾 | 未开始 |
-
 S5 依赖 S3、S4，在这之前 Windows 两档每条命令都要人工审批。如果这段时间太长，可以先在现有结构上接入 AST，只放行外部程序，再随 S3/S4 迁移。
 
-实施完成后同步更新：`AGENTS.md`（命令语义包名）、[工具目录权限](../docs/工具目录权限.md)、[AccessPolicy 与 HITL 边界](../docs/AccessPolicy与HITL改造.md)、[Runtime 模块边界](../docs/Runtime模块边界.md)、[Windows Git Bash](../docs/WindowsGitBash实施进度.md)（注明 Host Bash 仍为 PowerShell）。
+实施完成后同步更新：`AGENTS.md`（命令语义包名）、[工具目录权限](../docs/工具目录权限.md)、[AccessPolicy 与 HITL 边界](../docs/AccessPolicy与HITL改造.md)、[Runtime 模块边界](../docs/Runtime模块边界.md)、[Windows Git Bash](../docs/WindowsGitBash实施进度.md)（注明 Host Bash 仍为 PowerShell）。之后删除本文与实施计划。
 
 ## 8. 决定事项
 
@@ -556,10 +545,13 @@ S5 依赖 S3、S4，在这之前 Windows 两档每条命令都要人工审批。
 - 未知方言合同按 6.6 执行：ask_for_approval 与 auto_approve 单次人工，full_access 按配置，严格模式拒绝，代批不放宽（已实现）。
 - 工具启动与 Terminal 分开，Unix 默认启动参数不变（已实现）。
 - 首批不新增 ps、ss、netstat，先完成已有命令归属与授权合同。
+- 本轮规则批准只额外绑定 Shell 身份、模板与方言；相同目标可跨 cwd/环境复用路径规则，精确批准仍绑定完整调用（已实现）。
+- 系统 Bash 是启动时搜索路径选中的那一项，每次重新解析链接；安装更新不需重启，后来出现的靠前同名程序不算（已实现）。
+- 文本检查分两级：控制字符、双向覆盖/隔离、无效 UTF-8 在所有方言和位置硬拒绝；Unicode 空白与零宽/格式字符在 Bash 只查引号外，未知方言查整条（已实现）。
 
 ### 8.2 待确认
 
-S0 需要关闭以下事项。第 8、9 项来自本次代码复审，已采纳并实现于 S2 复审补丁；其余项目仍按建议状态处理。
+S0 需要关闭以下事项；每项最晚在哪一步之前确认，见实施计划 §0.2。确认后移到 8.1。
 
 | # | 事项 | 建议 |
 | --- | --- | --- |
@@ -570,8 +562,6 @@ S0 需要关闭以下事项。第 8、9 项来自本次代码复审，已采纳�
 | 5 | PowerShell 模块与身份规则 | helper 与执行端一致且可验证；候选做法见 6.3，需在 Windows 核实 |
 | 6 | 默认白名单 | 保持现有部署政策，不由"存在解析器"生成 |
 | 7 | 首批 cmdlet | 按 6.4 的顺序，先只读，再文件修改，最后网络 |
-| 8 | 本轮规则批准绑定的启动合同范围 | 已采纳：额外绑定仅包含 Shell 身份、模板与方言。相同绝对目标可跨 cwd/环境复用路径规则；原规则自身的其他限制保留，精确批准仍绑定完整调用 |
-| 9 | 系统 Bash 身份的判定方式 | 已采纳：每次按启动搜索路径重新解析系统 Bash，比较当前 canonical 路径；摘要只绑定批准。apt 原地替换与 Homebrew 符号链接切换后仍可分析，旧批准失效 |
 
 ## 附录 A：已有局部修复
 
@@ -604,4 +594,7 @@ S0 需要关闭以下事项。第 8、9 项来自本次代码复审，已采纳�
 | `git status`（PowerShell，git 为 Application） | 当前单次人工 | S5 后与 Unix 相同 |
 | `rm -Recurse C:\x`（PowerShell，`rm` 为 Remove-Item 别名） | — | S5 为 Exec；S8 为 destructive |
 | Unix 配置 `shell-executable: sh` 或登录模板 | — | 未知方言合同（已实现） |
-| 含 ESC 序列或零宽字符的未知方言命令 | 当前跳过全部文本检查 | 与语法无关的文本检查对所有方言生效（实施计划 §8.4） |
+| 含 ESC 序列或双向覆盖字符的命令（任何方言、引号内也算） | `5554545f` 对未知方言跳过全部文本检查 | 硬拒绝（已修复） |
+| 提交信息里的组合 Emoji（`👨` U+200D `💻`）、连接器 JSON 里的全角空格 | `ef0b41f4` 曾在引号内也硬拒绝 | Bash 引号内原样保留；未知方言仍拒绝（已修复） |
+| `echo` U+3000 `ok`（引号外全角空格）、`git` U+200B ` status`（引号外零宽空格） | — | Bash 与未知方言都硬拒绝 |
+| 启动后在更靠前的 PATH 目录写入同名 `bash` | `ef0b41f4` 会当作系统 Bash 分析 | 未知方言合同（已修复） |

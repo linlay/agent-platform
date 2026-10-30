@@ -20,8 +20,11 @@ import (
 const maxShellScriptDepth = 3
 
 func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, command, cwd string, variables map[string]string, environment *BashEnvironment, contexts ...*ExecutionContext) BashPlan {
-	if reason := shellsyntax.CheckText(command); reason != "" {
-		return bashPlan(command, sessionAccessLevel(session), DecisionBlock, reason, "bash-access:text", command)
+	unknownDialect := environment != nil && environment.Launch != nil && !environment.Launch.SyntaxSupported
+	if reason := rawTextRejection(command, unknownDialect); reason != "" {
+		p := bashPlan(command, sessionAccessLevel(session), DecisionBlock, reason, "bash-access:text", command)
+		p.UnknownDialect = unknownDialect
+		return p
 	}
 	var execCtx *ExecutionContext
 	if len(contexts) > 0 {
@@ -32,6 +35,16 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 		plan = bindBashLaunch(plan, *environment.Launch)
 	}
 	return plan
+}
+
+// rawTextRejection judges hidden characters by the grammar that executes the
+// text: Bash (including direct connector argv) ignores quoted data, while an
+// unsupported grammar cannot tell quoting apart, so every character counts.
+func rawTextRejection(command string, unknownDialect bool) string {
+	if unknownDialect {
+		return shellsyntax.CheckAll(command)
+	}
+	return bashast.CheckRawText(command)
 }
 
 // DefaultBashCwd is the working directory used when a Bash call names none.

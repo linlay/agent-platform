@@ -9,7 +9,7 @@ import (
 )
 
 func validateBashShellConfig(bash BashConfig) error {
-	if reason := shellsyntax.CheckText(bash.ShellExecutable); reason != "" {
+	if reason := shellsyntax.CheckAll(bash.ShellExecutable); reason != "" {
 		return fmt.Errorf("bash.shell-executable: %s", reason)
 	}
 	name := strings.TrimSpace(bash.ShellExecutable)
@@ -24,7 +24,7 @@ func validateBashShellConfig(bash BashConfig) error {
 		}
 	}
 	for _, arg := range bash.ShellArgs {
-		if reason := shellsyntax.CheckText(arg); reason != "" {
+		if reason := shellsyntax.CheckAll(arg); reason != "" {
 			return fmt.Errorf("bash.shell-args: %s", reason)
 		}
 	}

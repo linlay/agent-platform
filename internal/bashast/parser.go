@@ -2,6 +2,7 @@ package bashast
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +11,8 @@ import (
 )
 
 const parseTimeout = 50 * time.Millisecond
+
+var errParserTimeout = errors.New("parser timeout")
 
 func ParseForSecurityWithKnownVariables(command string, variables map[string]string) ParseResult {
 	if ok, reason := runPrechecks(command); !ok {
@@ -21,7 +24,28 @@ func ParseForSecurityWithKnownVariables(command string, variables map[string]str
 // ParseForExecution only identifies shell structure. Callers must still run
 // security checks on every part not covered by a verified execution grant.
 func ParseForExecution(command string, variables map[string]string) ParseResult {
+	file, err := parseFile(command)
+	if err != nil {
+		reason := fmt.Sprintf("parse error: %v", err)
+		if errors.Is(err, errParserTimeout) {
+			reason = err.Error()
+		}
+		return ParseResult{Kind: TooComplex, Reason: reason, NodeType: "parser"}
+	}
+	if file == nil {
+		return ParseResult{Kind: ParseUnavailable, Reason: "parser returned nil file", NodeType: "parser"}
+	}
 
+	w := newWalkerWithKnownVariables(command, variables)
+	if err := w.walkFile(file); err != nil {
+		return ParseResult{Kind: TooComplex, Reason: err.reason, NodeType: err.nodeType}
+	}
+	return ParseResult{Kind: Simple, Commands: w.commands}
+}
+
+// parseFile shares the same bounded Bash parser between structural analysis
+// and quote-aware text checks; neither path executes the supplied command.
+func parseFile(command string) (*syntax.File, error) {
 	type parseResponse struct {
 		file *syntax.File
 		err  error
@@ -39,20 +63,8 @@ func ParseForExecution(command string, variables map[string]string) ParseResult 
 	var response parseResponse
 	select {
 	case <-ctx.Done():
-		return ParseResult{Kind: TooComplex, Reason: "parser timeout", NodeType: "parser"}
+		return nil, errParserTimeout
 	case response = <-ch:
 	}
-
-	if response.err != nil {
-		return ParseResult{Kind: TooComplex, Reason: fmt.Sprintf("parse error: %v", response.err), NodeType: "parser"}
-	}
-	if response.file == nil {
-		return ParseResult{Kind: ParseUnavailable, Reason: "parser returned nil file", NodeType: "parser"}
-	}
-
-	w := newWalkerWithKnownVariables(command, variables)
-	if err := w.walkFile(response.file); err != nil {
-		return ParseResult{Kind: TooComplex, Reason: err.reason, NodeType: err.nodeType}
-	}
-	return ParseResult{Kind: Simple, Commands: w.commands}
+	return response.file, response.err
 }

@@ -34,7 +34,9 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if reason := shellsyntax.CheckText(stringArg(args, "command")); reason != "" {
 		return ToolExecutionResult{Output: reason, Error: "bash_security_blocked", ExitCode: -1}, nil
 	}
-	command := strings.TrimSpace(stringArg(args, "command"))
+	// Trim only ASCII layout: other whitespace at the edges stays visible to the
+	// review, which rejects it outside quotes in every grammar.
+	command := strings.Trim(stringArg(args, "command"), " \t\r\n")
 	if command == "" {
 		return ToolExecutionResult{Output: "Missing argument: command", Error: "missing_command", ExitCode: -1}, nil
 	}

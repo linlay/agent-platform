@@ -38,7 +38,7 @@ func TestMountedConnectorAllOperationsAndAccessLevels(t *testing.T) {
 	commands := []string{
 		"wecom-cli auth show --status",
 		"wecom-cli message aibot sessions list",
-		"wecom-cli message aibot send --json '{\n\"content\":\"中午12点会议 /proc/self/environ rm -rf / \"\n}'",
+		"wecom-cli message aibot send --json '{\n\"content\":\"中午12点会议 /proc/self/environ rm -rf /　\"\n}'",
 		"wecom-cli media upload --file /outside/private/file.pdf --output /outside/result",
 		"'" + filepath.Join(bin, "wecom-cli") + "' send",
 		"sh '" + filepath.Join(bin, "wecom-cli") + "' send",
@@ -92,12 +92,21 @@ func TestMountedConnectorCannotBypassRawTextGuard(t *testing.T) {
 	session, vars, _ := connectorFixture(t)
 	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		session.AccessLevel = level
-		for _, bad := range []string{"\x1b[2K", "\u3000", "\u200b", "\u202e"} {
-			command := "wecom-cli send --json '{\"content\":\"" + bad + "\"}'"
+		for _, command := range []string{
+			"wecom-cli send --json '{\"content\":\"\x1b[2K\"}'",
+			"wecom-cli send --json '{\"content\":\"\u202e\"}'",
+			"wecom-cli send\u3000--json '{}'",
+			"wecom-cli send --json\u200b'{}'",
+		} {
 			p := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "/", vars)
 			if !p.Blocked() || p.SecurityReview(command, vars).Decision != bashsec.ReviewBlock {
 				t.Fatalf("%s: trusted payload bypassed raw-text guard: %+v", level, p)
 			}
+		}
+		// Quoted data keeps emoji joiners and CJK spaces verbatim.
+		command := "wecom-cli send --json '{\"content\":\"\u3000\u3000👨\u200d💻\"}'"
+		if p := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "/", vars); p.Blocked() || p.SecurityReview(command, vars).Decision == bashsec.ReviewBlock {
+			t.Fatalf("%s: quoted payload was rejected: %+v", level, p)
 		}
 	}
 }

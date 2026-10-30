@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"agent-platform/internal/accesspolicy"
@@ -130,7 +131,7 @@ func TestUnsafeRawTextIsRejectedBeforeTrimmingOrShellResolution(t *testing.T) {
 	executor := &RuntimeToolExecutor{cfg: config.Config{Bash: config.BashConfig{ShellExecutable: "/missing/shell", ShellFeaturesEnabled: true}}}
 	ctx := bashExecutionContext(t.TempDir())
 	ctx.Session.AccessLevel = AccessLevelFullAccess
-	for _, command := range []string{"\u00a0echo ok", "echo ok\u00a0", "echo '\u202ehidden'", "echo '\x1b[2Khidden'"} {
+	for _, command := range []string{"echo '\u202ehidden'", "echo '\x1b[2Khidden'", "echo ok\x1b"} {
 		args := map[string]any{"command": command}
 		p := executor.ReviewBashAccess(context.Background(), args, ctx, executor.cfg.AccessPolicy)
 		if !p.Blocked() {
@@ -140,5 +141,35 @@ func TestUnsafeRawTextIsRejectedBeforeTrimmingOrShellResolution(t *testing.T) {
 		if err != nil || result.Error != "bash_security_blocked" {
 			t.Fatalf("unsafe raw text reached shell launch: %+v %v", result, err)
 		}
+	}
+}
+
+func TestHostBashJudgesHiddenCharactersByQuoting(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix Bash quoting fixture")
+	}
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("Bash unavailable")
+	}
+	executor := &RuntimeToolExecutor{cfg: config.Config{Bash: config.BashConfig{AllowedCommands: []string{"*"}, ShellFeaturesEnabled: true}}}
+	ctx := bashExecutionContext(t.TempDir())
+	ctx.Session.AccessLevel = AccessLevelFullAccess
+	// Edge whitespace is not silently trimmed away before review.
+	for _, command := range []string{
+		"\u00a0echo ok", "echo ok\u00a0", "echo\u3000ok", "echo ok\u200b",
+		"echo \"$(echo\u3000ok)\"", "echo \"$(echo ok\u200b)\"",
+	} {
+		args := map[string]any{"command": command}
+		if p := executor.ReviewBashAccess(context.Background(), args, ctx, executor.cfg.AccessPolicy); !p.Blocked() {
+			t.Fatalf("unquoted hidden character passed preflight: %q %+v", command, p)
+		}
+		if result, err := executor.invokeHostBash(context.Background(), args, ctx); err != nil || result.Error != "bash_security_blocked" {
+			t.Fatalf("unquoted hidden character reached execution: %q %+v %v", command, result, err)
+		}
+	}
+	payload := "\u3000\u3000\U0001f468\u200d\U0001f4bb"
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "printf '%s' '" + payload + "'"}, ctx)
+	if err != nil || result.Error != "" || !strings.Contains(result.Output, payload) {
+		t.Fatalf("quoted data was not passed verbatim: %+v %v", result, err)
 	}
 }
