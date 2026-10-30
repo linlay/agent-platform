@@ -16,6 +16,7 @@
 - [Agent 运行时组装](Agent运行时组装.md)：执行目录、技能选择、租约和热重载。
 - [运行时和沙箱](运行时和沙箱.md)：运行目录、Container Hub 与挂载。
 - [会话存储与回放](会话存储与回放.md)：会话、归档、事件、压缩和资源。
+- [Mailbox](Mailbox.md)：会话之间的信、回信、即时消息与请示，以及 chats.db 与 mail.db 的边界。
 - [记忆系统](记忆系统.md)：Markdown 记忆、memx 与维护 worker。
 
 ## API、模型与网络

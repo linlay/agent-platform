@@ -95,6 +95,7 @@ cmd/agent-platform/main.go
 Chat 默认由 `AP_RUNTIME_CHATS_DIR` 控制，主要包含：
 
 - `chats.db`：chat 摘要索引。
+- `mail.db`：仅在 `mail.enabled: true` 时存在，是 Mailbox 的投递账本，只按 chatId/runId 单向引用 Chat；chats.db、Chat 列表与归属判断不依赖它，边界见 [Mailbox](docs/Mailbox.md#chatsdb-与-maildb)。
 - `chat-order.json` / `chat-pinned.json`：Platform 管理的实例级 recent/manual 展示排序，缺省 recent（更新时间倒序），以及独立跨 mode 置顶顺序，不修改 Chat 内容时间或数据库 schema。
 - `chat-primary.json`：每个 Agent 的主要聊天指针（agentKey → chatId），其他 active Chat 为历史聊天；由创建 Chat 的 query `primary:true` 或 `PUT /api/chats/primary` 切换；Mailbox 仅在指针缺失时补建并设定主要聊天，当前主要聊天有活动 Run 时 409 拒绝，Automation/chat_start/execute 等入口不切换，见 [API 与协议](docs/API与协议.md#主要聊天)。
 - `<chatId>.jsonl`：运行事件、StepLine、system init 与 raw messages。

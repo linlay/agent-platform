@@ -1,110 +1,165 @@
-# Mailbox 与主要聊天：后续方案（Platform + WebClient）
+# Mailbox 与主要聊天：后续计划
 
-> 本文件保留原始分阶段提案。2026-10-30 的用户质疑、方案调整和代码核对见 [讨论汇总与代码现状](mailbox-opened-chats-review.md)。其中 opened 查询当前推荐扩展 `/api/chats?openedBy=` 并将创建关系投影到 CHATS，仍未实施；原文的 `/api/chats/opened` 和 `/api/send` 都不是现有接口。第一批已完成项及 Mailbox V1 修复状态以汇总文档为准。
+本文件是 Mailbox 与主要聊天的唯一后续计划。当前合同（含 chats.db 与 mail.db 的边界）见 [docs/Mailbox.md](../docs/Mailbox.md)。原 `plans/mailbox.md`、`plans/primary-chat-dispatch.md`、`plans/mailbox-opened-chats-review.md` 已并入这两份文档，讨论过程见 git 历史。
 
-接续 [mailbox.md](mailbox.md)（已实现）与 [primary-chat-dispatch.md](primary-chat-dispatch.md)（探讨稿）。本方案只覆盖 Platform 与 WebClient；Desktop 在 WebClient 定稿后对齐。
+本计划只覆盖 Platform 与 WebClient；Desktop 在 WebClient 定稿后对齐。
 
-## 现状
+## 现状（2026-10-30 核对代码）
 
-- Platform：mailbox 方案的实施步骤 1、2 已完成，审核修复已提交（1f7c307a）。
-- Platform：`accessConfig.default` 已落地，信在受理时按收件 Agent 默认档位冻结。
-- WebClient：已有收件箱面板（侧栏设置菜单进入），重投、丢弃前的确认，时间线来源徽标，以及 wait 的 `mail` 唤醒原因。
-- WebClient：主聊天里平台开出的 Run 会自动挂接并实时显示。
-- 主要聊天：指针、`PUT /api/chats/primary`、query `primary:true`、mailbox 补建均已实现；WebClient 已有主要聊天导航。
-- 用户输入仍分 `/api/query` 和 `/api/steer`：客户端要自己判断用哪个，会话忙时 query 返回 `active_run_conflict` 或 `awaiting_pending`。
+已完成：
 
-## 阶段 1：mailbox 收尾（Platform）
+- 信、回信、即时消息、请示与 `chat_submit` 代答，跳数，重启挂起与人工重投（654a572c 起）。
+- MAILS 命名与 chats.db 风格统一，schema 固定为 V1 基线（c092292d、a95be546）。
+- 平台生成的 mail 冻结收件 Agent 默认档位；notify 先受理再复制附件；删除分身后已受理的回信照常投递；30 天终态正文清理、两端删除后清行、删除钩子对账。
+- `mail.enabled` 默认关闭（a6f54762）。
+- WebClient：收件箱（从设置菜单进入）、重投与丢弃、时间线来源徽标、`wait` 的 `mail` 唤醒原因。
 
-| # | 内容 | 做法 |
-|---|---|---|
-| 1.1 | 平台生成的 mail 用收件 Agent 默认档位 | 回信、即时消息、请示目前固定写 `default`。改为创建时按收件 Agent 的 `accessConfig.default` 解析，与 letter 一样写入 `accessGrant`（来源、revision）。 |
-| 1.2 | `/api/mails` 列表只给摘要 | 列表去掉 `input`、`accessGrant` 和正文全文，只留正文前 200 字；响应增加 `total`。新增 `GET /api/mails/detail?mailId=` 返回全文、附件和等待项快照。WebClient 收件箱同批改为点开再取详情。 |
-| 1.3 | 保留期 | 终态超过 `mail.retention-days`（默认 30）的行清空 `input`、`message`、`refs`，保留行本身，信封头、幂等和回放不受影响。两端会话都已删除的行直接删除。启动时和每天各跑一次。 |
-| 1.4 | 临时错误自动重试 | 投递遇到临时错误时按会话退避重试：5 秒起，翻倍，最长 5 分钟。同一会话只有一个重试计时；日志按会话限频。 |
-| 1.5 | 归档 | 归档时，寄往该会话的未完成信转为 failed 并寄失败回信；回信转为 suspended（证据 none），恢复会话后可重投；即时消息和请示转为 withdrawn。不清正文；恢复会话不自动重投。 |
-| 1.6 | 分身会话被删时的回信 | 分身发出、尚未送达的回信照常投递；只清空寄往被删会话的正文。被删会话发出的即时消息和请示照旧撤回。 |
-| 1.7 | `chat_notify` 附件顺序 | 与 letter 相同：先写库（accepting），再复制附件，然后转 queued；不再在写库前复制。 |
-| 1.8 | 分身审批时限 | 保持 600 秒，超时按拒绝；分身在回信里说明被拒。阶段 4 的主视图审批上线后再评估。 |
+未完成：
 
-## 阶段 2：WebClient 展示补齐
+| 项 | 现在的行为 |
+|---|---|
+| `/api/mails` 摘要、详情、total | 列表直接返回正文和附件，没有 total，也没有详情接口；WebClient 读取 `{mails}` |
+| 临时错误自动重试 | 留在 `queued`，只能等同一会话的下一次触发；一直没有触发就停到重启后挂起 |
+| 归档时的状态转换 | 只有删除有钩子；已归档会话不再产生触发，归档时排队的 mail 停到重启 |
+| 工作会话列表 | `chat_query opened` 先查 mail.db，再枚举全部 Chat、读 JSONL 回退、逐条查摘要和活动 Run；`/api/chats` 没有 openedBy |
+| WebClient 展示 | 挂起角标、请示卡片、代答标记、工作会话导航、回放核对 |
+| 后续阶段 | 统一用户发送入口、主视图直接审批、Automation/渠道改发信、删除 `chat_start`/`chat_steer` |
 
-依赖阶段 1.2 的摘要和详情接口；2.4 另需 Platform 新增一个接口。
+## 已确认的决定
 
-| # | 内容 | 做法 |
-|---|---|---|
-| 2.1 | 挂起提醒 | 收件箱从设置菜单移到侧栏一级入口，带挂起数量角标（`/api/mails?status=suspended` 的 `total`，`mail.updated` 时刷新）。启动后若有挂起 mail，提示一次。 |
-| 2.2 | 请示卡片 | 主聊天时间线里的请示显示为卡片：分身名称、问题、审批命令或表单字段，以及“去分身会话处理”跳转。请示被答复、超时或撤回后，卡片按 `mail.updated` 变灰。 |
-| 2.3 | 代答展示 | 分身会话中由上级 `chat_submit` 作答的记录，显示“由 X 代答”；审批另外显示依据的档位（submit 行的 `origin`、`accessGrant`）。 |
-| 2.4 | 我开出的会话 | Platform 新增 `GET /api/chats/opened?agentKey=`，与 `chat_query opened` 同源，状态区分运行中、等待人处理、空闲。WebClient 在主聊天导航下列出这些会话，“等待人处理”高亮。这也覆盖跳数达上限、请示不再上报的情况。 |
-| 2.5 | 回放核对 | 刷新和历史回放后，信封来源、回信 outcome、请示卡片状态与实时一致。 |
+- Run 不做地址，一切寄给会话。寄到已有会话是补充那件事，另一件事新开会话。
+- 一个 Run 只正式回一次，内容是完整最终输出；不加 `final` 标志。
+- 即时消息、请示与信分开；只有 letter 的 `started` 授予发信方 Run 控制。
+- 代批上限：上级用自己当前的档位做这个操作不需要审批。
+- 新工具统一用 `chat_` 前缀；`chat_start`、`chat_steer` 暂时保留，阶段 D 删除。
+- MAILS 的表、字段、索引命名与 chats.db 一致；Mailbox 未上线，schema 以 V1 为基线，不迁移、不自动清库。
+- 保持一个 Chat 同时只有一个主 Run；"同时派很多活"靠派给分身实现。
+- 工作会话查询复用 `/api/chats` 并增加参数，不新开 `/api/chats/opened`：`agentKey` 表示所属 Agent，`openedBy` 表示发起 Agent，同时出现取交集。
+- 工作会话列表不兼容旧 `chat_start` 开出的会话，也不扫描 JSONL。
+- 分身审批时限保持 600 秒，超时按拒绝处理。
 
-## 阶段 3：用户消息走 mailbox
-
-目标：用户随时可以发消息，由平台决定开 Run、插入或排队；客户端不再区分 query 和 steer，也不再因会话忙收到 409。
-
-### Platform
-
-- **新入口：** `POST /api/send`（HTTP 和主 WS 同一套逻辑）。参数为 `{chatId? | agentKey, message, references?, files?}` 加运行选项（`planningMode`、`editingMode`、`model`、`accessLevel`）；返回 `{mailId, chatId, delivery: started|inserted|queued, runId?}`。
-- **记录方式：** 用户消息记为 kind `letter`、`origin_type = user`，hop 为 0。只有 Agent 发出的 letter 才会生成回信；用户看到的回复就是会话里的 Run 输出。
-- **投递规则与 mail 相同：** 空闲开 Run，运行中插入，停在等待项上时在 Run 内排队，规划、压缩和续接仲裁期间排队。
-- **运行选项：** 只在这条消息开新 Run 时生效。会话忙、且消息带的运行选项与当前 Run 不同时，消息排队，等当前 Run 结束后用这些选项开新 Run，不插入。
-- **取消排队：** `POST /api/mails/action` 增加 `cancel`，只对仍是 queued 的 mail 有效，含用户消息与 letter。
-- **重启：** 未投递的用户消息挂起，由用户在会话里重发或丢弃。
-- **旧入口：** `/api/query`、`/api/steer` 保留给 Desktop、gateway、Automation、execute 和渠道，见待确认 D8。
-
-### WebClient
-
-- 输入框一律调用 send。消息显示为待发气泡，状态为排队中、已插入或已开始；排队中的可以取消。
-- 去掉“运行中改走 steer”的分支，以及 `active_run_conflict` 的提示路径。
-- 订阅：先沿用现有 `run.started` 推送加自动挂接。若仍有遗漏，再加 WS 会话订阅 `chat.subscribe {chatId}`，推送该会话当前及之后所有 Run 的事件和排队变化。
-
-## 阶段 4：主视图处理与主要聊天形态
-
-| # | 内容 | 做法 |
-|---|---|---|
-| 4.1 | 主视图直接审批 | 请示卡片内直接批准、拒绝或作答，用人的身份对分身的 `runId/awaitingId` 调 `/api/submit`，不受代批上限约束。超出上级档位的审批不必再进分身会话。 |
-| 4.2 | Automation 与渠道改为发信 | 走阶段 3 的入口（origin 为 automation 或 channel）。目标会话忙时排队，不再拒绝。 |
-| 4.3 | 删除 `chat_start`、`chat_steer` | 阶段 3 稳定后硬切删除，连同 runops 的一层限制、工具 YAML、task-control 手册和文档。 |
-| 4.4 | 更新 `primary-chat-dispatch.md` | 写入下方的结论，状态从探讨稿改为已定。 |
-
-主要聊天待拍板项的建议答案（编号对应 primary-chat-dispatch.md）：
-
-- **Q1：** 主聊天既做短活，也负责派活；长任务或另一件事用 `chat_send {newChat:true}` 派给分身。规则写进 task-control 手册。
-- **Q2：** 派出的会话挂在主聊天下（阶段 2.4），不进普通历史列表的顶层。
-- **Q3、Q5：** 已由 mailbox 回答：结果自动开回调 Run；可以多层派活，受跳数限制。
-- **Q4：** 派给自己的分身不设为默认，由模型按 Q1 的规则选择。
-- **Q6：** 保留 `primary_chat_busy`，只用于切换指针。阶段 3 之后，用户消息不会因忙被拒。
-- **Q7：** 审批两处都能处理：主视图卡片（4.1）或分身会话。
-- **Q8：** 任务托盘就是“我开出的会话”列表；Kanban 和云端 Job 本期不合并。
-- **Q9：** 见 4.2。
-- **Q10：** Desktop 在本方案完成后对齐。
-
-## 待确认
+## 待拍板
 
 | # | 问题 | 建议 |
 |---|---|---|
-| D1 | 保留期 | 30 天；只清正文、保留行；两端会话都删除的行删除 |
-| D2 | 临时错误 | 自动退避重试，最长间隔 5 分钟 |
-| D3 | 分身会话删除后的回信 | 照常送达 |
-| D4 | 归档 | 信失败并寄失败回信；回信挂起；即时消息、请示撤回 |
-| D5 | 分身审批时限 | 保持 600 秒 |
-| D6 | 用户消息在 mail.db 中的形态 | letter + `origin_type = user`，不生成回信 |
-| D7 | 运行选项不同的用户消息 | 排队，等当前 Run 结束开新 Run |
-| D8 | `/api/query`、`/api/steer` | 保留给非 WebClient 调用方；Desktop、gateway 迁移后再定删除 |
-| D9 | 主要聊天 Q1、Q2、Q7 | 按上文建议 |
+| 1 | openedBy 的创建关系存在哪里 | 存 chats.db，见下文"openedBy 方案" |
+| 2 | 默认开启 mail 的门槛 | 完成阶段 A 的 A1–A4 后再切换默认值 |
+| 3 | 补建的主要对话算不算"开出" | 不算：主要对话属于 Agent 本身，不属于某次派活 |
+| 4 | 工作会话列表本期是否支持状态筛选，以及排序、分页协议 | 先不做状态筛选，默认返回全部未归档的工作会话 |
+| 5 | 统一发送入口的名称与协议 | 阶段 C 开始前再定 |
+| 6 | 主要聊天 Q1–Q10 是否采纳下文的建议答案 | 采纳 |
+| 7 | 文件名 `mail.db` 是否改为 `mails.db`，与 chats.db 对齐 | 未上线，可以直接改，同时改 runtime-recovery 与文档 |
 
-## 顺序与依赖
+## 阶段 A：可以默认开启
 
-1. 阶段 1，Platform。1.2 与阶段 2 的收件箱改动同批发布。
-2. 阶段 2，WebClient，外加 Platform 的 2.4 接口。
-3. 阶段 3，Platform 与 WebClient 同批。
-4. 阶段 4：4.1 可以紧跟阶段 2 的请示卡片做；4.2、4.3 在阶段 3 之后。
+重启会把所有未完成的信挂起，必须由人处理。没有显眼的入口和自动恢复，默认开启就等于工作悄悄停住。Platform 与 WebClient 同批发布。
 
-需要同步修改：`docs/Mailbox.md`、`docs/API与协议.md`、`docs/HITL协议.md`、`AGENTS.md`、`configs/runtime.example.yml`（`mail.retention-days`）、task-control 手册；WebClient 的接口类型、文案和测试。
+| # | 内容 | 做法 |
+|---|---|---|
+| A1 | 临时错误自动重试 | 按会话退避：5 秒起，翻倍，最长 5 分钟；同一会话只有一个计时器，日志按会话限频。只重试确定未成功的临时失败，`unknown` 仍然挂起 |
+| A2 | 归档时的状态转换 | 增加与删除钩子并列的归档钩子。寄往该会话的未完成信转为 `failed` 并寄失败回信；回信挂起，证据区分未消费、已消费和未知，恢复会话后可人工重投；即时消息和请示撤回。不清正文，恢复会话不自动重投 |
+| A3 | `/api/mails` 摘要与详情 | 列表去掉 input、accessGrant 和正文全文，只保留正文前 200 字，增加 `total`；新增 `GET /api/mails/detail?mailId=`，返回全文、附件和等待项快照。WebClient 收件箱同批改为点开后再取详情 |
+| A4 | 挂起提醒（WebClient） | 收件箱从设置菜单移到侧栏一级入口，显示挂起数量角标（`status=suspended` 的 `total`，收到 `mail.updated` 时刷新）；启动后若有挂起 mail，提示一次 |
+| A5 | 切换默认值 | A1–A4 完成后，`mail.enabled` 默认改为 true，同步 `runtime.example.yml` 与文档 |
 
+## 阶段 B：工作会话与请示处理
 
-## 第一批实施范围（2026-10-29）
+| # | 内容 | 做法 |
+|---|---|---|
+| B1 | 工作会话列表 | 见下文"openedBy 方案"；WebClient 在主聊天导航下列出，"等待处理"的高亮。跳数达到上限、请示不再上报时，用户也能在这里发现等待处理的会话 |
+| B2 | 请示卡片 | 主聊天时间线中把请示显示为卡片：分身名称、问题、审批命令或表单字段，以及"去分身会话处理"。被答复、超时或撤回后按 `mail.updated` 变灰 |
+| B3 | 代答展示 | 分身会话中由上级 `chat_submit` 作答的记录显示"由 X 代答"，审批另外显示依据的档位 |
+| B4 | 主视图直接审批 | 在请示卡片内直接作答：以人的身份对分身的 `runId/awaitingId` 调用 `/api/submit`，不受代批上限约束。仍校验 Chat 归属、等待项和冻结调用，硬禁止与只读不放宽；两处同时作答时只有一次成功 |
+| B5 | 回放核对 | 刷新和历史回放后，信封来源、回信 outcome、请示卡片状态与实时一致 |
 
-本批为上线前不兼容存储调整，user_version 保持 1，不提供旧 mail.db 迁移，不自动清库。包括 MAILS/字段/索引命名统一、关系字段明确、独立终态与正文清理时间、生成邮件默认权限、notify 附件先受理后复制、删除分身后保留已受理回信、默认 30 天的终态正文保留期与删除对账。验收以本批针对性测试及项目检查结果为准，尚未部署验证。
+### openedBy 方案
 
-摘要/详情 API 与 WebClient 联动、归档投递状态细化、自动退避重试及 /api/send 均不属于本批；上表保留为后续规划。保留期不清理 suspended，物理附件按收件 Chat 生命周期保留，正文清理不删除创建会话与回信关系。
+按 [chats.db 与 mail.db](../docs/Mailbox.md#chatsdb-与-maildb) 的边界，"哪个 Agent 开出了这个 Chat"是 Chat 创建时就确定、之后不变的 Chat 属性，应存在 chats.db 中。目前它只在 mail.db 里，而且 `OPENED_CHAT_` 的含义也不一样。
+
+**接口**
+
+```http
+GET /api/chats?openedBy=A
+GET /api/chats?openedBy=A&agentKey=B
+```
+
+HTTP 与主 WS 共用同一应用服务和筛选规则；用户身份取自可信上下文，不允许通过参数指定 subject；摘要响应的形状保持不变。
+
+**存储（推荐）**
+
+CHATS 增加 `OPENED_BY_AGENT_KEY_`、`OPENED_BY_CHAT_ID_`，并建立 `(OPENED_BY_AGENT_KEY_, UPDATED_AT_ DESC, CHAT_ID_ DESC)` 复合索引。
+
+- mailbox 建 Chat 时（`EnsureMailChat` → `EnsureChatWithInitialName`），由 Runtime 写入这两个字段；mailbox 仍不直接写 chats.db。
+- 只在 `newChat` 建会话时写入，补建的主要对话不写（待拍板 3）。
+- 写入后不再改变：之后的寄信、引用、插话和主要对话指针切换都不改写。归档与恢复时保留，派生出的新 Chat 不继承。
+- 归属仍按 `SOURCE_` 判断，需要确认能否直接在 SQL 中按用户筛选。
+- `chat_query opened` 改走同一查询，删除 JSONL 回退和旧 `chat_start` 兼容。
+
+代价：这是 chats.db 第一次改结构。sqlitecontract 在运行期只校验、不迁移，runtime-recovery 也没有格式转换器，所以要先设计 chat-v2 的显式升级路径：不能靠扫描全部 JSONL 重建，也不能清空历史 Chat。archive.db 的 `ARCHIVED_CHATS` 是否同步加列，一并确定。
+
+**备选**
+
+MAILS 增加 `(SUBJECT_, FROM_AGENT_KEY_, OPENED_CHAT_)` 索引，先取出 chatId，再批量查询 CHATS。mail.db 尚未上线，改索引成本低。但这样一来，Chat 列表就依赖 mail.db，违反"chats.db 不依赖 mail.db"的边界：mail 关闭时功能会消失，排序和分页也要跨库处理。只适合作过渡方案。
+
+**状态**
+
+- 默认返回所有未归档的工作会话，状态分为运行中、等待处理、空闲。Chat 可以多次运行，成功或失败是某个 Run 的结果，不是 Chat 的状态。
+- 由 Runtime 按本页的 chatId 批量提供状态，只遍历一次 Run 集合。现有 `mapChatSummariesWithActiveRuns` 对每个 Chat 都扫描一遍 Run 集合，不能沿用。
+- 如果开放状态筛选，筛选必须在分页截断之前完成。普通 `wait` 不算等待处理；排队或挂起的 mail 不混入这三种状态。
+
+**验收**
+
+- openedBy 与 agentKey 组合的结果与权限一致，HTTP 与 WS 相同。
+- 列表路径打开 JSONL 的次数为 0。
+- 筛选在数据库内完成并先于 limit；用 EXPLAIN QUERY PLAN 确认走复合索引。
+- 补齐状态的开销不随"本页 Chat 数 × Run 数"增长。
+- 在不同的历史 Chat 数、活跃 Run 数和页大小下，测量延迟与内存。
+- 归档恢复、正文保留期到期、删除发起 Chat、切换主要对话指针之后，创建关系仍符合定义。
+
+## 阶段 C：用户消息走 mailbox
+
+目标：用户随时都能发消息，由平台决定开 Run、插入还是排队；客户端不再区分 query 和 steer，也不再因会话忙收到 409。阶段 C 之后，用户输入依赖 mail.db，mail 不再是可选功能，因此必须先完成阶段 A。
+
+开始前需要定下：
+
+- 入口的名称与协议（原拟 `POST /api/send`，尚未确认），HTTP 与主 WS 使用同一套逻辑。
+- 用户消息在 mail.db 中的形态。候选是 letter + `ORIGIN_TYPE_ = user`、hop 为 0、不生成回信；需要保留真正的用户输入语义、跳数归零和权限。
+- 运行选项（`planningMode`、`editingMode`、`model`、`accessLevel`）只在开新 Run 时生效。与当前 Run 设置不同的消息进入排队，形成顺序屏障，后面的消息不能越过它插入旧 Run。
+- 请求幂等，以及取消排队（`/api/mails/action` 增加 `cancel`，只对 `queued` 有效）与投递之间的竞争。
+- 重启后未投递的用户消息挂起，由用户重发或丢弃。
+- 订阅：先沿用 `run.started` 推送加自动挂接；仍有遗漏时再增加 `chat.subscribe {chatId}`。
+- `/api/query`、`/api/steer` 保留给 Desktop、gateway、Automation、execute 和渠道使用。何时删除另行决定，与删除 `chat_start`/`chat_steer` 工具是两件事。
+
+WebClient：输入框一律调用新入口。消息显示为待发气泡，状态为排队中、已插入或已开始，排队中的可以取消。去掉"运行中改走 steer"的分支和 `active_run_conflict` 的提示路径。
+
+## 阶段 D：收敛与主要聊天形态
+
+| # | 内容 | 做法 |
+|---|---|---|
+| D1 | Automation 与渠道改为发信 | 走阶段 C 的入口（origin 为 automation 或 channel），目标会话忙时排队，不再拒绝。Automation 的初始权限和执行历史合同沿用现有源码，不套用 Agent 发信规则 |
+| D2 | 删除 `chat_start`、`chat_steer` | 阶段 C 稳定后硬切删除，连同 runops 的一层限制、工具 YAML、task-control 手册和文档 |
+| D3 | 主要聊天形态定稿 | 把下表的答案写入 docs |
+| D4 | Desktop 对齐 | WebClient 定稿后进行 |
+
+### 主要聊天形态
+
+WebClient 的主要聊天模式把用户收拢到一个主窗口，但执行仍然是一个 Chat 只有一个 Run：主聊天跑长任务时，用户只能插话，卡在审批上时还会被 409 拒绝。目标是主 Agent 一边派活、一边接用户指令，让用户感觉可以同时派出很多件事。mailbox 已经解决了派活的结果回传和多层派活；剩下的问题是主窗口怎样呈现派出去的工作（阶段 B），以及用户输入怎样不被挡住（阶段 C）。
+
+| # | 问题 | 建议答案 |
+|---|---|---|
+| Q1 | 主聊天只做调度，还是也跑长任务 | 都做：短活自己做；长任务或另一件事用 `chat_send {newChat:true}` 派给分身。规则写进 task-control 手册 |
+| Q2 | 派出去的活放在哪里 | 挂在主聊天下的工作会话列表中（B1），不进普通历史列表的顶层 |
+| Q3 | 结果怎么回来 | 已由 mailbox 解决：回信自动开 Run |
+| Q4 | 派给自己的分身是否作为默认方式 | 不设默认，由模型按 Q1 的规则选择 |
+| Q5 | 能否多层派活 | 已由 mailbox 解决：可以，受跳数限制 |
+| Q6 | `primary_chat_busy` 是否保留 | 保留，只用于切换指针；阶段 C 之后用户消息不再因会话忙被拒 |
+| Q7 | 审批在哪里处理 | 两处都可以：主视图卡片（B4）或分身会话 |
+| Q8 | 任务表、Kanban、云端 Job、mail 是否合成一套 | 工作会话列表就是任务托盘；Kanban 和云端 Job 本期不合并 |
+| Q9 | 主聊天忙时，Automation 或渠道指向它怎么办 | 见 D1：排队 |
+| Q10 | Desktop 与 WebClient 的呈现是否一致 | WebClient 定稿后 Desktop 对齐 |
+
+派活入口：`agent_invoke` 保留为短时的内联子任务（同步执行，结果进入主上下文），不承担后台派活；后台派活统一使用 `chat_send`。
+
+## 需要同步修改
+
+`docs/Mailbox.md`、`docs/API与协议.md`、`docs/HITL协议.md`、`docs/子智能体调度.md`、`AGENTS.md`、`configs/runtime.example.yml`、task-control 手册；WebClient 的接口类型、文案和测试。
