@@ -591,8 +591,18 @@ WebClient 提供应用列表、上传审阅、安装、启停、诊断、日志�
 
 相关 Go 回归和最终 `go test -p 2 ./...` 全量通过；初次全量有一个 connectorauth 登录用例超时，单例、整包及低并发全量复测均通过，未修改其超时时间。主程序完成 CGO_ENABLED=0、linux/amd64 交叉编译。linux/amd64 C 辅助程序已在既有编译镜像中通过 -Wall/-Wextra/-Werror 编译。在 macOS ARM Docker Desktop 的 amd64 仿真和正式加固条件下，Landlock 返回 ENOSYS，正确报告不可用；原生 ARM Linux 容器中 ABI 探测返回 6。这不代表支持 Platform arm64，也不代表原生 linux/amd64 完整隔离验收。
 
-完整 Node 镜像阶段构建被 Docker Hub token 地址访问超时阻断，尚未生成并验证完整镜像。安装/更新事务、Manifest Linux fixture、网关、SDK、进程托管与恢复、WebClient 管理和生产目标验收均待后续实施；诊断明确返回 hostingAvailable:false。当前实现说明见 [WebApp 托管](../docs/WebApp托管.md)。
+首次本地完整镜像构建受 Docker Hub/代理速度影响，后续已在 singapore02 原生构建并验证 Node 镜像，见第 20 节。安装/更新事务、Manifest Linux fixture、网关、SDK、进程托管与恢复、WebClient 管理和生产目标验收均待后续实施；诊断明确返回 hostingAvailable:false。当前实现说明见 [WebApp 托管](../docs/WebApp托管.md)。
 
 ABI 兼容调整：用户允许将最低版本设为 4。探测协议升级为 v2，按 ABI 选择文件权限位和 ruleset 结构长度；仅 ABI ≥ 6 执行域外信号及抽象 socket 拒绝测试，公开 isolationProfile/ipcScoped/deviceIoctlRestricted 和非阻断 warnings。低于 ABI4、规则施加或核心拒绝测试失败仍阻断后端前提，不提供无 Landlock 回退。
 
 singapore02 已在正式加固参数的原生 amd64 容器中验证 ABI4 核心文件/TCP 限制成功，明确返回 ipcScoped:false 与 deviceIoctlRestricted:false。镜像发布 smoke 增加 Node 精确版本、helper 可执行性、运行时不可写及 npm 不存在检查，发布清单记录 Node 版本。
+
+## 20. 已完成的远端部署（2026-10-31）
+
+本轮已按指定代理提交并推送基础、ABI4 兼容及构建修复。实际运行代码为 6fdf03c3，Platform v0.5.31 内置官方 Node v24.22.2；前端源码 7bbd0641 构建为 agent-webclient:v0.5.31-node-20261031，部署至 https://webclient.zenmind.cc。
+
+在目标机原生运行正式 release-image 流程，Node 版本/摘要、helper、不可写目录及 npm 缺失检查通过。独立候选使用运行数据副本且关闭外网、渠道、自动化、记忆 worker 和 Mailbox；候选通过后停止线上写入并保存完整备份，再切换生产容器。候选及生产 ABI4 核心限制均通过，明确不具备 IPC scope 和设备 ioctl 增强限制。
+
+通过指定代理从本机复核 HTTPS 新首页 main.d5c367b5.js、healthz 200 和无认证 API 401；前后端容器无重启。发布包保存在 /docker/.releases/agent-platform/v0.5.31-6fdf03c3，回滚入口为 /docker/.backups/zenmind-node-20261031-f3934349/rollback.sh。具体部署路径与边界见 docs/WebApp托管.md。
+
+这次远端交付仍是带 Node 的前置基础版本；webapps.enabled 保持 false。应用 ZIP 安装、前后端网关、SDK、Node 生命周期及其生产业务验收尚未完成，不将基础镜像上线视为整份方案交付。

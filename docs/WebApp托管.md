@@ -63,8 +63,19 @@ Dockerfile 的独立构建阶段锁定 Node 官方制品版本和 SHA-256，只�
 
 本机已编译 linux/amd64 辅助程序。在 macOS ARM Docker Desktop 的 amd64 仿真、非 root/只读根/drop ALL/默认 seccomp 条件下，Landlock 返回 ENOSYS，探测明确失败而未降级。原生 ARM Linux 容器探测内核可提供 ABI 6；这不等于支持 Platform linux/arm64 发行，也不能替代原生 linux/amd64 验收。
 
-锁定 Node 官方校验值已核对，但本次完整镜像构建受 Docker Hub token 访问超时阻断，不能宣称镜像已交付或目标服务器隔离已通过。后续须在网络可用的原生 Linux 环境执行完整构建及 Compose 集成验收。
+首次本机构建受 Docker Hub/代理带宽影响，随后已在 singapore02 原生构建并验证完整 Node 镜像。正式 release-image smoke、独立候选容器、生产 Node/ABI4 检查、HTTPS 首页、健康检查和未登录 API 401 均通过；完整 WebApp 安装、网关、SDK 和应用生命周期仍未交付。
 
 ABI4 的适用范围为单 owner、来源可信应用。它缺少信号/抽象 Unix socket 作用域和 ABI5 设备 ioctl 限制；与同 UID 其他进程共享容器资源，不能作为不可信应用沙箱。差异依据 [Linux 6.8](https://docs.kernel.org/6.8/userspace-api/landlock.html) 与 [Linux 6.12](https://docs.kernel.org/6.12/userspace-api/landlock.html) 官方文档。
 
 2026-10-31 singapore02 原生 linux/amd64（内核 6.8.0-1029-aws）实测：在 UID10001、只读根、drop ALL、no-new-privileges、默认 seccomp 容器中，协议 v2 探测返回 abi:4、ready:true、ipcScoped:false、deviceIoctlRestricted:false；文件与 TCP 核心限制通过，缺失能力按事实保留。
+
+## singapore02 部署记录（2026-10-31）
+
+- 公网入口：https://webclient.zenmind.cc；WebClient 保留 nginx 容器，Node 内置于 Platform 容器。
+- Platform 镜像：agent-platform:v0.5.31，代码 revision 6fdf03c3d045bccef79a975cd3950f8036008fe4；Node v24.22.2。
+- WebClient 镜像：agent-webclient:v0.5.31-node-20261031；源码 7bbd0641，生产 bundle main.d5c367b5.js。
+- 原生 ABI4 在候选与生产的 UID10001、只读根、drop ALL/no-new-privileges 条件下通过核心文件/TCP 拒绝测试；ipcScoped 和 deviceIoctlRestricted 均为 false。
+- 线上 Compose：/docker/agent-platform/compose.deploy.yml 与 /docker/agent-webclient/compose.yml；实际部署信息以 /docker/agent-platform/deployment.json 为准。
+- 离线发布包：/docker/.releases/agent-platform/v0.5.31-6fdf03c3，已复核 checksums.sha256。
+- 切换前已停止写入并保存运行数据、配置与旧镜像；回滚入口：/docker/.backups/zenmind-node-20261031-f3934349/rollback.sh。
+- 当前 webapps.enabled 仍为 false，hostingAvailable 的设计状态仍是 false；这次交付证明运行时和前置限制可用，不代表应用托管功能已完成。
