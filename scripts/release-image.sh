@@ -48,6 +48,8 @@ if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
 fi
 created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 reference="$APP_NAME:$VERSION"
+webapp_node_version="$(sed -n 's/^ENV AP_WEBAPP_NODE_VERSION=//p' "$REPO_ROOT/Dockerfile")"
+[[ "$webapp_node_version" =~ ^24\.[0-9]+\.[0-9]+$ ]] || die "missing pinned WebApp Node 24 version"
 
 # A proxy bound to the workstation's loopback is reached from the builder
 # through Docker's host alias.
@@ -92,7 +94,7 @@ docker run -d --name "$smoke_name" --platform "$PLATFORM" \
   --tmpfs /tmp:exec,mode=1777 --tmpfs /home/agent:exec,uid=10001,gid=10001,mode=0700 \
   -e HOME=/home/agent \
   -v "$smoke_configs:/opt/configs:ro" -v "$smoke_name:/opt/runtime" \
-  "$reference" >/dev/null
+  "$reference" --webapp-host=compose >/dev/null
 health=starting
 for _ in $(seq 1 30); do
   health="$(docker inspect --format '{{.State.Status}}/{{.State.Health.Status}}' "$smoke_name")"
@@ -115,8 +117,14 @@ docker exec "$smoke_name" sh -c '
   /opt/bin/pdftotext -v >/dev/null 2>&1
   /opt/connectors/builtin.dbx/bin/dbx --version >/dev/null
   /opt/connectors/builtin.httpx/bin/httpx --version >/dev/null
+  [ "$(/opt/node/bin/node --version)" = "$1" ]
+  /opt/libexec/webapp-supervisor --version >/dev/null
+  [ ! -w /opt/node/bin/node ]
+  [ ! -w /opt/node ]
+  [ ! -w /opt/libexec/webapp-supervisor ]
+  [ ! -e /opt/node/bin/npm ]
   ! touch /opt/.write-probe 2>/dev/null
-' || die "image smoke test failed: builtin or hardening check"
+' _ "v$webapp_node_version" || die "image smoke test failed: builtin, WebApp runtime or hardening check"
 image_id="$(docker image inspect --format '{{.Id}}' "$reference")"
 
 bundle_name="$APP_NAME-image-$VERSION-$TARGET_OS-$TARGET_ARCH"
@@ -137,9 +145,9 @@ cp "$SCRIPT_DIR"/release-assets/ingress-nginx/* "$bundle_stage/ingress-nginx/"
 chmod +x "$bundle_stage/load.sh" "$bundle_stage/ingress-nginx/ap-ingress.sh"
 
 python3 - "$bundle_stage" "$archive_name" "$verified_builtins/builtins.manifest.json" \
-  "$VERSION" "$revision" "$created" "$PLATFORM" "$reference" "$image_id" <<'PY'
+  "$VERSION" "$revision" "$created" "$PLATFORM" "$reference" "$image_id" "$webapp_node_version" <<'PY'
 import hashlib, json, pathlib, sys
-stage, archive, builtins_manifest, version, revision, created, platform, reference, image_id = sys.argv[1:]
+stage, archive, builtins_manifest, version, revision, created, platform, reference, image_id, node_version = sys.argv[1:]
 stage = pathlib.Path(stage)
 components = json.loads(pathlib.Path(builtins_manifest).read_text(encoding="utf-8")).get("components", [])
 manifest = {
@@ -156,6 +164,7 @@ manifest = {
         "sizeBytes": (stage / archive).stat().st_size,
     },
     "builtins": [{"name": c.get("name"), "version": c.get("version")} for c in components],
+    "runtimes": {"node": {"version": node_version}},
 }
 (stage / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 lines = []

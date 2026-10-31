@@ -33,7 +33,9 @@ RuntimeMode 仍是 standalone/desktop。新的独立启动选项为 `--webapp-ho
 | host / os / arch | 显式宿主、实际操作系统和架构 |
 | nodeVersion / nodeReady | 锁定 Node 版本及受管制品检查结果 |
 | supervisorReady | 独立探测辅助程序的完整性检查结果 |
-| landlockAbi / isolationReady | 实测 ABI 与受限子进程实际拒绝行为 |
+| landlockAbi / isolationReady | 实测 ABI 与当前版本支持的核心限制是否生效 |
+| isolationProfile / ipcScoped / deviceIoctlRestricted | 文件/TCP 或文件/TCP/IPC 档位，以及真实可用的增强能力 |
+| warnings | ABI4/5 缺少 IPC、ABI4 缺少设备 ioctl 限制等非阻断提示 |
 | backendPrerequisitesReady | 当前 linux/amd64 后端运行前提是否满足 |
 | hostingAvailable | 当前固定 false，不能据此认为安装/托管已实现 |
 | stage | 当前 foundation |
@@ -49,9 +51,9 @@ Dockerfile 的独立构建阶段锁定 Node 官方制品版本和 SHA-256，只�
 
 - 放行文件可读，另一个文件不可读，放行文件仍不可写。
 - 分配端口可 bind/connect，未授权 TCP bind/connect 被拒绝。
-- 域外信号和抽象 Unix socket 访问被拒绝。
+- ABI ≥ 6 时额外验证域外信号和抽象 Unix socket 访问被拒绝；ABI4/5 不宣称具有这些限制。
 
-要求 ABI 至少 6，检查 create/add/restrict 和拒绝结果，不凭 uname 判断。探测仅继承固定 PATH/LANG/LC_ALL，进程输出有界、5 秒超时；原始错误输出不回显。平台在已启用宿主下设置 dumpable=0，其余部署保持原行为。
+最低支持 ABI4：文件和 TCP 限制必须实际通过。ABI4 不传设备 ioctl 权限或 scoped 字段；ABI5 增加设备 ioctl 限制；ABI6 增加信号/抽象 socket 作用域。按实际 ABI 传入结构长度，探测协议为 v2，明确报告缺少的能力。低于 ABI4 或施加失败仍拒绝。检查 create/add/restrict 和拒绝结果，不凭 uname 判断。探测仅继承固定 PATH/LANG/LC_ALL，进程输出有界、5 秒超时；原始错误输出不回显。平台在已启用宿主下设置 dumpable=0，其余部署保持原行为。
 
 正式和开发 Compose 使用 UID 10001、只读根、drop ALL、no-new-privileges 和 tmpfs；不增加特权或放宽 seccomp。已发布代码和管理状态加入普通工具保护，持久数据不获得额外工具授权。
 
@@ -62,3 +64,7 @@ Dockerfile 的独立构建阶段锁定 Node 官方制品版本和 SHA-256，只�
 本机已编译 linux/amd64 辅助程序。在 macOS ARM Docker Desktop 的 amd64 仿真、非 root/只读根/drop ALL/默认 seccomp 条件下，Landlock 返回 ENOSYS，探测明确失败而未降级。原生 ARM Linux 容器探测内核可提供 ABI 6；这不等于支持 Platform linux/arm64 发行，也不能替代原生 linux/amd64 验收。
 
 锁定 Node 官方校验值已核对，但本次完整镜像构建受 Docker Hub token 访问超时阻断，不能宣称镜像已交付或目标服务器隔离已通过。后续须在网络可用的原生 Linux 环境执行完整构建及 Compose 集成验收。
+
+ABI4 的适用范围为单 owner、来源可信应用。它缺少信号/抽象 Unix socket 作用域和 ABI5 设备 ioctl 限制；与同 UID 其他进程共享容器资源，不能作为不可信应用沙箱。差异依据 [Linux 6.8](https://docs.kernel.org/6.8/userspace-api/landlock.html) 与 [Linux 6.12](https://docs.kernel.org/6.12/userspace-api/landlock.html) 官方文档。
+
+2026-10-31 singapore02 原生 linux/amd64（内核 6.8.0-1029-aws）实测：在 UID10001、只读根、drop ALL、no-new-privileges、默认 seccomp 容器中，协议 v2 探测返回 abi:4、ready:true、ipcScoped:false、deviceIoctlRestricted:false；文件与 TCP 核心限制通过，缺失能力按事实保留。

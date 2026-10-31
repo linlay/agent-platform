@@ -30,16 +30,16 @@ COPY build/builtins/${TARGETOS}-${TARGETARCH}/ /
 
 # Linux Compose WebApp prerequisites. This is separate from the CGO-free Go
 # binary and never enters the macOS/Windows program distribution.
-FROM ${RUNTIME_IMAGE} AS webapp-build
+# Reuse the pinned Bookworm compiler image; avoid downloading a second GCC
+# toolchain solely for this helper. Only the resulting artifacts ship.
+FROM ${GO_IMAGE} AS webapp-build
 ARG TARGETOS
 ARG TARGETARCH
 # Official Node 24 LTS archive; update version and SHA together. No latest tag.
 ENV AP_WEBAPP_NODE_VERSION=24.22.2
 ENV AP_WEBAPP_NODE_SHA256=48cc0e21e048790e54c0cf5749c2725005313d652651c40b7a21feb9697aaf75
 RUN test "$TARGETOS/$TARGETARCH" = linux/amd64 && \
-    apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl xz-utils gcc libc6-dev && \
-    rm -rf /var/lib/apt/lists/*
+    command -v gcc && command -v curl && command -v xz
 COPY cmd/webapp-supervisor/main.c /src/main.c
 RUN mkdir -p /out/node/bin /out/libexec /tmp/node && \
     curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \

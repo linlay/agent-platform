@@ -54,5 +54,6 @@ func (s *Server) handleWebAppHost(w http.ResponseWriter, r *http.Request) {
 	// until the installer, gateway and lifecycle are implemented and verified.
 	status := *s.deps.WebAppHost
 	status.Issues = append([]webapphost.Issue{}, status.Issues...)
+	status.Warnings = append([]webapphost.Issue{}, status.Warnings...)
 	writeJSON(w, http.StatusOK, api.Success(status))
 }

@@ -34,7 +34,7 @@
 | 首版应用范围 | owner 自建或审核过的可信应用；静态前端、纯 JS Node 后端 |
 | 平台 | 首版 linux/amd64，与当前完整镜像分发能力一致 |
 | 路由 | 每应用独立 origin；应用内容使用独立注册域名 |
-| 隔离 | 保留 Compose 加固，Node 启动必须成功施加 Landlock ABI ≥ 6 策略 |
+| 隔离 | 保留 Compose 加固，Node 启动必须成功施加 Landlock ABI ≥ 4 文件/TCP 策略；ABI ≥ 6 自动增加 IPC 作用域 |
 | 内核不满足 | Node 托管不可用，不静默降低隔离；静态应用仍可使用 |
 | 资源限制 | 整容器硬限额 + 应用准入、V8 堆限额与进程树监测；不承诺应用级硬配额 |
 | 生命周期 | 每应用一个监督进程；退避重启；按期望状态重新启动，不接管旧 PID |
@@ -134,7 +134,7 @@ WebApp 生命周期不属于 Agent Run，不按 GENERAL/CODER/KBASE/TEAM/EXECUTO
 Node 后端：
   通用宿主可用
   && 固定 Node / supervisor 校验通过
-  && 实际容器中的 Landlock ABI >= 6 且规则施加探测成功
+  && 实际容器中的 Landlock ABI >= 4 且文件/TCP 规则施加探测成功
 ```
 
 未开启时，不创建 WebApp 目录，不开启监听/恢复任务，不注册可用的托管管理入口。非 Linux、Desktop 或缺少 Compose 启动选择时强行配置 `enabled: true`，启动时报告明确配置错误。
@@ -285,7 +285,7 @@ user-config 原子替换后，静态 SDK 读取新版本；运行中的 Node 通
 | 文件描述符 | supervisor 独占管理 control FD；Node 仅继承约定 stdio，关闭其他文件和 socket，防止已有 FD 绕过规则 |
 | 网络 bind | Landlock 只放行分配的 TCP 监听端口；Node 配置仍必须使用 loopback |
 | 网络 connect | 默认只放行 Platform 内部调用端口；确需外网时由 owner 配置额外 TCP 端口，不从包自动扩大 |
-| IPC | ABI6 signal 与 abstract Unix socket scope；不共享可访问的管理 Unix socket |
+| IPC | ABI ≥ 6 启用 signal/abstract Unix socket scope；ABI 4/5 明确报告无该隔离，仅用于可信应用；不共享管理 socket |
 | Node 权限 | 固定 --permission、文件白名单；不开 child_process、addon、WASI、inspector 等权限；必要 worker_threads 经兼容测试单独评估 |
 | 执行参数 | 固定 Node 参数 + entry + 应用 args；shell=false，禁止 NODE_OPTIONS/动态加载器注入 |
 
@@ -301,7 +301,7 @@ Compose 宿主启用时，Platform 及拿到敏感启动参数的 supervisor 尽
 
 本方案仍是单 owner、可信应用模型：同 UID 的高权限 Agent 任意代码不受 Node 的 Landlock 约束；整容器资源共享；TCP 端口规则不能限制远端 IP，UDP 不能据此保证禁网。Node 权限模型只减少误用，不是运行恶意代码的安全边界。[Node 24 权限说明](https://github.com/nodejs/node/blob/v24.x/doc/api/permissions.md)
 
-Landlock ABI6 要求涵盖文件、TCP 端口、信号与抽象 socket 范围；具体最低能力以探测而非内核版本号认定。[Linux 6.12 Landlock 文档](https://kernel.org/doc/html/v6.12/userspace-api/landlock.html)
+根据用户允许 ABI 4 的调整，最低要求为 ABI4 文件和 TCP 限制；ABI5 额外处理设备 ioctl，ABI6 自动增加信号/抽象 socket 作用域。ABI4/5 明确显示缺失的隔离能力，不能称为完整进程隔离。具体能力以实际施加和拒绝测试认定。[Linux 6.12 Landlock 文档](https://kernel.org/doc/html/v6.12/userspace-api/landlock.html)
 
 ## 8. 生命周期、恢复与资源
 
@@ -592,3 +592,7 @@ WebClient 提供应用列表、上传审阅、安装、启停、诊断、日志�
 相关 Go 回归和最终 `go test -p 2 ./...` 全量通过；初次全量有一个 connectorauth 登录用例超时，单例、整包及低并发全量复测均通过，未修改其超时时间。主程序完成 CGO_ENABLED=0、linux/amd64 交叉编译。linux/amd64 C 辅助程序已在既有编译镜像中通过 -Wall/-Wextra/-Werror 编译。在 macOS ARM Docker Desktop 的 amd64 仿真和正式加固条件下，Landlock 返回 ENOSYS，正确报告不可用；原生 ARM Linux 容器中 ABI 探测返回 6。这不代表支持 Platform arm64，也不代表原生 linux/amd64 完整隔离验收。
 
 完整 Node 镜像阶段构建被 Docker Hub token 地址访问超时阻断，尚未生成并验证完整镜像。安装/更新事务、Manifest Linux fixture、网关、SDK、进程托管与恢复、WebClient 管理和生产目标验收均待后续实施；诊断明确返回 hostingAvailable:false。当前实现说明见 [WebApp 托管](../docs/WebApp托管.md)。
+
+ABI 兼容调整：用户允许将最低版本设为 4。探测协议升级为 v2，按 ABI 选择文件权限位和 ruleset 结构长度；仅 ABI ≥ 6 执行域外信号及抽象 socket 拒绝测试，公开 isolationProfile/ipcScoped/deviceIoctlRestricted 和非阻断 warnings。低于 ABI4、规则施加或核心拒绝测试失败仍阻断后端前提，不提供无 Landlock 回退。
+
+singapore02 已在正式加固参数的原生 amd64 容器中验证 ABI4 核心文件/TCP 限制成功，明确返回 ipcScoped:false 与 deviceIoctlRestricted:false。镜像发布 smoke 增加 Node 精确版本、helper 可执行性、运行时不可写及 npm 不存在检查，发布清单记录 Node 版本。

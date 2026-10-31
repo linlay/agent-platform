@@ -21,8 +21,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define PROTOCOL_VERSION 1
-#define REQUIRED_ABI 6
+#define PROTOCOL_VERSION 2
+#define REQUIRED_ABI 4
 #define FS_READ_FILE (1ULL << 2)
 #define FS_READ_DIR (1ULL << 3)
 /* All ABI 6 filesystem rights, including REFER, TRUNCATE and IOCTL_DEV. */
@@ -74,7 +74,7 @@ static int denied_errno(void) { return errno == EACCES || errno == EPERM; }
  * or cleanup requirements inside the restricted domain. */
 static int check_child(int rules, const char *allowed, const char *blocked,
                        uint16_t port, pid_t parent, struct sockaddr_un *unix_addr,
-                       socklen_t unix_len) {
+                       socklen_t unix_len, int ipc_scoped) {
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) < 0) return 1;
     if (syscall(SYS_landlock_restrict_self, rules, 0) < 0) return 2;
     close(rules);
@@ -106,6 +106,7 @@ static int check_child(int rules, const char *allowed, const char *blocked,
     if (!denied_errno()) { close(sock); return 14; }
     close(sock);
 
+    if (!ipc_scoped) return 0;
     /* Parent ignores this harmless signal before the test. */
     if (kill(parent, SIGUSR1) >= 0 || !denied_errno()) return 15;
     sock = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -120,9 +121,15 @@ static int probe(void) {
     int abi = (int)syscall(SYS_landlock_create_ruleset, NULL, 0, 1);
     if (abi < REQUIRED_ABI) return failure(abi, "landlock_abi");
     if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) < 0) return failure(abi, "dumpable");
-    struct ap_ruleset_attr attr = {FS_HANDLED, NET_BIND_TCP | NET_CONNECT_TCP,
-        SCOPE_SIGNAL | SCOPE_ABSTRACT_UNIX_SOCKET};
-    int rules = (int)syscall(SYS_landlock_create_ruleset, &attr, sizeof(attr), 0);
+    int ipc_scoped = abi >= 6;
+    int ioctl_restricted = abi >= 5;
+    struct ap_ruleset_attr attr = {
+        ioctl_restricted ? FS_HANDLED : FS_HANDLED & ~(1ULL << 15),
+        NET_BIND_TCP | NET_CONNECT_TCP,
+        ipc_scoped ? SCOPE_SIGNAL | SCOPE_ABSTRACT_UNIX_SOCKET : 0
+    };
+    size_t attr_size = ipc_scoped ? sizeof(attr) : offsetof(struct ap_ruleset_attr, scoped);
+    int rules = (int)syscall(SYS_landlock_create_ruleset, &attr, attr_size, 0);
     if (rules < 0) return failure(abi, "create_ruleset");
 
     char dir[] = "/tmp/ap-webapp-probe-XXXXXX";
@@ -132,7 +139,8 @@ static int probe(void) {
     snprintf(blocked, sizeof(blocked), "%s/blocked", dir);
     int fd1 = open(allowed, O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC, 0600);
     int fd2 = open(blocked, O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC, 0600);
-    int tcp = tcp_socket(), unx = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    int tcp = tcp_socket(), unx = -1;
+    if (ipc_scoped) unx = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     struct sockaddr_in a = addr(0);
     struct sockaddr_un ua;
     memset(&ua, 0, sizeof(ua));
@@ -142,11 +150,11 @@ static int probe(void) {
     socklen_t alen = sizeof(a);
     const char *stage = "probe_setup";
     int result = 1;
-    if (fd1 < 0 || fd2 < 0 || tcp < 0 || unx < 0) goto cleanup;
+    if (fd1 < 0 || fd2 < 0 || tcp < 0 || (ipc_scoped && unx < 0)) goto cleanup;
     close(fd1); fd1 = -1;
     close(fd2); fd2 = -1;
     if (bind(tcp, (struct sockaddr *)&a, sizeof(a)) < 0 || getsockname(tcp, (struct sockaddr *)&a, &alen) < 0) goto cleanup;
-    if (bind(unx, (struct sockaddr *)&ua, ulen) < 0 || listen(unx, 1) < 0) goto cleanup;
+    if (ipc_scoped && (bind(unx, (struct sockaddr *)&ua, ulen) < 0 || listen(unx, 1) < 0)) goto cleanup;
     uint16_t port = ntohs(a.sin_port);
     close(tcp); tcp = -1;
     if (add_path(rules, allowed, FS_READ_FILE) < 0 || add_port(rules, port, NET_BIND_TCP | NET_CONNECT_TCP) < 0) { stage = "add_rule"; goto cleanup; }
@@ -155,8 +163,8 @@ static int probe(void) {
     pid_t pid = fork();
     if (pid < 0) { stage = "fork"; goto cleanup; }
     if (pid == 0) {
-        close(unx); /* Do not hand the parent's listening socket to the domain. */
-        _exit(check_child(rules, allowed, blocked, port, parent, &ua, ulen));
+        if (unx >= 0) close(unx); /* No parent listener is inherited. */
+        _exit(check_child(rules, allowed, blocked, port, parent, &ua, ulen, ipc_scoped));
     }
     int status;
     while (waitpid(pid, &status, 0) < 0) { if (errno != EINTR) { stage = "wait"; goto cleanup; } }
@@ -178,14 +186,15 @@ cleanup:
       errno = saved; }
     if (result == 1) return failure(abi, stage);
     if (result == 2) return 1;
-    printf("{\"protocolVersion\":%d,\"abi\":%d,\"ready\":true}\n", PROTOCOL_VERSION, abi);
+    printf("{\"protocolVersion\":%d,\"abi\":%d,\"ready\":true,\"ipcScoped\":%s,\"deviceIoctlRestricted\":%s}\n",
+           PROTOCOL_VERSION, abi, ipc_scoped ? "true" : "false", ioctl_restricted ? "true" : "false");
     return 0;
 }
 
 int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "--probe") == 0) return probe();
     if (argc == 2 && strcmp(argv[1], "--version") == 0) {
-        puts("webapp-supervisor protocol=1");
+        puts("webapp-supervisor protocol=2");
         return 0;
     }
     fputs("usage: webapp-supervisor --probe|--version\n", stderr);

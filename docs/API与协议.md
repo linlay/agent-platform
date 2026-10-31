@@ -1468,6 +1468,6 @@ Automation 保持独立的场景默认：省略或 `default` 使用 `ask_for_app
 
 `GET /api/admin/webapps/host` 仅在 Linux standalone、显式 `--webapp-host=compose` 且 `runtime.yml` 的 `webapps.enabled: true` 时注册。启用还要求 JWT issuer/audience/expiry 和唯一 allowed-subjects owner；接口不接受 WebApp/连接器执行 token。未启用不注册路由；认证后 subject 非 owner 返回 403，宿主状态未装配返回 503；响应 no-store，包裹为 `{code,msg,data}`。
 
-`data` 含 host/os/arch、nodeVersion/nodeReady、supervisorReady、landlockAbi/isolationReady、backendPrerequisitesReady、hostingAvailable、stage 和 issues。当前 stage 为 foundation，hostingAvailable 固定 false；它只报告运行前提，不提供应用安装、访问或 Node 启停能力。
+`data` 含 host/os/arch、nodeVersion/nodeReady、supervisorReady、landlockAbi/isolationReady、isolationProfile/ipcScoped/deviceIoctlRestricted、warnings、backendPrerequisitesReady、hostingAvailable、stage 和 issues。当前 stage 为 foundation，hostingAvailable 固定 false；它只报告运行前提，不提供应用安装、访问或 Node 启停能力。
 
 启用时，Host 分类先于平台 API/CORS/WS。未知或应用内容 Host 不回落平台路由；仅 loopback peer 的精确 loopback:平台端口 GET /healthz 保留健康检查。内容域 Origin 禁止进入平台 API/主 WS，不使用 X-Forwarded-Host 推断平台身份。完整范围及限制见 [WebApp 托管](WebApp托管.md)。

@@ -22,8 +22,8 @@ const (
 	NodeVersion         = "v24.22.2"
 	NodePath            = "/opt/node/bin/node"
 	SupervisorPath      = "/opt/libexec/webapp-supervisor"
-	RequiredLandlockABI = 6
-	ProtocolVersion     = 1
+	RequiredLandlockABI = 4
+	ProtocolVersion     = 2
 )
 
 type Issue struct {
@@ -41,23 +41,29 @@ type Status struct {
 	SupervisorReady           bool    `json:"supervisorReady"`
 	LandlockABI               int     `json:"landlockAbi"`
 	IsolationReady            bool    `json:"isolationReady"`
+	IsolationProfile          string  `json:"isolationProfile,omitempty"`
+	IPCScoped                 bool    `json:"ipcScoped"`
+	DeviceIoctlRestricted     bool    `json:"deviceIoctlRestricted"`
 	BackendPrerequisitesReady bool    `json:"backendPrerequisitesReady"`
 	HostingAvailable          bool    `json:"hostingAvailable"`
 	Stage                     string  `json:"stage"`
 	Issues                    []Issue `json:"issues"`
+	Warnings                  []Issue `json:"warnings"`
 }
 
 type probeResult struct {
-	ProtocolVersion int    `json:"protocolVersion"`
-	ABI             int    `json:"abi"`
-	Ready           bool   `json:"ready"`
-	Stage           string `json:"stage,omitempty"`
-	Errno           int    `json:"errno,omitempty"`
-	Check           int    `json:"check,omitempty"`
+	ProtocolVersion       int    `json:"protocolVersion"`
+	ABI                   int    `json:"abi"`
+	Ready                 bool   `json:"ready"`
+	Stage                 string `json:"stage,omitempty"`
+	Errno                 int    `json:"errno,omitempty"`
+	Check                 int    `json:"check,omitempty"`
+	IPCScoped             bool   `json:"ipcScoped"`
+	DeviceIoctlRestricted bool   `json:"deviceIoctlRestricted"`
 }
 
 func Inspect(ctx context.Context) Status {
-	status := Status{Host: "compose", OS: runtime.GOOS, Arch: runtime.GOARCH, Stage: "foundation", Issues: []Issue{}}
+	status := Status{Host: "compose", OS: runtime.GOOS, Arch: runtime.GOARCH, Stage: "foundation", Issues: []Issue{}, Warnings: []Issue{}}
 	issue := func(code string) { status.Issues = append(status.Issues, Issue{Code: code}) }
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		issue("webapp_backend_platform_unsupported")
@@ -82,27 +88,43 @@ func Inspect(ctx context.Context) Status {
 	}
 	status.SupervisorReady = true
 	output, runErr := runProbe(ctx, SupervisorPath, "--probe")
+	status.applyIsolationReport(output, runErr)
+	status.BackendPrerequisitesReady = status.NodeReady && status.SupervisorReady && status.IsolationReady
+	return status
+}
+
+func (status *Status) applyIsolationReport(output []byte, runErr error) {
+	issue := func(code string) { status.Issues = append(status.Issues, Issue{Code: code}) }
 	result, err := decodeProbeResult(output)
 	if err != nil {
 		issue("webapp_isolation_probe_failed")
-		return status
+		return
 	}
 	status.LandlockABI = result.ABI
 	if result.ProtocolVersion != ProtocolVersion {
 		issue("webapp_supervisor_protocol_mismatch")
-		return status
+		return
 	}
 	if result.ABI < RequiredLandlockABI {
 		issue("webapp_landlock_unsupported")
-		return status
+		return
 	}
 	if runErr != nil || !result.Ready {
 		issue("webapp_isolation_enforcement_failed")
-		return status
+		return
 	}
 	status.IsolationReady = true
-	status.BackendPrerequisitesReady = status.NodeReady && status.SupervisorReady
-	return status
+	status.IPCScoped = result.IPCScoped
+	status.DeviceIoctlRestricted = result.DeviceIoctlRestricted
+	status.IsolationProfile = "landlock-files-tcp"
+	if result.IPCScoped {
+		status.IsolationProfile = "landlock-files-tcp-ipc"
+	} else {
+		status.Warnings = append(status.Warnings, Issue{Code: "webapp_ipc_scoping_unavailable"})
+	}
+	if !result.DeviceIoctlRestricted {
+		status.Warnings = append(status.Warnings, Issue{Code: "webapp_device_ioctl_restriction_unavailable"})
+	}
 }
 
 func decodeProbeResult(raw []byte) (probeResult, error) {
@@ -118,6 +140,9 @@ func decodeProbeResult(raw []byte) (probeResult, error) {
 	}
 	if result.ABI < 0 || result.ProtocolVersion < 1 || result.Ready && (result.Stage != "" || result.Errno != 0 || result.Check != 0) {
 		return result, fmt.Errorf("inconsistent probe result")
+	}
+	if result.Ready && (result.ABI < RequiredLandlockABI || result.IPCScoped != (result.ABI >= 6) || result.DeviceIoctlRestricted != (result.ABI >= 5)) {
+		return result, fmt.Errorf("probe capability flags do not match ABI")
 	}
 	return result, nil
 }

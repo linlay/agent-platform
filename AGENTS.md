@@ -10,7 +10,7 @@
 
 本文保留开发入口、模块边界和必须遵守的约束；功能与接口细节以文末专题索引为入口。未实现或未经目标环境验证的能力不得写成已交付。
 
-WebApp 目前仅实现 Linux Compose 前置诊断：`--webapp-host=compose` 与 runtime.webapps.enabled 双重选择，RuntimeMode 保持 standalone/desktop；非 Linux、Desktop 或未显式选择 Compose 时拒绝开启。`internal/webapphost` 负责受管 Node/helper 校验与隔离探测，`cmd/webapp-supervisor` 当前仅提供独立子进程探测，不是已完成的进程托管器；server 只做 owner 诊断与 Host 边界适配。安装、网关、SDK 和生命周期尚未完成，见 [WebApp 托管](docs/WebApp托管.md)。
+WebApp 目前仅实现 Linux Compose 前置诊断：`--webapp-host=compose` 与 runtime.webapps.enabled 双重选择，RuntimeMode 保持 standalone/desktop；非 Linux、Desktop 或未显式选择 Compose 时拒绝开启。`internal/webapphost` 负责受管 Node/helper 校验与隔离探测（最低 ABI4 文件/TCP，ABI6 自动增强 IPC；能力与缺失项明确报告），`cmd/webapp-supervisor` 当前仅提供独立子进程探测，不是已完成的进程托管器；server 只做 owner 诊断与 Host 边界适配。安装、网关、SDK 和生命周期尚未完成，见 [WebApp 托管](docs/WebApp托管.md)。
 
 Memory 由 Platform worker 调用 memx 维护分层 Agent daily/summary 与总体 summary（agents→summarize→consolidate），预算使用 memory.summary.global/agent；旧 worker.summary-max-chars 拒绝，分层管理 API 尚未完成；上下文由 contextConfig.tags 的 memory-global/memory-agent 独立选择，memoryConfig.enabled 仅控制采集，支持定时增量与手工日期范围任务（独立进度、配置模型）；知识库通过受管 KBX CLI 读取和维护，Platform 管理目录监听、库级自动维护与重启对账。当前范围见 [记忆系统](docs/记忆系统.md) 与 [KBX 接入](docs/KBX接入.md)。
 
