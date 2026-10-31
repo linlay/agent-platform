@@ -15,6 +15,7 @@ import (
 
 func defaultConfig(options LoadOptions) Config {
 	runtimeMode, _ := ParseRuntimeMode(options.RuntimeMode)
+	webappHost, _ := ParseWebAppHostMode(options.WebAppHost)
 	runtimeRoot := defaultRuntimeRoot()
 	paths := PathsConfig{
 		ConnectorsCenterDir: filepath.Join(runtimeRoot, "connectors-center"),
@@ -33,6 +34,8 @@ func defaultConfig(options LoadOptions) Config {
 		RUPreviewsDir:       filepath.Join(runtimeRoot, "ru-previews"),
 		PanDir:              filepath.Join(runtimeRoot, "pan"),
 		SkillsCenterDir:     filepath.Join(runtimeRoot, "skills-center"),
+		WebAppsDir:          filepath.Join(runtimeRoot, "webapps"),
+		WebAppDataDir:       filepath.Join(runtimeRoot, "webapp-data"),
 	}
 	return Config{
 		Export:          ConversationExportConfig{MaxSnapshotBytes: 50 << 20},
@@ -40,6 +43,8 @@ func defaultConfig(options LoadOptions) Config {
 		HTTPProxy:       httpclient.Config{Mode: "auto", SystemRefreshInterval: httpclient.DefaultRefreshInterval},
 		SsoIdTokenFile:  options.SsoIdTokenFile,
 		RuntimeMode:     runtimeMode,
+		WebAppHost:      webappHost,
+		WebApps:         DefaultWebAppsConfig(),
 		Server:          ServerConfig{Port: "8080"},
 		Paths:           paths,
 		Agents:          CatalogConfig{ExternalDir: paths.AgentsDir},
@@ -315,6 +320,8 @@ func (c *Config) normalize(configRoot string) error {
 	c.Paths.StateDir = stateDir
 	for name, value := range map[string]*string{
 		"connectors-center-dir": &c.Paths.ConnectorsCenterDir,
+		"webapps-dir":           &c.Paths.WebAppsDir,
+		"webapp-data-dir":       &c.Paths.WebAppDataDir,
 	} {
 		if strings.TrimSpace(*value) == "" {
 			continue

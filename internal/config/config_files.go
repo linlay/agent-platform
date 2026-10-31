@@ -171,12 +171,23 @@ func (c *Config) applyMemoryValues(values map[string]any) error {
 }
 
 func (c *Config) applyRuntimeFile(path string) error {
-	values, err := loadYAMLMap(path)
+	tree, err := LoadYAMLTreeWithOptions(path, YAMLTreeOptions{
+		RejectDuplicateKeys: true, PreserveQuotedScalarPrefixes: []string{"webapps"},
+	})
 	if err != nil {
 		return err
 	}
+	values, ok := tree.(map[string]any)
+	if !ok {
+		return fmt.Errorf("%s: expected a mapping", path)
+	}
 	if len(values) == 0 {
 		return nil
+	}
+	if value, exists := values["webapps"]; exists {
+		if err := c.applyWebApps(value); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
 	}
 	if raw, exists := values["conversation-export"]; exists {
 		values, ok := raw.(map[string]any)

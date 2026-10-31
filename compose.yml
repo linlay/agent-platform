@@ -5,9 +5,14 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: agent-platform
+    command: ["--webapp-host=compose"]
     init: true
     restart: unless-stopped
-    stop_grace_period: 10s
+    stop_grace_period: 45s
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
     ports:
@@ -17,6 +22,7 @@ services:
     env_file:
       - .env
     environment:
+      HOME: /home/agent
       SERVER_PORT: 8080
       AP_RUNTIME_DIR: /opt/runtime
       AP_RUNTIME_REGISTRIES_DIR: /opt/runtime/registries
@@ -24,6 +30,12 @@ services:
       AP_RUNTIME_MEMORY_DIR: /opt/runtime/memory
       AP_RUNTIME_PAN_DIR: /opt/runtime/pan
       AP_RUNTIME_STATE_DIR: /opt/runtime/.state
+    tmpfs:
+      - /tmp:exec,mode=1777,size=${AP_TMP_SIZE:-1g}
+      - /home/agent:exec,uid=10001,gid=10001,mode=0700,size=${AP_HOME_SIZE:-512m}
+    mem_limit: ${AP_MEMORY_LIMIT:-4g}
+    cpus: ${AP_CPU_LIMIT:-2}
+    pids_limit: ${AP_PIDS_LIMIT:-1024}
     volumes:
       - type: bind
         source: ./configs

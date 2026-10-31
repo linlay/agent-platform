@@ -22,6 +22,34 @@ auth:
   # allowed-subjects: []       # 非空时只接受列表内的 sub，其他用户的有效 token 也拒绝
   # require-expiry: false      # true 时拒绝没有 exp 的 token
 
+# Linux Compose only. This release provides prerequisite diagnostics; package
+# installation, static/Node serving and lifecycle are not implemented yet.
+# Keep disabled outside integration testing. Compose selects --webapp-host=compose;
+# enabled also requires issuer/audience/expiry and exactly one allowed subject.
+webapps:
+  enabled: false
+  # platform-origin: https://demo.platform.example.com
+  # content-domain: apps.example.net # separate registrable domain from platform
+  # instance-slug: demo
+  max-running: 4
+  max-archive-mib: 100
+  max-extracted-mib: 512
+  max-files: 20000
+  backend:
+    port-start: 20000
+    port-end: 20127
+    max-old-space-size-mb: 256
+    rss-stop-mb: 512
+    health-interval-seconds: 10
+    unhealthy-threshold: 3
+    restart:
+      max-attempts: 5
+      window-seconds: 600
+      stable-reset-seconds: 300
+  logs:
+    max-size-mb: 10
+    max-files: 3
+
 resource:
   ticket-ttl-seconds: 86400
   # 实例的公网地址。配置后生成资源地址时不再读取请求的 Host 与 X-Forwarded-* 头。

@@ -31,6 +31,9 @@ func PlatformProtectedPaths(cfg config.Config) []string {
 	if cfg.RuntimeMode == config.RuntimeModeDesktop && strings.TrimSpace(state) != "" {
 		paths = append(paths, filepath.Join(filepath.Dir(state), ".desktop", "secrets"))
 	}
+	if cfg.WebApps.Enabled && strings.TrimSpace(cfg.WebAppsCodeDir()) != "" {
+		paths = append(paths, cfg.WebAppsCodeDir())
+	}
 	return paths
 }
 

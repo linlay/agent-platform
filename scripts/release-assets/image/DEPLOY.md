@@ -72,6 +72,16 @@ docker compose ps        # 等到 STATUS 为 healthy
 
 ## 6. 升级与回滚
 
+### WebApp 前置诊断（尚未提供应用托管）
+
+Compose 已显式传入 `--webapp-host=compose`，但 `configs/runtime.yml` 的 `webapps.enabled` 默认关闭。仅集成测试时开启，并配置 auth.enabled、issuer、audience、require-expiry 和唯一 allowed-subjects owner，以及 webapps.platform-origin、content-domain、instance-slug。内容域须位于不同于平台的注册域名下。
+
+开启后，使用平台 origin 和 owner JWT 访问 `GET /api/admin/webapps/host`，检查 nodeReady、supervisorReady、landlockAbi、isolationReady 和 backendPrerequisitesReady。该接口只报告前置条件，hostingAvailable 当前固定 false，不能用于安装或启动应用；不可用不会自动降低隔离。容器的 loopback healthcheck 保持可用，其他未知 Host 不再回落平台 API。细节见源码仓库 docs/WebApp托管.md。
+
+镜像构建定义包含锁定 Node 与辅助程序，正式安装仍需验证构建、制品校验及 Linux 原生环境。macOS Docker Desktop 的 amd64 仿真结果不能替代原生 linux/amd64 的 Landlock 验收。Compose 停止宽限期预留为 45 秒；现有 Go 运行时关闭超时仍沿用当前实现，WebApp 生命周期会在后续阶段接入。
+
+### 平台升级
+
 导入新版本的发布包（`./load.sh`），把 `.env` 的 `AP_IMAGE_VERSION` 改为新版本，再 `docker compose up -d`。回滚时改回旧版本号。升级会重启容器，未完成的任务会被取消，会话历史保留。升级前先备份 `data/`。
 
 ## 7. 验收清单

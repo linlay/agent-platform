@@ -1463,3 +1463,11 @@ Query、execute、side query 和子执行器的输入 `accessLevel: default`（�
 Runtime 受理时冻结具体权限与来源，JSONL 顶层 `accessLevel`、Run 状态和权限事件使用具体档位；原始 query 保留请求中的 `default` 或省略，不改写。旧 JSONL 顶层 `default` 是旧版已冻结的请求审批决定，回读为 `ask_for_approval`，不依据当前 Agent 配置重算；旧规划记录中显式请求审批的执行续接也保留原权限。
 
 Automation 保持独立的场景默认：省略或 `default` 使用 `ask_for_approval`，不采用 Agent/Chat 的高权限默认。Gateway 与 Desktop WebApp execute 的固定低权限调用明确发送 `ask_for_approval`。Platform、WebClient、Desktop 和 Gateway 应同步升级，旧调用方若要明确请求审批，必须改发 `ask_for_approval`。
+
+## Linux Compose WebApp 前置诊断
+
+`GET /api/admin/webapps/host` 仅在 Linux standalone、显式 `--webapp-host=compose` 且 `runtime.yml` 的 `webapps.enabled: true` 时注册。启用还要求 JWT issuer/audience/expiry 和唯一 allowed-subjects owner；接口不接受 WebApp/连接器执行 token。未启用不注册路由；认证后 subject 非 owner 返回 403，宿主状态未装配返回 503；响应 no-store，包裹为 `{code,msg,data}`。
+
+`data` 含 host/os/arch、nodeVersion/nodeReady、supervisorReady、landlockAbi/isolationReady、backendPrerequisitesReady、hostingAvailable、stage 和 issues。当前 stage 为 foundation，hostingAvailable 固定 false；它只报告运行前提，不提供应用安装、访问或 Node 启停能力。
+
+启用时，Host 分类先于平台 API/CORS/WS。未知或应用内容 Host 不回落平台路由；仅 loopback peer 的精确 loopback:平台端口 GET /healthz 保留健康检查。内容域 Origin 禁止进入平台 API/主 WS，不使用 X-Forwarded-Host 推断平台身份。完整范围及限制见 [WebApp 托管](WebApp托管.md)。

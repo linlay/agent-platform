@@ -1,6 +1,6 @@
 # Linux Docker Compose WebApp 托管完整方案
 
-状态：设计提案，尚未实现；2026-10-31 根据当前仓库及相邻 Desktop 源码重新整理。
+状态：已开始实施，前置基础已接入，完整托管尚未实现；2026-10-31 根据当前仓库及相邻 Desktop 源码重新整理。
 
 ## 1. 目标与部署边界
 
@@ -567,7 +567,7 @@ WebClient 提供应用列表、上传审阅、安装、启停、诊断、日志�
 
 原文还记录 Node v24.22.2 linux-x64 压缩包约 32 MB、解压约 208 MB，Node 文件约 122 MB。这些是历史调研者记录，本次未重新测量；不能外推为当前锁定版本大小、ABI、正式 Docker 容器或生产服务器验收结果。
 
-本次完成仓库与相邻 Desktop 源码核对，以及官方机制文档核对；没有启动 Docker、访问目标服务器或执行隔离实测。实现阶段应保存可复跑 Compose 测试脚本和环境信息，以新验证结果替换历史估计。
+方案整理时完成了仓库与相邻 Desktop 源码、官方机制文档核对，未访问目标服务器或执行隔离实测。后续开始实施后的容器结果另记在第 19 节，不能与原 box 调研记录混用。
 
 技术机制参考：Node LTS 选型参照[官方发布周期](https://nodejs.org/en/about/previous-releases)；Node 权限、Landlock 和进程管理的限制已在对应设计段落附原始文档。
 
@@ -584,3 +584,11 @@ WebClient 提供应用列表、上传审阅、安装、启停、诊断、日志�
 - Desktop WebApp 契约与 builder 文档：Linux target、Node 子集、纯 JS/离线包和云端不支持能力。
 
 本方案的完成标准是 Linux Compose 中前端与可选 Node 后端的完整托管闭环；其他 Platform 部署不承担新增 Node 宿主职责。
+
+## 19. 实施进度（2026-10-31）
+
+首批基础已接入代码：独立 --webapp-host 启动选项、runtime.webapps 严格配置和 owner/域名/部署条件校验、冻结派生目录、owner 前置诊断接口、平台 Host 边界及内容域 Origin 拒绝、受管 Node/helper 的完整性与能力检查。两份 Compose 模板显式选择宿主，开发模板补齐加固；Dockerfile 增加锁定 Node v24.22.2 的独立构建阶段。辅助程序当前仅实现 --probe/--version，没有运行应用的入口。
+
+相关 Go 回归和最终 `go test -p 2 ./...` 全量通过；初次全量有一个 connectorauth 登录用例超时，单例、整包及低并发全量复测均通过，未修改其超时时间。主程序完成 CGO_ENABLED=0、linux/amd64 交叉编译。linux/amd64 C 辅助程序已在既有编译镜像中通过 -Wall/-Wextra/-Werror 编译。在 macOS ARM Docker Desktop 的 amd64 仿真和正式加固条件下，Landlock 返回 ENOSYS，正确报告不可用；原生 ARM Linux 容器中 ABI 探测返回 6。这不代表支持 Platform arm64，也不代表原生 linux/amd64 完整隔离验收。
+
+完整 Node 镜像阶段构建被 Docker Hub token 地址访问超时阻断，尚未生成并验证完整镜像。安装/更新事务、Manifest Linux fixture、网关、SDK、进程托管与恢复、WebClient 管理和生产目标验收均待后续实施；诊断明确返回 hostingAvailable:false。当前实现说明见 [WebApp 托管](../docs/WebApp托管.md)。

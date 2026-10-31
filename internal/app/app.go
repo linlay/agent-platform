@@ -64,6 +64,7 @@ import (
 	"agent-platform/internal/tools"
 	"agent-platform/internal/viewaction"
 	"agent-platform/internal/viewquery"
+	"agent-platform/internal/webapphost"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -105,6 +106,15 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	cfg, err := config.Load(configOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
+	}
+	var webappHostStatus *webapphost.Status
+	if cfg.WebApps.Enabled {
+		if err := webapphost.ProtectPlatform(); err != nil {
+			return nil, err
+		}
+		status := webapphost.Inspect(rootCtx)
+		webappHostStatus = &status
+		log.Printf("WebApp prerequisites: node=%t supervisor=%t isolation=%t abi=%d", status.NodeReady, status.SupervisorReady, status.IsolationReady, status.LandlockABI)
 	}
 	if err := httpclient.ConfigureDefault(cfg.HTTPProxy); err != nil {
 		return nil, fmt.Errorf("initialize HTTP clients: %w", err)
@@ -512,6 +522,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Sandbox:                sandboxClient,
 		MCP:                    mcpClient,
 		ConnectorAuth:          connectorAuth,
+		WebAppHost:             webappHostStatus,
 		MCPToolSyncStatus:      mcpToolSync,
 		ToolInteractions:       interactionRegistry,
 		CatalogReloader:        reloader,
