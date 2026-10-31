@@ -1,7 +1,7 @@
 # Shell 命令审批：分层流水线与目录方案
 
-> 状态：部分实施。启动合同与方言保护（实施计划 S0–S2）已在 `5554545f` 实现，复审补丁见 `ef0b41f4` 与实施计划 §8.6；目录迁移、命令事实细化、PowerShell AST 和两套审批合并尚未实施。
-> 核对日期：2026-10-30。进度、下一步与遗留项见[实施计划](shell-command-analysis-implementation.md)第 0 节；其评审意见 R1–R8 已并入本文。Windows 结论未在 Windows 上端到端运行。
+> 状态：部分实施。启动合同与方言保护（实施计划 S0–S2）已在 `5554545f` 实现，复审补丁见 `ef0b41f4` 与实施计划 §8.6，选项与隐式配置补丁见实施计划 §8.8；目录迁移、命令事实细化、PowerShell AST 和两套审批合并尚未实施。
+> 核对日期：2026-10-31（§8.2 第 1、2、6 项已确认并移入 §8.1）。进度、下一步与遗留项见[实施计划](shell-command-analysis-implementation.md)第 0 节；其评审意见 R1–R8 已并入本文。Windows 结论未在 Windows 上端到端运行。
 
 ## 1. 目标
 
@@ -126,7 +126,7 @@ echo "\" ; Remove-Item -Recurse C:\x ; echo "\"
 
 **4 语义**：命令文件是纯函数，不做 IO、不读部署凭据。输入 argv，输出事实。详见第 4 节。
 
-**5 资源**：解析相对路径、symlink/junction、容器 guest 路径、glob；识别空设备；核验 Git 配置与 hooks；对脚本和入口计算摘要。只有这一层和第 2 层访问文件系统或容器探针。每个结果三选一（R6）：
+**5 资源**：解析相对路径、symlink/junction、容器 guest 路径、glob；识别空设备；核验 Git 配置与 hooks；按本次调用的有效环境找到命令默认配置文件的实际路径，确认是否存在、Agent 能否免审批写入（8.1）；对脚本、入口和配置文件计算摘要。只有这一层和第 2 层访问文件系统或容器探针。每个结果三选一（R6）：
 
 | 结果 | 含义 | 去向 |
 | --- | --- | --- |
@@ -166,7 +166,9 @@ S7 合并 `bashsec` 的批准时，保持 HITL 公开形状与规则语义，协
 | Delete（递归）/ Discard（丢弃未提交修改） | — | `destructive` |
 | RemoteMutation | — | `remote-mutation` |
 | Exec、UnknownBehavior、Dep 核验失败 | 无凭据抵消 | `bash-opaque-command` |
-| UnknownOption | — | 现状只把可见文件升级为写入；建议另加 `bash-complex-filesystem`（待确认 1） |
+| UnknownOption | — | `bash-complex-filesystem`，单次批准；可见文件仍升级为写入（8.1） |
+| Dep(ConfigFile) | 第 5 层确认：不存在，或存在但 Agent 免审批写不到 | 无要求（8.1） |
+| Dep(ConfigFile) | 存在且 Agent 免审批可写 | 同 UnknownBehavior |
 | Unknown(syntax / wrapper / path)、动态 cwd、动态值 | — | `bash-complex-filesystem` |
 | 不支持的方言或启动模板 | — | 未知方言合同（6.6，已实现） |
 | HardViolation | — | block |
@@ -234,6 +236,9 @@ var curl = Command{
         if p.HasAny("K", "config") {
             e.UnknownBehavior("curl:-K")                // 配置文件内容不解析，交给审批
         }
+        if !p.FirstIs("q", "disable") {                 // -q 只在第一个参数时停用 .curlrc
+            e.ConfigFile("curl:curlrc", ".curlrc", "CURL_HOME", "XDG_CONFIG_HOME", "HOME")
+        }                                               // 是否存在、能否免审批写入由资源层判断
     },
 }
 ```
@@ -548,19 +553,23 @@ S5 依赖 S3、S4，在这之前 Windows 两档每条命令都要人工审批。
 - 本轮规则批准只额外绑定 Shell 身份、模板与方言；相同目标可跨 cwd/环境复用路径规则，精确批准仍绑定完整调用（已实现）。
 - 系统 Bash 是启动时搜索路径选中的那一项，每次重新解析链接；安装更新不需重启，后来出现的靠前同名程序不算（已实现）。
 - 文本检查分两级：控制字符、双向覆盖/隔离、无效 UTF-8 在所有方言和位置硬拒绝；Unicode 空白与零宽/格式字符在 Bash 只查引号外，未知方言查整条（已实现）。
+- 不认识的选项（原 8.2 第 1 项，2026-10-31）：命令分析给出 UnknownOption（含缺少选项值）时，追加 `bash-complex-filesystem`，只能单次批准、不可本轮复用；可见文件仍升级为写入，所以 auto 档下写根外的文件仍要人工；已识别的删除、上传等事实保留。
+- 命令的隐式配置（原 8.2 第 2 项，2026-10-31）。不解析配置语言：
+  - 显式配置文件（curl `-K/--config`、wget `--config`）记 UnknownBehavior，即 opaque；配置文件路径本身照旧按读取审查。
+  - 命令文件声明自己读的配置：curl 是 `CURL_HOME`、`XDG_CONFIG_HOME`、`HOME` 下的 `.curlrc`；wget 是 `WGETRC` 与 `~/.wgetrc`；rg 是 `RIPGREP_CONFIG_PATH`；GNU tar 的 `TAR_OPTIONS` 是选项不是文件，非空即 UnknownBehavior。停用配置的选项（curl 首个参数 `-q/--disable`、rg 与 wget 的 `--no-config`）不记。Windows 的 `_curlrc` 等路径随 S5/S6 补。
+  - 资源层按本次调用的有效环境（继承环境、run.env、命令内赋值与 export）求实际路径：不存在，无要求；探测失败，Unresolved；存在但 Agent 免审批写不到（写根外），视为用户自己的配置，无要求；存在且 Agent 免审批可写（写根内，或 `HOME` 等被改到可写位置），记 UnknownBehavior。
+  - 记为 UnknownBehavior 并被批准时，批准绑定配置文件的内容摘要，内容变了旧批准失效。
+- 默认白名单（原 8.2 第 6 项，2026-10-31）：`bash.allowed-commands` 维持现有部署政策，不由 registry 或"存在解析器"生成。它只在严格模式下检查，默认模式只要求名单非空；登记分析器不等于允许，未登记的允许项（如 `df`、`dbx`、`httpx`）照旧按 opaque 审查。
 
 ### 8.2 待确认
 
-S0 需要关闭以下事项；每项最晚在哪一步之前确认，见实施计划 §0.2。确认后移到 8.1。
+S0 需要关闭以下事项；每项最晚在哪一步之前确认，见实施计划 §0.2。确认后移到 8.1，编号保持不变。
 
 | # | 事项 | 建议 |
 | --- | --- | --- |
-| 1 | UnknownOption 是否追加要求 | 追加与调用绑定的 `bash-complex-filesystem`，同时保留已知事实。先用快照列出受影响的常见命令，作为单独的行为变化提交 |
-| 2 | curl `-K`、命令默认配置等隐式行为 | 首期记录 Dep 与 UnknownBehavior，不解析配置语言；默认配置是否存在要探测，不能忽略 |
 | 3 | 空设备身份 | 确认实际设备身份，不能只看路径字符串或"是字符设备"；`/dev/zero`、`/dev/tty` 不算丢弃输出 |
 | 4 | PowerShell helper 生命周期 | 先无状态请求，有基准数据再考虑常驻（6.2） |
 | 5 | PowerShell 模块与身份规则 | helper 与执行端一致且可验证；候选做法见 6.3，需在 Windows 核实 |
-| 6 | 默认白名单 | 保持现有部署政策，不由"存在解析器"生成 |
 | 7 | 首批 cmdlet | 按 6.4 的顺序，先只读，再文件修改，最后网络 |
 
 ## 附录 A：已有局部修复

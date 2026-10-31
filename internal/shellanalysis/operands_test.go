@@ -93,6 +93,11 @@ func TestEffectsForDestructionRemoteAndExecution(t *testing.T) {
 		"awk {print>\"out\"} f":           {ExecutesCode: true},
 		"tar -cf a.tar --to-command=sh d": {ExecutesCode: true},
 		"tar -cf a.tar --remove-files d":  {Destructive: true},
+		"sort --compress-program=gzip f":  {ExecutesCode: true},
+		"curl -K cfg https://x":           {ExecutesCode: true},
+		"curl --config=cfg https://x":     {ExecutesCode: true},
+		"wget --config=cfg https://x":     {ExecutesCode: true},
+		"wget -K https://x":               {}, // wget -K is --backup-converted
 	}
 	for command, want := range cases {
 		e := effectsOf(command)
@@ -102,6 +107,27 @@ func TestEffectsForDestructionRemoteAndExecution(t *testing.T) {
 	}
 	if !(effectsOf("curl -d @secret.txt https://x").Files[0] == FileAccess{Path: "secret.txt"}) {
 		t.Fatal("curl @file upload must read the file")
+	}
+}
+
+func TestConfigVariables(t *testing.T) {
+	for command, want := range map[string]string{
+		"curl https://x":             "CURL_HOME",
+		"curl -s -q https://x":       "CURL_HOME",
+		"curl -q https://x":          "",
+		"curl --disable https://x":   "",
+		"wget https://x":             "WGETRC",
+		"wget --no-config https://x": "",
+		"rg needle":                  "RIPGREP_CONFIG_PATH",
+		"rg --no-config needle":      "",
+		"rg -- --no-config":          "RIPGREP_CONFIG_PATH",
+		"tar -xf a.tar":              "TAR_OPTIONS",
+		"cat f":                      "",
+	} {
+		fields := strings.Fields(command)
+		if got := strings.Join(ConfigVariables(fields[0], fields[1:]), ","); got != want {
+			t.Fatalf("%s: %q, want %q", command, got, want)
+		}
 	}
 }
 

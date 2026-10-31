@@ -33,7 +33,9 @@ type Effects struct {
 	// Incomplete marks options or grammar the analyzer does not model. Visible
 	// file operands are then treated as writes; it does not imply code execution.
 	Incomplete bool
-	// ExecutesCode means the invocation can run code not described by operands.
+	// ExecutesCode means the invocation can run code, or take behavior from a
+	// source this analysis does not read (such as a config file), that operands
+	// do not describe.
 	ExecutesCode   bool
 	RemoteMutation bool
 	// Destructive marks recursive deletion and discarding uncommitted work.
@@ -186,6 +188,10 @@ func Operands(base string, args []string) Effects {
 		if p.has("T") || p.has("upload-file") {
 			e.RemoteMutation = true
 		}
+		if (base == "curl" && p.has("K")) || p.has("config") {
+			// A config file can add outputs, uploads and URLs that are not reviewed here.
+			e.ExecutesCode = true
+		}
 		if p.has("O") || p.has("remote-name") || p.has("remote-name-all") || base == "wget" && !p.has("O") && !p.has("output-document") && !p.has("spider") {
 			// The output file name comes from the URL and lands in cwd.
 			add(".", true, base == "wget" && (p.has("r") || p.has("recursive") || p.has("m") || p.has("mirror")))
@@ -203,6 +209,45 @@ func Operands(base string, args []string) Effects {
 		escalateWrites(&e)
 	}
 	return e
+}
+
+// ConfigVariables names environment variables that make the program read
+// options from a file or value outside argv. A non-empty value is behavior the
+// analysis has not reviewed. Default HOME/XDG config files are not covered.
+func ConfigVariables(base string, args []string) []string {
+	noConfig := func() bool {
+		for _, a := range args {
+			if a == "--" {
+				return false
+			}
+			if a == "--no-config" {
+				return true
+			}
+		}
+		return false
+	}
+	switch base {
+	case "curl":
+		// curl only honors -q/--disable as the first argument.
+		if len(args) > 0 && (args[0] == "-q" || args[0] == "--disable") {
+			return nil
+		}
+		return []string{"CURL_HOME"}
+	case "wget":
+		if noConfig() {
+			return nil
+		}
+		return []string{"WGETRC"}
+	case "rg":
+		if noConfig() {
+			return nil
+		}
+		return []string{"RIPGREP_CONFIG_PATH"}
+	case "tar", "gtar":
+		// GNU tar prepends TAR_OPTIONS to argv; bsdtar ignores it.
+		return []string{"TAR_OPTIONS"}
+	}
+	return nil
 }
 
 func remoteDataFile(key, value string) string {

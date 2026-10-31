@@ -32,6 +32,9 @@ type BashExecution struct {
 	Wrapped            bool
 	TrustedInterpreter bool
 	BlockReason        string
+	// Env is the environment visible to Argv: the reviewed environment plus
+	// shell scope, inline assignments and env(1) assignments.
+	Env map[string]string
 }
 
 // ordinaryCommands are recognized system programs whose effects shellanalysis
@@ -175,6 +178,7 @@ func analyzeBashExecution(session QuerySession, cmd bashast.SimpleCommand, cwd s
 		vars[assignment.Name] = assignment.Value
 	}
 	defer func() {
+		x.Env = vars
 		x.ConnectorID = connectorExecution(session, x, vars, env)
 		x.Connector = x.ConnectorID != ""
 	}()

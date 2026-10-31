@@ -1,6 +1,6 @@
 # Shell 命令审批：方案评审与实施计划
 
-> 状态：实施中，暂停。S1、S2 已完成（含两轮复审修正），S0 部分完成，S3–S8 未开始；未部署。接手从第 0 节开始。
+> 状态：实施中。S1、S2 已完成（含两轮复审修正），S0 部分完成，S3–S8 未开始；方案 §8.2 第 1、2、6 项已于 2026-10-31 确认，对应的 S2 补丁已实施（§8.8）；未部署。接手从第 0 节开始。
 > 日期：2026-10-30。评审代码基线：`509b81a5`；原方案使用本次评审读取的版本，指纹见下行。
 > 依据：[分层流水线与目录方案](shell-command-analysis.md)。本次读取版本 SHA-256：`3c4e8713b113a506c958acd285a7173cab85558c73e18291923fff08871e2092`。
 > 2026-10-30 复审：R1–R8 已并入方案正文（层次、资源三态、registry、Windows 身份与 6.6 未知方言合同），第 5 节的待定项汇总在方案 §8.2；对 `5554545f` 的代码复审发现见 §8.4。
@@ -13,9 +13,10 @@
 
 | 步骤 | 状态 | 记录 |
 | --- | --- | --- |
-| S0 合同与基线 | 部分完成：首批 Unix 行为基线已有；完整命令清单、规范化快照，以及方案 §8.2 第 1–7 项未完成 | §8.1 |
+| S0 合同与基线 | 部分完成：首批 Unix 行为基线已有；方案 §8.2 第 1、2、6 项已确认，第 3、4、5、7 项及完整命令清单、规范化快照未完成 | §8.1、§8.7 |
 | S1 工具专用 LaunchSpec | 完成 | §8.1 |
 | S2 未知方言合同 | 完成，含两轮复审修正；Windows 未实测 | §8.1、§8.4–§8.6 |
+| S2 补丁：选项与隐式配置 | 完成；默认配置文件探测与 `HOME` 改向留到 S4/S6 | §8.7、§8.8 |
 | S3 中立类型与目录迁移 | 未开始；`shellreview/dialect`、`shellreview/types`、`shellreview/syntax`（文本检查）已建 | — |
 | S4–S8 | 未开始 | — |
 
@@ -29,16 +30,13 @@
 
 ### 0.2 下一步
 
-1. **关闭方案 §8.2 第 1–7 项。** 建议值已写在方案里，确认即可；确认后移到方案 §8.1。各项需要在哪一步之前定：
+1. **关闭方案 §8.2 剩余项。** 第 1、2、6 项已于 2026-10-31 确认（方案 §8.1）。其余项建议值已写在方案里，确认后移到方案 §8.1：
 
    | 待确认项 | 最晚在 |
    | --- | --- |
-   | 1 UnknownOption 是否追加要求 | S4（行为变化单独提交） |
-   | 2 curl `-K` 等隐式行为 | S4 |
    | 3 空设备身份 | S6 |
    | 4 PowerShell helper 生命周期 | S5 |
    | 5 PowerShell 模块与身份规则 | S5（需 Windows 实测） |
-   | 6 默认白名单 | S4 |
    | 7 首批 cmdlet | S8 |
 
    S3 是纯结构迁移，不依赖这些决定，可以先做。
@@ -69,6 +67,7 @@
 - 显式配置的 bash 绝对路径，如果不是启动时 PATH 选中的那一项，按未知方言处理。
 - Platform 启动后新装的 Bash（包括装进更靠前 PATH 目录的），要重启后才按 Bash 分析。
 - S5 之前的 Windows：ask/auto 档每条普通 Shell 调用都要单次人工审批；严格模式全部拒绝。
+- 隐式配置（S6 之前）：`HOME`/`XDG_CONFIG_HOME` 改到可写位置、或 `HOME` 本身在写根内时，默认配置文件（`.curlrc`、`.wgetrc`）不审查；配置来源被批准时不绑定配置文件内容；`env -i`/`env -u` 清掉的配置变量仍按存在处理（多审不漏审）。
 - Host 只做执行前检查，不隔离任意代码的内部访问；未知方言的人工批准不代表正文已经审查。
 
 ### 0.5 收尾
@@ -211,15 +210,15 @@ LaunchSpec 建议包含实际 Shell canonical 路径、方言与版本、命令�
 | 决定 | 本稿建议 | 与原方案的关系 |
 | --- | --- | --- |
 | 未支持方言在 auto_approve 下怎样处理 | 不自动运行；采用显式人工或拒绝的受控回退，错误原因清晰 | 已采纳并实现（§8.1）；原方案为自动通过 |
-| UnknownOption 是否追加要求 | 追加与调用绑定的 complex 要求，同时保留已知效果 | 原方案待定；不能只升级已看到的文件 |
-| curl -K/默认配置等隐式行为 | 首期记录依赖与 UnknownBehavior；不在首期重写完整配置语言 | 收敛首批范围；默认配置是否存在须探测，不能忽略 |
+| UnknownOption 是否追加要求 | 追加与调用绑定的 complex 要求，同时保留已知效果 | 已采纳（方案 §8.1，2026-10-31） |
+| curl -K/默认配置等隐式行为 | 首期记录依赖与 UnknownBehavior；不在首期重写完整配置语言 | 已采纳，并补充按能否免审批写入区分已存在的默认配置（方案 §8.1，2026-10-31） |
 | 空设备身份 | 确认实际类型及空设备身份，不能仅以“字符设备”或字符串判断 | 原方案待定；不把 /dev/zero 等视为丢弃输出 |
 | PowerShell helper 生命周期 | 先完成无状态请求合同与安全原型；基准数据支持后再选择常驻 | 原方案偏向常驻；正确性先于性能 |
 | PowerShell 模块规则 | helper 与执行端采用一致且可验证的加载策略；不接受仅模块名或 helper 单边禁用 | 补齐原方案残余风险；未确认前不恢复对应免审批 |
-| 默认白名单 | 首期保持现有部署政策，不由“存在解析器”直接生成 | 原方案待定；减少无关授权变化 |
+| 默认白名单 | 首期保持现有部署政策，不由“存在解析器”直接生成 | 已采纳（方案 §8.1，2026-10-31） |
 | 首批 cmdlet | 先 Get-Location/Test-Path/Get-Content/Get-ChildItem/Write-Output，再文件修改与网络 | 原方案范围待定；每个命令需核验真实类型与来源，不因名称带 Get 就免审批 |
 
-本表为评审阶段建议。第一项已实现；其余项的当前状态以方案 §8.2 为准，确认前不能视为当前配置或运行合同。
+本表为评审阶段建议。第一项已实现；UnknownOption、隐式配置与默认白名单已确认，前两项的 S2 补丁已实施（§8.8），默认配置文件探测待 S4/S6；其余项的当前状态以方案 §8.2 为准，确认前不能视为当前配置或运行合同。
 
 ## 6. 验证方案与完成定义
 
@@ -346,3 +345,47 @@ R1–R8 本次逐条核对，均成立，已并入方案。
 验证：`go test ./...` 通过（`internal/hostenv` 的 npm 计时用例首次超时，单独重跑通过，与本批无关），`go vet` 覆盖改动包；`gofmt -l` 只列出 HEAD 中已有的三个测试文件。未在原生 Windows 运行，未部署。
 
 提交前追加验证：上述 AST 修正后，改动包测试与 `go vet` 通过，`internal/tools` 的 Windows amd64 测试交叉编译通过，改动 Go 文件的格式检查及 `git diff --check` 通过。全仓首跑的 Server 集成测试 `TestQueryStreamsToolPayloadEventsAndPersistsToolSnapshot` 未读到持久化的 `run.complete`；该用例只调用 `datetime`，单独连续运行 5 次通过，之后 `go test ./...` 全仓复跑通过。保留该偶发失败记录，不将交叉编译视为原生 Windows 验收。
+
+### 8.7 方案 §8.2 第 1、2、6 项的依据（2026-10-31）
+
+用 `go test -overlay` 加临时测试做只读探针，没有改仓库测试，也没有执行被审查的命令。以下命令在 ask_for_approval 与 auto_approve 档都不需要审批：
+
+| 命令 | 实际会发生什么 |
+| --- | --- |
+| `sort -S 1K --compress-program=sh data.txt` | sort 把临时数据交给 `sh`，即把 data.txt 当脚本执行。按文档推断，未运行；macOS（2.3-Apple）与 GNU sort 都有该选项 |
+| `curl -K ./cfg URL`、`CURL_HOME=. curl URL` | 配置文件可写 `upload-file`、`output`，读写写根外文件与上传都不经审查 |
+| `TAR_OPTIONS=--to-command=sh tar -xf a.tar` | GNU tar 把每个解出的文件交给 `sh`；macOS 自带 bsdtar 不读该变量，Linux 与容器受影响 |
+| `RIPGREP_CONFIG_PATH=./rgrc rg foo` | rgrc 写 `--pre=./x.sh` 即执行；rg 取得系统身份时成立。本机没有系统 rg，fixture 中为 opaque，未测到 |
+
+原因：Incomplete 只把可见文件升级为写入，文件都在写根内就放行；`-K` 只把配置文件路径按读取审查；命令分析看不到环境变量。
+
+影响估计：从本机历史 Chat 抽出 8564 条去重 bash 命令（只读命令文本）。已分析且不执行代码的简单调用 3382 次，其中 Incomplete 2 次（`curl --version`、`curl --socks5-hostname`）；curl 181 条，没有 `-K` 或上述环境变量；本机不存在 `~/.curlrc`、`~/.wgetrc`。
+
+默认白名单：`bash.allowed-commands` 只在严格模式（`shell-features-enabled: false`）下由 `validateStrictCommand` 检查，默认模式只拒绝空名单（`tool_bash.go`），所以不由 registry 生成对默认部署没有影响。
+
+决定见方案 §8.1；补丁实施见 §8.8。
+
+### 8.8 S2 补丁：选项与隐式配置（2026-10-31）
+
+修补 §8.7 探针确认的绕过。属于行为变化，单独提交，在现有结构上实施，S3 迁移时随代码搬走。
+
+| 改动 | 位置 | 行为 |
+| --- | --- | --- |
+| 分析结果为 Incomplete（不认识的选项、缺少选项值、curl 不带协议的地址等）时，追加 `bash-access:complex`（`Approvals.BashComplexFilesystem`）；保留 `escalateWrites` | `accesspolicy/bash_review.go` 的分析分支 | 三档为人工、自动、放行；`bash-access:complex` 本就不可本轮复用（`grant_scope.go`） |
+| curl `-K/--config`、wget `--config` 记为执行代码 | `shellanalysis/operands.go` | 现有 Effects 还没有 UnknownBehavior，用 ExecutesCode 走 opaque；editing=false 时在 Workspace 内按现有 opaque 规则硬拒绝 |
+| 有效环境中 curl 的 `CURL_HOME`、wget 的 `WGETRC`、rg 的 `RIPGREP_CONFIG_PATH`、tar 的 `TAR_OPTIONS` 非空时，记为执行代码；停用配置的选项（curl 首个参数 `-q/--disable`、rg 与 wget 的 `--no-config`）豁免 | `bash_review.go`；`Operands` 拿不到环境，由 `BashExecution.Env` 带出合并后的环境（继承、run.env、命令内赋值、export、env 包装） | 同上；未 export 的 Shell 变量也计入（多审不漏审） |
+| 登记 sort `--compress-program` 为执行；wget `--config`（读文件）与 `--no-config`；历史中命中的 curl `--version`、`--socks5-hostname`（带值） | `shellanalysis/specs.go` | sort 该选项走 opaque；wget `--config` 的路径按读取审查，同时按第 2 行走 opaque；其余几项只是不再算 Incomplete |
+
+不在补丁内，留到 S4/S6 的资源层：`HOME`、`XDG_CONFIG_HOME` 改向；默认配置文件是否存在、能否免审批写入的探测；批准绑定配置文件摘要；Windows 路径。
+
+测试（`bash_baseline_test.go` 的 `TestBashReviewOptionsAndImplicitConfig`）：§8.7 探针中的命令在三档下的结果；停用选项豁免（`CURL_HOME=. curl -q URL`、`RIPGREP_CONFIG_PATH=x rg --no-config foo`）；editing=false 时 `curl -K ./cfg URL` 被拒绝；已知效果不丢（`rm -r --unknown build` 同时要求 destructive 与 complex）；`curl host/path` 在 ask 档变为单次人工；继承或 run.env 中的 `TAR_OPTIONS` 与命令内赋值等同；`env CURL_HOME=. curl` 与 `export CURL_HOME=. && curl` 同样生效。fixture 用私有 PATH 中的假系统程序，不依赖本机安装。`shellanalysis` 另补选项登记与 `ConfigVariables` 的单元测试，含 wget `-K`（`--backup-converted`）不算配置。
+
+入口：`shellanalysis.ConfigVariables` 声明各命令的配置变量与停用选项；`BashExecution.Env` 带出 `analyzeBashExecution` 合并后的环境；`bash_review.go` 在分析分支中把配置来源记为执行代码，并为不执行代码的 Incomplete 追加 complex。已是 opaque 的调用不再加 complex 叶子，以免打断原有的本轮规则复用。
+
+验证：
+- 新测试在改动前的源码上（overlay 换回 HEAD 版本）失败，改动后通过。
+- 用 §8.7 的 8564 条历史命令重跑：Incomplete 且不执行代码的调用从 2 次降为 0，没有使用 `--compress-program`、`curl -K`、`wget --config` 的命令，即历史调用的审批结果不变。
+- `go vet` 覆盖改动包；`go test ./...` 全仓通过；`internal/accesspolicy`、`internal/shellanalysis` 的 Windows amd64 测试交叉编译通过；`git diff --check` 通过。
+- 未在原生 Windows 或真实容器运行，未部署。
+
+现行文档：`docs/工具目录权限.md` 的命令语义段已改写为当前行为。

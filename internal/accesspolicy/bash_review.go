@@ -222,6 +222,11 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 				}
 			default:
 				effects := shellanalysis.Operands(commandFamily(x.Argv[0]), x.Argv[1:])
+				for _, name := range shellanalysis.ConfigVariables(commandFamily(x.Argv[0]), x.Argv[1:]) {
+					if x.Env[name] != "" {
+						effects.ExecutesCode = true
+					}
+				}
 				repoDir := x.Cwd
 				for i, file := range effects.Files {
 					// curl/wget output options name a sink, just like shell > /dev/null.
@@ -263,6 +268,10 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 				if effects.ExecutesCode || effects.GitCheck != shellanalysis.GitCheckNone && !gitClean {
 					executes = true
 					add(opaquePlan(x))
+				} else if effects.Incomplete {
+					// Unrecognized options may add outputs or behavior beyond the visible
+					// operands; escalated writes alone would allow them inside write roots.
+					add(bashPlanForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "command options are not fully recognized", "bash-access:complex"))
 				}
 				if effects.RepoWrite {
 					pathReview(WriteAccess, repoDir)
