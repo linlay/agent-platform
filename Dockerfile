@@ -37,16 +37,16 @@ ARG TARGETOS
 ARG TARGETARCH
 # Official Node 24 LTS archive; update version and SHA together. No latest tag.
 ENV AP_WEBAPP_NODE_VERSION=24.22.2
-ENV AP_WEBAPP_NODE_SHA256=48cc0e21e048790e54c0cf5749c2725005313d652651c40b7a21feb9697aaf75
+ENV AP_WEBAPP_NODE_SHA256=361718c444e49af2ca5a110c83ba6a8901143f23ab285ebbef0341f391f482a9
 RUN test "$TARGETOS/$TARGETARCH" = linux/amd64 && \
-    command -v gcc && command -v curl && command -v xz
+    command -v gcc && command -v curl && command -v gzip
 COPY cmd/webapp-supervisor/main.c /src/main.c
 RUN mkdir -p /out/node/bin /out/libexec /tmp/node && \
     curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
-      "https://nodejs.org/dist/v${AP_WEBAPP_NODE_VERSION}/node-v${AP_WEBAPP_NODE_VERSION}-linux-x64.tar.xz" \
-      -o /tmp/node.tar.xz && \
-    printf '%s  /tmp/node.tar.xz\n' "$AP_WEBAPP_NODE_SHA256" | sha256sum -c - && \
-    tar -xJf /tmp/node.tar.xz --strip-components=1 -C /tmp/node && \
+      "https://nodejs.org/dist/v${AP_WEBAPP_NODE_VERSION}/node-v${AP_WEBAPP_NODE_VERSION}-linux-x64.tar.gz" \
+      -o /tmp/node.tar.gz && \
+    printf '%s  /tmp/node.tar.gz\n' "$AP_WEBAPP_NODE_SHA256" | sha256sum -c - && \
+    tar -xzf /tmp/node.tar.gz --strip-components=1 -C /tmp/node && \
     cp /tmp/node/bin/node /out/node/bin/node && \
     cp /tmp/node/LICENSE /out/node/LICENSE && \
     sha256sum /out/node/bin/node | cut -d ' ' -f 1 > /out/node/node.sha256 && \
