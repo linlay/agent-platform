@@ -20,7 +20,8 @@
 |---|---|
 | `/api/mails` 摘要、详情、total | 列表直接返回正文和附件，没有 total，也没有详情接口；WebClient 读取 `{mails}` |
 | 临时错误自动重试 | 留在 `queued`，只能等同一会话的下一次触发；一直没有触发就停到重启后挂起 |
-| 归档时的状态转换 | 只有删除有钩子；已归档会话不再产生触发，归档时排队的 mail 停到重启 |
+| 归档时关闭 mail | 只有删除有钩子；已归档会话不再产生触发，归档时排队的 mail 停到重启 |
+| chats.db V2 | 未开始；MAILS 仍在独立的 mail.db，chats.db 结构不符即拒绝启动 |
 | 工作会话列表 | `chat_query opened` 先查 mail.db，再枚举全部 Chat、读 JSONL 回退、逐条查摘要和活动 Run；`/api/chats` 没有 openedBy |
 | WebClient 展示 | 挂起角标、请示卡片、代答标记、工作会话导航、回放核对 |
 | 后续阶段 | 统一用户发送入口、主视图直接审批、Automation/渠道改发信、删除 `chat_start`/`chat_steer` |
@@ -37,18 +38,20 @@
 - 工作会话查询复用 `/api/chats` 并增加参数，不新开 `/api/chats/opened`：`agentKey` 表示所属 Agent，`openedBy` 表示发起 Agent，同时出现取交集。
 - 工作会话列表不兼容旧 `chat_start` 开出的会话，也不扫描 JSONL。
 - 分身审批时限保持 600 秒，超时按拒绝处理。
+- MAILS 并入 chats.db，停用 mail.db；"谁开出的"作为 Chat 属性存入 CHATS。见 [chats-db-v2.md](chats-db-v2.md)。
+- 归档的 Chat 退出 mail，处理方式与删除相同；恢复归档不恢复 mail，也不重投。
 
 ## 待拍板
 
 | # | 问题 | 建议 |
 |---|---|---|
-| 1 | openedBy 的创建关系存在哪里 | 存 chats.db，见下文"openedBy 方案" |
-| 2 | 默认开启 mail 的门槛 | 完成阶段 A 的 A1–A4 后再切换默认值 |
-| 3 | 补建的主要对话算不算"开出" | 不算：主要对话属于 Agent 本身，不属于某次派活 |
-| 4 | 工作会话列表本期是否支持状态筛选，以及排序、分页协议 | 先不做状态筛选，默认返回全部未归档的工作会话 |
-| 5 | 统一发送入口的名称与协议 | 阶段 C 开始前再定 |
-| 6 | 主要聊天 Q1–Q10 是否采纳下文的建议答案 | 采纳 |
-| 7 | 文件名 `mail.db` 是否改为 `mails.db`，与 chats.db 对齐 | 未上线，可以直接改，同时改 runtime-recovery 与文档 |
+| 1 | 默认开启 mail 的门槛 | 完成阶段 A 的 A0–A4 后再切换默认值 |
+| 2 | 补建的主要对话算不算"开出" | 不算：主要对话属于 Agent 本身，不属于某次派活 |
+| 3 | 工作会话列表本期是否支持状态筛选，以及排序、分页协议 | 先不做状态筛选，默认返回全部未归档的工作会话 |
+| 4 | 统一发送入口的名称与协议 | 阶段 C 开始前再定 |
+| 5 | 主要聊天 Q1–Q10 是否采纳下文的建议答案 | 采纳 |
+
+chats.db V2 的决定已全部确认，见 [chats-db-v2.md](chats-db-v2.md)。
 
 ## 阶段 A：可以默认开启
 
@@ -56,17 +59,18 @@
 
 | # | 内容 | 做法 |
 |---|---|---|
+| A0 | chats.db V2 | 启动期升级、MAILS 并库、归档关闭 mail、`OPENED_BY_` 等列与硬拒绝保护，见 [chats-db-v2.md](chats-db-v2.md)。必须在默认开启前完成，否则用户手里会先出现需要迁移的 mail.db |
 | A1 | 临时错误自动重试 | 按会话退避：5 秒起，翻倍，最长 5 分钟；同一会话只有一个计时器，日志按会话限频。只重试确定未成功的临时失败，`unknown` 仍然挂起 |
-| A2 | 归档时的状态转换 | 增加与删除钩子并列的归档钩子。寄往该会话的未完成信转为 `failed` 并寄失败回信；回信挂起，证据区分未消费、已消费和未知，恢复会话后可人工重投；即时消息和请示撤回。不清正文，恢复会话不自动重投 |
+| A2 | 归档时关闭 mail | 随 A0 完成：寄往该会话的未完成信转为 `failed` 并寄失败回信，未消费的回信丢弃，即时消息和请示撤回；该会话发出的已受理回信照常投递。恢复归档不恢复 mail |
 | A3 | `/api/mails` 摘要与详情 | 列表去掉 input、accessGrant 和正文全文，只保留正文前 200 字，增加 `total`；新增 `GET /api/mails/detail?mailId=`，返回全文、附件和等待项快照。WebClient 收件箱同批改为点开后再取详情 |
 | A4 | 挂起提醒（WebClient） | 收件箱从设置菜单移到侧栏一级入口，显示挂起数量角标（`status=suspended` 的 `total`，收到 `mail.updated` 时刷新）；启动后若有挂起 mail，提示一次 |
-| A5 | 切换默认值 | A1–A4 完成后，`mail.enabled` 默认改为 true，同步 `runtime.example.yml` 与文档 |
+| A5 | 切换默认值 | A0–A4 完成后，`mail.enabled` 默认改为 true，同步 `runtime.example.yml` 与文档 |
 
 ## 阶段 B：工作会话与请示处理
 
 | # | 内容 | 做法 |
 |---|---|---|
-| B1 | 工作会话列表 | 见下文"openedBy 方案"；WebClient 在主聊天导航下列出，"等待处理"的高亮。跳数达到上限、请示不再上报时，用户也能在这里发现等待处理的会话 |
+| B1 | 工作会话列表 | 依赖 A0；见下文"openedBy 方案"。WebClient 在主聊天导航下列出，"等待处理"的高亮。跳数达到上限、请示不再上报时，用户也能在这里发现等待处理的会话 |
 | B2 | 请示卡片 | 主聊天时间线中把请示显示为卡片：分身名称、问题、审批命令或表单字段，以及"去分身会话处理"。被答复、超时或撤回后按 `mail.updated` 变灰 |
 | B3 | 代答展示 | 分身会话中由上级 `chat_submit` 作答的记录显示"由 X 代答"，审批另外显示依据的档位 |
 | B4 | 主视图直接审批 | 在请示卡片内直接作答：以人的身份对分身的 `runId/awaitingId` 调用 `/api/submit`，不受代批上限约束。仍校验 Chat 归属、等待项和冻结调用，硬禁止与只读不放宽；两处同时作答时只有一次成功 |
@@ -74,7 +78,7 @@
 
 ### openedBy 方案
 
-按 [chats.db 与 mail.db](../docs/Mailbox.md#chatsdb-与-maildb) 的边界，"哪个 Agent 开出了这个 Chat"是 Chat 创建时就确定、之后不变的 Chat 属性，应存在 chats.db 中。目前它只在 mail.db 里，而且 `OPENED_CHAT_` 的含义也不一样。
+"哪个 Agent 开出了这个 Chat"是 Chat 创建时就确定、之后不变的 Chat 属性，存入 CHATS。MAILS 的 `OPENED_CHAT_` 含义不同（补建的主要对话也记为 1），而且两端关闭后 mail 行会被删除，不能作为它的来源。
 
 **接口**
 
@@ -85,21 +89,15 @@ GET /api/chats?openedBy=A&agentKey=B
 
 HTTP 与主 WS 共用同一应用服务和筛选规则；用户身份取自可信上下文，不允许通过参数指定 subject；摘要响应的形状保持不变。
 
-**存储（推荐）**
+**存储**
 
-CHATS 增加 `OPENED_BY_AGENT_KEY_`、`OPENED_BY_CHAT_ID_`，并建立 `(OPENED_BY_AGENT_KEY_, UPDATED_AT_ DESC, CHAT_ID_ DESC)` 复合索引。
+使用 chats.db V2 中 CHATS 的 `OPENED_BY_AGENT_KEY_`、`OPENED_BY_CHAT_ID_` 两列及其复合索引（见 [chats-db-v2.md](chats-db-v2.md)）。
 
-- mailbox 建 Chat 时（`EnsureMailChat` → `EnsureChatWithInitialName`），由 Runtime 写入这两个字段；mailbox 仍不直接写 chats.db。
-- 只在 `newChat` 建会话时写入，补建的主要对话不写（待拍板 3）。
+- mailbox 建 Chat 时（`EnsureMailChat` → `EnsureChatWithInitialName`），由 Runtime 写入这两个字段；mailbox 不直接写 CHATS。
+- 只在 `newChat` 建会话时写入，补建的主要对话不写（待拍板 2）。
 - 写入后不再改变：之后的寄信、引用、插话和主要对话指针切换都不改写。归档与恢复时保留，派生出的新 Chat 不继承。
 - 归属仍按 `SOURCE_` 判断，需要确认能否直接在 SQL 中按用户筛选。
 - `chat_query opened` 改走同一查询，删除 JSONL 回退和旧 `chat_start` 兼容。
-
-代价：这是 chats.db 第一次改结构。sqlitecontract 在运行期只校验、不迁移，runtime-recovery 也没有格式转换器，所以要先设计 chat-v2 的显式升级路径：不能靠扫描全部 JSONL 重建，也不能清空历史 Chat。archive.db 的 `ARCHIVED_CHATS` 是否同步加列，一并确定。
-
-**备选**
-
-MAILS 增加 `(SUBJECT_, FROM_AGENT_KEY_, OPENED_CHAT_)` 索引，先取出 chatId，再批量查询 CHATS。mail.db 尚未上线，改索引成本低。但这样一来，Chat 列表就依赖 mail.db，违反"chats.db 不依赖 mail.db"的边界：mail 关闭时功能会消失，排序和分页也要跨库处理。只适合作过渡方案。
 
 **状态**
 
@@ -118,7 +116,7 @@ MAILS 增加 `(SUBJECT_, FROM_AGENT_KEY_, OPENED_CHAT_)` 索引，先取出 chat
 
 ## 阶段 C：用户消息走 mailbox
 
-目标：用户随时都能发消息，由平台决定开 Run、插入还是排队；客户端不再区分 query 和 steer，也不再因会话忙收到 409。阶段 C 之后，用户输入依赖 mail.db，mail 不再是可选功能，因此必须先完成阶段 A。
+目标：用户随时都能发消息，由平台决定开 Run、插入还是排队；客户端不再区分 query 和 steer，也不再因会话忙收到 409。阶段 C 之后，用户输入依赖 MAILS，mail 不再是可选功能，因此必须先完成阶段 A。
 
 开始前需要定下：
 
