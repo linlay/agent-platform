@@ -835,8 +835,6 @@ type RunStartRequest struct {
 	ModelKey        string
 	ReasoningEffort string
 	Origin          RunOrigin
-	// Review is set only by the trusted chat_start handler; see RunStartReview.
-	Review *RunStartReview `json:"-"`
 	// Input is the chat_start tool arguments exactly as the calling Agent wrote them.
 	Input map[string]any `json:"-"`
 }

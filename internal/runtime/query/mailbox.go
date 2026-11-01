@@ -195,14 +195,13 @@ func (s *Service) PrepareMail(ctx context.Context, req mailbox.Request) (mailbox
 		}
 	}
 	p.Request.ChatID = p.ChatID
-	review := p.Request
+	start := p.Request
 	if p.OpenedChat {
-		review.ChatID = ""
+		start.ChatID = ""
 	}
-	p.Plan, err = s.PrepareRunStart(ctx, review)
+	p.Plan, err = s.PrepareRunStart(ctx, start)
 	if err == nil {
 		p.Plan.RequestDigest = contracts.RunStartRequestDigest(p.Request)
-		p.Plan.ApprovalDigest = contracts.RunStartApprovalDigest(p.Plan.RequestDigest, p.Plan.ParentAccessLevel, p.Plan.ParentAccessVersion, p.Plan.AccessLevel)
 	}
 	return p, err
 }
@@ -238,9 +237,8 @@ func (s *Service) mailChatOwned(summary chat.Summary, subject string, seen map[s
 	}
 	return subject == "" && !strings.HasPrefix(summary.Source, "query:")
 }
-func (s *Service) AcceptMail(ctx context.Context, req mailbox.Request, p mailbox.Prepared, persist func(mailbox.Grant) error) error {
+func (s *Service) AcceptMail(ctx context.Context, _ mailbox.Request, p mailbox.Prepared, persist func(mailbox.Grant) error) error {
 	r := p.Request
-	r.Review = req.Start.Review
 	acceptor, ok := s.deps.Runs.(runAccessLevelAcceptor)
 	if !ok {
 		return runToolError("run_start_authorization_unavailable", "atomic mail authorization unavailable")
@@ -255,9 +253,6 @@ func (s *Service) AcceptMail(ctx context.Context, req mailbox.Request, p mailbox
 		}
 		if err := contracts.ValidateExplicitRunAccess(r.AccessLevel, parent); err != nil {
 			return err
-		}
-		if r.Review != nil {
-			return runToolError("run_start_review_stale", "permission escalation reviews are no longer accepted")
 		}
 		def, ok := s.deps.Registry.AgentDefinition(r.AgentKey)
 		if !ok {
@@ -281,8 +276,7 @@ func (s *Service) AcceptMail(ctx context.Context, req mailbox.Request, p mailbox
 
 type mailMutationHeld struct{}
 
-// Only missing-primary reservations need the shared mutation lock. Reviews are
-// prepared before this boundary; no lock is held while waiting for a person.
+// Only missing-primary reservations need the shared mutation lock.
 func (s *Service) BeginMailAcceptance(ctx context.Context, p mailbox.Prepared) (context.Context, mailbox.Prepared, func(), error) {
 	release := func() {}
 	if !p.Primary {
@@ -314,7 +308,6 @@ func (s *Service) BeginMailAcceptance(ctx context.Context, p mailbox.Prepared) (
 		p.OpenedChat = false
 		p.Request.ChatID = current
 		p.Plan.RequestDigest = contracts.RunStartRequestDigest(p.Request)
-		p.Plan.ApprovalDigest = contracts.RunStartApprovalDigest(p.Plan.RequestDigest, p.Plan.ParentAccessLevel, p.Plan.ParentAccessVersion, p.Plan.AccessLevel)
 	}
 	return context.WithValue(ctx, mailMutationHeld{}, true), p, release, nil
 }

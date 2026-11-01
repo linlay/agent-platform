@@ -8,8 +8,6 @@ description: "Start an independent Agent run. Only message is required. Prefer c
 clientVisible: true
 explicitOnly: true
 readOnly: false
-confirmationRules:
-  - view: {key: chat_start_review}
 inputSchema:
   type: object
   properties:

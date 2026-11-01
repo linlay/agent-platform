@@ -8,8 +8,6 @@ description: "Send a durable letter to an Agent Chat and receive the final resul
 clientVisible: true
 explicitOnly: true
 readOnly: false
-confirmationRules:
-  - view: {key: chat_start_review}
 inputSchema:
   type: object
   properties:

@@ -85,8 +85,7 @@ func (s *Service) PrepareRunStart(ctx context.Context, request contracts.RunStar
 	if !ok {
 		return fail("agent_not_found", "agent not found")
 	}
-	plan.TargetName = strings.TrimSpace(def.Name)
-	// Reject invalid overrides before requesting a human permission review.
+	// Reject invalid overrides before admission.
 	// Query admission validates again against the definition used to start.
 	if request.ModelKey != "" || request.ReasoningEffort != "" {
 		if err := s.deps.Proxy.Configure(&def); err != nil {
@@ -105,9 +104,6 @@ func (s *Service) PrepareRunStart(ctx context.Context, request contracts.RunStar
 		if summary != nil && !runOwnerMatchesChat(summary, agentKey) {
 			return fail("target_owner_mismatch", "target identity does not match chat owner")
 		}
-		if summary != nil {
-			plan.ChatName = strings.TrimSpace(summary.ChatName)
-		}
 	}
 	parentRunID := strings.TrimSpace(request.Origin.RunID)
 	if parentRunID == "" {
@@ -120,14 +116,12 @@ func (s *Service) PrepareRunStart(ctx context.Context, request contracts.RunStar
 		return fail("run_parent_not_active", "the calling Run is no longer active")
 	}
 	plan.ParentAccessLevel = sessionbuild.NormalizedAccessLevel(parent.AccessLevel)
-	plan.ParentAccessVersion = parent.AccessLevelVersion
 	if err := contracts.ValidateExplicitRunAccess(request.AccessLevel, plan.ParentAccessLevel); err != nil {
 		return contracts.RunStartPlan{}, runNotStarted(err)
 	}
 	plan.AccessLevel, plan.AccessSource, _ = contracts.ResolveInitialAccessLevel(request.AccessLevel, def.AccessConfig)
 	plan.TargetRevision = def.RuntimeRevision
 	plan.RequestDigest = contracts.RunStartRequestDigest(request)
-	plan.ApprovalDigest = contracts.RunStartApprovalDigest(plan.RequestDigest, plan.ParentAccessLevel, plan.ParentAccessVersion, plan.AccessLevel)
 	return plan, nil
 }
 
@@ -143,10 +137,6 @@ func (s *Service) acceptRunStart(ctx context.Context, request contracts.RunStart
 		parentLevel = sessionbuild.NormalizedAccessLevel(parentLevel)
 		if err := contracts.ValidateExplicitRunAccess(request.AccessLevel, parentLevel); err != nil {
 			return err
-		}
-		// Old escalation reviews cannot override the explicit ceiling.
-		if request.Review != nil {
-			return runToolError("run_start_review_stale", "permission escalation reviews are no longer accepted")
 		}
 		accepted.parentAccessLevel, accepted.parentAccessVersion = parentLevel, version
 		accepted.accessLevel = plan.AccessLevel

@@ -36,6 +36,7 @@ func BuildSubtreePlan(cfg config.AccessPolicyConfig, session QuerySession, mode 
 			roots = append(roots, resolveAgainstCwd(root, SessionWorkspaceRoot(session)))
 		}
 		roots = append(roots, session.SharedConnectorsRoot)
+		roots = append(roots, session.ControlReadonlyRoots...)
 	}
 	if chats := SessionChatsRoot(session); chats != "" {
 		roots = append(roots, chats)

@@ -75,10 +75,6 @@ func TestChatSteerChangesStartedRunAndPersistsCallerSource(t *testing.T) {
 		}
 		exec.CurrentToolID = goal
 		args := map[string]any{"runId": runID, "message": goal}
-		approval, err := handler.PrepareToolApproval(context.Background(), runops.SteerToolName, args, exec)
-		if err != nil || approval != nil {
-			t.Fatalf("steer unexpectedly needs approval: %#v %v", approval, err)
-		}
 		result, err := handler.Invoke(context.Background(), runops.SteerToolName, args, exec)
 		if err != nil || result.Error != "" || result.Structured["accepted"] != true {
 			t.Fatalf("steer: %#v %v", result, err)

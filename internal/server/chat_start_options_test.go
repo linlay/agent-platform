@@ -110,9 +110,9 @@ func requireNoChatStarted(t *testing.T, fixture testFixture, err error, code str
 	return typed
 }
 
-// Runtime itself refuses every start above the parent level that carries no
-// consumable approval, whoever the caller is.
-func TestChatStartPermissionMatrixWithoutApproval(t *testing.T) {
+// Runtime itself refuses every explicit start above the parent level, whoever
+// the caller is.
+func TestChatStartExplicitPermissionMatrix(t *testing.T) {
 	levels := []string{"ask_for_approval", "auto_approve", "full_access"}
 	for pi, parentLevel := range levels {
 		for ri, requested := range levels {
@@ -126,7 +126,7 @@ func TestChatStartPermissionMatrixWithoutApproval(t *testing.T) {
 					requireNoChatStarted(t, fixture, err, "run_start_access_level_exceeded")
 					return
 				}
-				if err != nil || plan.RequiresApproval || plan.AccessLevel != requested {
+				if err != nil || plan.AccessLevel != requested {
 					t.Fatalf("plan=%+v err=%v", plan, err)
 				}
 				started, err := fixture.server.StartRun(context.Background(), req)
@@ -142,23 +142,7 @@ func TestChatStartPermissionMatrixWithoutApproval(t *testing.T) {
 	}
 }
 
-func TestChatStartLegacyApprovalCannotOverrideCeiling(t *testing.T) {
-	for _, parentLevel := range []string{"ask_for_approval", "auto_approve", "full_access"} {
-		t.Run(parentLevel, func(t *testing.T) {
-			fixture, _ := chatStartFixture(t, parentLevel)
-			consumed := false
-			req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", AccessLevel: "full_access", Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "legacy"}, Review: &contracts.RunStartReview{Consume: func(string) bool { consumed = true; return true }}}
-			_, err := fixture.server.StartRun(context.Background(), req)
-			code := "run_start_access_level_exceeded"
-			if parentLevel == "full_access" {
-				code = "run_start_review_stale"
-			}
-			requireNoChatStarted(t, fixture, err, code)
-			if consumed {
-				t.Fatal("consumed legacy permission escalation receipt")
-			}
-		})
-	}
+func TestChatStartRejectsCancelledOrEndedCaller(t *testing.T) {
 	fixture, _ := chatStartFixture(t, "full_access")
 	req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent"}}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -268,16 +252,15 @@ func TestChatStartDefaultDoesNotInheritLiveParentAccessLevel(t *testing.T) {
 	}
 }
 
-// The real handler and the real Runtime together: a review that was shown is
-// the only way an escalating call can start, and it is bound to its baseline.
+// The real handler and the real Runtime together: an explicit level above the
+// caller is refused until the user raises the caller Run itself.
 func TestChatStartEscalationThroughHandler(t *testing.T) {
 	fixture, parent := chatStartFixture(t, "auto_approve")
 	handler := runopspkg.NewToolHandler(fixture.server.deps.Runtime.(runopspkg.Runtime), fixture.runs)
 	e := &contracts.ExecutionContext{Session: contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent")}, RunControl: parent, CurrentToolID: "escalate", CurrentToolName: runopspkg.StartToolName}
 	args := map[string]any{"agentKey": "mock-agent", "message": "task", "accessLevel": "full_access"}
-	approval, err := handler.PrepareToolApproval(context.Background(), runopspkg.StartToolName, args, e)
-	if err != nil || approval != nil {
-		t.Fatalf("explicit escalation must not offer review: %+v %v", approval, err)
+	if _, ok := any(handler).(contracts.ToolApprovalPlanner); ok {
+		t.Fatal("explicit escalation must not offer review")
 	}
 	e.ToolApprovals = map[string]bool{"forged": true}
 	result, err := handler.Invoke(context.Background(), runopspkg.StartToolName, args, e)

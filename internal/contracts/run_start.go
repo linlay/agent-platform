@@ -8,17 +8,6 @@ import (
 	"strings"
 )
 
-// RunStartReview is a legacy internal escalation proof, never model input.
-// Current Runtime rejects it: explicit starts cannot exceed the caller level.
-type RunStartReview struct {
-	ParentAccessLevel   string
-	ParentAccessVersion int64
-	ApprovalDigest      string
-	// Consume synchronously spends the approval bound to the digest Runtime
-	// computed itself. It must come from the trusted execution context.
-	Consume func(approvalDigest string) bool
-}
-
 // RunStartPlan is the read-only outcome of PrepareRunStart. Preparing a plan
 // creates no Chat, registers no Run and holds no lease.
 type RunStartPlan struct {
@@ -26,17 +15,12 @@ type RunStartPlan struct {
 	AccessSource         string
 	RequestedAccessLevel string // empty when the caller omitted accessLevel
 	ParentAccessLevel    string
-	ParentAccessVersion  int64
 	AccessLevel          string // level the new Run would start with
-	RequiresApproval     bool
 	RequestDigest        string
-	ApprovalDigest       string
-	TargetName           string
-	ChatName             string // existing Chat name when continuing
 }
 
 // NormalizeRunStartRequest resolves an omitted target from the trusted caller
-// before idempotency, permission review or admission. It never selects a global
+// before idempotency or admission. It never selects a global
 // default Agent or infers a target from the requested Chat.
 func NormalizeRunStartRequest(request RunStartRequest) (RunStartRequest, error) {
 	request.Message = strings.TrimSpace(request.Message)
@@ -65,17 +49,6 @@ func AccessLevelRank(level string) int {
 	}
 }
 
-// ResolveRunStartAccessLevel handles explicit starts without a target default.
-// Deprecated: use ResolveInitialAccessLevel plus ValidateExplicitRunAccess.
-func ResolveRunStartAccessLevel(requested string, parent string) (string, bool) {
-	parent, _ = NormalizeAccessLevel(parent)
-	if IsDefaultAccessLevelRequest(requested) {
-		return AccessLevelAskForApproval, false
-	}
-	level, _ := NormalizeAccessLevel(requested)
-	return level, AccessLevelRank(level) > AccessLevelRank(parent)
-}
-
 // RunStartRequestDigest identifies the start parameters of one invocation.
 // It excludes parent permission state so a legitimate retry stays idempotent,
 // and keeps omitted accessLevel distinct from an explicit default.
@@ -86,13 +59,6 @@ func RunStartRequestDigest(request RunStartRequest) string {
 		strings.TrimSpace(request.AgentKey), strings.TrimSpace(request.ChatID),
 		strings.TrimSpace(request.Message), strings.TrimSpace(request.AccessLevel), strings.TrimSpace(request.ChatName),
 		string(encoded), strings.TrimSpace(request.ModelKey), strings.TrimSpace(request.ReasoningEffort))
-}
-
-// RunStartApprovalDigest identifies exactly what a reviewer approved: the
-// request plus the parent permission baseline it was reviewed against.
-func RunStartApprovalDigest(requestDigest string, parentAccessLevel string, parentAccessVersion int64, accessLevel string) string {
-	version, _ := json.Marshal(parentAccessVersion)
-	return digestStrings("run-start-approval", requestDigest, parentAccessLevel, string(version), accessLevel)
 }
 
 func digestStrings(parts ...string) string {

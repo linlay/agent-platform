@@ -150,8 +150,9 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 			if err != nil {
 				return PathPlan{}, err
 			}
-			// Ancestor replacement/deletion can mutate an entire protected tree.
-			if pathutil.WithinRoot(realCandidate, root) || pathutil.WithinRoot(root, realCandidate) {
+			// Ancestor moves, deletions and recursive changes are checked by
+			// BuildSubtreePlan; a plain write into an ancestor stays ordinary.
+			if pathutil.WithinRoot(realCandidate, root) {
 				return buildPathPlan(mode, rawPath, realCandidate, root, accessLevel, DecisionBlock, "platform control source requires a dedicated management operation"), nil
 			}
 		}

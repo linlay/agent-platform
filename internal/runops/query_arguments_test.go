@@ -84,10 +84,6 @@ func _(t *testing.T) {
 		service := newFakeRunToolService()
 		handler := NewToolHandler(service, nil)
 		exec := runToolExecContext("alice", "tool")
-		approval, err := handler.PrepareToolApproval(context.Background(), StartToolName, args, exec)
-		if err != nil || approval != nil {
-			t.Fatalf("removed argument requested approval: %#v %v", approval, err)
-		}
 		result, err := handler.Invoke(context.Background(), StartToolName, args, exec)
 		if err != nil || result.Error != "unknown_argument" || service.starts != 0 {
 			t.Fatalf("args=%#v result=%#v err=%v starts=%d", args, result, err, service.starts)
@@ -95,21 +91,14 @@ func _(t *testing.T) {
 	}
 }
 
-func TestChatStartModelOptionsReviewAndIdempotency(t *testing.T) {
+func TestChatStartModelOptionsIdempotency(t *testing.T) {
 	for _, field := range []string{"modelKey", "reasoningEffort"} {
 		t.Run(field, func(t *testing.T) {
 			service := newFakeRunToolService()
-			service.parentLevel = "default"
 			handler := NewToolHandler(service, nil)
-			args := map[string]any{"agentKey": "worker", "message": "task", "modelKey": "fast", "reasoningEffort": "HIGH", "accessLevel": "full_access"}
-			exec := runToolExecContext("alice", "review")
-			approval, err := handler.PrepareToolApproval(context.Background(), StartToolName, args, exec)
-			if err != nil || approval == nil || approval.Form["modelKey"] != "fast" || approval.Form["reasoningEffort"] != "HIGH" {
-				t.Fatalf("approval=%#v err=%v", approval, err)
-			}
-			// A separate invocation with no elevation can be replayed only with the same model choices.
-			delete(args, "accessLevel")
-			exec = runToolExecContext("alice", "start")
+			args := map[string]any{"agentKey": "worker", "message": "task", "modelKey": "fast", "reasoningEffort": "HIGH"}
+			// An invocation can be replayed only with the same model choices.
+			exec := runToolExecContext("alice", "start")
 			result, err := handler.Invoke(context.Background(), StartToolName, args, exec)
 			if err != nil || result.Error != "" {
 				t.Fatalf("%#v %v", result, err)
@@ -127,30 +116,18 @@ func TestChatStartModelOptionsReviewAndIdempotency(t *testing.T) {
 	}
 }
 
-func TestChatStartDefaultsTargetBeforeReviewAndIdempotency(t *testing.T) {
+func TestChatStartDefaultsTargetBeforeIdempotency(t *testing.T) {
 	service := newFakeRunToolService()
 	handler := NewToolHandler(service, nil)
 	exec := runToolExecContext("alice", "default-agent")
 	args := map[string]any{"chatName": "冒烟-A1-创建编程智能体", "message": "创建编程智能体", "accessLevel": "full_access"}
-	approval, err := handler.PrepareToolApproval(context.Background(), StartToolName, args, exec)
-	if err != nil || approval == nil {
-		t.Fatalf("approval=%#v err=%v", approval, err)
-	}
-	target := approval.Form["target"].(map[string]any)
-	if target["key"] != "zenmi" || target["type"] != "agent" || service.starts != 0 {
-		t.Fatalf("wrong review target or premature start: %#v starts=%d", target, service.starts)
-	}
-	exec.ToolApprovals = map[string]bool{approval.Fingerprint: true}
 	result, err := handler.Invoke(context.Background(), StartToolName, args, exec)
 	if err != nil || result.Error != "" || service.starts != 1 {
 		t.Fatalf("result=%#v err=%v starts=%d", result, err, service.starts)
 	}
 	req := service.requests[0]
-	if req.AgentKey != "zenmi" || req.ChatID != "" || req.ChatName != args["chatName"] || req.Review == nil {
+	if req.AgentKey != "zenmi" || req.ChatID != "" || req.ChatName != args["chatName"] || req.AccessLevel != "full_access" {
 		t.Fatalf("wrong effective request: %#v", req)
-	}
-	if !req.Review.Consume(req.Review.ApprovalDigest) || req.Review.Consume(req.Review.ApprovalDigest) {
-		t.Fatal("default target approval must be consumable exactly once")
 	}
 	args["agentKey"] = "zenmi"
 	result, err = handler.Invoke(context.Background(), StartToolName, args, exec)
@@ -164,7 +141,7 @@ func TestChatStartDefaultsTargetBeforeReviewAndIdempotency(t *testing.T) {
 	}
 }
 
-func TestChatStartInheritsCurrentRunModelBeforeReviewAndStart(t *testing.T) {
+func TestChatStartInheritsCurrentRunModelBeforeStart(t *testing.T) {
 	for _, tc := range []struct {
 		name                 string
 		args                 map[string]any
@@ -211,19 +188,14 @@ func TestChatStartInheritsCurrentRunModelBeforeReviewAndStart(t *testing.T) {
 	}
 	service := newFakeRunToolService()
 	handler := NewToolHandler(service, nil)
-	exec := runToolExecContext("alice", "inherit-review")
+	exec := runToolExecContext("alice", "inherit-explicit")
 	exec.CurrentModel = &queryinput.QueryModelOptions{Key: "run-model", ReasoningEffort: "NONE"}
 	args := map[string]any{"message": "task", "accessLevel": "full_access"}
-	approval, err := handler.PrepareToolApproval(context.Background(), StartToolName, args, exec)
-	if err != nil || approval == nil || approval.Form["modelKey"] != "run-model" || approval.Form["reasoningEffort"] != "NONE" {
-		t.Fatalf("approval=%#v err=%v", approval, err)
-	}
-	exec.ToolApprovals = map[string]bool{approval.Fingerprint: true}
 	result, err := handler.Invoke(context.Background(), StartToolName, args, exec)
 	if err != nil || result.Error != "" || service.starts != 1 {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
-	if req := service.requests[0]; req.ModelKey != "run-model" || req.ReasoningEffort != "NONE" || req.Review == nil {
-		t.Fatalf("reviewed request=%#v", req)
+	if req := service.requests[0]; req.ModelKey != "run-model" || req.ReasoningEffort != "NONE" || req.AccessLevel != "full_access" {
+		t.Fatalf("explicit request=%#v", req)
 	}
 }

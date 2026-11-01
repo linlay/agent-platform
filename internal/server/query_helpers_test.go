@@ -11,7 +11,7 @@ var buildBTWUserMessage = query.BuildBTWUserMessage
 var applyQueryModelOptionsToSession = query.ApplyQueryModelOptionsToSession
 
 func validateInteractionInput(config interaction.Config, req api.QueryRequest) error {
-	return query.ValidateInteractionInput(config, queryCommandFromAPI(req))
+	return query.ValidateInteractionInput(config, queryCommandFromAPI(req), contracts.AccessLevelAskForApproval)
 }
 
 func validateSubmitParams(ctx contracts.AwaitingSubmitContext, params api.SubmitParams) error {
