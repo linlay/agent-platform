@@ -120,3 +120,14 @@ func TestReviewBashSecurityRuntimeWrappers(t *testing.T) {
 		t.Fatal("nested block should name the builtin")
 	}
 }
+
+func TestSharedWrapperInspectionRetainsHardBlocks(t *testing.T) {
+	for _, command := range []string{
+		"command -p eval x", "command --unknown eval x", "command -- -v eval", "nice -n1 eval x", "nice --adjustment=1 eval x",
+		"timeout --signal=TERM 1 eval x", "timeout --unknown 1 eval x", "timeout -- 1 eval x", "nohup -- eval x", "env nice -n1 eval x",
+	} {
+		if got := ReviewBashSecurity(command); got.Decision != ReviewBlock {
+			t.Fatalf("hard block weakened: %s: %+v", command, got)
+		}
+	}
+}

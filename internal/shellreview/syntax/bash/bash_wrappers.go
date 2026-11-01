@@ -16,148 +16,25 @@ func normalizedCommandBase(command string) string {
 
 func deterministicCommandChain(argv []string) [][]string {
 	var chain [][]string
-	current := append([]string(nil), argv...)
-	for depth := 0; depth < 8 && len(current) > 0; depth++ {
-		chain = append(chain, current)
-		next, ok := unwrapDeterministicWrapperArgv(current)
-		if !ok || len(next) == 0 {
-			break
+	type candidate struct {
+		argv  []string
+		depth int
+	}
+	queue := []candidate{{argv: append([]string(nil), argv...)}}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if current.depth >= 8 || len(current.argv) == 0 {
+			continue
 		}
-		current = next
+		chain = append(chain, current.argv)
+		for _, next := range unwrap.InspectionWrappers(current.argv) {
+			if len(next) > 0 {
+				queue = append(queue, candidate{argv: next, depth: current.depth + 1})
+			}
+		}
 	}
 	return chain
-}
-
-func unwrapDeterministicWrapperArgv(argv []string) ([]string, bool) {
-	if len(argv) == 0 {
-		return nil, false
-	}
-	entry, _ := registry.Lookup(normalizedCommandBase(argv[0]))
-	switch entry.ID {
-	case registry.CmdCommand, registry.CmdBuiltin:
-		return unwrapCommandBuiltin(argv[1:])
-	case registry.CmdEnv:
-		return unwrapEnv(argv[1:])
-	case registry.CmdNohup:
-		return argv[1:], len(argv) > 1
-	case registry.CmdNice:
-		return unwrapNice(argv[1:])
-	case registry.CmdTimeout:
-		return unwrapTimeout(argv[1:])
-	case registry.CmdStdbuf:
-		return unwrapStdbuf(argv[1:])
-	default:
-		return nil, false
-	}
-}
-
-func unwrapCommandBuiltin(args []string) ([]string, bool) {
-	idx := 0
-	for idx < len(args) && strings.HasPrefix(args[idx], "-") {
-		idx++
-	}
-	if idx >= len(args) {
-		return nil, false
-	}
-	return args[idx:], true
-}
-
-func unwrapEnv(args []string) ([]string, bool) {
-	expanded, ok := unwrap.Env(args)
-	if !ok || len(expanded.Command) == 0 {
-		return nil, false
-	}
-	return expanded.Command, true
-}
-
-func unwrapNice(args []string) ([]string, bool) {
-	idx := 0
-	for idx < len(args) {
-		arg := args[idx]
-		if arg == "-n" || arg == "--adjustment" {
-			idx += 2
-			continue
-		}
-		if strings.HasPrefix(arg, "-n") || strings.HasPrefix(arg, "--adjustment=") {
-			idx++
-			continue
-		}
-		if strings.HasPrefix(arg, "-") && len(arg) > 1 && isNumericNiceAdjustment(arg) {
-			idx++
-			continue
-		}
-		break
-	}
-	if idx >= len(args) {
-		return nil, false
-	}
-	return args[idx:], true
-}
-
-func isNumericNiceAdjustment(arg string) bool {
-	trimmed := strings.TrimLeft(arg, "-+")
-	if trimmed == "" {
-		return false
-	}
-	for _, r := range trimmed {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
-}
-
-func unwrapTimeout(args []string) ([]string, bool) {
-	idx := 0
-	for idx < len(args) {
-		arg := args[idx]
-		if arg == "--" {
-			idx++
-			break
-		}
-		if arg == "-s" || arg == "--signal" || arg == "-k" || arg == "--kill-after" {
-			idx += 2
-			continue
-		}
-		if strings.HasPrefix(arg, "--signal=") || strings.HasPrefix(arg, "--kill-after=") {
-			idx++
-			continue
-		}
-		if strings.HasPrefix(arg, "-") {
-			idx++
-			continue
-		}
-		idx++
-		break
-	}
-	if idx >= len(args) {
-		return nil, false
-	}
-	return args[idx:], true
-}
-
-func unwrapStdbuf(args []string) ([]string, bool) {
-	idx := 0
-	for idx < len(args) {
-		arg := args[idx]
-		if arg == "--" {
-			idx++
-			break
-		}
-		if arg == "-i" || arg == "-o" || arg == "-e" {
-			idx += 2
-			continue
-		}
-		if strings.HasPrefix(arg, "-i") || strings.HasPrefix(arg, "-o") || strings.HasPrefix(arg, "-e") {
-			idx++
-			continue
-		}
-		break
-	}
-	if idx >= len(args) {
-		return nil, false
-	}
-	return args[idx:], true
 }
 
 func reviewRuntimeWrapperCommand(command string, argv []string) ReviewResult {
