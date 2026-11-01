@@ -6,16 +6,18 @@ import (
 	"agent-platform/internal/shellreview/types"
 )
 
-func awkOperands(args []string) types.Effects {
-	var e types.Effects
+func awkOperands(args []string) effectDraft {
+	var e effectDraft
 	var positional []string
 	program := ""
 	hasProgram := false
+	var refs []types.ValueRef
 	end := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if end || a == "-" || !strings.HasPrefix(a, "-") {
 			positional = append(positional, a)
+			refs = append(refs, types.ArgumentRef(i, a))
 			continue
 		}
 		switch {
@@ -33,7 +35,8 @@ func awkOperands(args []string) types.Effects {
 			if i+1 < len(args) {
 				i++
 				if a == "-f" || a == "--file" || a == "-i" || a == "--include" {
-					e.Files = append(e.Files, types.FileAccess{Path: args[i]})
+					e.Files = append(e.Files, types.FileAccess{Path: args[i], Ref: types.ArgumentRef(i, args[i])})
+					e.Deps = append(e.Deps, types.Dep{Kind: types.Script, Path: args[i], Check: "unfrozen-program"})
 				}
 				hasProgram = hasProgram || a == "-f" || a == "--file" || a == "-e" || a == "--source"
 			}
@@ -43,16 +46,17 @@ func awkOperands(args []string) types.Effects {
 	}
 	if !hasProgram && len(positional) > 0 {
 		program, positional, hasProgram = positional[0], positional[1:], true
+		refs = refs[1:]
 		if !awkProgramSafe(program) {
 			e.ExecutesCode = true
 		}
 	}
-	for _, p := range positional {
+	for j, p := range positional {
 		if name, _, ok := strings.Cut(p, "="); ok && isIdentifier(name) {
 			continue // command-line variable assignment
 		}
 		if p != "-" {
-			e.Files = append(e.Files, types.FileAccess{Path: p})
+			e.Files = append(e.Files, types.FileAccess{Path: p, Ref: refs[j]})
 		}
 	}
 	if e.Incomplete {

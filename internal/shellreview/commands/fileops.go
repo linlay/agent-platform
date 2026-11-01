@@ -28,28 +28,40 @@ var teeSpec = types.OptionSpec{ShortFlags: "aip", Long: options.Merge(options.Lo
 var touchSpec = types.OptionSpec{ShortFlags: "acmfh", ShortArgs: map[byte]types.OptionRole{'r': types.OptionRead, 'd': types.OptionValue, 't': types.OptionValue},
 	Long: options.Merge(options.Longs(types.OptionNone, "no-create", "no-dereference"), options.Longs(types.OptionValue, "date", "time"), options.Longs(types.OptionRead, "reference"))}
 
-func fileOperationOperands(id registry.ID, spec types.OptionSpec, args []string) types.Effects {
+func fileOperationOperands(id registry.ID, spec types.OptionSpec, args []string) effectDraft {
 	p := options.Parse(spec, args)
-	e := types.Effects{Incomplete: p.Incomplete, ExecutesCode: p.Exec}
+	e := effectDraft{Incomplete: p.Incomplete, ExecutesCode: p.Exec}
 	e.Files = append(e.Files, p.Files...)
-	add := func(path string, write, recursive bool) {
+	add := func(path string, write, recursive bool, ref types.ValueRef, kind types.OpKind) {
 		if path != "" && path != "-" {
-			e.Files = append(e.Files, types.FileAccess{Path: path, Write: write, Recursive: recursive})
+			e.Files = append(e.Files, types.FileAccess{Path: path, Write: write, Recursive: recursive, Ref: ref, Kind: kind})
 		}
 	}
 	recursive := p.Recursive || p.Has("r") || p.Has("R")
 	switch id {
 	case registry.CmdMkdir, registry.CmdTouch, registry.CmdTee, registry.CmdChmod, registry.CmdRmdir:
 		positional := p.Positional
+		refs := p.PositionalRefs
 		if id == registry.CmdChmod && !p.Has("reference") && len(positional) > 0 {
 			positional = positional[1:]
+			refs = refs[1:]
 		}
-		for _, path := range positional {
-			add(path, true, recursive && id == registry.CmdChmod)
+		for i, path := range positional {
+			kind := types.Create
+			if id == registry.CmdChmod {
+				kind = types.Chmod
+			}
+			if id == registry.CmdRmdir {
+				kind = types.Delete
+			}
+			if id == registry.CmdTee {
+				kind = types.Output
+			}
+			add(path, true, recursive && id == registry.CmdChmod, refs[i], kind)
 		}
 	case registry.CmdRm:
-		for _, path := range p.Positional {
-			add(path, true, recursive)
+		for i, path := range p.Positional {
+			add(path, true, recursive, p.PositionalRefs[i], types.Delete)
 		}
 		e.Destructive = recursive
 	case registry.CmdCp, registry.CmdMv, registry.CmdLn:
@@ -58,13 +70,17 @@ func fileOperationOperands(id registry.ID, spec types.OptionSpec, args []string)
 			isTarget := !targetGiven && i == len(p.Positional)-1 && len(p.Positional) > 1
 			switch id {
 			case registry.CmdMv:
-				add(path, true, true)
+				add(path, true, true, p.PositionalRefs[i], types.Rename)
 			case registry.CmdCp:
-				add(path, isTarget, recursive || p.Has("a") || p.Has("archive"))
+				kind := types.Read
+				if isTarget {
+					kind = types.Create
+				}
+				add(path, isTarget, recursive || p.Has("a") || p.Has("archive"), p.PositionalRefs[i], kind)
 			case registry.CmdLn:
 				// ln TARGET LINK: the link location is written; the target is only named.
 				if isTarget || len(p.Positional) == 1 {
-					add(path, true, false)
+					add(path, true, false, p.PositionalRefs[i], types.Link)
 				}
 			}
 		}

@@ -38,7 +38,9 @@ func analyzeBashExecution(session QuerySession, cmd types.Invocation, cwd string
 			x.Uncertain = true
 			break
 		}
-		known := identity.RecognizedProgram(session, name, x.Cwd, vars, env, allowBuiltins)
+		proof := identity.ResolveIdentity(session, name, x.Cwd, vars, env, allowBuiltins)
+		known := proof.Known()
+		x.CommandIdentity = proof
 		if identity.IsWrapper(base) && known {
 			x.Wrapped = true
 			if !registry.Is(base, registry.ShellWrapper) {

@@ -2,8 +2,6 @@ package commands
 
 import (
 	"testing"
-
-	"agent-platform/internal/shellreview/types"
 )
 
 func TestLsofQuerySelectorsAndUnknownOperations(t *testing.T) {
@@ -14,7 +12,7 @@ func TestLsofQuerySelectorsAndUnknownOperations(t *testing.T) {
 		{"-i"},
 		{"-p123", "-uowner", "-cserver", "-Fpcn"},
 	} {
-		if e := Operands("lsof", args); e.Incomplete || e.ExecutesCode || len(e.Files) != 0 || e.RemoteMutation {
+		if e := operands("lsof", args); e.Incomplete || e.ExecutesCode || len(e.Files) != 0 || e.RemoteMutation {
 			t.Fatalf("query %q: %+v", args, e)
 		}
 	}
@@ -22,12 +20,12 @@ func TestLsofQuerySelectorsAndUnknownOperations(t *testing.T) {
 		{"-D"}, {"-Db/tmp/cache"}, {"-Du", "/tmp/cache"},
 		{"+D", "/outside"}, {"--unknown"}, {"-nPDu/tmp/cache"}, {"-p"},
 	} {
-		if e := Operands("lsof", args); !e.Incomplete || !e.ExecutesCode {
+		if e := operands("lsof", args); !e.Incomplete || !e.ExecutesCode {
 			t.Fatalf("unmodeled operation %q must retain opaque review: %+v", args, e)
 		}
 	}
-	e := Operands("lsof", []string{"-nP", "--", "plain.txt", "/outside/file"})
-	if e.ExecutesCode || len(e.Files) != 2 || e.Files[0] != (types.FileAccess{Path: "plain.txt"}) || e.Files[1] != (types.FileAccess{Path: "/outside/file"}) {
+	e := operands("lsof", []string{"-nP", "--", "plain.txt", "/outside/file"})
+	if e.ExecutesCode || len(e.Files) != 2 || e.Files[0].Path != "plain.txt" || e.Files[0].Write || e.Files[1].Path != "/outside/file" || e.Files[1].Write {
 		t.Fatalf("file operands must retain read checks: %+v", e)
 	}
 }

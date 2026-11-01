@@ -9,11 +9,13 @@ import (
 // tarOperands models archive creation and extraction. Members named on the
 // command line during extraction are archive entries, not local paths; the
 // extraction target is -C or the working directory.
-func tarOperands(args []string) types.Effects {
-	var e types.Effects
+func tarOperands(args []string) effectDraft {
+	var e effectDraft
 	mode := byte(0)
 	archive, chdir := "", ""
 	var positional []string
+	var positionalRefs []types.ValueRef
+	var archiveRef, chdirRef, currentRef types.ValueRef
 	setMode := func(m byte) {
 		if mode != 0 && mode != m {
 			e.Incomplete = true
@@ -34,12 +36,14 @@ func tarOperands(args []string) types.Effects {
 				switch c {
 				case 'f':
 					archive = value
+					archiveRef = currentRef
 				case 'C':
 					chdir = value
+					chdirRef = currentRef
 				case 'T', 'X':
-					e.Files = append(e.Files, types.FileAccess{Path: value})
+					e.Files = append(e.Files, types.FileAccess{Path: value, Ref: currentRef})
 				case 'g':
-					e.Files = append(e.Files, types.FileAccess{Path: value, Write: true})
+					e.Files = append(e.Files, types.FileAccess{Path: value, Write: true, Ref: currentRef, Kind: types.Output})
 				}
 			case 'I':
 				e.ExecutesCode = true
@@ -58,6 +62,7 @@ func tarOperands(args []string) types.Effects {
 		next := func() (string, bool) {
 			if i+1 < len(args) {
 				i++
+				currentRef = types.ArgumentRef(i, args[i])
 				return args[i], true
 			}
 			return "", false
@@ -68,11 +73,15 @@ func tarOperands(args []string) types.Effects {
 			flagLetters(a, next)
 		case a == "--":
 			positional = append(positional, args[i+1:]...)
+			for j := i + 1; j < len(args); j++ {
+				positionalRefs = append(positionalRefs, types.ArgumentRef(j, args[j]))
+			}
 			i = len(args)
 		case strings.HasPrefix(a, "--"):
 			name, value, hasValue := strings.Cut(a[2:], "=")
 			take := func() string {
 				if hasValue {
+					currentRef = types.ValueRef{Index: i, Start: len(name) + 3, End: len(a), Known: true}
 					return value
 				}
 				v, ok := next()
@@ -98,10 +107,13 @@ func tarOperands(args []string) types.Effects {
 				setMode('D')
 			case "file":
 				archive = take()
+				archiveRef = currentRef
 			case "directory":
 				chdir = take()
+				chdirRef = currentRef
 			case "files-from", "exclude-from":
-				e.Files = append(e.Files, types.FileAccess{Path: take()})
+				value := take()
+				e.Files = append(e.Files, types.FileAccess{Path: value, Ref: currentRef})
 			case "to-command", "use-compress-program", "rsh-command", "info-script", "new-volume-script", "checkpoint-action":
 				take()
 				e.ExecutesCode = true
@@ -123,6 +135,7 @@ func tarOperands(args []string) types.Effects {
 			flagLetters(a[1:], next)
 		default:
 			positional = append(positional, a)
+			positionalRefs = append(positionalRefs, types.ArgumentRef(i, a))
 		}
 	}
 	base := chdir
@@ -138,10 +151,10 @@ func tarOperands(args []string) types.Effects {
 	switch mode {
 	case 'c', 'r', 'u', 'A':
 		if archive != "" && archive != "-" {
-			e.Files = append(e.Files, types.FileAccess{Path: archive, Write: true})
+			e.Files = append(e.Files, types.FileAccess{Path: archive, Write: true, Ref: archiveRef, Kind: types.Output})
 		}
-		for _, p := range positional {
-			e.Files = append(e.Files, types.FileAccess{Path: join(p), Recursive: true})
+		for i, p := range positional {
+			e.Files = append(e.Files, types.FileAccess{Path: join(p), Recursive: true, Ref: positionalRefs[i], Derived: chdir != ""})
 		}
 		if e.Destructive {
 			for i := range e.Files {
@@ -150,19 +163,19 @@ func tarOperands(args []string) types.Effects {
 		}
 	case 'x':
 		if archive != "" && archive != "-" {
-			e.Files = append(e.Files, types.FileAccess{Path: archive})
+			e.Files = append(e.Files, types.FileAccess{Path: archive, Ref: archiveRef})
 		}
-		e.Files = append(e.Files, types.FileAccess{Path: base, Write: true, Recursive: true})
+		e.Files = append(e.Files, types.FileAccess{Path: base, Write: true, Recursive: true, Ref: chdirRef, Kind: types.Create})
 	case 't', 'd':
 		if archive != "" && archive != "-" {
-			e.Files = append(e.Files, types.FileAccess{Path: archive})
+			e.Files = append(e.Files, types.FileAccess{Path: archive, Ref: archiveRef})
 		}
 		if mode == 'd' {
-			e.Files = append(e.Files, types.FileAccess{Path: base, Recursive: true})
+			e.Files = append(e.Files, types.FileAccess{Path: base, Recursive: true, Ref: chdirRef})
 		}
 	case 'D':
 		if archive != "" && archive != "-" {
-			e.Files = append(e.Files, types.FileAccess{Path: archive, Write: true})
+			e.Files = append(e.Files, types.FileAccess{Path: archive, Write: true, Ref: archiveRef, Kind: types.Output})
 		}
 	default:
 		e.Incomplete = true

@@ -9,6 +9,7 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/shellreview/commands"
+	"agent-platform/internal/shellreview/dialect"
 	"agent-platform/internal/shellreview/identity"
 	shellplan "agent-platform/internal/shellreview/plan"
 	"agent-platform/internal/shellreview/policy"
@@ -184,55 +185,65 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 					add(reviewer.Subtree(WriteAccess, target))
 				}
 			default:
-				effects := commands.Operands(identity.CommandFamily(x.Argv[0]), x.Argv[1:])
-				for _, name := range commands.ConfigVariables(identity.CommandFamily(x.Argv[0]), x.Argv[1:]) {
-					if x.Env[name] != "" {
-						effects.ExecutesCode = true
-					}
-				}
+				effects := commands.Analyze(types.CommandInput{Name: identity.CommandFamily(x.Argv[0]), Args: x.Argv[1:], Words: x.Words[1:], Identity: x.CommandIdentity, Dialect: dialect.Bash})
 				repoDir := x.Cwd
-				for i, file := range effects.Files {
-					if reviewer.LegacyOutputExempt(identity.CommandFamily(x.Argv[0]), effects.Incomplete, file) {
-						continue
-					}
-					mode := ReadAccess
-					if file.Write {
-						mode = WriteAccess
-					}
-					raw := ResolveAgainstCwd(file.Path, x.Cwd)
-					repoDir = commands.RepositoryDirectory(identity.CommandFamily(x.Argv[0]), x.Argv, i, raw, repoDir)
-					if session.AgentHasRuntimeSandbox && strings.ContainsAny(raw, "*?[") {
-						add(reviewer.Block("container globs require explicit paths until guest expansion is available", "bash-access:glob", raw))
-						continue
-					}
-					paths, err := resources.ExpandOperandPaths(raw)
-					if err != nil {
-						add(reviewer.Block(err.Error(), "bash-access:glob", raw))
-						continue
-					}
-					for _, p := range paths {
-						pathReview(mode, p)
-						if file.Recursive {
-							add(reviewer.Subtree(mode, p))
+				gitCheck := types.GitCheckNone
+				executesBehavior := effects.Has(types.Exec)
+				for _, dep := range effects.Deps {
+					switch dep.Kind {
+					case types.Environment:
+						executesBehavior = executesBehavior || x.Env[dep.Variable] != ""
+					case types.GitConfig:
+						gitCheck = types.GitCheck(dep.Check)
+						if dep.Path != "" {
+							repoDir = ResolveAgainstCwd(dep.Path, x.Cwd)
 						}
 					}
 				}
-				gitClean := effects.GitCheck != types.GitCheckNone && !effects.ExecutesCode && resources.GitExecutionClean(session.AgentHasRuntimeSandbox, x, repoDir, effects.GitCheck, variables)
-				if effects.ExecutesCode || effects.GitCheck != types.GitCheckNone && !gitClean {
+				for _, op := range effects.Ops {
+					for _, target := range op.Targets {
+						file := types.FileAccess{Path: target.Path, Write: op.Writes(), Recursive: op.Recursive}
+						if reviewer.LegacyOutputExempt(identity.CommandFamily(x.Argv[0]), effects.Unknown(types.UnknownOption), file) {
+							continue
+						}
+						mode := ReadAccess
+						if file.Write {
+							mode = WriteAccess
+						}
+						raw := ResolveAgainstCwd(file.Path, x.Cwd)
+						if session.AgentHasRuntimeSandbox && strings.ContainsAny(raw, "*?[") {
+							add(reviewer.Block("container globs require explicit paths until guest expansion is available", "bash-access:glob", raw))
+							continue
+						}
+						paths, err := resources.ExpandOperandPaths(raw)
+						if err != nil {
+							add(reviewer.Block(err.Error(), "bash-access:glob", raw))
+							continue
+						}
+						for _, p := range paths {
+							pathReview(mode, p)
+							if file.Recursive {
+								add(reviewer.Subtree(mode, p))
+							}
+						}
+					}
+				}
+				gitClean := gitCheck != types.GitCheckNone && !executesBehavior && resources.GitExecutionClean(session.AgentHasRuntimeSandbox, x, repoDir, gitCheck, variables)
+				if executesBehavior || gitCheck != types.GitCheckNone && !gitClean {
 					executes = true
 					add(opaquePlan(x))
-				} else if effects.Incomplete {
+				} else if effects.Unknown(types.UnknownOption) {
 					// Unrecognized options may add outputs or behavior beyond the visible
 					// operands; escalated writes alone would allow them inside write roots.
 					add(reviewer.Complex("command options are not fully recognized"))
 				}
-				if effects.RepoWrite {
+				if effects.Has(types.RepoWrite) {
 					pathReview(WriteAccess, repoDir)
 				}
-				if effects.Destructive {
+				if effects.Has(types.Discard) {
 					add(reviewer.Destructive(x.Cwd))
 				}
-				if effects.RemoteMutation {
+				if effects.Has(types.RemoteMutation) {
 					add(reviewer.RemoteMutation())
 				}
 				sshAgent = sshAgent || effects.SSHAgent

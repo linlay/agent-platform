@@ -401,6 +401,12 @@ func (w *walker) appendCommand(cmd types.Invocation) *walkError {
 	if len(w.commands) >= maxExtractedCommands {
 		return tooComplex("syntax.File", "too many commands to analyze")
 	}
+	for i := range cmd.Words {
+		span := &cmd.Words[i]
+		if span.Start >= 0 && span.End <= len(w.source) && span.Start < span.End {
+			span.Raw = w.source[span.Start:span.End]
+		}
+	}
 	w.commands = append(w.commands, cmd)
 	return nil
 }

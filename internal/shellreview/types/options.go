@@ -30,14 +30,16 @@ type OptionSpec struct {
 }
 
 type ParsedOptions struct {
-	Positional []string
-	Files      []FileAccess
-	Incomplete bool
-	Exec       bool
-	Remote     bool
-	Recursive  bool
-	Flags      map[string]bool
-	Values     map[string][]string
+	Positional     []string
+	PositionalRefs []ValueRef
+	Files          []FileAccess
+	Incomplete     bool
+	Exec           bool
+	Remote         bool
+	Recursive      bool
+	Flags          map[string]bool
+	Values         map[string][]string
+	ValueRefs      map[string][]ValueRef
 }
 
 func (p *ParsedOptions) Has(name string) bool { return p.Flags[name] }

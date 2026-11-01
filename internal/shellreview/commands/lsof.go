@@ -10,8 +10,8 @@ import (
 // arguments may be attached (-iTCP:8080) or separate (-i TCP:8080).
 // Device-cache operations (-D), directory walks (+d/+D), and unknown options
 // retain opaque review rather than treating an unknown operation as read-only.
-func lsofOperands(args []string) types.Effects {
-	var e types.Effects
+func lsofOperands(args []string) effectDraft {
+	var e effectDraft
 	end := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -20,7 +20,7 @@ func lsofOperands(args []string) types.Effects {
 			continue
 		}
 		if end || !strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "+") {
-			e.Files = append(e.Files, types.FileAccess{Path: a})
+			e.Files = append(e.Files, types.FileAccess{Path: a, Ref: types.ArgumentRef(i, a)})
 			continue
 		}
 		if len(a) < 2 || a[0] != '-' {

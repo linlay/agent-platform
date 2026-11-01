@@ -36,6 +36,10 @@ func TestOptionValuesKeepTheirResourceRoles(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := Parse(spec, tc.args)
+			for i := range got.Files {
+				got.Files[i].Ref = types.ValueRef{}
+				got.Files[i].Kind = ""
+			}
 			if got.Incomplete != tc.incomplete || !reflect.DeepEqual(got.Files, tc.files) || !reflect.DeepEqual(got.Positional, tc.positional) {
 				t.Fatalf("got %+v; want files=%+v positional=%v incomplete=%v", got, tc.files, tc.positional, tc.incomplete)
 			}

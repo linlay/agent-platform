@@ -45,13 +45,13 @@ var uniqSpec = types.OptionSpec{ShortFlags: "cduizD", ShortArgs: map[byte]types.
 
 var wcSpec = types.OptionSpec{ShortFlags: "clLmw", Long: options.Merge(options.Longs(types.OptionNone, "lines", "words", "chars", "bytes", "max-line-length"), options.Longs(types.OptionRead, "files0-from"), options.Longs(types.OptionOptionalValue, "total"))}
 
-func fileOperands(id registry.ID, spec types.OptionSpec, args []string) types.Effects {
+func fileOperands(id registry.ID, spec types.OptionSpec, args []string) effectDraft {
 	p := options.Parse(spec, args)
-	e := types.Effects{Incomplete: p.Incomplete, ExecutesCode: p.Exec}
+	e := effectDraft{Incomplete: p.Incomplete, ExecutesCode: p.Exec}
 	e.Files = append(e.Files, p.Files...)
-	add := func(path string, write, recursive bool) {
+	add := func(path string, write, recursive bool, ref types.ValueRef) {
 		if path != "" && path != "-" {
-			e.Files = append(e.Files, types.FileAccess{Path: path, Write: write, Recursive: recursive})
+			e.Files = append(e.Files, types.FileAccess{Path: path, Write: write, Recursive: recursive, Ref: ref, Kind: types.Read})
 		}
 	}
 	recursive := p.Recursive || p.Has("r") || p.Has("R")
@@ -63,36 +63,39 @@ func fileOperands(id registry.ID, spec types.OptionSpec, args []string) types.Ef
 		if id == registry.CmdDu {
 			recursive = true
 		}
-		for _, path := range p.Positional {
-			add(path, false, recursive)
+		for i, path := range p.Positional {
+			add(path, false, recursive, p.PositionalRefs[i])
 		}
 		if len(p.Positional) == 0 && (id == registry.CmdLs || id == registry.CmdDu) {
-			add(".", false, recursive)
+			add(".", false, recursive, types.ValueRef{})
 		}
 	case registry.CmdUniq:
 		if len(p.Positional) > 0 {
-			add(p.Positional[0], false, false)
+			add(p.Positional[0], false, false, p.PositionalRefs[0])
 		}
 		if len(p.Positional) > 1 {
-			add(p.Positional[1], true, false)
+			add(p.Positional[1], true, false, p.PositionalRefs[1])
+			e.Files[len(e.Files)-1].Kind = types.Output
 		}
 	case registry.CmdGrep, registry.CmdRg:
 		positional := p.Positional
+		refs := p.PositionalRefs
 		if !p.Has("e") && !p.Has("regexp") && !p.Has("f") && !p.Has("file") && !(id == registry.CmdRg && (p.Has("files") || p.Has("type-list"))) && len(positional) > 0 {
 			positional = positional[1:]
+			refs = refs[1:]
 		}
 		if id == registry.CmdRg {
 			recursive = true
 		}
-		for _, path := range positional {
-			add(path, false, recursive)
+		for i, path := range positional {
+			add(path, false, recursive, refs[i])
 		}
 		if len(positional) == 0 && recursive {
-			add(".", false, true)
+			add(".", false, true, types.ValueRef{})
 		}
 	case registry.CmdDiff:
-		for _, path := range p.Positional {
-			add(path, false, recursive)
+		for i, path := range p.Positional {
+			add(path, false, recursive, p.PositionalRefs[i])
 		}
 	}
 	if e.Incomplete {

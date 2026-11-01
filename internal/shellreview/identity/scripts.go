@@ -41,7 +41,7 @@ func ShebangFamily(header string, session QuerySession, cwd string, vars map[str
 	}
 	base := CommandFamily(words[0])
 	if registry.IDOf(base) == registry.CmdEnv {
-		if !RecognizedProgram(session, words[0], cwd, vars, environment, false) {
+		if !ResolveIdentity(session, words[0], cwd, vars, environment, false).Known() {
 			return ""
 		}
 		// env -S quoting is deliberately not guessed from a shebang string.
@@ -56,7 +56,7 @@ func ShebangFamily(header string, session QuerySession, cwd string, vars map[str
 		words, cwd, vars = expanded.Argv, expanded.Cwd, localVars
 		base = CommandFamily(words[0])
 	}
-	if IsInterpreter(base) && RecognizedProgram(session, words[0], cwd, vars, environment, false) {
+	if IsInterpreter(base) && ResolveIdentity(session, words[0], cwd, vars, environment, false).Known() {
 		return base
 	}
 	return ""

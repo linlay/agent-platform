@@ -13,6 +13,7 @@ type Invocation struct {
 
 type WordSpan struct {
 	Start, End int
+	Raw        string
 	// Expansion marks source that cannot be masked during connector review.
 	// Literal separately records whether quote removal alone yields this word.
 	Expansion bool
@@ -35,6 +36,8 @@ type SourceWord struct {
 	WordSpan
 	Arg    int
 	Origin WordOrigin
+	// ValueStart/End locate the extracted option value in the original source.
+	ValueStart, ValueEnd int
 }
 
 // SourceWords never recovers literal provenance from expanded strings. Missing

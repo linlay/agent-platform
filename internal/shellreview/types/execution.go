@@ -14,6 +14,7 @@ type BashExecution struct {
 	Program            string
 	Script             string
 	Identity           string
+	CommandIdentity    CommandIdentity
 	Opaque             bool
 	Uncertain          bool
 	Wrapped            bool

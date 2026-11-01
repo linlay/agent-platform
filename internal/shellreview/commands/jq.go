@@ -5,23 +5,30 @@ import (
 	"agent-platform/internal/shellreview/types"
 )
 
-func jqOperands(args []string) types.Effects {
+func jqOperands(args []string) effectDraft {
 	p := options.Parse(jqSpec, args)
-	e := types.Effects{Incomplete: p.Incomplete}
+	e := effectDraft{Incomplete: p.Incomplete}
 	e.Files = append(e.Files, p.Files...)
 	positional := p.Positional
+	refs := p.PositionalRefs
 	if !p.Has("f") && !p.Has("from-file") && len(positional) > 0 {
 		positional = positional[1:]
+		refs = refs[1:]
 	}
 	if !p.Has("args") && !p.Has("jsonargs") {
-		for _, path := range positional {
+		for i, path := range positional {
 			if path != "-" {
-				e.Files = append(e.Files, types.FileAccess{Path: path})
+				e.Files = append(e.Files, types.FileAccess{Path: path, Ref: refs[i]})
 			}
 		}
 	}
 	if e.Incomplete {
 		escalateWrites(&e)
+	}
+	for _, key := range []string{"f", "from-file", "L"} {
+		for _, path := range p.Values[key] {
+			e.Deps = append(e.Deps, types.Dep{Kind: types.Script, Path: path, Check: "jq-program-or-module"})
+		}
 	}
 	return e
 }

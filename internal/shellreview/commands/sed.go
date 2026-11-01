@@ -6,15 +6,17 @@ import (
 	"agent-platform/internal/shellreview/types"
 )
 
-func sedOperands(args []string) types.Effects {
-	var e types.Effects
+func sedOperands(args []string) effectDraft {
+	var e effectDraft
 	var scripts, positional []string
 	inPlace, sandbox, fromFile := false, false, false
+	var refs []types.ValueRef
 	end := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if end || a == "-" || !strings.HasPrefix(a, "-") {
 			positional = append(positional, a)
+			refs = append(refs, types.ArgumentRef(i, a))
 			continue
 		}
 		switch {
@@ -38,10 +40,12 @@ func sedOperands(args []string) types.Effects {
 			}
 			i++
 			fromFile = true
-			e.Files = append(e.Files, types.FileAccess{Path: args[i]})
+			e.Files = append(e.Files, types.FileAccess{Path: args[i], Ref: types.ArgumentRef(i, args[i])})
+			e.Deps = append(e.Deps, types.Dep{Kind: types.Script, Path: args[i], Check: "unfrozen-program"})
 		case strings.HasPrefix(a, "--file="):
 			fromFile = true
-			e.Files = append(e.Files, types.FileAccess{Path: strings.TrimPrefix(a, "--file=")})
+			e.Deps = append(e.Deps, types.Dep{Kind: types.Script, Path: strings.TrimPrefix(a, "--file="), Check: "unfrozen-program"})
+			e.Files = append(e.Files, types.FileAccess{Path: strings.TrimPrefix(a, "--file="), Ref: types.ValueRef{Index: i, Start: 7, End: len(a), Known: true}})
 		case a == "-i" || strings.HasPrefix(a, "-i") || a == "--in-place" || strings.HasPrefix(a, "--in-place="):
 			inPlace = true
 		case a == "-l" || a == "--line-length":
@@ -57,6 +61,7 @@ func sedOperands(args []string) types.Effects {
 	if len(scripts) == 0 && !fromFile && len(positional) > 0 {
 		scripts = append(scripts, positional[0])
 		positional = positional[1:]
+		refs = refs[1:]
 	}
 	if fromFile {
 		// A script file is not frozen by this analysis.
@@ -67,9 +72,13 @@ func sedOperands(args []string) types.Effects {
 			e.ExecutesCode = true
 		}
 	}
-	for _, p := range positional {
+	for j, p := range positional {
 		if p != "-" {
-			e.Files = append(e.Files, types.FileAccess{Path: p, Write: inPlace})
+			kind := types.Read
+			if inPlace {
+				kind = types.Create
+			}
+			e.Files = append(e.Files, types.FileAccess{Path: p, Write: inPlace, Ref: refs[j], Kind: kind})
 		}
 	}
 	if e.Incomplete {

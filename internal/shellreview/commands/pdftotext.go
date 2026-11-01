@@ -5,9 +5,10 @@ import (
 	"strings"
 )
 
-func pdftotextOperands(args []string) types.Effects {
-	var e types.Effects
+func pdftotextOperands(args []string) effectDraft {
+	var e effectDraft
 	var positional []string
+	var refs []types.ValueRef
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch a {
@@ -22,12 +23,13 @@ func pdftotextOperands(args []string) types.Effects {
 			continue
 		}
 		positional = append(positional, a)
+		refs = append(refs, types.ArgumentRef(i, a))
 	}
 	if len(positional) > 0 {
-		e.Files = append(e.Files, types.FileAccess{Path: positional[0]})
+		e.Files = append(e.Files, types.FileAccess{Path: positional[0], Ref: refs[0]})
 	}
 	if len(positional) > 1 && positional[1] != "-" {
-		e.Files = append(e.Files, types.FileAccess{Path: positional[1], Write: true})
+		e.Files = append(e.Files, types.FileAccess{Path: positional[1], Write: true, Kind: types.Output, Ref: refs[1]})
 	}
 	if e.Incomplete {
 		escalateWrites(&e)

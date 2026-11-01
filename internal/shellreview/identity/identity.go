@@ -32,53 +32,53 @@ func captureSystemExecutables() map[string]string {
 	return out
 }
 
-func RecognizedProgram(session QuerySession, name, cwd string, vars map[string]string, env *types.BashEnvironment, allowBuiltins bool) bool {
+func ResolveIdentity(session QuerySession, name, cwd string, vars map[string]string, env *types.BashEnvironment, allowBuiltins bool) types.CommandIdentity {
 	base := CommandFamily(name)
 	bare := !strings.ContainsAny(name, "/\\")
 	if allowBuiltins && bare && registry.Is(base, registry.Builtin|registry.ShellWrapper) {
-		return true
+		return types.CommandIdentity{Domain: types.ShellBuiltin, Source: types.BuiltinProgram}
 	}
 	if session.AgentHasRuntimeSandbox {
 		if env == nil || env.Resolve == nil {
-			return false
+			return types.CommandIdentity{}
 		}
 		p, err := env.Resolve(name, cwd, vars)
 		if err != nil {
-			return false
+			return types.CommandIdentity{}
 		}
 		// Resolve the same command's system installation in the container. Merely
 		// landing under /usr/bin is insufficient: ./ls could point to python.
 		// Canonical comparison still permits sh -> dash and versioned Python.
 		for _, root := range []string{"/usr/bin/", "/bin/", "/usr/local/bin/"} {
 			if system, err := env.Resolve(root+base, cwd, vars); err == nil && system == p {
-				return true
+				return types.CommandIdentity{Domain: types.NativeCLI, Source: types.ContainerSystemProgram}
 			}
 		}
-		return false
+		return types.CommandIdentity{}
 	}
 	p := ResolvedProgram(name, cwd, vars)
 	if p == "" {
-		return false
+		return types.CommandIdentity{}
 	}
 	canonical, err := pathutil.Canonicalize(p)
 	if err != nil {
-		return false
+		return types.CommandIdentity{}
 	}
 	systems := systemExecutables
 	if env != nil && env.SystemPrograms != nil {
 		systems = env.SystemPrograms
 	}
 	if systems[base] == canonical.Key {
-		return true
+		return types.CommandIdentity{Domain: types.NativeCLI, Source: types.SystemProgram}
 	}
 	if registry.Is(base, registry.PlatformBuiltin) {
 		if builtin, err := builtins.ResolveProcessBuiltin(base); err == nil {
 			if c, err := pathutil.Canonicalize(builtin); err == nil && c.Key == canonical.Key {
-				return true
+				return types.CommandIdentity{Domain: types.NativeCLI, Source: types.PlatformProgram}
 			}
 		}
 	}
-	return false
+	return types.CommandIdentity{}
 }
 
 func IsOrdinaryCommand(base string) bool {

@@ -10,14 +10,20 @@ import (
 var wgetSpec = types.OptionSpec{ShortFlags: "qcvNrpkxbKmnEFS", ShortArgs: map[byte]types.OptionRole{'O': types.OptionWrite, 'o': types.OptionWrite, 'a': types.OptionWrite, 'P': types.OptionWriteDir, 'i': types.OptionRead, 'e': types.OptionExec, 'U': types.OptionValue, 'T': types.OptionValue, 't': types.OptionValue, 'w': types.OptionValue, 'l': types.OptionValue, 'Q': types.OptionValue, 'A': types.OptionValue, 'R': types.OptionValue, 'D': types.OptionValue, 'I': types.OptionValue, 'X': types.OptionValue},
 	Long: options.Merge(options.Longs(types.OptionNone, "quiet", "continue", "no-clobber", "timestamping", "recursive", "no-parent", "no-check-certificate", "verbose", "no-verbose", "server-response", "spider", "mirror", "page-requisites", "convert-links", "adjust-extension", "no-directories", "force-directories", "content-disposition", "trust-server-names", "ignore-case", "inet4-only", "inet6-only", "show-progress", "no-host-directories", "no-config"), options.Longs(types.OptionWrite, "output-document", "output-file", "append-output", "save-cookies"), options.Longs(types.OptionWriteDir, "directory-prefix"), options.Longs(types.OptionRead, "input-file", "load-cookies", "ca-certificate", "certificate", "private-key", "config"), options.Longs(types.OptionExec, "execute", "use-askpass"), options.Longs(types.OptionRemoteData, "post-data", "post-file", "body-data", "body-file"), options.Longs(types.OptionValue, "user-agent", "timeout", "tries", "wait", "level", "header", "user", "password", "method", "limit-rate", "accept", "reject", "domains", "include-directories", "exclude-directories", "referer", "quota", "max-redirect", "progress", "restrict-file-names", "cut-dirs", "waitretry", "dns-timeout", "connect-timeout", "read-timeout", "https-only"))}
 
-func wgetOperands(args []string) types.Effects {
+func wgetOperands(args []string) effectDraft {
 	spec := wgetSpec
 	p := options.Parse(spec, args)
-	e := types.Effects{Incomplete: p.Incomplete, ExecutesCode: p.Exec}
+	e := effectDraft{Incomplete: p.Incomplete, ExecutesCode: p.Exec}
 	e.Files = append(e.Files, p.Files...)
-	add := func(path string, write, recursive bool) {
+	for _, file := range p.Values["config"] {
+		e.Deps = append(e.Deps, types.Dep{Kind: types.ConfigFile, Path: file})
+	}
+	if len(wgetConfig(args)) > 0 {
+		e.Deps = append(e.Deps, types.Dep{Kind: types.ConfigFile, Path: ".wgetrc", Variable: "WGETRC", Check: "default-search"})
+	}
+	add := func(path string, write, recursive bool, ref types.ValueRef, derived bool) {
 		if path != "" && path != "-" {
-			e.Files = append(e.Files, types.FileAccess{Path: path, Write: write, Recursive: recursive})
+			e.Files = append(e.Files, types.FileAccess{Path: path, Write: write, Recursive: recursive, Ref: ref, Derived: derived})
 		}
 	}
 	for key, values := range p.Values {
@@ -29,9 +35,11 @@ func wgetOperands(args []string) types.Effects {
 			continue
 		}
 		e.RemoteMutation = true
-		for _, value := range values {
+		for vi, value := range values {
 			if file := wgetRemoteDataFile(key, value); file != "" {
-				add(file, false, false)
+				ref := p.ValueRefs[key][vi]
+				ref.Start++
+				add(file, false, false, ref, false)
 			}
 		}
 	}
@@ -54,11 +62,11 @@ func wgetOperands(args []string) types.Effects {
 	}
 	if p.Has("O") || p.Has("remote-name") || p.Has("remote-name-all") || !p.Has("O") && !p.Has("output-document") && !p.Has("spider") {
 		// The output file name comes from the URL and lands in cwd.
-		add(".", true, (p.Has("r") || p.Has("recursive") || p.Has("m") || p.Has("mirror")))
+		add(".", true, (p.Has("r") || p.Has("recursive") || p.Has("m") || p.Has("mirror")), types.ValueRef{}, true)
 	}
-	for _, raw := range p.Positional {
+	for i, raw := range p.Positional {
 		if u, err := url.Parse(raw); err == nil && strings.EqualFold(u.Scheme, "file") {
-			add(u.Path, false, false)
+			add(u.Path, false, false, p.PositionalRefs[i], true)
 		} else if !strings.Contains(raw, "://") && strings.ContainsAny(raw, "/\\") {
 			// A bare host/path is a URL to curl; only obvious local paths are reviewed.
 			e.Incomplete = true

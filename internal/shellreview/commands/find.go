@@ -6,14 +6,14 @@ import (
 	"agent-platform/internal/shellreview/types"
 )
 
-func findOperands(args []string) types.Effects {
-	var e types.Effects
+func findOperands(args []string) effectDraft {
+	var e effectDraft
 	i := 0
 	for i < len(args) && (args[i] == "-L" || args[i] == "-H" || args[i] == "-P") {
 		i++
 	}
 	for i < len(args) && !strings.HasPrefix(args[i], "-") && args[i] != "!" && args[i] != "(" {
-		e.Files = append(e.Files, types.FileAccess{Path: args[i], Recursive: true})
+		e.Files = append(e.Files, types.FileAccess{Path: args[i], Recursive: true, Ref: types.ArgumentRef(i, args[i])})
 		i++
 	}
 	if len(e.Files) == 0 {
@@ -30,21 +30,21 @@ func findOperands(args []string) types.Effects {
 		case "-newer", "-anewer", "-cnewer", "-samefile":
 			i++
 			if i < len(args) {
-				e.Files = append(e.Files, types.FileAccess{Path: args[i]})
+				e.Files = append(e.Files, types.FileAccess{Path: args[i], Ref: types.ArgumentRef(i, args[i])})
 			} else {
 				e.Incomplete = true
 			}
 		case "-fprint", "-fprint0", "-fls":
 			i++
 			if i < len(args) {
-				e.Files = append(e.Files, types.FileAccess{Path: args[i], Write: true})
+				e.Files = append(e.Files, types.FileAccess{Path: args[i], Write: true, Kind: types.Output, Ref: types.ArgumentRef(i, args[i])})
 			} else {
 				e.Incomplete = true
 			}
 		case "-fprintf":
 			i += 2
 			if i-1 < len(args) {
-				e.Files = append(e.Files, types.FileAccess{Path: args[i-1], Write: true})
+				e.Files = append(e.Files, types.FileAccess{Path: args[i-1], Write: true, Kind: types.Output, Ref: types.ArgumentRef(i-1, args[i-1])})
 			} else {
 				e.Incomplete = true
 			}
@@ -52,6 +52,7 @@ func findOperands(args []string) types.Effects {
 		case "-delete":
 			for j := 0; j < roots; j++ {
 				e.Files[j].Write = true
+				e.Files[j].Kind = types.Delete
 			}
 			e.Destructive = true
 		default:
