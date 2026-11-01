@@ -161,7 +161,7 @@ execute 复用 Runtime 的 schema 校验、result_submit 和取消机制，最�
 
 本轮范围内批次 0–7 完成并分批提交。生产仍使用原镜像与关闭的 WebApp 配置；候选运行在 singapore02 独立的 agent-platform-webapp-acceptance Compose 项目，使用虚构 owner/key、独立配置和数据，未挂载生产目录。
 
-完整 Dockerfile 在原生 linux/amd64 构建成功，候选镜像摘要 `sha256:2026d6800e736bc4c06e674ad8ee2570454f30f44ddef47970fd9106483f2b78`，大小 409509208 字节，比已有带 Node 的 v0.5.31 增加 831629 字节。UID10001、可写私有 HOME、不可写 /opt 与 Node/helper、无 npm/gcc 均实测通过。helper 强化编译发现未消费 write 返回值，已修复并以 Dockerfile 的完整编译参数验证。目标 ABI4，ipcScoped/deviceIoctlRestricted 为 false，不宣称 ABI6 增强已在该服务器实测。
+完整 Dockerfile 在原生 linux/amd64 构建成功，首轮完整故障验收候选镜像摘要 `sha256:2026d6800e736bc4c06e674ad8ee2570454f30f44ddef47970fd9106483f2b78`，大小 409509208 字节，比已有带 Node 的 v0.5.31 增加 831629 字节。UID10001、可写私有 HOME、不可写 /opt 与 Node/helper、无 npm/gcc 均实测通过。helper 强化编译发现未消费 write 返回值，已修复并以 Dockerfile 的完整编译参数验证。目标 ABI4，ipcScoped/deviceIoctlRestricted 为 false，不宣称 ABI6 增强已在该服务器实测。 合入最新主线并修正助理保留边界后重新构建最终候选：`sha256:9768c93dce6f450794404905c31f6329195b5f7675b302a9b1cc7fe33fe5c31e`，409588918 字节；原生测试矩阵与 Chrome SDK 复测通过。
 
 | 范围 | 验证结果 |
 | --- | --- |
