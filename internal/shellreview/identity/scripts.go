@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	. "agent-platform/internal/accesspolicy"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/shellreview/types"
 	"agent-platform/internal/shellreview/unwrap"
@@ -47,7 +48,7 @@ func ShebangFamily(header string, session QuerySession, cwd string, vars map[str
 		if localVars == nil {
 			localVars = map[string]string{}
 		}
-		args, dir, ok := unwrap.Execution("env", words[1:], cwd, localVars)
+		args, dir, ok := unwrap.Execution("env", words[1:], cwd, localVars, ResolveAgainstCwd)
 		if !ok || len(args) == 0 {
 			return ""
 		}

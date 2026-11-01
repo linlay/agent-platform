@@ -216,3 +216,12 @@ func isExecutableGitKey(key string) bool {
 	}
 	return false
 }
+
+// RepositoryDirectory preserves the current first-operand -C repository tracking.
+// C6 will carry this fact directly from the command descriptor.
+func RepositoryDirectory(base string, argv []string, index int, target, current string) string {
+	if index == 0 && base == "git" && len(argv) > 1 && strings.HasPrefix(argv[1], "-C") {
+		return target
+	}
+	return current
+}

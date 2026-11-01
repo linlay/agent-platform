@@ -44,7 +44,7 @@ func analyzeBashExecution(session QuerySession, cmd types.Invocation, cwd string
 				// exec-style wrappers use PATH, not the invoking shell's builtins.
 				allowBuiltins = false
 			}
-			next, nextCwd, ok := unwrap.Execution(base, x.Argv[1:], x.Cwd, vars)
+			next, nextCwd, ok := unwrap.Execution(base, x.Argv[1:], x.Cwd, vars, ResolveAgainstCwd)
 			if !ok {
 				x.Uncertain = true
 				break

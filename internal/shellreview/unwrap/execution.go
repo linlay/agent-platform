@@ -3,11 +3,10 @@ package unwrap
 import (
 	"strconv"
 	"strings"
-
-	. "agent-platform/internal/accesspolicy"
 )
 
-func Execution(base string, args []string, cwd string, vars map[string]string) ([]string, string, bool) {
+// Execution expands an already trusted wrapper using the invocation's cwd resolver.
+func Execution(base string, args []string, cwd string, vars map[string]string, resolveAgainstCwd func(string, string) string) ([]string, string, bool) {
 	if base == "env" {
 		assignments, command, chdir, ignore, ok := UnwrapEnv(args)
 		if !ok {
@@ -24,7 +23,7 @@ func Execution(base string, args []string, cwd string, vars map[string]string) (
 			vars[name] = value
 		}
 		if chdir != "" {
-			cwd = ResolveAgainstCwd(chdir, cwd)
+			cwd = resolveAgainstCwd(chdir, cwd)
 		}
 		return command, cwd, true
 	}
@@ -59,7 +58,7 @@ func Execution(base string, args []string, cwd string, vars map[string]string) (
 					return nil, cwd, false
 				}
 				if a == "-C" || a == "--chdir" {
-					cwd = ResolveAgainstCwd(args[i+1], cwd)
+					cwd = resolveAgainstCwd(args[i+1], cwd)
 				} else {
 					vars[args[i+1]] = ""
 				}
@@ -67,7 +66,7 @@ func Execution(base string, args []string, cwd string, vars map[string]string) (
 				continue
 			}
 			if strings.HasPrefix(a, "--chdir=") {
-				cwd = ResolveAgainstCwd(strings.TrimPrefix(a, "--chdir="), cwd)
+				cwd = resolveAgainstCwd(strings.TrimPrefix(a, "--chdir="), cwd)
 				i++
 				continue
 			}
