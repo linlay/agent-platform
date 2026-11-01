@@ -217,6 +217,9 @@ func (s *Service) Acquire(id string) (*Scope, error) {
 	if r == nil {
 		return nil, fail("webapp_not_found", 404)
 	}
+	if s.installing[id] {
+		return nil, fail("webapp_update_in_progress", 503)
+	}
 	a := s.active[id]
 	if a == nil || a.state != "running" || a.ctx.Err() != nil {
 		return nil, fail("webapp_not_running", 503)
@@ -235,13 +238,23 @@ func (s *Service) Acquire(id string) (*Scope, error) {
 	if a.process != nil {
 		address = a.process.Address()
 	}
-	return &Scope{BackendAddress: address, Entry: s.entry(r), Manifest: r.Manifest, Policy: policy, UserConfig: values, CodeRoot: filepath.Join(s.root, id, "app"), DataRoot: filepath.Join(s.dataRoot, id), Generation: a.generation, Context: a.ctx, Release: func() { once.Do(a.leases.Done) }, Check: func() error { return s.Check(id, a.generation, policy.Revision) }}, nil
+	generation := a.generation
+	appCtx := a.ctx
+	return &Scope{BackendAddress: address, Entry: s.entry(r), Manifest: r.Manifest, Policy: policy, UserConfig: values, CodeRoot: filepath.Join(s.root, id, "app"), DataRoot: filepath.Join(s.dataRoot, id), Generation: a.generation, Context: a.ctx, Release: func() { once.Do(a.leases.Done) }, Check: func() error {
+		if appCtx.Err() != nil {
+			return fail("app_grant_required", 403)
+		}
+		return s.Check(id, generation, policy.Revision)
+	}}, nil
 }
 func (s *Service) Check(id, generation, policyRevision string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.mutationError(); err != nil {
 		return err
+	}
+	if s.installing[id] {
+		return fail("app_grant_required", 403)
 	}
 	a := s.active[id]
 	if a == nil || a.state != "running" || a.generation != generation || a.ctx.Err() != nil || s.policies[id].Revision != policyRevision {
@@ -250,12 +263,28 @@ func (s *Service) Check(id, generation, policyRevision string) error {
 	return nil
 }
 func (s *Service) Close() error {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		return nil
 	}
 	s.closing = true
+	s.operationCancel()
+	for _, a := range s.active {
+		a.cancel()
+		a.stop()
+	}
+	s.mu.Unlock()
+	jobsDone := make(chan struct{})
+	go func() { s.operationWG.Wait(); close(jobsDone) }()
+	select {
+	case <-jobsDone:
+	case <-time.After(35 * time.Second):
+		return fail("webapp_stop_incomplete", 503)
+	}
+	s.mu.Lock()
 	ids := []string{}
 	for id := range s.active {
 		ids = append(ids, id)
@@ -361,9 +390,10 @@ func (s *Service) runBackend(id string, a *activeApp, r Record, policy Policy) {
 		}
 		s.mu.Lock()
 		generation := a.generation
+		values, _, configError := s.readUserConfig(id)
 		appCtx := a.ctx
 		s.mu.Unlock()
-		spec := RuntimeSpec{ID: id, Generation: generation, CodeRoot: filepath.Join(s.root, id, "app"), DataRoot: filepath.Join(s.dataRoot, id), ManagementRoot: filepath.Join(s.root, id), Manifest: r.Manifest, Policy: policy, Context: appCtx, Check: func() error { return s.instanceCheck(id, generation, policy.Revision) }}
+		spec := RuntimeSpec{ID: id, Generation: generation, CodeRoot: filepath.Join(s.root, id, "app"), DataRoot: filepath.Join(s.dataRoot, id), ManagementRoot: filepath.Join(s.root, id), Manifest: r.Manifest, Policy: policy, UserConfig: values, Context: appCtx, Check: func() error { return s.instanceCheck(id, generation, policy.Revision) }}
 		spec.OnUnavailable = func(reason string) {
 			s.mu.Lock()
 			if s.active[id] == a && a.generation == generation && a.state != "stopping" {
@@ -374,7 +404,11 @@ func (s *Service) runBackend(id string, a *activeApp, r Record, policy Policy) {
 			s.mu.Unlock()
 		}
 
-		p, err := s.runner.Start(appCtx, spec)
+		var p Process
+		err := configError
+		if err == nil {
+			p, err = s.runner.Start(appCtx, spec)
+		}
 		clean := true
 		reason := ""
 		code := 0

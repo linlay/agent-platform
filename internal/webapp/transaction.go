@@ -11,11 +11,12 @@ import (
 func nowMillis() int64 { return time.Now().UnixMilli() }
 
 type installJournal struct {
-	SchemaVersion int     `json:"schemaVersion"`
-	AppID         string  `json:"appId"`
-	Old           *Record `json:"old"`
-	Next          Record  `json:"next"`
-	Phase         string  `json:"phase"`
+	SchemaVersion int      `json:"schemaVersion"`
+	AppID         string   `json:"appId"`
+	Old           *Record  `json:"old"`
+	Next          Record   `json:"next"`
+	OldDesired    *Desired `json:"oldDesired,omitempty"`
+	Phase         string   `json:"phase"`
 }
 type deleteJournal struct {
 	SchemaVersion int    `json:"schemaVersion"`
@@ -54,6 +55,9 @@ func (s *Service) recover() error {
 			}
 			if j.SchemaVersion != 1 || validateRecord(j.Next, j.AppID) != nil || j.Old != nil && validateRecord(*j.Old, j.AppID) != nil {
 				return fmt.Errorf("invalid installation journal")
+			}
+			if j.OldDesired != nil && (j.Old == nil || j.OldDesired.SchemaVersion != 1 || j.OldDesired.State != "running" || !opaquePattern.MatchString(j.OldDesired.Revision)) {
+				return fmt.Errorf("invalid original desired state")
 			}
 			if j.Phase == "prepared" {
 				if err := s.rollback(dir, j); err != nil {
@@ -119,6 +123,11 @@ func (s *Service) rollback(txn string, j installJournal) error {
 			return fmt.Errorf("rollback code integrity mismatch")
 		}
 		if err := writeJSON(filepath.Join(dir, "install.json"), j.Old); err != nil {
+			return err
+		}
+	}
+	if j.OldDesired != nil {
+		if err := writeJSON(filepath.Join(dir, "desired.json"), j.OldDesired); err != nil {
 			return err
 		}
 	}

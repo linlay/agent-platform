@@ -1490,7 +1490,7 @@ Automation 保持独立的场景默认：省略或 `default` 使用 `ask_for_app
 
 ### WebApp 静态生命周期与访问
 
-owner 管理详情返回安装记录、Manifest、policy、用户配置及配置摘要。start/stop/restart 绑定安装与状态修订；静态 stop 撤销并等待旧 generation 租约结束。配置/授权 PUT 绑定各自 revision，当前只允许 stopped。启动/安装状态与错误以源码 DTO 为准。
+owner 管理详情返回安装记录、Manifest、policy、用户配置及配置摘要。start/stop/restart 绑定安装与状态修订；静态 stop 撤销并等待旧 generation 租约结束。配置/授权 PUT 绑定各自 revision；运行中 Node 配置及授权变化通过重建代次生效。启动/安装状态与错误以源码 DTO 为准。
 
 `POST /api/admin/webapps/<id>/launch-ticket` 返回独立本地应用端口的 POST action、一次性 ticket 和过期时间；WebClient 用无 opener 表单打开。应用端 session 兑换、bootstrap 和配置路径归网关，不进入平台 mux。会话与票据只在内存中保存摘要；容器重启、应用停止及 owner 显式 `POST /api/admin/webapps/sessions/revoke` 后失效。Node 代理已接入；SDK action 在后续批次接入，不能据托管可用性推断完整 SDK 已交付。
 
@@ -1498,4 +1498,4 @@ owner 管理详情返回安装记录、Manifest、policy、用户配置及配置
 
 ### WebApp 后端状态与日志
 
-Node start 返回 starting，客户端通过管理读取观察状态；每次重启创建新 generation 并撤销旧页面/后端凭据。restart 为同应用锁下的停止再启动。健康、最近错误、退出码和重启次数只报告受控字段，不回显 PID、环境或内部地址。日志 `GET /api/admin/webapps/<id>/logs?stream=stdout|stderr&cursor=...` 只给 owner，返回有界尾部；reset 表示替换已有展示，不能将其当作永久事件日志。
+生命周期与安装返回 202 operationId，读取 `/api/admin/webapps/operations/<operationId>` 观察受理结果；启动受理结果仍可为 starting，客户端继续通过管理读取观察状态；每次重启创建新 generation 并撤销旧页面/后端凭据。restart 为同应用锁下的停止再启动。健康、最近错误、退出码和重启次数只报告受控字段，不回显 PID、环境或内部地址。日志 `GET /api/admin/webapps/<id>/logs?stream=stdout|stderr&cursor=...` 只给 owner，返回有界尾部；reset 表示替换已有展示，不能将其当作永久事件日志。

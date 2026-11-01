@@ -92,7 +92,7 @@ func readManaged(path string, limit int64) ([]byte, error) {
 	return raw, nil
 }
 func readJSON(path string, target any) error {
-	raw, err := readManaged(path, 512<<10)
+	raw, err := readManaged(path, 4<<20)
 	if err != nil {
 		return err
 	}

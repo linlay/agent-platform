@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/webapp"
@@ -102,13 +103,34 @@ func TestWebAppManagementUploadReviewInstallAndDelete(t *testing.T) {
 	}
 	input, _ := json.Marshal(webapp.InstallRequest{UploadID: uploaded.Data.UploadID, SHA256: uploaded.Data.SHA256})
 	w = adminCall(s, "POST", "/install", string(input), "owner", "")
-	if w.Code != 200 {
-		t.Fatal(w.Body.String())
+	if w.Code != 202 {
+		t.Fatal(w.Code, w.Body.String())
 	}
+	var accepted struct {
+		Data webapp.Operation `json:"data"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &accepted)
 	var installed struct {
 		Data webapp.Entry `json:"data"`
 	}
-	json.Unmarshal(w.Body.Bytes(), &installed)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		op, err := s.deps.WebApps.Operation(accepted.Data.OperationID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if op.State == "failed" {
+			t.Fatal(op.ErrorCode)
+		}
+		if op.State == "succeeded" {
+			installed.Data = *op.Result
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if installed.Data.ID == "" {
+		t.Fatal("operation did not complete")
+	}
 	w = adminCall(s, "GET", "", "", "owner", "")
 	if !strings.Contains(w.Body.String(), `"desiredState":"stopped"`) || strings.Contains(w.Body.String(), "installationId") || strings.Contains(w.Body.String(), "ContentSHA") {
 		t.Fatal("invalid public projection", w.Body.String())

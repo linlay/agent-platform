@@ -281,6 +281,11 @@ func TestComposeNativeWatcherAndSupervisorDeathsDrainBeforeRestart(t *testing.T)
 	for _, which := range []string{"watcher", "supervisor"} {
 		t.Run(which, func(t *testing.T) {
 			s, _, e, _ := nativeFixture(t)
+			oldScope, err := s.Acquire(e.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			oldScope.Release()
 			children, err := allChildren(os.Getpid())
 			if err != nil {
 				t.Fatal(err)
@@ -318,6 +323,9 @@ func TestComposeNativeWatcherAndSupervisorDeathsDrainBeforeRestart(t *testing.T)
 				page, _ := s.Logs(e.ID, "stderr", "")
 				t.Fatal("no clean restart", next, page.Text)
 			}
+			if oldScope.Check() == nil {
+				t.Fatal("old generation check regained authority")
+			}
 			if _, err := os.Stat(fmt.Sprintf("/proc/%d", victim)); !os.IsNotExist(err) {
 				t.Fatal("old process survived", victim, err)
 			}
@@ -340,4 +348,164 @@ func allChildren(pid int) ([]byte, error) {
 		result = append(result, ' ')
 	}
 	return result, nil
+}
+
+func updateNative(t *testing.T, s *webapp.Service, e webapp.Entry, version, health string) (webapp.Entry, error) {
+	t.Helper()
+	manifest := map[string]any{"schemaVersion": 2, "id": e.ID, "key": "reference-app", "label": "Reference", "version": version, "target": "linux-x64", "frontend": map[string]any{"root": "frontend", "index": "index.html", "routeConfig": map[string]any{"backendPrefixes": []string{"/api"}}}, "userConfig": map[string]any{"fields": []any{map[string]any{"name": "title", "label": "Title", "type": "text", "default": "new-default"}}}, "backend": map[string]any{"command": map[string]any{"type": "electron-node", "entry": "backend/main.cjs"}, "health": map[string]any{"type": "http", "path": health, "startupTimeoutMs": 1000}, "shutdownTimeoutMs": 1000}}
+	raw, _ := json.Marshal(manifest)
+	var out bytes.Buffer
+	z := zip.NewWriter(&out)
+	for name, data := range map[string][]byte{"webapp.json": raw, "frontend/index.html": []byte("<h1>" + version + "</h1>"), "backend/main.cjs": reference} {
+		f, _ := z.Create(e.ID + "/" + name)
+		f.Write(data)
+	}
+	z.Close()
+	u, err := s.Upload(context.Background(), &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return s.Install(ctx, webapp.InstallRequest{UploadID: u.UploadID, SHA256: u.SHA256, ExpectedRevision: e.Revision})
+}
+func TestComposeNativeRunningUpdateRollbackAndReadOnlyConfigSnapshot(t *testing.T) {
+	s, g, e, _ := nativeFixture(t)
+	oldScope, err := s.Acquire(e.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldScope.Release()
+	oldGeneration := e.Generation
+	updated, err := updateNative(t, s, e, "2.0.0", "/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Version != "2.0.0" || updated.ObservedState != "running" || updated.Generation == oldGeneration || oldScope.Check() == nil {
+		t.Fatal("bad running update", updated)
+	}
+	client, origin := openClient(t, g, e.ID)
+	response, err := client.Get(origin + "/api/probes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(response.Body)
+	response.Body.Close()
+	var probes map[string]any
+	json.Unmarshal(raw, &probes)
+	config, _ := probes["config"].(map[string]any)
+	if config["title"] != "new-default" || probes["configWriteDenied"] != true {
+		t.Fatal("snapshot", string(raw))
+	}
+	_, err = updateNative(t, s, updated, "3.0.0", "/missing-health")
+	code, _ := webapp.ErrorCode(err)
+	if code != "webapp_update_health_failed" {
+		t.Fatal("bad update succeeded", err)
+	}
+	restored := waitState(t, s, e.ID, "running")
+	if restored.Version != "2.0.0" || restored.Revision != updated.Revision {
+		t.Fatal("old version not restored", restored)
+	}
+	scope, err := s.Acquire(e.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataRoot := scope.DataRoot
+	scope.Release()
+	raw, err = os.ReadFile(filepath.Join(dataRoot, "value"))
+	if err != nil || string(raw) != "persistent" {
+		t.Fatal("rollback lost data")
+	}
+}
+func TestComposeNativeStopCancelsBackoffAndRestartBudgetExhausts(t *testing.T) {
+	s, g, e, _ := nativeFixture(t)
+	for attempt := 0; attempt < 3; attempt++ {
+		client, origin := openClient(t, g, e.ID)
+		response, err := client.Get(origin + "/api/crash")
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, response.Body)
+		response.Body.Close()
+		deadline := time.Now().Add(8 * time.Second)
+		for time.Now().Before(deadline) {
+			next, _ := s.Get(e.ID)
+			if attempt < 2 && next.ObservedState == "running" && next.Generation != e.Generation {
+				e = next
+				break
+			}
+			if attempt == 2 && next.ObservedState == "failed" {
+				e = next
+				break
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+	}
+	if e.ObservedState != "failed" || e.LastError != "webapp_restart_exhausted" || e.RestartCount != 2 {
+		t.Fatal("restart budget", e)
+	}
+	stopped, err := s.Stop(context.Background(), e.ID, webapp.StateRequest{ExpectedRevision: e.Revision, ExpectedStateRevision: e.StateRevision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err = s.Start(context.Background(), e.ID, webapp.StateRequest{ExpectedRevision: stopped.Revision, ExpectedStateRevision: stopped.StateRevision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e = waitState(t, s, e.ID, "running")
+	client, origin := openClient(t, g, e.ID)
+	response, err := client.Get(origin + "/api/crash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	e = waitState(t, s, e.ID, "backoff")
+	if _, err = s.Stop(context.Background(), e.ID, webapp.StateRequest{ExpectedRevision: e.Revision, ExpectedStateRevision: e.StateRevision}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1500 * time.Millisecond)
+	e, _ = s.Get(e.ID)
+	if e.ObservedState != "stopped" || e.DesiredState != "stopped" {
+		t.Fatal("queued restart survived stop", e)
+	}
+}
+
+func TestComposeNativeConfigurationAndPolicyRebuildGeneration(t *testing.T) {
+	s, _, e, _ := nativeFixture(t)
+	e, err := updateNative(t, s, e, "2.0.0", "/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := s.Acquire(e.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old.Release()
+	c, err := s.Configuration(e.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := s.SaveUserConfig(e.ID, webapp.UserConfigRequest{ExpectedRevision: c.ConfigRevision, Values: map[string]any{"title": "owner-change"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e = waitState(t, s, e.ID, "running")
+	if e.Generation == old.Generation || old.Check() == nil {
+		t.Fatal("configuration left old generation")
+	}
+	current, err := s.Acquire(e.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.Release()
+	if current.UserConfig["title"] != "owner-change" {
+		t.Fatal("configuration lost")
+	}
+	if _, err = s.SavePolicy(e.ID, webapp.PolicyRequest{ExpectedRevision: changed.Policy.Revision, Assistant: true}); err != nil {
+		t.Fatal(err)
+	}
+	e = waitState(t, s, e.ID, "running")
+	if e.Generation == current.Generation || current.Check() == nil || current.Context.Err() == nil {
+		t.Fatal("policy failed to revoke old authority")
+	}
 }

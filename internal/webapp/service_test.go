@@ -238,7 +238,8 @@ func TestInterruptedUpdateRestoresOriginalRecordAndCode(t *testing.T) {
 			next.Revision = randomID()
 			next.ContentSHA256 = digest
 			next.ArchiveSHA256 = u.SHA256
-			j := installJournal{SchemaVersion: 1, AppID: old.ID, Old: &prior, Next: next, Phase: "prepared"}
+			originalDesired := Desired{SchemaVersion: 1, State: "running", Revision: randomID()}
+			j := installJournal{SchemaVersion: 1, AppID: old.ID, Old: &prior, Next: next, Phase: "prepared", OldDesired: &originalDesired}
 			if err := writeJSON(filepath.Join(txn, "journal.json"), j); err != nil {
 				t.Fatal(err)
 			}
@@ -265,7 +266,7 @@ func TestInterruptedUpdateRestoresOriginalRecordAndCode(t *testing.T) {
 			}
 			defer reopened.Close()
 			entry, _ := reopened.Get(old.ID)
-			if entry.Version != "1.0.0" || entry.Revision != old.Revision {
+			if entry.Version != "1.0.0" || entry.Revision != old.Revision || entry.DesiredState != "running" || entry.StateRevision != originalDesired.Revision {
 				t.Fatalf("not rolled back %+v", entry)
 			}
 			data, _ := os.ReadFile(filepath.Join(code, "frontend", "index.html"))

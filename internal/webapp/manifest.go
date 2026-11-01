@@ -318,6 +318,10 @@ func ParseManifest(raw []byte) (Manifest, error) {
 	if m.Label == "" {
 		return bad()
 	}
+	canonical, err := json.Marshal(m)
+	if err != nil || len(canonical) > 256<<10 {
+		return bad()
+	}
 	return m, nil
 }
 

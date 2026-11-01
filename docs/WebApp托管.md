@@ -8,7 +8,7 @@
 
 ## 当前实现范围
 
-完整设计见 [Linux Docker Compose WebApp 托管方案](../plans/webapp-node-hosting.md)。当前代码已接入部署选择、严格配置、owner/Host 边界、Node 制品与隔离探测，以及 owner ZIP 上传、预检、安装、停止状态更新和卸载事务。静态/Node 网关、票据/会话、启停、最小 WebClient 管理和受限 Node 监督已接入；运行中更新及应用 SDK 继续按后续批次实现，不能把安装管理视为完整托管交付。
+完整设计见 [Linux Docker Compose WebApp 托管方案](../plans/webapp-node-hosting.md)。当前代码已接入部署选择、严格配置、owner/Host 边界、Node 制品与隔离探测，以及 owner ZIP 上传、预检、安装、停止状态更新和卸载事务。静态/Node 网关、票据/会话、启停、最小 WebClient 管理和受限 Node 监督已接入；运行中更新、失败回退和配置/授权重建已接入；应用 SDK 继续按后续批次实现，不能把安装管理视为完整托管交付。
 
 共享 Manifest 已补齐 Linux 目标及合法/非法输入 fixture，builder 同步离线纯 JS 包约束；Desktop 仍拒绝安装 Linux 目标包。Go 安装器嵌入 Desktop 生成的 schema 并消费同一 fixture；`scripts/sync-webapp-contracts.py --check --desktop-root <Desktop源码根>` 检查复制漂移，不在生产环境读取相邻源码。小批次边界与验证限制见计划第 21 节。
 
@@ -18,7 +18,7 @@
 
 上传是有界 ZIP 字节流，不接受服务器路径。预检不执行代码、不创建安装记录；提交绑定上传摘要与当前安装 revision。解包拒绝穿越、反斜杠、大小写碰撞、链接、特殊文件、超量展开、秘密文件和原生载荷；Compose 子集拒绝其他平台、非 Node launcher 与执行链环境覆盖。
 
-首次安装固定 stopped。更新当前要求先 stopped，保留安装身份、授权、用户配置和持久数据；运行中更新随生命周期批次接入。只读代码在同一文件系统的 staging 与 app 之间改名，journal 在切换前持久化，安装记录、代码摘要及目录同步完成后才提交。中断的未提交事务恢复原代码与记录；已提交事务只重做清理。恢复结果不确定时停止后续 mutation，保留现场，不再叠加安装。
+首次安装固定 stopped。更新保留安装身份、授权、用户配置和持久数据。运行中更新先摘除访问并确认旧实例退出，安装 journal 保持 prepared，直到新实例健康才提交；失败则停止新实例、恢复原代码/记录与期望状态并重新启动。只读代码在同一文件系统的 staging 与 app 之间改名，journal 在切换前持久化，安装记录、代码摘要及目录同步完成后才提交。中断的未提交事务恢复原代码与记录；已提交事务只重做清理。恢复结果不确定时停止后续 mutation，保留现场，不再叠加安装。
 
 卸载使用独立删除 journal，持久数据默认保留，只有 owner 显式 `purgeData:true` 才删除。重新安装生成新的调用收据 namespace，正常更新保持原安装身份。代码回滚不撤销应用业务数据迁移。
 
@@ -100,7 +100,7 @@ ABI4 的适用范围为单 owner、来源可信应用。它缺少信号/抽象 U
 
 ## 私有静态应用和管理界面
 
-WebClient `/webapps` 仅在普通 Platform 模式展示；Desktop 沿用自己的 WebApp 页面。ZIP 上传后先审阅，明确安装才提交；首次安装 stopped。列表和详情提供启停、打开、配置、owner 授权与卸载；数据清理默认不选中。配置和授权修改当前要求停止应用。
+WebClient `/webapps` 仅在普通 Platform 模式展示；Desktop 沿用自己的 WebApp 页面。ZIP 上传后先审阅，明确安装才提交；首次安装 stopped。列表和详情提供启停、打开、配置、owner 授权与卸载；数据清理默认不选中。运行中修改 Node 配置会重启到新 generation；静态配置原子生效。授权变化立即撤销旧访问并重建 generation。
 
 静态 start 校验不可变代码摘要、实际 Manifest 与安装记录一致，以及用户配置；stop 先撤销当前 generation 访问，再排空文件租约。关闭 Platform 保留 desiredState；重启恢复生成新的 generation，旧会话不恢复。
 
@@ -121,3 +121,13 @@ WebClient `/webapps` 仅在普通 Platform 模式展示；Desktop 沿用自己�
 代理仅使用当前 generation 的 loopback 地址，按 backendPrefixes 路径段匹配，保留业务凭据并剥离宿主 Cookie、已验证平台 Authorization 与伪造身份/转发头；后端不能设置宿主或 Domain Cookie。停止显式关闭 Upgrade 的后端连接，SSE 立即 flush，均不回落到静态 SPA。
 
 2026-11-01 在 singapore02 原生 linux/amd64、既有 v0.5.31 Node 镜像上覆盖新 helper 并运行新交叉编译测试：UID10001、init、只读根、drop ALL、no-new-privileges、默认 seccomp、network none、1 GiB/1 CPU。文件/端口拒绝、最小环境、HTTP 代理凭据、日志、WS/SSE 停止、新 generation、数据保留、恢复及两层监督进程分别 SIGKILL 后重启通过。单独 C harness 验证 setsid/double-fork 后代回收，保留无关 sibling。该隔离候选不挂载生产数据，不替代完整新镜像/业务 SDK/资源压力验收。
+
+## 更新、配置和受理操作（批次 4）
+
+长操作由 owner API 返回 202 operationId，再读取 `/operations/<id>`；浏览器取消等待不撤销已经受理的操作，也不重放 mutation。操作记录有界、内存保存；容器重启后根据安装记录、journal 和 desiredState 核对结果，不能凭 operationId 不存在自动重试。关闭宿主先取消并排空受理任务，同时停止所有 generation，再释放实例锁。
+
+更新整个过程持有同应用控制锁，停止/配置/卸载不能插入目录切换。准备新版本时对外观察为 updating，只有新进程健康且 journal 提交、备份清理完成才公开。journal 记录原 desiredState；恢复未提交更新时同时恢复原代码、安装身份和原期望状态。回退不会撤销应用数据写入。
+
+Node 每代使用宿主写入的只读用户配置快照，与本代可写 tmp 分离。缺省字段按当前 Manifest 补齐、移除字段不再投影，但原保存数据保留，保证前端 SDK 与后端读取一致，也能回退旧版本。快照及 generation 临时目录仅在确认旧写入者退出后清理；授权与用户配置变更均不扩大应用包已有授权。
+
+原生 Linux 加固候选已通过运行中更新、新版本健康失败回退、只读配置快照、配置/授权导致 generation 变化、重启预算耗尽和停止取消 backoff。该结果仍不替代实际 Compose SIGKILL/重启和完整新镜像验收，后者留在批次 7。

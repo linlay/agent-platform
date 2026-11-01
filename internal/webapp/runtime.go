@@ -7,6 +7,7 @@ import "context"
 type RuntimeSpec struct {
 	ID, Generation, CodeRoot, DataRoot, ManagementRoot string
 	Manifest                                           Manifest
+	UserConfig                                         map[string]any
 	Policy                                             Policy
 	OnUnavailable                                      func(string)
 	Check                                              func() error

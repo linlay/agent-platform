@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestSettingsRevisionAndStoppedBoundary(t *testing.T) {
+func TestSettingsRevisionAndRevocationBoundary(t *testing.T) {
 	s, _ := fixtureService(t)
 	e := installPackage(t, s, "1.0.0", "")
 	c, err := s.Configuration(e.ID)
@@ -31,8 +31,18 @@ func TestSettingsRevisionAndStoppedBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.SavePolicy(e.ID, PolicyRequest{ExpectedRevision: next.Policy.Revision})
-	requireCode(t, err, "webapp_configuration_requires_stop")
+	scope, err := s.Acquire(e.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope.Release()
+	updated, err := s.SavePolicy(e.ID, PolicyRequest{ExpectedRevision: next.Policy.Revision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scope.Check() == nil || scope.Context.Err() == nil || updated.Entry.Generation == scope.Generation {
+		t.Fatal("policy did not revoke old generation")
+	}
 }
 func TestReopenRejectsTamperedManifestRecordAndPolicy(t *testing.T) {
 	for _, which := range []string{"manifest", "policy"} {

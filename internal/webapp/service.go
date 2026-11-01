@@ -20,6 +20,7 @@ type Options struct {
 }
 type Service struct {
 	mu                      sync.Mutex
+	closeMu                 sync.Mutex
 	root, dataRoot          string
 	config                  config.WebAppsConfig
 	maxArchive, maxExpanded int64
@@ -33,6 +34,11 @@ type Service struct {
 	active                  map[string]*activeApp
 	controls                map[string]*sync.Mutex
 	closing                 bool
+	installing              map[string]bool
+	operations              map[string]*Operation
+	operationContext        context.Context
+	operationCancel         context.CancelFunc
+	operationWG             sync.WaitGroup
 	runner                  Runner
 }
 
@@ -40,7 +46,9 @@ func Open(options Options) (*Service, error) {
 	if options.Root == "" || options.DataRoot == "" {
 		return nil, fmt.Errorf("WebApp roots are required")
 	}
-	s := &Service{root: options.Root, dataRoot: options.DataRoot, config: options.Config, runner: options.Runner, records: map[string]*Record{}, desired: map[string]Desired{}, policies: map[string]Policy{}, active: map[string]*activeApp{}, controls: map[string]*sync.Mutex{}}
+	s := &Service{root: options.Root, dataRoot: options.DataRoot, config: options.Config, runner: options.Runner, records: map[string]*Record{}, desired: map[string]Desired{}, policies: map[string]Policy{}, active: map[string]*activeApp{}, controls: map[string]*sync.Mutex{}, installing: map[string]bool{}}
+	s.operations = map[string]*Operation{}
+	s.operationContext, s.operationCancel = context.WithCancel(context.Background())
 	s.maxArchive = int64(options.Config.MaxArchiveMiB) << 20
 	s.maxExpanded = int64(options.Config.MaxExtractedMiB) << 20
 	s.maxFiles = options.Config.MaxFiles
@@ -177,6 +185,9 @@ func (s *Service) entry(record *Record) Entry {
 		observed = a.state
 		generation = a.generation
 	}
+	if s.installing[m.ID] {
+		observed = "updating"
+	}
 	lastError := ""
 	restartCount := 0
 	var exitCode *int
@@ -208,7 +219,7 @@ func (s *Service) Get(id string) (Entry, error) {
 	}
 	return Entry{}, fail("webapp_not_found", 404)
 }
-func (s *Service) Install(ctx context.Context, req InstallRequest) (Entry, error) {
+func (s *Service) install(ctx context.Context, req InstallRequest, resume bool, validate func(Entry) error) (Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.mutationError(); err != nil {
@@ -258,7 +269,7 @@ func (s *Service) Install(ctx context.Context, req InstallRequest) (Entry, error
 	if old != nil && old.Manifest.Key != m.Key {
 		return Entry{}, fail("webapp_package_identity_conflict", 409)
 	}
-	if s.desired[m.ID].State == "running" || s.active[m.ID] != nil {
+	if (!resume && s.desired[m.ID].State == "running") || s.active[m.ID] != nil {
 		return Entry{}, fail("webapp_update_requires_stop", 409)
 	}
 	if old == nil {
@@ -279,6 +290,10 @@ func (s *Service) Install(ctx context.Context, req InstallRequest) (Entry, error
 	}
 	record := Record{SchemaVersion: 1, Manifest: m, Revision: randomID(), InstallationID: installationID, ArchiveSHA256: u.SHA256, ContentSHA256: digest, InstalledAt: nowMillis()}
 	j := installJournal{SchemaVersion: 1, AppID: m.ID, Old: old, Next: record, Phase: "prepared"}
+	if resume {
+		d := s.desired[m.ID]
+		j.OldDesired = &d
+	}
 	if err := writeJSON(filepath.Join(txn, "journal.json"), j); err != nil {
 		return Entry{}, err
 	}
@@ -287,6 +302,12 @@ func (s *Service) Install(ctx context.Context, req InstallRequest) (Entry, error
 		if err := s.rollback(txn, j); err != nil {
 			s.recoveryRequired = true
 			return Entry{}, fmt.Errorf("WebApp rollback failed: %w", err)
+		}
+		if old != nil {
+			s.records[m.ID] = old
+		}
+		if j.OldDesired != nil {
+			s.desired[m.ID] = *j.OldDesired
 		}
 		if old == nil {
 			delete(s.desired, m.ID)
@@ -339,6 +360,22 @@ func (s *Service) Install(ctx context.Context, req InstallRequest) (Entry, error
 		s.desired[m.ID] = d
 		s.policies[m.ID] = p
 	}
+	if validate != nil {
+		s.records[m.ID] = &record
+		e := s.entry(&record)
+		s.mu.Unlock()
+		validationError := validate(e)
+		s.mu.Lock()
+		if validationError != nil {
+			code, _ := ErrorCode(validationError)
+			if code == "webapp_stop_incomplete" {
+				s.recoveryRequired = true
+				keep = true
+				return Entry{}, validationError
+			}
+			return rollback(validationError)
+		}
+	}
 	j.Phase = "committed"
 	if err := syncDir(s.root); err != nil {
 		return rollback(err)
@@ -361,6 +398,12 @@ func (s *Service) Install(ctx context.Context, req InstallRequest) (Entry, error
 	return s.entry(&record), nil
 }
 func (s *Service) Uninstall(ctx context.Context, id, revision string, purgeData bool) error {
+	if !idPattern.MatchString(id) {
+		return fail("webapp_not_found", 404)
+	}
+	control := s.control(id)
+	control.Lock()
+	defer control.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.mutationError(); err != nil {

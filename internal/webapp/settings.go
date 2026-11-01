@@ -1,12 +1,14 @@
 package webapp
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf16"
 )
 
@@ -51,6 +53,20 @@ func (s *Service) readUserConfig(id string) (map[string]any, string, error) {
 	if values == nil {
 		return nil, "", fail("webapp_user_config_invalid", 400)
 	}
+	if unsafeJSON(values) {
+		return nil, "", fail("webapp_user_config_invalid", 400)
+	}
+	known := map[string]bool{}
+	if config := s.records[id].Manifest.UserConfig; config != nil {
+		for _, field := range config.Fields {
+			known[field.Name] = true
+		}
+	}
+	for key := range values {
+		if !known[key] {
+			delete(values, key)
+		}
+	}
 	digest := sha256.Sum256(raw)
 	for key, value := range defaultUserConfig(s.records[id].Manifest) {
 		if _, ok := values[key]; !ok {
@@ -87,7 +103,7 @@ func validateUserValues(m Manifest, values map[string]any) error {
 		return bad()
 	}
 	raw, err := json.Marshal(values)
-	if err != nil || len(raw) > 64<<10 {
+	if err != nil || len(raw) > (64<<10)-1 {
 		return bad()
 	}
 	for name, v := range values {
@@ -141,6 +157,12 @@ func validateUserValues(m Manifest, values map[string]any) error {
 	return nil
 }
 func (s *Service) SaveUserConfig(id string, request UserConfigRequest) (Configuration, error) {
+	if !idPattern.MatchString(id) {
+		return Configuration{}, fail("webapp_not_found", 404)
+	}
+	control := s.control(id)
+	control.Lock()
+	defer control.Unlock()
 	s.mu.Lock()
 	r := s.records[id]
 	if err := s.mutationError(); err != nil {
@@ -151,10 +173,7 @@ func (s *Service) SaveUserConfig(id string, request UserConfigRequest) (Configur
 		s.mu.Unlock()
 		return Configuration{}, fail("webapp_not_found", 404)
 	}
-	if s.active[id] != nil {
-		s.mu.Unlock()
-		return Configuration{}, fail("webapp_configuration_requires_stop", 409)
-	}
+	resume := s.desired[id].State == "running"
 	_, revision, err := s.readUserConfig(id)
 	if err != nil {
 		s.mu.Unlock()
@@ -169,13 +188,31 @@ func (s *Service) SaveUserConfig(id string, request UserConfigRequest) (Configur
 		return Configuration{}, err
 	}
 	err = writeJSON(filepath.Join(s.root, id, "user-config.json"), request.Values)
+	restart := resume && r.Manifest.Backend != nil
+	if err == nil && restart {
+		if a := s.active[id]; a != nil {
+			a.cancel()
+			a.stop()
+		}
+	}
 	s.mu.Unlock()
 	if err != nil {
 		return Configuration{}, err
 	}
+	if restart {
+		if err := s.restartConfigured(id); err != nil {
+			return Configuration{}, err
+		}
+	}
 	return s.Configuration(id)
 }
 func (s *Service) SavePolicy(id string, request PolicyRequest) (Configuration, error) {
+	if !idPattern.MatchString(id) {
+		return Configuration{}, fail("webapp_not_found", 404)
+	}
+	control := s.control(id)
+	control.Lock()
+	defer control.Unlock()
 	s.mu.Lock()
 	if err := s.mutationError(); err != nil {
 		s.mu.Unlock()
@@ -185,10 +222,7 @@ func (s *Service) SavePolicy(id string, request PolicyRequest) (Configuration, e
 		s.mu.Unlock()
 		return Configuration{}, fail("webapp_not_found", 404)
 	}
-	if s.active[id] != nil {
-		s.mu.Unlock()
-		return Configuration{}, fail("webapp_configuration_requires_stop", 409)
-	}
+	resume := s.desired[id].State == "running"
 	if s.policies[id].Revision != request.ExpectedRevision {
 		s.mu.Unlock()
 		return Configuration{}, fail("webapp_revision_conflict", 409)
@@ -201,10 +235,21 @@ func (s *Service) SavePolicy(id string, request PolicyRequest) (Configuration, e
 	err := writeJSON(filepath.Join(s.root, id, "policy.json"), p)
 	if err == nil {
 		s.policies[id] = p
+		if resume {
+			if a := s.active[id]; a != nil {
+				a.cancel()
+				a.stop()
+			}
+		}
 	}
 	s.mu.Unlock()
 	if err != nil {
 		return Configuration{}, err
+	}
+	if resume {
+		if err := s.restartConfigured(id); err != nil {
+			return Configuration{}, err
+		}
 	}
 	return s.Configuration(id)
 }
@@ -238,4 +283,15 @@ func validatePolicy(p Policy) error {
 	}
 
 	return nil
+}
+
+func (s *Service) restartConfigured(id string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	defer cancel()
+	e, err := s.stopLocked(ctx, id, StateRequest{}, true)
+	if err != nil {
+		return err
+	}
+	_, err = s.start(context.Background(), id, StateRequest{ExpectedRevision: e.Revision, ExpectedStateRevision: e.StateRevision})
+	return err
 }

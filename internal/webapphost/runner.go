@@ -198,7 +198,20 @@ func (r *Runner) Start(ctx context.Context, spec webapp.RuntimeSpec) (webapp.Pro
 		return nil, err
 	}
 	defer statusWrite.Close()
-	configFile := filepath.Join(spec.ManagementRoot, "user-config.json")
+	configFile := filepath.Join(spec.ManagementRoot, ".generations", spec.Generation+".json")
+	configJSON, err := json.Marshal(spec.UserConfig)
+	if err != nil {
+		return nil, runtimeError("webapp_user_config_invalid")
+	}
+	if err := os.WriteFile(configFile, configJSON, 0400); err != nil {
+		return nil, runtimeError("webapp_temporary_directory_failed")
+	}
+	keepConfig := false
+	defer func() {
+		if !keepConfig {
+			os.Remove(configFile)
+		}
+	}()
 	b := spec.Manifest.Backend
 	ports := make([]string, 0, len(spec.Policy.ConnectPorts))
 	for _, port := range spec.Policy.ConnectPorts {
@@ -262,6 +275,7 @@ func (r *Runner) Start(ctx context.Context, spec webapp.RuntimeSpec) (webapp.Pro
 	keepPort = true
 	keepTmp = true
 	keepGrant = true
+	keepConfig = true
 	statusDone := make(chan struct{})
 	go func() {
 		defer close(statusDone)
@@ -333,6 +347,7 @@ func (r *Runner) Start(ctx context.Context, spec webapp.RuntimeSpec) (webapp.Pro
 		if clean {
 			r.releasePort(port)
 			os.RemoveAll(tmp)
+			os.Remove(configFile)
 		}
 		close(p.done)
 	}()

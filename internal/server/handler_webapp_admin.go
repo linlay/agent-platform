@@ -1,12 +1,10 @@
 package server
 
 import (
-	"context"
 	"io"
 	"mime"
 	"net/http"
 	"strings"
-	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/webapp"
@@ -95,7 +93,16 @@ func (s *Server) handleWebAppAdmin(w http.ResponseWriter, r *http.Request) {
 			webAppResponse(w, nil, err)
 			return
 		}
-		value, err := s.deps.WebApps.Install(r.Context(), input)
+		value, err := s.deps.WebApps.SubmitInstall(input)
+		webAppAccepted(w, value, err)
+		return
+	}
+	if path == "/operations" && r.Method == http.MethodGet {
+		webAppResponse(w, map[string]any{"items": s.deps.WebApps.Operations()}, nil)
+		return
+	}
+	if strings.HasPrefix(path, "/operations/") && r.Method == http.MethodGet {
+		value, err := s.deps.WebApps.Operation(strings.TrimPrefix(path, "/operations/"))
 		webAppResponse(w, value, err)
 		return
 	}
@@ -117,18 +124,8 @@ func (s *Server) handleWebAppAdmin(w http.ResponseWriter, r *http.Request) {
 				webAppResponse(w, nil, err)
 				return
 			}
-			ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
-			defer cancel()
-			var value webapp.Entry
-			var err error
-			if parts[1] == "start" {
-				value, err = s.deps.WebApps.Start(ctx, id, input)
-			} else if parts[1] == "restart" {
-				value, err = s.deps.WebApps.Restart(ctx, id, input)
-			} else {
-				value, err = s.deps.WebApps.Stop(ctx, id, input)
-			}
-			webAppResponse(w, value, err)
+			value, err := s.deps.WebApps.SubmitState(parts[1], id, input)
+			webAppAccepted(w, value, err)
 			return
 		case "logs":
 			if r.Method != http.MethodGet {
@@ -202,4 +199,12 @@ func (s *Server) handleWebAppAdmin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 404, api.Failure(404, "webapp_route_not_found"))
+}
+
+func webAppAccepted(w http.ResponseWriter, value webapp.Operation, err error) {
+	if err != nil {
+		webAppResponse(w, nil, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, api.Success(value))
 }
