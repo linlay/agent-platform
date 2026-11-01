@@ -65,6 +65,7 @@ import (
 	"agent-platform/internal/viewaction"
 	"agent-platform/internal/viewquery"
 	"agent-platform/internal/webapp"
+	"agent-platform/internal/webappbridge"
 	"agent-platform/internal/webapphost"
 	"agent-platform/internal/ws"
 
@@ -72,6 +73,7 @@ import (
 )
 
 type App struct {
+	webappBridge           *webappbridge.Service
 	webapps                *webapp.Service
 	mailbox                *mailbox.Service
 	nativeConnectorRelease func()
@@ -484,9 +486,12 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			return def.Workspace.ProjectDir(), ok && def.MemoryConfig.Enabled && def.Engine == catalog.AgentEngineNative && def.ProxyConfig == nil && def.Mode != "CHANNEL"
 		}).WithArchives(archiveStore)
 	var webapps *webapp.Service
+	var webappRunner *webapphost.Runner
+	var appBridge *webappbridge.Service
 	cleanupWebapps := true
 	if cfg.WebApps.Enabled {
-		webapps, err = webapp.Open(webapp.Options{Root: cfg.Paths.WebAppsDir, DataRoot: cfg.Paths.WebAppDataDir, Config: cfg.WebApps, Runner: webapphost.NewRunner(cfg.Paths.WebAppsDir, cfg.WebApps, webappHostStatus != nil && webappHostStatus.BackendPrerequisitesReady)})
+		webappRunner = webapphost.NewRunner(cfg.Paths.WebAppsDir, cfg.WebApps, webappHostStatus != nil && webappHostStatus.BackendPrerequisitesReady)
+		webapps, err = webapp.Open(webapp.Options{Root: cfg.Paths.WebAppsDir, DataRoot: cfg.Paths.WebAppDataDir, Config: cfg.WebApps, Runner: webappRunner})
 		if err != nil {
 			return nil, fmt.Errorf("initialize WebApp storage: %w", err)
 		}
@@ -496,8 +501,24 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			_ = webapps.Close()
 		}
 	}()
+	if webapps != nil {
+		appBridge = webappbridge.New(webappbridge.Options{Apps: webapps, Owner: cfg.Auth.AllowedSubjects[0], Connectors: &connectorops.Service{Auth: connectorAuth, Sources: cfg.Paths.ConnectorSources()}})
+		if err := appBridge.ListenInternal(); err != nil {
+			return nil, fmt.Errorf("initialize WebApp bridge: %w", err)
+		}
+		webappRunner.SetBridge(func(spec webapp.RuntimeSpec) (webapphost.BridgeGrant, error) {
+			url, token, revoke, err := appBridge.GrantBackend(spec)
+			return webapphost.BridgeGrant{URL: url, Token: token, Revoke: revoke}, err
+		})
+	}
+	defer func() {
+		if cleanupWebapps && appBridge != nil {
+			appBridge.Close()
+		}
+	}()
 	srv, err = server.New(server.Dependencies{
 		WebApps:           webapps,
+		WebAppActions:     appBridge,
 		BackgroundContext: backgroundCtx,
 		Config:            cfg,
 		Chats:             chatStore,
@@ -662,6 +683,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	cleanupWebapps = false
 
 	return &App{
+		webappBridge:           appBridge,
 		webapps:                webapps,
 		mailbox:                mailService,
 		nativeConnectorRelease: nativeRelease,
@@ -692,6 +714,9 @@ func (a *App) Close() error {
 		if err := a.webapps.Close(); err != nil {
 			log.Printf("close WebApps: %v", err)
 		}
+	}
+	if a.webappBridge != nil {
+		a.webappBridge.Close()
 	}
 	if a.nativeConnectorRelease != nil {
 		defer a.nativeConnectorRelease()

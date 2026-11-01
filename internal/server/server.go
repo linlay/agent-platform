@@ -84,6 +84,7 @@ type QueryRuntime interface {
 
 type Dependencies struct {
 	WebApps                *webapp.Service
+	WebAppActions          webappgateway.Actions
 	WebAppHost             *webapphost.Status
 	Mailbox                *mailbox.Service
 	Sessions               *session.Builder
@@ -294,6 +295,7 @@ func New(deps Dependencies) (*Server, error) {
 	s.skillOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.SkillsCenterDir)
 	if deps.Config.WebApps.Enabled && deps.WebApps != nil {
 		s.webAppGateway = webappgateway.New(deps.WebApps, deps.Config.WebApps)
+		s.webAppGateway.Actions = deps.WebAppActions
 		s.webAppGateway.PlatformAuthorization = func(value string) bool {
 			if !strings.HasPrefix(value, "Bearer ") {
 				return false

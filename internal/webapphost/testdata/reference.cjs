@@ -1,6 +1,7 @@
 const http=require('node:http'),fs=require('node:fs'),net=require('node:net'),crypto=require('node:crypto');
 const server=http.createServer(async(req,res)=>{
  if(req.url==='/health'){res.end('ok');return}
+ if(req.url==='/api/sdk'){try{const {createBackendClient}=await import('./bridge.mjs');const client=createBackendClient({url:process.env.DESKTOP_ACTION_BRIDGE_URL,token:process.env.DESKTOP_ACTION_BRIDGE_TOKEN});res.end(JSON.stringify(await client.connector.list()))}catch(error){res.statusCode=500;res.end(error.code||'sdk_failed')}return}
  if(req.url==='/api/sse'){res.writeHead(200,{'Content-Type':'text/event-stream'});res.write('data: ready\n\n');const timer=setInterval(()=>res.write('data: tick\n\n'),50);req.on('close',()=>clearInterval(timer));return}
  if(req.url==='/api/crash'){res.end('crashing');setTimeout(()=>process.exit(12),20);return}
  if(req.url==='/api/echo'){res.setHeader('Set-Cookie',['ap_webapp_0123456789abcdef=forged; Path=/','business=ok; Path=/','bad=domain; Domain=127.0.0.1; Path=/']);res.end(JSON.stringify({cookie:req.headers.cookie||'',authorization:req.headers.authorization||'',forwarded:req.headers['x-forwarded-host']||'',identity:req.headers['x-agent-owner']||''}));return}

@@ -5,13 +5,13 @@ import "context"
 // RuntimeSpec is trusted, immutable host input, never a request DTO. Transport
 // adapters only receive Scope; no application can supply roots or credentials.
 type RuntimeSpec struct {
-	ID, Generation, CodeRoot, DataRoot, ManagementRoot string
-	Manifest                                           Manifest
-	UserConfig                                         map[string]any
-	Policy                                             Policy
-	OnUnavailable                                      func(string)
-	Check                                              func() error
-	Context                                            context.Context
+	ID, Generation, CodeRoot, DataRoot, ManagementRoot, InstallationID string
+	Manifest                                                           Manifest
+	UserConfig                                                         map[string]any
+	Policy                                                             Policy
+	OnUnavailable                                                      func(string)
+	Check                                                              func() error
+	Context                                                            context.Context
 }
 type ProcessExit struct {
 	Code   int

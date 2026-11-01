@@ -25,7 +25,9 @@ import (
 	"time"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/connectorops"
 	"agent-platform/internal/webapp"
+	"agent-platform/internal/webappbridge"
 	"agent-platform/internal/webappgateway"
 	"agent-platform/internal/webapphost"
 	"github.com/gorilla/websocket"
@@ -74,10 +76,19 @@ func nativeFixture(t *testing.T) (*webapp.Service, *webappgateway.Gateway, webap
 			return err
 		})
 	})
+	bridge := webappbridge.New(webappbridge.Options{Apps: s, Owner: "owner", Connectors: &connectorops.Service{}})
+	if err := bridge.ListenInternal(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(bridge.Close)
+	options.Runner.(*webapphost.Runner).SetBridge(func(spec webapp.RuntimeSpec) (webapphost.BridgeGrant, error) {
+		url, token, revoke, err := bridge.GrantBackend(spec)
+		return webapphost.BridgeGrant{URL: url, Token: token, Revoke: revoke}, err
+	})
 	var out bytes.Buffer
 	z := zip.NewWriter(&out)
 	manifest := `{"schemaVersion":2,"id":"webapp-0123456789abcdef","key":"reference-app","label":"Reference","version":"1.0.0","target":"linux-x64","frontend":{"root":"frontend","index":"index.html","routeConfig":{"backendPrefixes":["/api"]}},"backend":{"command":{"type":"electron-node","entry":"backend/main.cjs"},"health":{"type":"http","path":"/health","startupTimeoutMs":10000},"shutdownTimeoutMs":1000}}`
-	for name, data := range map[string][]byte{"webapp.json": []byte(manifest), "frontend/index.html": []byte("<h1>reference</h1>"), "backend/main.cjs": reference} {
+	for name, data := range map[string][]byte{"webapp.json": []byte(manifest), "frontend/index.html": []byte("<h1>reference</h1>"), "backend/main.cjs": reference, "backend/bridge.mjs": bridge.Module()} {
 		f, _ := z.Create("webapp-0123456789abcdef/" + name)
 		_, _ = f.Write(data)
 	}
@@ -96,6 +107,7 @@ func nativeFixture(t *testing.T) (*webapp.Service, *webappgateway.Gateway, webap
 	}
 	e = waitState(t, s, e.ID, "running")
 	g := webappgateway.New(s, cfg)
+	g.Actions = bridge
 	t.Cleanup(g.Close)
 	return s, g, e, options
 }
@@ -356,7 +368,7 @@ func updateNative(t *testing.T, s *webapp.Service, e webapp.Entry, version, heal
 	raw, _ := json.Marshal(manifest)
 	var out bytes.Buffer
 	z := zip.NewWriter(&out)
-	for name, data := range map[string][]byte{"webapp.json": raw, "frontend/index.html": []byte("<h1>" + version + "</h1>"), "backend/main.cjs": reference} {
+	for name, data := range map[string][]byte{"webapp.json": raw, "frontend/index.html": []byte("<h1>" + version + "</h1>"), "backend/main.cjs": reference, "backend/bridge.mjs": webappbridge.SDKModule()} {
 		f, _ := z.Create(e.ID + "/" + name)
 		f.Write(data)
 	}
@@ -507,5 +519,42 @@ func TestComposeNativeConfigurationAndPolicyRebuildGeneration(t *testing.T) {
 	e = waitState(t, s, e.ID, "running")
 	if e.Generation == current.Generation || current.Check() == nil || current.Context.Err() == nil {
 		t.Fatal("policy failed to revoke old authority")
+	}
+}
+
+func TestComposeNativeBackendSDKUsesScopedInternalTransport(t *testing.T) {
+	s, g, e, _ := nativeFixture(t)
+	client, origin := openClient(t, g, e.ID)
+	response, err := client.Get(origin + "/api/sdk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(response.Body)
+	response.Body.Close()
+	if response.StatusCode != 200 || string(raw) != "{\"items\":[]}" {
+		t.Fatal("SDK transport", response.StatusCode, string(raw))
+	}
+	if strings.Contains(string(raw), "wbb_") || strings.Contains(string(raw), "wba_") {
+		t.Fatal("credential exposed")
+	}
+	old, _ := s.Acquire(e.ID)
+	old.Release()
+	c, _ := s.Configuration(e.ID)
+	if _, err := s.SavePolicy(e.ID, webapp.PolicyRequest{ExpectedRevision: c.Policy.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, s, e.ID, "running")
+	if old.Check() == nil {
+		t.Fatal("old SDK authority survived")
+	}
+	client, origin = openClient(t, g, e.ID)
+	response, err = client.Get(origin + "/api/sdk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = io.ReadAll(response.Body)
+	response.Body.Close()
+	if response.StatusCode != 200 {
+		t.Fatal("new SDK grant", string(raw))
 	}
 }

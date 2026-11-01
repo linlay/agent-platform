@@ -36,6 +36,7 @@ type Scope struct {
 	Policy             Policy
 	UserConfig         map[string]any
 	CodeRoot, DataRoot string
+	InstallationID     string
 	BackendAddress     string
 	Generation         string
 	Context            context.Context
@@ -207,7 +208,11 @@ func (s *Service) stopLocked(ctx context.Context, id string, request StateReques
 	}
 	return s.entry(r), nil
 }
-func (s *Service) Acquire(id string) (*Scope, error) {
+func (s *Service) Acquire(id string) (*Scope, error) { return s.acquire(id, "", "", false) }
+func (s *Service) AcquireInstance(id, generation, policyRevision string) (*Scope, error) {
+	return s.acquire(id, generation, policyRevision, true)
+}
+func (s *Service) acquire(id, expectedGeneration, expectedPolicy string, internal bool) (*Scope, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.mutationError(); err != nil {
@@ -217,11 +222,11 @@ func (s *Service) Acquire(id string) (*Scope, error) {
 	if r == nil {
 		return nil, fail("webapp_not_found", 404)
 	}
-	if s.installing[id] {
+	if s.installing[id] && !internal {
 		return nil, fail("webapp_update_in_progress", 503)
 	}
 	a := s.active[id]
-	if a == nil || a.state != "running" || a.ctx.Err() != nil {
+	if a == nil || a.ctx.Err() != nil || (!internal && a.state != "running") || (internal && (a.generation != expectedGeneration || s.policies[id].Revision != expectedPolicy || (a.state != "running" && a.state != "starting"))) {
 		return nil, fail("webapp_not_running", 503)
 	}
 	values, _, err := s.readUserConfig(id)
@@ -240,9 +245,12 @@ func (s *Service) Acquire(id string) (*Scope, error) {
 	}
 	generation := a.generation
 	appCtx := a.ctx
-	return &Scope{BackendAddress: address, Entry: s.entry(r), Manifest: r.Manifest, Policy: policy, UserConfig: values, CodeRoot: filepath.Join(s.root, id, "app"), DataRoot: filepath.Join(s.dataRoot, id), Generation: a.generation, Context: a.ctx, Release: func() { once.Do(a.leases.Done) }, Check: func() error {
+	return &Scope{InstallationID: r.InstallationID, BackendAddress: address, Entry: s.entry(r), Manifest: r.Manifest, Policy: policy, UserConfig: values, CodeRoot: filepath.Join(s.root, id, "app"), DataRoot: filepath.Join(s.dataRoot, id), Generation: a.generation, Context: a.ctx, Release: func() { once.Do(a.leases.Done) }, Check: func() error {
 		if appCtx.Err() != nil {
 			return fail("app_grant_required", 403)
+		}
+		if internal {
+			return s.instanceCheck(id, generation, policy.Revision)
 		}
 		return s.Check(id, generation, policy.Revision)
 	}}, nil
@@ -393,7 +401,7 @@ func (s *Service) runBackend(id string, a *activeApp, r Record, policy Policy) {
 		values, _, configError := s.readUserConfig(id)
 		appCtx := a.ctx
 		s.mu.Unlock()
-		spec := RuntimeSpec{ID: id, Generation: generation, CodeRoot: filepath.Join(s.root, id, "app"), DataRoot: filepath.Join(s.dataRoot, id), ManagementRoot: filepath.Join(s.root, id), Manifest: r.Manifest, Policy: policy, UserConfig: values, Context: appCtx, Check: func() error { return s.instanceCheck(id, generation, policy.Revision) }}
+		spec := RuntimeSpec{ID: id, InstallationID: r.InstallationID, Generation: generation, CodeRoot: filepath.Join(s.root, id, "app"), DataRoot: filepath.Join(s.dataRoot, id), ManagementRoot: filepath.Join(s.root, id), Manifest: r.Manifest, Policy: policy, UserConfig: values, Context: appCtx, Check: func() error { return s.instanceCheck(id, generation, policy.Revision) }}
 		spec.OnUnavailable = func(reason string) {
 			s.mu.Lock()
 			if s.active[id] == a && a.generation == generation && a.state != "stopping" {

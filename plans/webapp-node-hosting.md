@@ -634,7 +634,7 @@ singapore02 已在正式加固参数的原生 amd64 容器中验证 ABI4 核心�
 | 2 | 本地静态网关、票据/session/CSRF、静态启停及最小 WebClient 管理入口 | 已接入并通过定向回归；独立域名按顶部用户修订延期 |
 | 3 | supervisor 启动受限 Node、端口、启动健康、HTTP/WS/SSE、日志及停止 | 已接入并通过原生 Linux 加固容器定向验收 |
 | 4 | 持续健康、退避、后代清理、异常与 Compose 恢复、运行中更新和回退 | 持续监测/退避/后代与新 generation 恢复、运行中更新和健康失败回退已接入；实际 Compose 故障演练归批次 7 |
-| 5 | 云端 SDK transport、配置、应用授权、token 与连接器适配 | 待实施；真实调用与撤权取消、管理身份隔离通过 |
+| 5 | 云端 SDK transport、配置、应用授权、token 与连接器适配 | 已接入；MCP 回执、撤销、原生受限 Node SDK 调用验证通过 |
 | 6 | assistant、skill、artifact 的资源归属、流式与取消 | 待实施；承诺 action 的真实服务集成通过 |
 | 7 | DNS/TLS/nginx、升级回滚与故障演练及第 15 节完整验收 | 待实施；目标环境验收后再更新完整交付描述 |
 
@@ -667,3 +667,7 @@ Desktop 从权威源码生成含 Linux 目标的 schema/validator；共享完整
 ## 25. 批次 4 验证
 
 运行中更新在同应用锁下停止旧实例、保留 prepared journal、验证新实例后提交，失败恢复原记录/期望状态并重启旧版本。配置按 generation 生成只读快照，授权变更立即撤销旧代次；长操作新增有界受理记录和 owner 查询，不因取消 HTTP 等待重放操作。原生 Linux 候选通过更新/回退/配置快照/授权重建/重启耗尽/取消退避；Go race 覆盖事务恢复和受理任务关闭。真实 Compose 进程/容器故障演练仍待批次 7。
+
+## 26. 批次 5 验证
+
+页面 session/CSRF 与后端 bootstrap/短期 action token 分离，配置返回与共享 SDK 对齐，连接器复用中立 connectorops scope，不伪造 Desktop 设备身份或放宽 HTTP grant。持久回执跨应用更新/重启保持安装 namespace，invoke 要求稳定业务 key。真实本地 MCP 回归及原生 Linux 受限 Node 的内部 SDK 调用通过；未知本机能力和后续未注册适配显式不可用。Desktop 共享 SDK 按云端凭证前缀兑换，原 macOS/Windows 调用保持原协议；builder 后端资产由生成器统一投影。

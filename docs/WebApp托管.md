@@ -8,7 +8,7 @@
 
 ## 当前实现范围
 
-完整设计见 [Linux Docker Compose WebApp 托管方案](../plans/webapp-node-hosting.md)。当前代码已接入部署选择、严格配置、owner/Host 边界、Node 制品与隔离探测，以及 owner ZIP 上传、预检、安装、停止状态更新和卸载事务。静态/Node 网关、票据/会话、启停、最小 WebClient 管理和受限 Node 监督已接入；运行中更新、失败回退和配置/授权重建已接入；应用 SDK 继续按后续批次实现，不能把安装管理视为完整托管交付。
+完整设计见 [Linux Docker Compose WebApp 托管方案](../plans/webapp-node-hosting.md)。当前代码已接入部署选择、严格配置、owner/Host 边界、Node 制品与隔离探测，以及 owner ZIP 上传、预检、安装、停止状态更新和卸载事务。静态/Node 网关、票据/会话、启停、最小 WebClient 管理和受限 Node 监督已接入；运行中更新、失败回退和配置/授权重建已接入；SDK transport、配置和连接器适配已接入；assistant/skill/artifact 继续按后续批次实现，不能把安装管理视为完整托管交付。
 
 共享 Manifest 已补齐 Linux 目标及合法/非法输入 fixture，builder 同步离线纯 JS 包约束；Desktop 仍拒绝安装 Linux 目标包。Go 安装器嵌入 Desktop 生成的 schema 并消费同一 fixture；`scripts/sync-webapp-contracts.py --check --desktop-root <Desktop源码根>` 检查复制漂移，不在生产环境读取相邻源码。小批次边界与验证限制见计划第 21 节。
 
@@ -106,7 +106,7 @@ WebClient `/webapps` 仅在普通 Platform 模式展示；Desktop 沿用自己�
 
 打开返回一次性表单 POST action，不在 URL、历史或持久存储中保存票据。应用端精确核验平台 Origin；兑换后设置每应用独立名字的 host-only HttpOnly、SameSite=Lax Cookie。本地 HTTP 不设置 Secure，限于上述 loopback 部署边界。票据一分钟过期、单次兑换；会话闲置三十分钟、最长八小时，绑定应用、generation、policy revision。停止及显式 `/sessions/revoke` 撤销访问。当前普通 Platform 没有统一登出回调，外部 SSO 登出不等同于此撤销接口；后续鉴权接入需同步处理。
 
-静态只读 `frontend.root`，不列目录、不公开 Manifest/后端文件；只对 HTML 导航做 SPA fallback。应用端口不能进入平台管理路由，Host 必须精确匹配本监听端口；请求不采信转发头。业务写入/WS 要求应用精确 Origin，SDK 保留路径暂不转发。
+静态只读 `frontend.root`，不列目录、不公开 Manifest/后端文件；只对 HTML 导航做 SPA fallback。应用端口不能进入平台管理路由，Host 必须精确匹配本监听端口；请求不采信转发头。业务写入/WS 要求应用精确 Origin，SDK 保留路径只进入宿主 bridge，不转给 Node。
 
 回归已覆盖 Go race、共享契约、设置修订、停止排空与恢复、真实 loopback HTTP Host 校验、会话/票据过期及撤销。WebClient 类型、边界、国际化、定向测试及独立缓存的生产 build 通过；浏览器 fixture 验证安装后 stopped 展示、启动交互与访问范围页面，无脚本错误。整个 server 包首次回归出现已有连接数时序用例失败，单独复测该例与 WebApp 用例通过，未放宽断言。
 
@@ -131,3 +131,15 @@ WebClient `/webapps` 仅在普通 Platform 模式展示；Desktop 沿用自己�
 Node 每代使用宿主写入的只读用户配置快照，与本代可写 tmp 分离。缺省字段按当前 Manifest 补齐、移除字段不再投影，但原保存数据保留，保证前端 SDK 与后端读取一致，也能回退旧版本。快照及 generation 临时目录仅在确认旧写入者退出后清理；授权与用户配置变更均不扩大应用包已有授权。
 
 原生 Linux 加固候选已通过运行中更新、新版本健康失败回退、只读配置快照、配置/授权导致 generation 变化、重启预算耗尽和停止取消 backoff。该结果仍不替代实际 Compose SIGKILL/重启和完整新镜像验收，后者留在批次 7。
+
+## SDK 与连接器（批次 5）
+
+页面使用宿主提供的 SDK 模块与 Cookie session，每个 action POST 自动从已认证 bootstrap 获取 CSRF；应用配置与用户配置按共享 SDK 形状返回。云端模块明确关闭 visitor preload 身份和本机 UI 能力，不把 Desktop 对话框、剪贴板、图片助理或账号登录误报为云端可用。
+
+Node 仅获得当前 generation 的 bootstrap 能力凭证，通过精确 loopback 内部端点兑换十分钟 action token。共享 SDK 只在显式云端凭证前缀时执行兑换；Desktop 原有凭证保持直接调用。内部端点拒绝 Origin、错误 Host、Cookie 和任意路径；每次调用再次核验应用、generation、policy。停止、配置/授权重建和进程退出撤销旧凭证。bootstrap 凭证是本代续发权，不是 owner JWT；不进入页面、URL、持久配置或宿主日志。
+
+连接器只暴露 owner 授予的 id/adapter，scope 的 subject、安装 namespace 和 check 来自宿主，不接收 appId、deviceId 或 owner 参数。应用调用直接复用进程内 connectorops，不调用需要可信 Desktop device 身份的 HTTP grant 创建入口，也不放宽该入口。OneID 连接器保持既有 unsupported 规则。账号登录/配置由 owner 在现有连接器管理页完成，WebApp SDK 不能代替管理身份。
+
+Compose invoke 要求稳定 idempotencyKey；沿用连接器持久回执，更新和重启保持安装 namespace，相同 key/参数不重放，冲突参数拒绝，未知结果保持 unknown。重新安装使用新的安装身份。外部服务已经执行的副作用不能靠停止 HTTP 或回滚代码撤销。
+
+Go race 回归通过 Cookie/Origin/CSRF、配置形状、凭证过期与撤销、身份字段拒绝、bridge 关闭取消；真实本地 MCP 服务验证回执跨 generation 和更新仍不重放。原生 Linux 加固候选的受限 Node 已使用共享 SDK 完成内部凭证兑换及调用，授权变化后旧代次失效。未注册的 assistant/skill/artifact 适配当前不会被报告为可用，接入后再更新能力清单。

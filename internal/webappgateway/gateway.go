@@ -2,6 +2,7 @@ package webappgateway
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"io"
 	"mime"
@@ -17,7 +18,13 @@ import (
 	"agent-platform/internal/webapp"
 )
 
+type Actions interface {
+	Module() []byte
+	ServeHTTP(http.ResponseWriter, *http.Request, *webapp.Scope)
+}
+
 type Gateway struct {
+	Actions               Actions
 	PlatformAuthorization func(string) bool
 	service               *webapp.Service
 	config                config.WebAppsConfig
@@ -169,6 +176,24 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	switch r.URL.Path {
+	case "/__desktop/bridge.js":
+		if r.Method != "GET" || g.Actions == nil {
+			break
+		}
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = w.Write(g.Actions.Module())
+		return
+	case "/__desktop/actions/call":
+		if r.Method != "POST" || g.Actions == nil {
+			break
+		}
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-WebApp-CSRF")), []byte(csrf)) != 1 {
+			writeError(w, &webapp.Error{Code: "webapp_csrf_required", Status: 403})
+			return
+		}
+		g.Actions.ServeHTTP(w, r, scope)
+		return
+
 	case "/__desktop/bootstrap.json":
 		if r.Method != "GET" {
 			break
@@ -179,13 +204,13 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" {
 			break
 		}
-		jsonResult(w, scope.Manifest.AppConfig)
+		jsonResult(w, map[string]any{"appConfig": scope.Manifest.AppConfig})
 		return
 	case "/__desktop/user-config.json":
 		if r.Method != "GET" {
 			break
 		}
-		jsonResult(w, scope.UserConfig)
+		jsonResult(w, map[string]any{"values": scope.UserConfig})
 		return
 	}
 	if r.URL.Path == "/__desktop" || strings.HasPrefix(r.URL.Path, "/__desktop/") {
