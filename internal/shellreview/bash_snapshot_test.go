@@ -158,8 +158,38 @@ func TestBashReviewNormalizedBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != string(want) {
-		wantLines := strings.Split(strings.TrimSuffix(string(want), "\n"), "\n")
+	// Keep the migration snapshot immutable during this rollout. Reviewed
+	// resource behavior changes are visible in a separate six-row delta file.
+	wantLines := strings.Split(strings.TrimSuffix(string(want), "\n"), "\n")
+	indices := map[string]int{}
+	key := func(line string) string {
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) < 3 {
+			t.Fatalf("invalid baseline/delta row: %q", line)
+		}
+		return parts[0] + "\t" + parts[1]
+	}
+	for i, line := range wantLines {
+		indices[key(line)] = i
+	}
+	delta, err := os.ReadFile(filepath.Join("testdata", "bash-review-unix-resource-delta.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimSpace(string(delta)), "\n") {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k := key(line)
+		index, exists := indices[k]
+		if !exists || seen[k] {
+			t.Fatalf("unknown or duplicate resource delta: %q", line)
+		}
+		seen[k] = true
+		wantLines[index] = line
+	}
+	if got != strings.Join(wantLines, "\n")+"\n" {
 		for i, line := range lines {
 			if i >= len(wantLines) || wantLines[i] != line {
 				t.Fatalf("baseline differs at row %d:\n got: %s\nreview testdata/bash-review-baseline.txt before updating", i+1, line)
