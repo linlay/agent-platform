@@ -316,15 +316,25 @@ static int inner_run(char **argv, int grace) {
     pid_t node = fork(); if (node < 0) return 70;
     if (node == 0) {
         close(errors[0]); pid_t supervisor = getppid();
+        int report_fd = errors[1];
         int failed = prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) < 0 || getppid() != supervisor ||
             setsid() < 0 || chdir(argv[2]) < 0 || restrict_node(argv) < 0;
         if (!failed) {
             // An exec-error pipe is the only temporary non-stdio descriptor;
             // CLOEXEC closes it before any application code runs.
-            if (dup3(errors[1], 3, O_CLOEXEC) < 0 || syscall(SYS_close_range, 4U, ~0U, 0) < 0) failed = 1;
-            else { execv("/opt/node/bin/node", &argv[11]); failed = 1; }
+            if (dup3(errors[1], 3, O_CLOEXEC) < 0) failed = 1;
+            else {
+                report_fd = 3;
+                if (syscall(SYS_close_range, 4U, ~0U, 0) < 0) failed = 1;
+                else { execv("/opt/node/bin/node", &argv[11]); failed = 1; }
+            }
         }
-        if (failed) { int value = errno ? errno : EACCES; (void)write(errors[1], &value, sizeof(value)); (void)write(3, &value, sizeof(value)); }
+        if (failed) {
+            int value = errno ? errno : EACCES;
+            ssize_t sent;
+            do { sent = write(report_fd, &value, sizeof(value)); } while (sent < 0 && errno == EINTR);
+            if (sent != (ssize_t)sizeof(value)) _exit(77);
+        }
         _exit(77);
     }
     close(errors[1]); int error = 0; ssize_t count;

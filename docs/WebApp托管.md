@@ -8,7 +8,7 @@
 
 ## 当前实现范围
 
-完整设计见 [Linux Docker Compose WebApp 托管方案](../plans/webapp-node-hosting.md)。当前代码已接入部署选择、严格配置、owner/Host 边界、Node 制品与隔离探测，以及 owner ZIP 上传、预检、安装、停止状态更新和卸载事务。静态/Node 网关、票据/会话、启停、最小 WebClient 管理和受限 Node 监督已接入；运行中更新、失败回退和配置/授权重建已接入；SDK transport、配置和连接器适配已接入；assistant/skill/artifact 已接入既有 Runtime/Catalog/ChatResource；完整镜像和 Compose 故障验收仍待批次 7，不能把安装管理视为完整托管交付。
+完整设计见 [Linux Docker Compose WebApp 托管方案](../plans/webapp-node-hosting.md)。当前代码已接入部署选择、严格配置、owner/Host 边界、Node 制品与隔离探测，以及 owner ZIP 上传、预检、安装、停止状态更新和卸载事务。静态/Node 网关、票据/会话、启停、最小 WebClient 管理和受限 Node 监督已接入；运行中更新、失败回退和配置/授权重建已接入；SDK transport、配置和连接器适配已接入；assistant/skill/artifact 已接入既有 Runtime/Catalog/ChatResource；本轮本地托管及批次 7 候选验收已完成，详见下方验证记录；生产未切换，域名能力延期。
 
 共享 Manifest 已补齐 Linux 目标及合法/非法输入 fixture，builder 同步离线纯 JS 包约束；Desktop 仍拒绝安装 Linux 目标包。Go 安装器嵌入 Desktop 生成的 schema 并消费同一 fixture；`scripts/sync-webapp-contracts.py --check --desktop-root <Desktop源码根>` 检查复制漂移，不在生产环境读取相邻源码。小批次边界与验证限制见计划第 21 节。
 
@@ -155,3 +155,31 @@ execute 复用 Runtime 的 schema 校验、result_submit 和取消机制，最�
 归属收据保存在宿主管理根 `.sdk`，以安装身份区分；代码更新保留身份，卸载重装生成新身份。每个安装最多记录 1024 个新 Chat，达到限额明确拒绝创建，不静默移除旧记录。artifact 只访问收据绑定且 Chat 根 Agent 匹配的已发布 Run 产物，复用 ChatResource 的规范路径、摘要和大小验证；读取上限 512 KiB。open/saveAs 等原生展示能力仍明确不可用，调用方可消费 read 返回的字节流。
 
 验证包含真实 Runtime 与模拟模型服务的 execute/result_submit、后台文本事件、运行中停止及 generation 租约排空；归属写入失败不启动模型，跨应用/重装/旧 generation 拒绝，元数据投影和产物内容篡改拒绝。完整镜像、Compose 进程故障及资源恢复演练另见批次 7 验收记录。
+
+
+## 本地候选验收（批次 7，2026-11-01）
+
+本轮范围内批次 0–7 完成并分批提交。生产仍使用原镜像与关闭的 WebApp 配置；候选运行在 singapore02 独立的 agent-platform-webapp-acceptance Compose 项目，使用虚构 owner/key、独立配置和数据，未挂载生产目录。
+
+完整 Dockerfile 在原生 linux/amd64 构建成功，候选镜像摘要 `sha256:2026d6800e736bc4c06e674ad8ee2570454f30f44ddef47970fd9106483f2b78`，大小 409509208 字节，比已有带 Node 的 v0.5.31 增加 831629 字节。UID10001、可写私有 HOME、不可写 /opt 与 Node/helper、无 npm/gcc 均实测通过。helper 强化编译发现未消费 write 返回值，已修复并以 Dockerfile 的完整编译参数验证。目标 ABI4，ipcScoped/deviceIoctlRestricted 为 false，不宣称 ABI6 增强已在该服务器实测。
+
+| 范围 | 验证结果 |
+| --- | --- |
+| 契约与存储 | Desktop/Go 共享 schema、22 组 fixture、纯 JS/Linux 边界与 SDK 复制漂移检查通过；ZIP/摘要/revision/journal 中断、数据保留与清理由 Go 回归覆盖 |
+| 受限 Node | 原生加固容器通过文件/proc/代码/config 拒绝、敏感环境剥离、分配端口、HTTP/WS/SSE、停止断流、supervisor/watcher SIGKILL、退避和配置/授权重建；独立 C 测试验证 setsid/double-fork 清理且保留无关兄弟 |
+| 隔离不可用 | seccomp 显式拒绝 Landlock，诊断不可用，Runner 拒绝执行且不创建 generation；不提供无隔离回退 |
+| 更新与恢复 | 真实发布 Compose 通过运行中更新、健康失败回退、Platform SIGKILL、容器重启、全新 generation、数据和 SDK 恢复；旧 v0.5.31 → 候选升级及匹配停机快照回滚均通过 |
+| 资源压力 | 64 MiB tmpfs 实际 ENOSPC 后释放空间并继续读写；4 MiB 无换行日志按 1 MiB×2 轮转；RSS 阈值、占用端口拒绝通过。仅对候选 cgroup 降为 128 MiB，受监督 Node 触发 OOM，恢复上限后应用和 SDK 恢复 |
+| 浏览器 | Chrome 经 SSH 转发执行真实 launch POST、303、host-only/HttpOnly/SameSite 会话、共享 SDK import、CSRF 引导、配置和连接器调用；一次性票据和主 API Origin 拒绝通过 |
+| SDK | 真实 MCP 回执不重放；Runtime/模拟模型验证 execute/result_submit、chat 文本与停止排空；跨应用、重装、旧 generation 和产物摘要篡改拒绝 |
+| 跨仓回归 | Platform `go test -p 2 ./...` 全量通过，相关 race 通过；Linux/Windows 主程序交叉编译；Desktop WebApp 140 项通过。WebClient build、类型、边界、i18n 及 WebApp 3 套件/8 项通过 |
+
+WebClient 扩展全量检查有 4 个既有失败套件、32 个失败；在未修改的原始主线逐个复测相同，不作为本次通过项。Platform 首次并行全量遇到既有 npm 发现超时，单例与低并发全量通过，未调整断言或超时。macOS/Windows 的原生 Desktop UI 与生产切换不在这次 Linux 本地候选结论中。
+
+可重复的 Compose 验证脚本为 `scripts/test-webapp-compose.py`，只接受固定隔离项目与候选镜像，要求空的独立数据目录。按照发布 Compose 准备 configs、仅用于测试的 RSA key、唯一虚构 owner、issuer/audience 为 webapp-acceptance、平台 origin 为 http://127.0.0.1:11973，以及前端 loopback override；私钥放 fixture/test-key.pem，不提交。然后在 Docker 主机运行：
+
+```bash
+python3 scripts/test-webapp-compose.py --fixture <隔离Compose目录> --repo <源码根>
+```
+
+该脚本会对候选执行 SIGKILL、更新回退、重启和 OOM，不能用于生产。原生 Go 验证通过 WEBAPP_NATIVE_TEST=1 开启，并以带 Node/helper 的候选镜像运行交叉编译测试；磁盘压力测试要求 /tmp 为小于 256 MiB 的独立 tmpfs。域名路由、DNS/TLS/nginx 及公网浏览器验收继续保留为明确后续工作。

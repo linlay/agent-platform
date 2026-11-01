@@ -22,9 +22,9 @@ auth:
   # allowed-subjects: []       # 非空时只接受列表内的 sub，其他用户的有效 token 也拒绝
   # require-expiry: false      # true 时拒绝没有 exp 的 token
 
-# Linux Compose only. ZIP installation and private static serving are available.
-# Node execution and SDK progress are recorded in docs/WebApp托管.md.
-# Keep disabled outside integration testing. Compose selects --webapp-host=compose;
+# Linux Compose only: local static/Node hosting and owner-scoped SDK.
+# Read docs/WebApp托管.md for activation, isolation limits and verified scope.
+# Disabled by default; enable only after configuring the owner and origin. Compose selects --webapp-host=compose;
 # enabled also requires issuer/audience/expiry and exactly one allowed subject.
 webapps:
   enabled: false

@@ -70,17 +70,25 @@ docker compose ps        # 等到 STATUS 为 healthy
 | 资源 | 内存、CPU、进程数上限见 `.env` |
 | 日志 | json-file，单文件 20 MB，保留 5 个 |
 
-### WebApp 前置诊断（尚未提供应用托管）
+### WebApp 本地端口托管
 
-Compose 已显式传入 `--webapp-host=compose`，但 `configs/runtime.yml` 的 `webapps.enabled` 默认关闭。仅集成测试时开启，并配置 auth.enabled、issuer、audience、require-expiry 和唯一 allowed-subjects owner，以及 webapps.platform-origin、content-domain、instance-slug。内容域须位于不同于平台的注册域名下。
+默认 `webapps.enabled: false`。开启前配置 auth.enabled、issuer、audience、require-expiry 和唯一 allowed-subjects owner；`webapps.platform-origin` 使用平台实际 origin。本地验收可设 `http://127.0.0.1:<AP_PORT>`，resource.public-base-url 若设置须相同。独立域名、DNS/TLS/nginx 另行实施，本轮不配置 content-domain 或 instance-slug。
 
-开启后，使用平台 origin 和 owner JWT 访问 `GET /api/admin/webapps/host`，检查 nodeReady、supervisorReady、landlockAbi、isolationReady 和 backendPrerequisitesReady。该接口只报告前置条件，hostingAvailable 当前固定 false，不能用于安装或启动应用；不可用不会自动降低隔离。容器的 loopback healthcheck 保持可用，其他未知 Host 不再回落平台 API。细节见源码仓库 docs/WebApp托管.md。
+容器前端监听显式设 `webapps.frontend.listen-address: 0.0.0.0`，再使用发布包的 override：
 
-镜像构建定义包含锁定 Node 与辅助程序，正式安装仍需验证构建、制品校验及 Linux 原生环境。macOS Docker Desktop 的 amd64 仿真结果不能替代原生 linux/amd64 的 Landlock 验收。Compose 停止宽限期预留为 45 秒；现有 Go 运行时关闭超时仍沿用当前实现，WebApp 生命周期会在后续阶段接入。
+```bash
+docker compose -f compose.yml -f compose.webapps.yml up -d
+```
+
+override 仅把前端范围发布到宿主 `127.0.0.1`；范围必须与 runtime 配置一致。Node 后端和内部 SDK 端口保持容器 loopback，不发布。远程浏览器通过 SSH 转发平台端口及使用到的应用端口，保持两端端口相同。不同端口不能隔离 Cookie；本地模式仅面向 owner 审核的可信应用，不把其端口暴露到公网。
+
+owner 使用 `GET /api/admin/webapps/host` 检查 nodeReady、supervisorReady、landlockAbi、isolationReady 和 backendPrerequisitesReady。Node 前提通过时 hostingAvailable 为 true；缺失隔离时后端拒绝启动，静态应用可单独使用。WebClient 普通 Platform 模式的 `/webapps` 提供 ZIP 审阅安装、启停、打开、配置、明确授权和日志；首次安装 stopped，卸载保留数据，清理数据需显式选择。
+
+镜像已锁定 Node 与 helper，运行 UID10001、只读根、drop ALL/no-new-privileges。最低 ABI4 仅覆盖文件/TCP；ABI6 才有额外 IPC 约束，以诊断为准。应用授权与 helper 协议由当前镜像提供，不能混用旧版 helper。Compose 停止宽限期 45 秒，重启按期望状态建立新 generation，旧会话及内部凭证失效。
 
 ## 6. 升级与回滚
 
-导入新版本的发布包（`./load.sh`），把 `.env` 的 `AP_IMAGE_VERSION` 改为新版本，再 `docker compose up -d`。回滚时改回旧版本号。升级会重启容器，未完成的任务会被取消，会话历史保留。升级前先备份 `data/`。
+导入新版本的发布包（`./load.sh`），把 `.env` 的 `AP_IMAGE_VERSION` 改为新版本，再 `docker compose up -d`。回滚时改回旧版本号。升级会重启容器，未完成的任务会被取消，会话历史保留。升级前先备份 `data/`。 WebApp 启用后须先停止写入，再一起备份配置与 data，记录镜像摘要。跨版本回滚恢复匹配的旧镜像、配置及停机快照；不能假设旧镜像可读新管理状态。应用包更新失败会恢复旧代码和期望状态，但应用业务数据不会自动回滚。
 
 ## 7. 验收清单
 

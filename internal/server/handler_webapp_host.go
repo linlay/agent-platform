@@ -50,8 +50,8 @@ func (s *Server) handleWebAppHost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, api.Failure(503, "webapp_host_unavailable"))
 		return
 	}
-	// This endpoint is a prerequisite report. HostingAvailable remains false
-	// until the installer, gateway and lifecycle are implemented and verified.
+	// Report the assembled host capabilities and actual isolation prerequisites.
+	// Static serving can remain available when Node prerequisites are missing.
 	status := *s.deps.WebAppHost
 	if s.deps.WebApps != nil {
 		status.Stage = "installation"

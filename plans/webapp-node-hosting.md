@@ -1,6 +1,6 @@
 # Linux Docker Compose WebApp 托管完整方案
 
-状态：已开始实施，前置基础已接入，完整托管尚未实现；2026-10-31 根据当前仓库及相邻 Desktop 源码重新整理。
+状态：2026-11-01 本轮本地端口范围内批次 0–7 已完成并验证；生产未切换，独立域名能力按下方用户修订延期。原设计与历史调研记录保留。
 
 ## 2026-11-01 范围修订（用户确认，优先于下文原域名方案）
 
@@ -636,7 +636,7 @@ singapore02 已在正式加固参数的原生 amd64 容器中验证 ABI4 核心�
 | 4 | 持续健康、退避、后代清理、异常与 Compose 恢复、运行中更新和回退 | 持续监测/退避/后代与新 generation 恢复、运行中更新和健康失败回退已接入；实际 Compose 故障演练归批次 7 |
 | 5 | 云端 SDK transport、配置、应用授权、token 与连接器适配 | 已接入；MCP 回执、撤销、原生受限 Node SDK 调用验证通过 |
 | 6 | assistant、skill、artifact 的资源归属、流式与取消 | 已接入既有服务；真实 Runtime/模拟模型、归属拒绝及 generation 取消验证通过 |
-| 7 | DNS/TLS/nginx、升级回滚与故障演练及第 15 节完整验收 | 待实施；目标环境验收后再更新完整交付描述 |
+| 7 | 本地端口、升级回滚、故障与资源恢复验收；DNS/TLS/nginx 延期 | 原生完整镜像、真实 Compose 与 Chrome 验收通过；完整证据与既有失败见 docs/WebApp托管.md |
 
 批次 0 已修正开发 Compose 的 `/opt/workspaces` 持久挂载，补充本地目录忽略和准备说明；镜像默认 HOME 改为独立 UID10001 私有目录，两份 Compose 的 HOME tmpfs 和 `/opt` root 只读边界保持一致。发布 smoke 不再用环境覆盖掩盖镜像默认 HOME，并增加 HOME 可写性和所有权/权限检查。第 2.1、4 节已与现有源码对齐，DEPLOY 的 WebApp 前置诊断归入运行方式。
 
@@ -675,3 +675,7 @@ Desktop 从权威源码生成含 Linux 目标的 schema/validator；共享完整
 ### 批次 6 实施记录
 
 SDK 助理复用 Runtime，固定 owner 与 ask_for_approval，不接受 caller/Agent/模型覆盖。归属收据先于执行同步写入，后台事件脱敏投影，取消等待 Runtime 和 observer 排空；Skill 白名单元数据、受归属约束的已发布产物及摘要验证已接入。详见 docs/WebApp托管.md 的限额与集成验证。独立域名和 DNS/TLS 按本轮范围调整继续延后。
+
+### 批次 7 实施记录
+
+按顶部范围修订完成本地候选验收，覆盖完整镜像强化编译、真实 Compose 更新/回退/Platform SIGKILL/容器重启、旧镜像升级及停机快照回滚、OOM/ENOSPC/RSS/端口/日志压力、隔离缺失拒绝、Chrome 真实 SDK 和跨仓回归。README/AGENTS/发布 DEPLOY 已更新，保留生产未切换和域名延期事实。验收矩阵、精确镜像摘要、测试限制与重现入口见 docs/WebApp托管.md。

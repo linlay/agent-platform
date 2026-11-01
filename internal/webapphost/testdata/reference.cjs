@@ -1,6 +1,8 @@
 const http=require('node:http'),fs=require('node:fs'),net=require('node:net'),crypto=require('node:crypto');
 const server=http.createServer(async(req,res)=>{
  if(req.url==='/health'){res.end('ok');return}
+ if(req.url==='/api/disk-pressure'){let failure='';const path=process.env.WEBAPP_DATA_DIR+'/pressure';try{const fd=fs.openSync(path,'w');try{const chunk=Buffer.alloc(1024*1024);for(let i=0;i<256;i++)fs.writeSync(fd,chunk)}finally{fs.closeSync(fd)}}catch(error){failure=error.code}finally{try{fs.unlinkSync(path)}catch{}}res.end(JSON.stringify({failure}));return}
+ if(req.url==='/api/log-pressure'){for(let i=0;i<4;i++)process.stdout.write('x'.repeat(1024*1024));res.end('logged');return}
  if(req.url==='/api/sdk'){try{const {createBackendClient}=await import('./bridge.mjs');const client=createBackendClient({url:process.env.DESKTOP_ACTION_BRIDGE_URL,token:process.env.DESKTOP_ACTION_BRIDGE_TOKEN});res.end(JSON.stringify(await client.connector.list()))}catch(error){res.statusCode=500;res.end(error.code||'sdk_failed')}return}
  if(req.url==='/api/sse'){res.writeHead(200,{'Content-Type':'text/event-stream'});res.write('data: ready\n\n');const timer=setInterval(()=>res.write('data: tick\n\n'),50);req.on('close',()=>clearInterval(timer));return}
  if(req.url==='/api/crash'){res.end('crashing');setTimeout(()=>process.exit(12),20);return}

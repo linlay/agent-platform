@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -556,5 +557,149 @@ func TestComposeNativeBackendSDKUsesScopedInternalTransport(t *testing.T) {
 	response.Body.Close()
 	if response.StatusCode != 200 {
 		t.Fatal("new SDK grant", string(raw))
+	}
+}
+
+func TestComposeNativeDiskAndLogPressureRecover(t *testing.T) {
+	s, g, e, options := nativeFixture(t)
+	client, origin := openClient(t, g, e.ID)
+	response, err := client.Get(origin + "/api/disk-pressure")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(response.Body)
+	response.Body.Close()
+	if !strings.Contains(string(raw), `"failure":"ENOSPC"`) {
+		t.Fatalf("run with /tmp tmpfs smaller than 256 MiB: %s", raw)
+	}
+	response, err = client.Get(origin + "/api/log-pressure")
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.Copy(io.Discard, response.Body)
+	response.Body.Close()
+	time.Sleep(200 * time.Millisecond)
+	count := 0
+	var total int64
+	filepath.WalkDir(options.Root, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasPrefix(d.Name(), "stdout.") {
+			info, _ := d.Info()
+			count++
+			total += info.Size()
+			if info.Size() > 1<<20 {
+				t.Errorf("unbounded log: %s %d", p, info.Size())
+			}
+		}
+		return nil
+	})
+	if count == 0 || count > 2 || total > 2<<20 {
+		t.Fatalf("log bounds: files=%d bytes=%d", count, total)
+	}
+	current, _ := s.Get(e.ID)
+	if current.ObservedState != "running" {
+		t.Fatal(current)
+	}
+	response, err = client.Get(origin + "/api/probes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = io.ReadAll(response.Body)
+	response.Body.Close()
+	if response.StatusCode != 200 || !strings.Contains(string(raw), `"data":"persistent"`) {
+		t.Fatalf("failed to recover disk space: %s", raw)
+	}
+}
+
+type captureNativeRunner struct {
+	*webapphost.Runner
+	failures chan string
+}
+
+func (r *captureNativeRunner) Start(ctx context.Context, spec webapp.RuntimeSpec) (webapp.Process, error) {
+	original := spec.OnUnavailable
+	spec.OnUnavailable = func(reason string) {
+		select {
+		case r.failures <- reason:
+		default:
+		}
+		if original != nil {
+			original(reason)
+		}
+	}
+	return r.Runner.Start(ctx, spec)
+}
+func TestComposeNativeRSSLimitAndOccupiedPort(t *testing.T) {
+	for _, kind := range []string{"rss", "port"} {
+		t.Run(kind, func(t *testing.T) {
+			s, _, e, options := nativeFixture(t)
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			var occupied net.Listener
+			if kind == "rss" {
+				options.Config.Backend.RSSStopMB = 1
+			} else {
+				var err error
+				occupied, err = net.Listen("tcp4", "127.0.0.1:0")
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer occupied.Close()
+				port := occupied.Addr().(*net.TCPAddr).Port
+				options.Config.Backend.PortStart = port
+				options.Config.Backend.PortEnd = port
+			}
+			capture := &captureNativeRunner{Runner: webapphost.NewRunner(options.Root, options.Config, true), failures: make(chan string, 8)}
+			options.Runner = capture
+			restored, err := webapp.Open(options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer restored.Close()
+			restored.RestoreDesired(context.Background())
+			if kind == "rss" {
+				select {
+				case reason := <-capture.failures:
+					if reason != "webapp_rss_threshold_exceeded" {
+						t.Fatal(reason)
+					}
+				case <-time.After(8 * time.Second):
+					t.Fatal("RSS threshold not enforced")
+				}
+			} else {
+				deadline := time.Now().Add(5 * time.Second)
+				for {
+					current, _ := restored.Get(e.ID)
+					if current.LastError == "webapp_backend_ports_exhausted" {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatal(current)
+					}
+					time.Sleep(30 * time.Millisecond)
+				}
+			}
+		})
+	}
+}
+
+func TestComposeNativeIsolationFailureDoesNotExecNode(t *testing.T) {
+	if os.Getenv("WEBAPP_EXPECT_LANDLOCK_DENIED") != "1" {
+		t.Skip("requires explicit seccomp Landlock denial")
+	}
+	status := webapphost.Inspect(context.Background())
+	if status.BackendPrerequisitesReady || status.IsolationReady {
+		t.Fatalf("denied isolation reported ready: %+v", status)
+	}
+	root := t.TempDir()
+	runner := webapphost.NewRunner(root, config.DefaultWebAppsConfig(), status.BackendPrerequisitesReady)
+	_, err := runner.Start(context.Background(), webapp.RuntimeSpec{ManagementRoot: root, Manifest: webapp.Manifest{Backend: &webapp.Backend{}}})
+	code, _ := webapp.ErrorCode(err)
+	if code != "webapp_backend_unavailable" {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("failed isolation created a generation: %v %v", entries, err)
 	}
 }
