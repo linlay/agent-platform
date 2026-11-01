@@ -17,6 +17,7 @@ func TestBashReviewPolicyBaseline(t *testing.T) {
 		t.Skip("Unix system-command baseline; Windows grammar has a separate gate")
 	}
 	f := newCapabilityFixture(t, AccessLevelAskForApproval)
+	vars, environment := fakeSystemPrograms(t, "cat", "rm", "curl")
 	for _, tc := range []struct {
 		command  string
 		decision Decision
@@ -29,11 +30,11 @@ func TestBashReviewPolicyBaseline(t *testing.T) {
 		{"curl -X DELETE https://example.invalid/item", DecisionRequiresApproval, "bash-access:remote"},
 		{"cat /outside/read", DecisionRequiresApproval, "bash-access:path:"},
 	} {
-		p := ReviewBashCommand(config.AccessPolicyConfig{}, f.session, tc.command, f.workspace, nil)
+		p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, tc.command, f.workspace, vars, environment, nil)
 		if p.Decision != tc.decision || !strings.HasPrefix(p.RuleKey, tc.rule) {
 			t.Fatalf("%s: want %s / %s, got %+v", tc.command, tc.decision, tc.rule, p)
 		}
-		fresh := ReviewBashCommand(config.AccessPolicyConfig{}, f.session, tc.command, f.workspace, nil)
+		fresh := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, tc.command, f.workspace, vars, environment, nil)
 		if p.Fingerprint != fresh.Fingerprint {
 			t.Fatalf("fixed-fixture fingerprint is unstable: %s", tc.command)
 		}

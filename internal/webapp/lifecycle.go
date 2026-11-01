@@ -63,7 +63,20 @@ func (s *Service) Start(ctx context.Context, id string, request StateRequest) (E
 	defer control.Unlock()
 	return s.start(ctx, id, request)
 }
+
+// start requires the application's control lock, which every caller holds;
+// the record cannot change while the code tree is hashed without mu.
 func (s *Service) start(ctx context.Context, id string, request StateRequest) (Entry, error) {
+	s.mu.Lock()
+	verified := s.records[id]
+	if a := s.active[id]; a != nil && (a.state == "running" || a.state == "starting" || a.state == "backoff") {
+		verified = nil
+	}
+	s.mu.Unlock()
+	var integrityErr error
+	if verified != nil {
+		integrityErr = verifyInstalledCode(filepath.Join(s.root, id, "app"), *verified)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.mutationError(); err != nil {
@@ -100,8 +113,11 @@ func (s *Service) start(ctx context.Context, id string, request StateRequest) (E
 	if running >= s.config.MaxRunning {
 		return Entry{}, fail("webapp_max_running", 409)
 	}
-	if err := verifyInstalledCode(filepath.Join(s.root, id, "app"), *r); err != nil {
-		return Entry{}, err
+	if verified != r {
+		return Entry{}, fail("webapp_transition_in_progress", 409)
+	}
+	if integrityErr != nil {
+		return Entry{}, integrityErr
 	}
 	values, _, err := s.readUserConfig(id)
 	if err != nil {

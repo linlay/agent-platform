@@ -407,6 +407,12 @@ func (w *walker) appendCommand(cmd types.Invocation) *walkError {
 			span.Raw = w.source[span.Start:span.End]
 		}
 	}
+	for i := range cmd.Redirects {
+		span := &cmd.Redirects[i].TargetWord
+		if span.Start >= 0 && span.End <= len(w.source) && span.Start < span.End {
+			span.Raw = w.source[span.Start:span.End]
+		}
+	}
 	w.commands = append(w.commands, cmd)
 	return nil
 }

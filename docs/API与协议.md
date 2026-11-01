@@ -26,7 +26,7 @@
 
 | 方法 | 路径 | 输入与结果 |
 | --- | --- | --- |
-| GET | `/api/admin/webapps/host` | 运行前提报告，当前不承诺应用可访问 |
+| GET | `/api/admin/webapps/host` | 运行前提、托管阶段与待人工恢复诊断 |
 | GET | `/api/admin/webapps` | `{items:[...]}`，仅安装与期望/观察状态的安全投影 |
 | POST | `/api/admin/webapps/uploads` | 原始 `application/zip` 字节；返回 uploadId、sha256、size、createdAt |
 | POST | `/api/admin/webapps/preflight` | `{uploadId}`；返回审阅 Manifest、大小、文件数和 expectedRevision，不执行代码 |
@@ -1484,7 +1484,7 @@ Automation 保持独立的场景默认：省略或 `default` 使用 `ask_for_app
 
 `GET /api/admin/webapps/host` 仅在 Linux standalone、显式 `--webapp-host=compose` 且 `runtime.yml` 的 `webapps.enabled: true` 时注册。启用还要求 JWT issuer/audience/expiry 和唯一 allowed-subjects owner；接口不接受 WebApp/连接器执行 token。未启用不注册路由；认证后 subject 非 owner 返回 403，宿主状态未装配返回 503；响应 no-store，包裹为 `{code,msg,data}`。
 
-`data` 含 host/os/arch、nodeVersion/nodeReady、supervisorReady、landlockAbi/isolationReady、isolationProfile/ipcScoped/deviceIoctlRestricted、warnings、backendPrerequisitesReady、hostingAvailable、stage 和 issues。当前 stage 可为 foundation/installation/static；staticAvailable 表示私有静态网关已组装，hostingAvailable 在受限 Node runner 已组装且前提满足时为 true。安装与静态启停使用独立 owner 路由。
+`data` 含 host/os/arch、nodeVersion/nodeReady、supervisorReady、landlockAbi/isolationReady、isolationProfile/ipcScoped/deviceIoctlRestricted、warnings、backendPrerequisitesReady、hostingAvailable、stage 和 issues。stage 可为 foundation/installation/static/backend；staticAvailable 表示私有静态网关已组装，hostingAvailable 在受限 Node runner 已组装且前提满足时为 true。issues 另含启动时留作人工恢复的安装（`webapp_installation_invalid`、`webapp_recovery_required`），只给出代码，应用 ID 写入日志。安装与静态启停使用独立 owner 路由。
 
 启用时，Host 分类先于平台 API/CORS/WS。未知或应用内容 Host 不回落平台路由；仅 loopback peer 的精确 loopback:平台端口 GET /healthz 保留健康检查。内容域 Origin 禁止进入平台 API/主 WS，不使用 X-Forwarded-Host 推断平台身份。完整范围及限制见 [WebApp 托管](WebApp托管.md)。
 

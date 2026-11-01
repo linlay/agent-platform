@@ -1,0 +1,7 @@
+# C11u: confirmed literal Read/Output null devices; noncanonical spellings retain path review.
+effect/null-cat	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+effect/null-cat	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+effect/null-noncanonical	ask_for_approval	requires_approval	security=allow/	connector=false/false	leaves=1:requires_approval/bash-access:path:access-write::<hash>/exact_target/reusable=true
+effect/null-noncanonical	auto_approve	requires_approval	security=allow/	connector=false/false	leaves=1:requires_approval/bash-access:path:access-write::<hash>/exact_target/reusable=true
+effect/null-tee	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+effect/null-tee	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true

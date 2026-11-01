@@ -65,11 +65,7 @@ func TestReopenRejectsTamperedManifestRecordAndPolicy(t *testing.T) {
 				p.ConnectPorts = []int{0}
 				writeJSON(filepath.Join(options.Root, e.ID, "policy.json"), p)
 			}
-			reopened, err := Open(options)
-			if err == nil {
-				reopened.Close()
-				t.Fatal("tampered metadata accepted")
-			}
+			requireUnavailable(t, options, e.ID, "webapp_installation_invalid")
 		})
 	}
 }

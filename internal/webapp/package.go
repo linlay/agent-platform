@@ -15,34 +15,12 @@ import (
 )
 
 func (s *Service) Upload(ctx context.Context, reader io.Reader) (Upload, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var result Upload
-	if err := s.mutationError(); err != nil {
-		return result, err
-	}
-	if err := s.collectUploads(); err != nil {
-		return result, err
-	}
-	entries, err := os.ReadDir(s.uploads())
+	result, dir, err := s.reserveUpload()
 	if err != nil {
 		return result, err
 	}
-	if len(entries) >= 128 {
-		return result, fail("webapp_upload_capacity", 429)
-	}
-	free, err := availableBytes(s.root)
-	if err != nil {
-		return result, err
-	}
-	if free < uint64(s.maxArchive)+(32<<20) {
-		return result, fail("webapp_disk_space_insufficient", 507)
-	}
-	result.UploadID = randomID()
-	dir := filepath.Join(s.uploads(), result.UploadID)
-	if err := os.Mkdir(dir, 0700); err != nil {
-		return result, err
-	}
+	// The request body is read without mu: a slow upload must not stall page,
+	// SDK or lifecycle traffic of running applications.
 	keep := false
 	defer func() {
 		if !keep {
@@ -79,6 +57,40 @@ func (s *Service) Upload(ctx context.Context, reader io.Reader) (Upload, error) 
 	}
 	keep = true
 	return result, nil
+}
+
+// reserveUpload counts an in-progress upload directory against the capacity
+// before its body arrives; collection keeps directories younger than a day.
+func (s *Service) reserveUpload() (Upload, string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var result Upload
+	if err := s.mutationError(); err != nil {
+		return result, "", err
+	}
+	if err := s.collectUploads(); err != nil {
+		return result, "", err
+	}
+	entries, err := os.ReadDir(s.uploads())
+	if err != nil {
+		return result, "", err
+	}
+	if len(entries) >= 128 {
+		return result, "", fail("webapp_upload_capacity", 429)
+	}
+	free, err := availableBytes(s.root)
+	if err != nil {
+		return result, "", err
+	}
+	if free < uint64(s.maxArchive)+(32<<20) {
+		return result, "", fail("webapp_disk_space_insufficient", 507)
+	}
+	result.UploadID = randomID()
+	dir := filepath.Join(s.uploads(), result.UploadID)
+	if err := os.Mkdir(dir, 0700); err != nil {
+		return result, "", err
+	}
+	return result, dir, nil
 }
 func (s *Service) uploads() string { return filepath.Join(s.root, ".staging", "uploads") }
 func (s *Service) collectUploads() error {
@@ -139,12 +151,18 @@ func (s *Service) readUpload(id string) (Upload, string, error) {
 }
 func (s *Service) Preflight(ctx context.Context, id string) (Review, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.mutationError(); err != nil {
+	err := s.mutationError()
+	s.mu.Unlock()
+	if err != nil {
 		return Review{}, err
 	}
+	s.packageMu.Lock()
+	defer s.packageMu.Unlock()
 	return s.preflight(ctx, id)
 }
+
+// preflight runs under packageMu; mu is taken only to read the current
+// installation revision.
 func (s *Service) preflight(ctx context.Context, id string) (Review, error) {
 	u, name, err := s.readUpload(id)
 	if err != nil {
@@ -160,9 +178,11 @@ func (s *Service) preflight(ctx context.Context, id string) (Review, error) {
 		return Review{}, err
 	}
 	revision := ""
+	s.mu.Lock()
 	if old := s.records[m.ID]; old != nil {
 		revision = old.Revision
 	}
+	s.mu.Unlock()
 	return Review{Upload: u, Manifest: m, ExpectedRevision: revision, ExpandedBytes: total, FileCount: count}, nil
 }
 func (s *Service) extract(ctx context.Context, archive, dest string) (Manifest, int64, int, error) {

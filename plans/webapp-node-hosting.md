@@ -149,11 +149,11 @@ Node 后端：
 
 未开启时，不创建 WebApp 目录，不开启监听/恢复任务，不注册可用的托管管理入口。非 Linux、Desktop 或缺少 Compose 启动选择时强行配置 `enabled: true`，启动时报告明确配置错误。
 
-当前实现只提供配置准入和前置诊断：`backendPrerequisitesReady` 表示后端前提，`hostingAvailable` 仍固定为 false。后续托管实现中，Node/内核运行条件不满足时，Platform 和静态应用继续提供服务，已有 Node 应用标为 `blocked`，启动返回 503。禁止降级为不受限制的 Node。
+`backendPrerequisitesReady` 表示后端前提；已组装受限 Node runner 且前提满足时 `hostingAvailable` 为 true。Node/内核运行条件不满足时，Platform 和静态应用继续提供服务，已有 Node 应用标为 `blocked`，启动返回 503。禁止降级为不受限制的 Node。单个安装的记录、代码摘要或事务在启动时无法确认，同样只把该应用留作人工恢复，不阻止 Platform 启动。
 
 ### 4.2 配置归属
 
-以下配置已由 `internal/config/config_webapps.go` 和 `configs/runtime.example.yml` 支持并严格校验；目前用于部署准入及探测，安装、网关和生命周期尚未实现：
+以下配置已由 `internal/config/config_webapps.go` 和 `configs/runtime.example.yml` 支持并严格校验，安装、网关和生命周期按这些值执行；域名相关字段保留给后续独立域名接入：
 
 ```yaml
 webapps:
@@ -181,7 +181,7 @@ webapps:
     max-files: 3
 ```
 
-安装包默认限额已进入同一配置事实源：压缩包 100 MiB、解压 512 MiB、最多 20,000 个文件。后续安装器必须执行这些限额，并与 nginx 上传上限对齐；当前配置检查不代表已经实现解包限制。
+安装包默认限额已进入同一配置事实源：压缩包 100 MiB、解压 512 MiB、最多 20,000 个文件，安装器在上传和解包时执行这些限额。后续接入独立域名时，nginx 上传上限需与之对齐。
 
 Node 与 supervisor 路径固定于镜像受管目录，不能由 Manifest 选择任意解释器。WebApp 持久目录从 RuntimeDir 派生，不使用 StateDir；不增加 YAML `paths`，不增加任意 WebApp 目录环境变量。nginx 的域名、证书与路由属于部署配置，凭据不进入示例或应用包。
 
@@ -204,7 +204,7 @@ Node 与 supervisor 路径固定于镜像受管目录，不能由 Manifest 选�
 | --- | --- |
 | schemaVersion、id/key/label/version | 沿用 v2 和现有 ID 规则 |
 | `target: any` | 允许静态或完全不含平台依赖的纯 JS 包 |
-| `target: linux-x64` | 共享契约已包含；后续 Compose 安装器仅在 linux/amd64 接受，Desktop 仍拒绝安装 |
+| `target: linux-x64` | 共享契约已包含；Compose 安装器仅在 linux/amd64 接受，Desktop 仍拒绝安装 |
 | 其他 Desktop target | Platform 明确拒绝；不修改包内 target 冒充兼容 |
 | frontend | 沿用 root/index、routeConfig.backendPrefixes/navigationFallback |
 | `backend.command.type: electron-node` | 兼容为“宿主 Node 脚本”，Compose 映射到受管 Node；不设置 ELECTRON_RUN_AS_NODE |
@@ -607,7 +607,7 @@ WebClient 提供应用列表、上传审阅、安装、启停、诊断、日志�
 
 相关 Go 回归和最终 `go test -p 2 ./...` 全量通过；初次全量有一个 connectorauth 登录用例超时，单例、整包及低并发全量复测均通过，未修改其超时时间。主程序完成 CGO_ENABLED=0、linux/amd64 交叉编译。linux/amd64 C 辅助程序已在既有编译镜像中通过 -Wall/-Wextra/-Werror 编译。在 macOS ARM Docker Desktop 的 amd64 仿真和正式加固条件下，Landlock 返回 ENOSYS，正确报告不可用；原生 ARM Linux 容器中 ABI 探测返回 6。这不代表支持 Platform arm64，也不代表原生 linux/amd64 完整隔离验收。
 
-首次本地完整镜像构建受 Docker Hub/代理速度影响，后续已在 singapore02 原生构建并验证 Node 镜像，见第 20 节。安装/更新事务、Manifest Linux fixture、网关、SDK、进程托管与恢复、WebClient 管理和生产目标验收均待后续实施；诊断明确返回 hostingAvailable:false。当前实现说明见 [WebApp 托管](../docs/WebApp托管.md)。
+首次本地完整镜像构建受 Docker Hub/代理速度影响，后续已在 singapore02 原生构建并验证 Node 镜像，见第 20 节。截至 10-31，安装/更新事务、Manifest Linux fixture、网关、SDK、进程托管与恢复、WebClient 管理和生产目标验收均未实施，诊断返回 hostingAvailable:false；之后的进度见第 21 节起的批次记录。当前实现说明见 [WebApp 托管](../docs/WebApp托管.md)。
 
 ABI 兼容调整：用户允许将最低版本设为 4。探测协议升级为 v2，按 ABI 选择文件权限位和 ruleset 结构长度；仅 ABI ≥ 6 执行域外信号及抽象 socket 拒绝测试，公开 isolationProfile/ipcScoped/deviceIoctlRestricted 和非阻断 warnings。低于 ABI4、规则施加或核心拒绝测试失败仍阻断后端前提，不提供无 Landlock 回退。
 
@@ -640,7 +640,7 @@ singapore02 已在正式加固参数的原生 amd64 容器中验证 ABI4 核心�
 
 批次 0 已修正开发 Compose 的 `/opt/workspaces` 持久挂载，补充本地目录忽略和准备说明；镜像默认 HOME 改为独立 UID10001 私有目录，两份 Compose 的 HOME tmpfs 和 `/opt` root 只读边界保持一致。发布 smoke 不再用环境覆盖掩盖镜像默认 HOME，并增加 HOME 可写性和所有权/权限检查。第 2.1、4 节已与现有源码对齐，DEPLOY 的 WebApp 前置诊断归入运行方式。
 
-Desktop 从权威源码生成含 Linux 目标的 schema/validator；共享完整输入样例位于 [manifest-v2.json](../../zenmind-desktop/contracts/webapp/fixtures/manifest-v2.json)，覆盖 22 个合法/非法案例。样例的 valid 只表示 Manifest 语法，不表示包内文件或某宿主已支持；Go 安装器尚未实现，批次 1 再消费相同样例。builder 同步目标枚举、纯 JS 离线 bundle 及未交付边界，不维护第二套 schema。macOS/Windows 的平台匹配与实际 Linux ZIP 拒绝导入均有回归覆盖。
+Desktop 从权威源码生成含 Linux 目标的 schema/validator；共享完整输入样例位于 [manifest-v2.json](../../zenmind-desktop/contracts/webapp/fixtures/manifest-v2.json)，覆盖 22 个合法/非法案例。样例的 valid 只表示 Manifest 语法，不表示包内文件或某宿主已支持；批次 0 时 Go 安装器尚未实现，批次 1 起消费相同样例。builder 同步目标枚举、纯 JS 离线 bundle 及未交付边界，不维护第二套 schema。macOS/Windows 的平台匹配与实际 Linux ZIP 拒绝导入均有回归覆盖。
 
 本轮验证：Desktop 相关测试共 63 项通过，Main 与 renderer 类型检查、生成契约和架构检查通过；Platform 配置/探测包及 owner/Host 定向测试通过；两份 Compose 展开后的 workspace 挂载、HOME tmpfs 和加固检查通过，发布脚本语法通过。完整镜像构建在解析 Dockerfile frontend 时因 Docker Hub `auth.docker.io` token 请求超时失败，未进入镜像编译，不记为构建通过；未重新执行生产部署或原生 Linux/macOS/Windows 实机验收。
 
@@ -654,7 +654,7 @@ Desktop 从权威源码生成含 Linux 目标的 schema/validator；共享完整
 
 验证：macOS 上 webapp/owner API 定向 `go test -race`、架构检查、共享契约漂移检查通过；Linux amd64 主程序与 Windows amd64 存储测试交叉编译通过。另在现有 Debian 运行镜像内以 UID10001、只读根、drop ALL/no-new-privileges 和 tmpfs 数据目录执行 Linux amd64 存储测试，安装、冲突、非法 ZIP、四个更新中断点、数据保留/删除与损坏拒绝全部通过。这是存储域容器回归，不等于完整新镜像或原生 Node/Landlock 验收。
 
-同仓库另有并发 Shell 权限重构，WebApp 后续实现移至独立 `codex/webapp-compose-hosting` worktree 验证，未改动或提交该重构；合并时需回归双方最终接口。当前 hostingAvailable 仍为 false，不开放未完成的静态/Node/SDK 路径。
+同仓库另有并发 Shell 权限重构，WebApp 后续实现移至独立 `codex/webapp-compose-hosting` worktree 验证，未改动或提交该重构；合并时需回归双方最终接口。批次 1 时 hostingAvailable 仍为 false，不开放未完成的静态/Node/SDK 路径。
 
 ## 23. 批次 2 验证
 
@@ -679,3 +679,14 @@ SDK 助理复用 Runtime，固定 owner 与 ask_for_approval，不接受 caller/
 ### 批次 7 实施记录
 
 按顶部范围修订完成本地候选验收，覆盖完整镜像强化编译、真实 Compose 更新/回退/Platform SIGKILL/容器重启、旧镜像升级及停机快照回滚、OOM/ENOSPC/RSS/端口/日志压力、隔离缺失拒绝、Chrome 真实 SDK 和跨仓回归。README/AGENTS/发布 DEPLOY 已更新，保留生产未切换和域名延期事实。验收矩阵、精确镜像摘要、测试限制与重现入口见 docs/WebApp托管.md。
+
+## 27. 合入后修正（2026-11-01）
+
+复核合入主线的批次 0–7 后修正三处，均为 Platform 内部改动，不改变 API 形状：
+
+- 助理归属收据目录 `webapps/.sdk/` 在首次 chat/execute 时创建，原启动检查把它当作非法条目，导致此后 Platform 无法启动。启动现在跳过 `.sdk/`，忽略其他非应用条目并写日志。
+- 启动时单个应用的记录、代码摘要或暂存事务无法确认，原实现让整个 Platform 启动失败。现在只把该应用留作人工恢复（不加载、不删除、拒绝同 ID 安装），诊断 issues 报告 `webapp_installation_invalid` / `webapp_recovery_required`；无法归属到应用的暂存事务才停止全部 mutation。
+- 上传正文、预检与安装解包、启动前代码摘要和卸载删除原先在服务状态锁内进行，慢速上传或大包会阻塞所有运行中应用的页面与 SDK 请求。现在这些 I/O 都在锁外执行，解包另由包操作锁串行，同一应用的切换仍由控制锁保护。
+
+回归：慢速上传期间可查询状态、存在 `.sdk/` 和杂项条目时正常重启、损坏记录与无法完成的 journal 只影响对应应用；`internal/webapp` race 及相关包测试通过。Compose 候选未重新执行。
+

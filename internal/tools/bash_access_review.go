@@ -160,6 +160,7 @@ func (t *RuntimeToolExecutor) sandboxBashEnvironment(ctx context.Context, execCt
 		return nil
 	}
 	return &shelltypes.BashEnvironment{
+		InspectNullDevice: func() (string, error) { return probe(sandboxNullDeviceProbeCommand, "/tmp", nil) },
 		PathKind: func(raw string) (shelltypes.PathKind, error) {
 			target := shellQuoteProbe(guestPath(raw))
 			out, err := probe("if test -d "+target+"; then printf directory; elif test -e "+target+" || test -L "+target+"; then printf file; else printf unknown; fi", "/tmp", nil)
@@ -249,3 +250,9 @@ func (t *RuntimeToolExecutor) sandboxBashEnvironment(ctx context.Context, execCt
 }
 
 func shellQuoteProbe(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
+
+// This profile is valid only for images with an immutable, real GNU-compatible
+// /usr/bin/stat. The invoking guest uid must be unable to replace the file or
+// any parent. Root/writable/symlinked installations fail before starting stat;
+// no alternative path is guessed or searched through the Agent PATH.
+const sandboxNullDeviceProbeCommand = "test -x /usr/bin/stat && test ! -L /usr/bin/stat && test ! -w /usr/bin/stat && test ! -L /usr/bin && test ! -w /usr/bin && test ! -L /usr && test ! -w /usr && test ! -w / && /usr/bin/stat -c '%f|%t|%T' -- /dev/null"

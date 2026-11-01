@@ -5,12 +5,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"agent-platform/internal/config"
 )
@@ -317,15 +319,100 @@ func TestUnknownRecordsAndDamagedCodeFailClosed(t *testing.T) {
 				os.Chmod(name, 0600)
 				os.WriteFile(name, []byte("changed"), 0600)
 			}
-			if recovered, err := Open(options); err == nil {
-				recovered.Close()
-				t.Fatal("damaged installation accepted")
-			}
-			if _, err := os.Stat(dir); err != nil {
-				t.Fatal("failure deleted evidence")
-			}
+			requireUnavailable(t, options, entry.ID, "webapp_installation_invalid")
 		})
 	}
+}
+
+// requireUnavailable checks that a damaged installation neither stops the
+// host from opening nor gets loaded, overwritten or deleted.
+func requireUnavailable(t *testing.T, options Options, id, code string) {
+	t.Helper()
+	recovered, err := Open(options)
+	if err != nil {
+		t.Fatalf("one damaged installation stopped the host: %v", err)
+	}
+	defer recovered.Close()
+	if _, err := recovered.Get(id); err == nil {
+		t.Fatal("damaged installation accepted")
+	}
+	issues := recovered.Issues()
+	if len(issues) != 1 || issues[0] != code {
+		t.Fatalf("issues = %v, want %s", issues, code)
+	}
+	if _, err := os.Stat(filepath.Join(recovered.root, id)); err != nil {
+		t.Fatal("failure deleted evidence")
+	}
+	u := uploadPackage(t, recovered, "1.0.0")
+	_, err = recovered.Install(context.Background(), InstallRequest{UploadID: u.UploadID, SHA256: u.SHA256})
+	requireCode(t, err, "webapp_recovery_required")
+}
+
+func TestReopenKeepsSDKStateAndHealthyInstallations(t *testing.T) {
+	s, options := fixtureService(t)
+	entry := installPackage(t, s, "1.0.0", "")
+	if err := os.MkdirAll(filepath.Join(options.Root, SDKStateDir), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(options.Root, "unexpected"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	reopened, err := Open(options)
+	if err != nil {
+		t.Fatalf("SDK state or a stray entry stopped the host: %v", err)
+	}
+	defer reopened.Close()
+	if _, err := reopened.Get(entry.ID); err != nil || len(reopened.Issues()) != 0 {
+		t.Fatalf("healthy installation not restored: %v %v", err, reopened.Issues())
+	}
+}
+
+func TestUnrecoverableJournalConfinedToItsApplication(t *testing.T) {
+	s, options := fixtureService(t)
+	entry := installPackage(t, s, "1.0.0", "")
+	next := *s.records[entry.ID]
+	s.Close()
+	txn := filepath.Join(options.Root, ".staging", "install-"+randomID())
+	if err := os.Mkdir(txn, 0700); err != nil {
+		t.Fatal(err)
+	}
+	// A committed journal whose record does not match cannot be finished.
+	next.Revision = randomID()
+	j := installJournal{SchemaVersion: 1, AppID: entry.ID, Next: next, Phase: "committed"}
+	if err := writeJSON(filepath.Join(txn, "journal.json"), j); err != nil {
+		t.Fatal(err)
+	}
+	requireUnavailable(t, options, entry.ID, "webapp_recovery_required")
+	if _, err := os.Stat(filepath.Join(txn, "journal.json")); err != nil {
+		t.Fatal("unrecovered journal was removed")
+	}
+}
+
+func TestSlowUploadDoesNotHoldServiceLock(t *testing.T) {
+	s, _ := fixtureService(t)
+	entry := installPackage(t, s, "1.0.0", "")
+	reader, writer := io.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.Upload(context.Background(), reader)
+		done <- err
+	}()
+	if _, err := writer.Write([]byte("PK")); err != nil {
+		t.Fatal(err)
+	}
+	listed := make(chan struct{})
+	go func() {
+		_, _ = s.Get(entry.ID)
+		close(listed)
+	}()
+	select {
+	case <-listed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("service lock held while the upload body was still arriving")
+	}
+	writer.Close()
+	<-done
 }
 func TestComposeSubsetRejectsOtherTargetsLaunchersAndEnvironmentOverrides(t *testing.T) {
 	for _, mutation := range []map[string]any{{"target": "darwin-arm64"}, {"backend": map[string]any{"command": map[string]any{"type": "executable", "entry": "backend/run"}, "health": map[string]any{"type": "tcp"}}}, {"backend": map[string]any{"command": map[string]any{"type": "electron-node", "entry": "backend/server.mjs"}, "health": map[string]any{"type": "tcp"}, "env": map[string]any{"NODE_OPTIONS": "--inspect"}}}} {

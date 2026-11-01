@@ -1,10 +1,8 @@
 package resources
 
 import (
-	"path/filepath"
 	"strings"
 
-	"agent-platform/internal/pathutil"
 	"agent-platform/internal/shellreview/types"
 )
 
@@ -29,13 +27,13 @@ func ClassifyRedirectAccess(redirect types.Redirect) RedirectAccessKind {
 	if op == "<<<" {
 		return RedirectAccessNeutral
 	}
-	if isDevNullRedirectTarget(target) {
-		return RedirectAccessNeutral
-	}
 	switch op {
 	case "<&", ">&":
 		if isFileDescriptorRedirectTarget(target) {
 			return RedirectAccessNeutral
+		}
+		if op == ">&" {
+			return RedirectAccessWrite
 		}
 		return RedirectAccessUnknown
 	case "<":
@@ -55,10 +53,6 @@ func ClassifyRedirectAccess(redirect types.Redirect) RedirectAccessKind {
 	}
 }
 
-func isDevNullRedirectTarget(target string) bool {
-	return filepath.ToSlash(filepath.Clean(pathutil.ExpandHome(strings.TrimSpace(target)))) == "/dev/null"
-}
-
 func isFileDescriptorRedirectTarget(target string) bool {
 	target = strings.TrimSpace(target)
 	if target == "-" {
@@ -73,4 +67,34 @@ func isFileDescriptorRedirectTarget(target string) bool {
 		}
 	}
 	return true
+}
+
+// RedirectEffects reports resources opened by the shell, independently of the
+// called program's argument grammar. File-descriptor duplication is neutral.
+func RedirectEffects(redirects []types.Redirect) types.Effects {
+	var effects types.Effects
+	for _, redirect := range redirects {
+		access := ClassifyRedirectAccess(redirect)
+		if access == RedirectAccessNeutral {
+			continue
+		}
+		if access == RedirectAccessUnknown || redirect.Target == "" {
+			effects.Unknowns = append(effects.Unknowns, types.Unknown{Kind: types.UnknownSyntax, Arg: -1, Rule: "shell:redirection"})
+			if redirect.Target == "" {
+				continue
+			}
+		}
+		kind := types.Read
+		role := types.Source
+		if access == RedirectAccessWrite || access == RedirectAccessUnknown {
+			kind = types.Output
+			role = types.Destination
+		}
+		word := types.ValueSource(types.CommandInput{Args: []string{redirect.Target}, Words: []types.SourceWord{{WordSpan: redirect.TargetWord, Arg: -1, Origin: types.WordOriginSyntax}}}, types.ArgumentRef(0, redirect.Target), false)
+		if strings.TrimSpace(redirect.Op) == "<>" {
+			effects.Ops = append(effects.Ops, types.Op{Kind: types.Read, Targets: []types.Target{{Path: redirect.Target, Role: types.Source, Word: word}}, Origin: types.ShellRedirect, Arg: -1, Rule: "shell:<>:read"})
+		}
+		effects.Ops = append(effects.Ops, types.Op{Kind: kind, Targets: []types.Target{{Path: redirect.Target, Role: role, Word: word}}, Origin: types.ShellRedirect, Arg: -1, Rule: "shell:" + redirect.Op})
+	}
+	return effects
 }

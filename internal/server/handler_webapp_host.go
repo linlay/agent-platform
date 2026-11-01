@@ -66,6 +66,11 @@ func (s *Server) handleWebAppHost(w http.ResponseWriter, r *http.Request) {
 		status.HostingAvailable = true
 	}
 	status.Issues = append([]webapphost.Issue{}, status.Issues...)
+	if s.deps.WebApps != nil {
+		for _, code := range s.deps.WebApps.Issues() {
+			status.Issues = append(status.Issues, webapphost.Issue{Code: code})
+		}
+	}
 	status.Warnings = append([]webapphost.Issue{}, status.Warnings...)
 	writeJSON(w, http.StatusOK, api.Success(status))
 }

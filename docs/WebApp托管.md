@@ -18,7 +18,9 @@
 
 上传是有界 ZIP 字节流，不接受服务器路径。预检不执行代码、不创建安装记录；提交绑定上传摘要与当前安装 revision。解包拒绝穿越、反斜杠、大小写碰撞、链接、特殊文件、超量展开、秘密文件和原生载荷；Compose 子集拒绝其他平台、非 Node launcher 与执行链环境覆盖。
 
-首次安装固定 stopped。更新保留安装身份、授权、用户配置和持久数据。运行中更新先摘除访问并确认旧实例退出，安装 journal 保持 prepared，直到新实例健康才提交；失败则停止新实例、恢复原代码/记录与期望状态并重新启动。只读代码在同一文件系统的 staging 与 app 之间改名，journal 在切换前持久化，安装记录、代码摘要及目录同步完成后才提交。中断的未提交事务恢复原代码与记录；已提交事务只重做清理。恢复结果不确定时停止后续 mutation，保留现场，不再叠加安装。
+首次安装固定 stopped。更新保留安装身份、授权、用户配置和持久数据。运行中更新先摘除访问并确认旧实例退出，安装 journal 保持 prepared，直到新实例健康才提交；失败则停止新实例、恢复原代码/记录与期望状态并重新启动。只读代码在同一文件系统的 staging 与 app 之间改名，journal 在切换前持久化，安装记录、代码摘要及目录同步完成后才提交。中断的未提交事务恢复原代码与记录；已提交事务只重做清理。启动时某个应用的记录、代码摘要或事务无法确认，只把该应用留作人工恢复：不加载、不删除，也拒绝同 ID 安装；其余应用和 Platform 照常启动，诊断 issues 报告 `webapp_installation_invalid` 或 `webapp_recovery_required`，应用 ID 与原因写入日志。无法归属到具体应用的暂存事务才停止全部 mutation。运行中恢复结果不确定时同样停止后续 mutation，保留现场，不再叠加安装。
+
+上传正文、解包、代码摘要和卸载删除都在服务状态锁之外进行，慢速上传或大包不会阻塞运行中应用的页面、SDK 与启停请求；同一应用的切换仍由该应用的控制锁串行。`webapps/.sdk/` 保存助理归属收据，与 `.staging/` 一样不是应用目录。
 
 卸载使用独立删除 journal，持久数据默认保留，只有 owner 显式 `purgeData:true` 才删除。重新安装生成新的调用收据 namespace，正常更新保持原安装身份。代码回滚不撤销应用业务数据迁移。
 
@@ -71,17 +73,19 @@ Dockerfile 的独立构建阶段锁定 Node 官方制品版本和 SHA-256，只�
 - 分配端口可 bind/connect，未授权 TCP bind/connect 被拒绝。
 - ABI ≥ 6 时额外验证域外信号和抽象 Unix socket 访问被拒绝；ABI4/5 不宣称具有这些限制。
 
-最低支持 ABI4：文件和 TCP 限制必须实际通过。ABI4 不传设备 ioctl 权限或 scoped 字段；ABI5 增加设备 ioctl 限制；ABI6 增加信号/抽象 socket 作用域。按实际 ABI 传入结构长度，探测协议为 v2，明确报告缺少的能力。低于 ABI4 或施加失败仍拒绝。检查 create/add/restrict 和拒绝结果，不凭 uname 判断。探测仅继承固定 PATH/LANG/LC_ALL，进程输出有界、5 秒超时；原始错误输出不回显。平台在已启用宿主下设置 dumpable=0，其余部署保持原行为。
+最低支持 ABI4：文件和 TCP 限制必须实际通过。ABI4 不传设备 ioctl 权限或 scoped 字段；ABI5 增加设备 ioctl 限制；ABI6 增加信号/抽象 socket 作用域。按实际 ABI 传入结构长度，明确报告缺少的能力；探测输出与 `--run` 同属协议 v3。低于 ABI4 或施加失败仍拒绝。检查 create/add/restrict 和拒绝结果，不凭 uname 判断。探测仅继承固定 PATH/LANG/LC_ALL，进程输出有界、5 秒超时；原始错误输出不回显。平台在已启用宿主下设置 dumpable=0，其余部署保持原行为。
 
 正式和开发 Compose 使用 UID 10001、只读根、drop ALL、no-new-privileges 和 tmpfs；不增加特权或放宽 seccomp。`webapps/` 不论宿主是否开启都受普通工具保护；`webapp-data/` 不额外加保护，也不获得额外的工具授权。
 
-## 验证状态
+## 前置基础验证（2026-10-31，历史记录）
+
+本节与下方 singapore02 部署记录是安装、网关和生命周期接入之前的基础版本证据，当时功能尚未交付；当前验收见批次 7。
 
 最终 `go test -p 2 ./...` 全量通过，Linux amd64 主程序已使用 CGO_ENABLED=0 交叉编译成功。初次高并发全量出现一个 connectorauth 登录用例超时，单例、整包和低并发全量复测通过，未放宽测试期限。
 
 本机已编译 linux/amd64 辅助程序。在 macOS ARM Docker Desktop 的 amd64 仿真、非 root/只读根/drop ALL/默认 seccomp 条件下，Landlock 返回 ENOSYS，探测明确失败而未降级。原生 ARM Linux 容器探测内核可提供 ABI 6；这不等于支持 Platform linux/arm64 发行，也不能替代原生 linux/amd64 验收。
 
-首次本机构建受 Docker Hub/代理带宽影响，随后已在 singapore02 原生构建并验证完整 Node 镜像。正式 release-image smoke、独立候选容器、生产 Node/ABI4 检查、HTTPS 首页、健康检查和未登录 API 401 均通过；完整 WebApp 安装、网关、SDK 和应用生命周期仍未交付。
+首次本机构建受 Docker Hub/代理带宽影响，随后已在 singapore02 原生构建并验证完整 Node 镜像。正式 release-image smoke、独立候选容器、生产 Node/ABI4 检查、HTTPS 首页、健康检查和未登录 API 401 均通过；当时完整 WebApp 安装、网关、SDK 和应用生命周期尚未接入。
 
 ABI4 的适用范围为单 owner、来源可信应用。它缺少信号/抽象 Unix socket 作用域和 ABI5 设备 ioctl 限制；与同 UID 其他进程共享容器资源，不能作为不可信应用沙箱。差异依据 [Linux 6.8](https://docs.kernel.org/6.8/userspace-api/landlock.html) 与 [Linux 6.12](https://docs.kernel.org/6.12/userspace-api/landlock.html) 官方文档。
 
@@ -96,7 +100,7 @@ ABI4 的适用范围为单 owner、来源可信应用。它缺少信号/抽象 U
 - 线上 Compose：/docker/agent-platform/compose.deploy.yml 与 /docker/agent-webclient/compose.yml；实际部署信息以 /docker/agent-platform/deployment.json 为准。
 - 离线发布包：/docker/.releases/agent-platform/v0.5.31-6fdf03c3，已复核 checksums.sha256。
 - 切换前已停止写入并保存运行数据、配置与旧镜像；回滚入口：/docker/.backups/zenmind-node-20261031-f3934349/rollback.sh。
-- 当前 webapps.enabled 仍为 false，hostingAvailable 的设计状态仍是 false；这次交付证明运行时和前置限制可用，不代表应用托管功能已完成。
+- 生产 webapps.enabled 仍为 false；这次交付只证明运行时和前置限制可用。之后的托管功能仅在独立候选验收，生产尚未切换。
 
 ## 私有静态应用和管理界面
 

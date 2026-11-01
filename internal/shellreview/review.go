@@ -75,6 +75,18 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 	pathReview := func(mode AccessMode, raw string) {
 		add(reviewer.Path(mode, raw, containsUnresolvedPlaceholder(raw)))
 	}
+	deviceInspector := resources.NewDeviceInspector(session.AgentHasRuntimeSandbox, environment)
+	resourcePath := func(mode AccessMode, raw string, op types.Op, target types.Target, complete bool) {
+		pathPlan := reviewer.Path(mode, raw, containsUnresolvedPlaceholder(raw))
+		if pathPlan.Blocked() {
+			add(pathPlan)
+			return
+		}
+		result := deviceInspector.NullOffset(op, target, complete)
+		for _, requirement := range reviewer.ResourceRequirements(pathPlan, result, raw) {
+			add(requirement)
+		}
+	}
 	opaquePlan := func(x types.BashExecution) shellplan.BashPlan {
 		p := reviewer.Opaque(x)
 		version := resources.ExecutionFingerprint(session.AgentHasRuntimeSandbox, resources.ExecutionVersion{Fingerprint: p.Fingerprint, RuleKey: p.RuleKey, AccessLevel: p.AccessLevel}, x, variables, environment)
@@ -200,12 +212,11 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 						}
 					}
 				}
+				gitClean := gitCheck != types.GitCheckNone && !executesBehavior && resources.GitExecutionClean(session.AgentHasRuntimeSandbox, x, repoDir, gitCheck, variables)
+				complete := len(effects.Unknowns) == 0 && !executesBehavior && (gitCheck == types.GitCheckNone || gitClean)
 				for _, op := range effects.Ops {
 					for _, target := range op.Targets {
 						file := types.FileAccess{Path: target.Path, Write: op.WritesTarget(target), Recursive: op.Recursive}
-						if reviewer.LegacyOutputExempt(identity.CommandFamily(x.Argv[0]), effects.Unknown(types.UnknownOption), file) {
-							continue
-						}
 						mode := ReadAccess
 						if file.Write {
 							mode = WriteAccess
@@ -224,7 +235,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 								continue
 							}
 							for _, p := range paths {
-								pathReview(mode, p)
+								resourcePath(mode, p, op, target, complete)
 								if file.Write && op.ReadsTarget(target) {
 									pathReview(ReadAccess, p)
 									if file.Recursive {
@@ -238,7 +249,6 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 						}
 					}
 				}
-				gitClean := gitCheck != types.GitCheckNone && !executesBehavior && resources.GitExecutionClean(session.AgentHasRuntimeSandbox, x, repoDir, gitCheck, variables)
 				if executesBehavior || gitCheck != types.GitCheckNone && !gitClean {
 					executes = true
 					add(opaquePlan(x))
@@ -262,21 +272,19 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 			if executes {
 				add(reviewer.WorkspaceExecution(x.Cwd))
 			}
-			for _, redirect := range cmd.Redirects {
-				kind := resources.ClassifyRedirectAccess(redirect)
-				if kind == resources.RedirectAccessNeutral {
-					continue
+			redirects := resources.RedirectEffects(cmd.Redirects)
+			if len(redirects.Unknowns) > 0 {
+				add(reviewer.Complex("bash redirection cannot be resolved statically"))
+			}
+			for _, op := range redirects.Ops {
+				for _, target := range op.Targets {
+					mode := ReadAccess
+					if op.WritesTarget(target) {
+						mode = WriteAccess
+					}
+					// The invoking shell opens redirections before wrappers change cwd.
+					resourcePath(mode, ResolveAgainstCwd(target.Path, candidateCwd), op, target, true)
 				}
-				if kind == resources.RedirectAccessUnknown || redirect.Target == "" {
-					add(reviewer.Complex("bash redirection cannot be resolved statically"))
-					continue
-				}
-				mode := ReadAccess
-				if kind == resources.RedirectAccessWrite {
-					mode = WriteAccess
-				}
-				// The invoking shell opens redirects before a wrapper changes cwd.
-				pathReview(mode, ResolveAgainstCwd(redirect.Target, candidateCwd))
 			}
 			// Keep both the success and failure cwd branches, as before.
 			unresolved := len(x.Argv) > 1 && containsUnresolvedPlaceholder(x.Argv[1])

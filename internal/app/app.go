@@ -502,7 +502,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		}
 	}()
 	if webapps != nil {
-		adapters := webappbridge.NewAdapters(webappbridge.AdapterOptions{Apps: webapps, Runtime: runtimeService, Registry: registry, Chats: chatStore, Artifacts: chatResourceService, Owner: cfg.Auth.AllowedSubjects[0], Root: filepath.Join(cfg.Paths.WebAppsDir, ".sdk")})
+		adapters := webappbridge.NewAdapters(webappbridge.AdapterOptions{Apps: webapps, Runtime: runtimeService, Registry: registry, Chats: chatStore, Artifacts: chatResourceService, Owner: cfg.Auth.AllowedSubjects[0], Root: filepath.Join(cfg.Paths.WebAppsDir, webapp.SDKStateDir)})
 		appBridge = webappbridge.New(webappbridge.Options{Apps: webapps, Owner: cfg.Auth.AllowedSubjects[0], Connectors: &connectorops.Service{Auth: connectorAuth, Sources: cfg.Paths.ConnectorSources()}, Actions: adapters.Actions()})
 		if err := appBridge.ListenInternal(); err != nil {
 			return nil, fmt.Errorf("initialize WebApp bridge: %w", err)

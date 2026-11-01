@@ -32,6 +32,9 @@ type BashEnvironment struct {
 	// Nil uses the process-start snapshot; container identity ignores this map.
 	// The trusted caller owns the snapshot and must not mutate it during review.
 	SystemPrograms map[string]string
+	// InspectNullDevice uses an image-verified immutable guest stat entry and
+	// returns numeric mode|major|minor; absent or failed probes stay unresolved.
+	InspectNullDevice func() (string, error)
 	// Launch is supplied only for Host commands; containers use their own Bash.
 	Launch    *LaunchBinding
 	Resolve   func(name, cwd string, env map[string]string) (string, error)

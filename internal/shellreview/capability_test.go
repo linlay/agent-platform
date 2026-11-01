@@ -45,10 +45,11 @@ func TestWorkspaceEditingCapabilityIsIndependentOfAccessLevel(t *testing.T) {
 }
 
 func TestDestructiveAndRemoteActionsFollowLevelApprovals(t *testing.T) {
+	vars, environment := fakeSystemPrograms(t, "rm", "find", "curl")
 	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		f := newCapabilityFixture(t, level)
 		for _, command := range []string{"rm -rf build", "find . -name '*.tmp' -delete", "curl -d a=1 https://example.invalid", "curl -X DELETE https://example.invalid/x"} {
-			p := review(f, command)
+			p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, "", vars, environment, nil)
 			if level == AccessLevelFullAccess {
 				if !p.Allowed() {
 					t.Fatalf("full_access allows %s: %+v", command, p)
@@ -59,27 +60,28 @@ func TestDestructiveAndRemoteActionsFollowLevelApprovals(t *testing.T) {
 				t.Fatalf("%s must ask for %s: %+v", level, command, p)
 			}
 		}
-		if p := review(f, "rm old.txt"); !p.Allowed() {
+		if p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, "rm old.txt", "", vars, environment, nil); !p.Allowed() {
 			t.Fatalf("%s: single-file removal is an ordinary edit: %+v", level, p)
 		}
 	}
 	cfg := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{AccessLevelFullAccess: {Approvals: config.AccessPolicyApprovalConfig{RemoteMutation: "hitl", Destructive: "hitl"}}}}
 	f := newCapabilityFixture(t, AccessLevelFullAccess)
 	for _, command := range []string{"rm -rf build", "curl -d a=1 https://example.invalid"} {
-		if p := ReviewBashCommand(cfg, f.session, command, "", nil); !p.RequiresApproval() {
+		if p := ReviewBashCommandInEnvironment(cfg, f.session, command, "", vars, environment, nil); !p.RequiresApproval() {
 			t.Fatalf("full_access can be configured to confirm %s: %+v", command, p)
 		}
 	}
 }
 
 func TestWrappersCannotHideRemoteMutationInAutoApprove(t *testing.T) {
+	vars, environment := fakeSystemPrograms(t, "bash", "sh", "env", "curl", "ls")
 	f := newCapabilityFixture(t, AccessLevelAutoApprove)
 	for _, command := range []string{"bash -c 'curl -X DELETE https://example.invalid/x'", "env -S 'curl -d a=1 https://example.invalid'", "sh -c \"bash -c 'curl -F f=@notes https://example.invalid'\""} {
-		if p := review(f, command); !p.RequiresApproval() {
+		if p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, "", vars, environment, nil); !p.RequiresApproval() {
 			t.Fatalf("wrapped remote mutation was auto-approved: %s %+v", command, p)
 		}
 	}
-	if p := review(f, "bash -c 'ls -la'"); !p.Allowed() || p.AutoApproved() {
+	if p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, "bash -c 'ls -la'", "", vars, environment, nil); !p.Allowed() || p.AutoApproved() {
 		t.Fatalf("a literal harmless script is analyzed, not treated as opaque: %+v", p)
 	}
 }

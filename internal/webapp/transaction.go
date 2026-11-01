@@ -2,6 +2,7 @@ package webapp
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,81 +25,97 @@ type deleteJournal struct {
 	PurgeData     bool   `json:"purgeData"`
 }
 
-func (s *Service) recover() error {
+// recover completes or rolls back each transaction independently. A failure
+// keeps that transaction and its application untouched for manual recovery;
+// one that cannot be tied to an application stops all mutations instead.
+func (s *Service) recover() {
 	entries, err := os.ReadDir(filepath.Join(s.root, ".staging"))
 	if err != nil {
-		return err
+		s.recoveryRequired = true
+		log.Printf("WebApp staging unreadable; mutations stopped: %v", err)
+		return
 	}
 	for _, e := range entries {
 		name := e.Name()
 		if name == "uploads" {
 			continue
 		}
-		if !e.IsDir() {
-			return fmt.Errorf("unexpected staging file")
+		id, err := s.recoverTransaction(e)
+		if err == nil {
+			continue
 		}
-		dir := filepath.Join(s.root, ".staging", name)
-		switch {
-		case strings.HasPrefix(name, "review-"):
-			if err := removeTree(dir); err != nil {
-				return err
-			}
-		case strings.HasPrefix(name, "install-"):
-			var j installJournal
-			if err := readJSON(filepath.Join(dir, "journal.json"), &j); os.IsNotExist(err) {
-				if err := removeTree(dir); err != nil {
-					return err
-				}
-				continue
-			} else if err != nil {
-				return err
-			}
-			if j.SchemaVersion != 1 || validateRecord(j.Next, j.AppID) != nil || j.Old != nil && validateRecord(*j.Old, j.AppID) != nil {
-				return fmt.Errorf("invalid installation journal")
-			}
-			if j.OldDesired != nil && (j.Old == nil || j.OldDesired.SchemaVersion != 1 || j.OldDesired.State != "running" || !opaquePattern.MatchString(j.OldDesired.Revision)) {
-				return fmt.Errorf("invalid original desired state")
-			}
-			if j.Phase == "prepared" {
-				if err := s.rollback(dir, j); err != nil {
-					return err
-				}
-			} else if j.Phase == "committed" {
-				var current Record
-				if err := readJSON(filepath.Join(s.root, j.AppID, "install.json"), &current); err != nil || current.Revision != j.Next.Revision {
-					return fmt.Errorf("committed installation record mismatch")
-				}
-				digest, err := treeDigest(filepath.Join(s.root, j.AppID, "app"), false)
-				if err != nil || digest != j.Next.ContentSHA256 {
-					return fmt.Errorf("committed installation code mismatch")
-				}
-				if err := removeTree(dir); err != nil {
-					return err
-				}
-			} else {
-				return fmt.Errorf("unknown installation journal phase")
-			}
-		case strings.HasPrefix(name, "delete-"):
-			var j deleteJournal
-			if err := readJSON(filepath.Join(dir, "delete.json"), &j); os.IsNotExist(err) {
-				if err := removeTree(dir); err != nil {
-					return err
-				}
-				continue
-			} else if err != nil {
-				return err
-			}
-			if j.SchemaVersion != 1 || !idPattern.MatchString(j.AppID) {
-				return fmt.Errorf("invalid deletion journal")
-			}
-			if err := s.finishDelete(dir, j); err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("unknown WebApp transaction")
+		if idPattern.MatchString(id) {
+			s.markUnavailable(id, "webapp_recovery_required", err)
+		} else {
+			s.recoveryRequired = true
+			log.Printf("WebApp transaction %q not recovered; mutations stopped: %v", name, err)
 		}
 	}
-	return nil
+}
+
+// recoverTransaction returns the application ID as soon as it is known, so
+// the caller can confine a failure to that installation.
+func (s *Service) recoverTransaction(e os.DirEntry) (string, error) {
+	name := e.Name()
+	if !e.IsDir() {
+		return "", fmt.Errorf("unexpected staging file")
+	}
+	dir := filepath.Join(s.root, ".staging", name)
+	switch {
+	case strings.HasPrefix(name, "review-"):
+		return "", removeTree(dir)
+	case strings.HasPrefix(name, "install-"):
+		var j installJournal
+		if err := readJSON(filepath.Join(dir, "journal.json"), &j); os.IsNotExist(err) {
+			return "", removeTree(dir)
+		} else if err != nil {
+			return "", err
+		}
+		if !idPattern.MatchString(j.AppID) {
+			return "", fmt.Errorf("invalid installation journal")
+		}
+		if s.unavailable[j.AppID] != "" {
+			return j.AppID, fmt.Errorf("installation is not safe to switch")
+		}
+		if j.SchemaVersion != 1 || validateRecord(j.Next, j.AppID) != nil || j.Old != nil && validateRecord(*j.Old, j.AppID) != nil {
+			return j.AppID, fmt.Errorf("invalid installation journal")
+		}
+		if j.OldDesired != nil && (j.Old == nil || j.OldDesired.SchemaVersion != 1 || j.OldDesired.State != "running" || !opaquePattern.MatchString(j.OldDesired.Revision)) {
+			return j.AppID, fmt.Errorf("invalid original desired state")
+		}
+		switch j.Phase {
+		case "prepared":
+			return j.AppID, s.rollback(dir, j)
+		case "committed":
+			var current Record
+			if err := readJSON(filepath.Join(s.root, j.AppID, "install.json"), &current); err != nil || current.Revision != j.Next.Revision {
+				return j.AppID, fmt.Errorf("committed installation record mismatch")
+			}
+			digest, err := treeDigest(filepath.Join(s.root, j.AppID, "app"), false)
+			if err != nil || digest != j.Next.ContentSHA256 {
+				return j.AppID, fmt.Errorf("committed installation code mismatch")
+			}
+			return j.AppID, removeTree(dir)
+		default:
+			return j.AppID, fmt.Errorf("unknown installation journal phase")
+		}
+	case strings.HasPrefix(name, "delete-"):
+		var j deleteJournal
+		if err := readJSON(filepath.Join(dir, "delete.json"), &j); os.IsNotExist(err) {
+			return "", removeTree(dir)
+		} else if err != nil {
+			return "", err
+		}
+		if j.SchemaVersion != 1 || !idPattern.MatchString(j.AppID) {
+			return "", fmt.Errorf("invalid deletion journal")
+		}
+		if s.unavailable[j.AppID] != "" {
+			return j.AppID, fmt.Errorf("installation is not safe to delete")
+		}
+		return j.AppID, s.finishDelete(dir, j)
+	default:
+		return "", fmt.Errorf("unknown WebApp transaction")
+	}
 }
 func (s *Service) rollback(txn string, j installJournal) error {
 	dir := filepath.Join(s.root, j.AppID)

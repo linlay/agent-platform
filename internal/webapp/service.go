@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,6 +13,10 @@ import (
 	"agent-platform/internal/config"
 )
 
+// SDKStateDir holds bridge ownership receipts beside the installations. It is
+// created lazily by webappbridge and is never an application directory.
+const SDKStateDir = ".sdk"
+
 type Options struct {
 	Root     string
 	DataRoot string
@@ -19,7 +24,10 @@ type Options struct {
 	Runner   Runner
 }
 type Service struct {
-	mu                      sync.Mutex
+	mu sync.Mutex
+	// packageMu serializes archive hashing and extraction. It is never taken
+	// while holding mu, so page and SDK traffic does not wait for package I/O.
+	packageMu               sync.Mutex
 	closeMu                 sync.Mutex
 	root, dataRoot          string
 	config                  config.WebAppsConfig
@@ -28,25 +36,28 @@ type Service struct {
 	lock                    *os.File
 	closed                  bool
 	recoveryRequired        bool
-	records                 map[string]*Record
-	desired                 map[string]Desired
-	policies                map[string]Policy
-	active                  map[string]*activeApp
-	controls                map[string]*sync.Mutex
-	closing                 bool
-	installing              map[string]bool
-	operations              map[string]*Operation
-	operationContext        context.Context
-	operationCancel         context.CancelFunc
-	operationWG             sync.WaitGroup
-	runner                  Runner
+	// unavailable keeps installations that failed startup checks untouched
+	// for manual recovery; the rest of the host and Platform keep running.
+	unavailable      map[string]string
+	records          map[string]*Record
+	desired          map[string]Desired
+	policies         map[string]Policy
+	active           map[string]*activeApp
+	controls         map[string]*sync.Mutex
+	closing          bool
+	installing       map[string]bool
+	operations       map[string]*Operation
+	operationContext context.Context
+	operationCancel  context.CancelFunc
+	operationWG      sync.WaitGroup
+	runner           Runner
 }
 
 func Open(options Options) (*Service, error) {
 	if options.Root == "" || options.DataRoot == "" {
 		return nil, fmt.Errorf("WebApp roots are required")
 	}
-	s := &Service{root: options.Root, dataRoot: options.DataRoot, config: options.Config, runner: options.Runner, records: map[string]*Record{}, desired: map[string]Desired{}, policies: map[string]Policy{}, active: map[string]*activeApp{}, controls: map[string]*sync.Mutex{}, installing: map[string]bool{}}
+	s := &Service{root: options.Root, dataRoot: options.DataRoot, config: options.Config, runner: options.Runner, records: map[string]*Record{}, desired: map[string]Desired{}, policies: map[string]Policy{}, active: map[string]*activeApp{}, controls: map[string]*sync.Mutex{}, installing: map[string]bool{}, unavailable: map[string]string{}}
 	s.operations = map[string]*Operation{}
 	s.operationContext, s.operationCancel = context.WithCancel(context.Background())
 	s.maxArchive = int64(options.Config.MaxArchiveMiB) << 20
@@ -83,76 +94,119 @@ func Open(options Options) (*Service, error) {
 			s.lock.Close()
 		}
 	}()
-	// No directory switch or recovery is allowed while a previous helper
-	// still owns an application tree, including after a Platform crash.
-	if checker, ok := s.runner.(interface{ ConfirmStopped(string) bool }); ok {
-		entries, err := os.ReadDir(s.root)
-		if err != nil {
-			return nil, err
-		}
-		for _, e := range entries {
-			if idPattern.MatchString(e.Name()) {
-				if !e.IsDir() || e.Type()&os.ModeSymlink != 0 {
-					return nil, fmt.Errorf("unexpected WebApp entry")
-				}
-				if !checker.ConfirmStopped(e.Name()) {
-					return nil, fail("webapp_previous_generation_alive", 503)
-				}
-				if err := removeTree(filepath.Join(s.root, e.Name(), ".generations")); err != nil {
-					return nil, err
-				}
-			}
-		}
-	}
-	if err := s.recover(); err != nil {
-		return nil, fmt.Errorf("recover WebApp install: %w", err)
-	}
-	if err := s.collectUploads(); err != nil {
-		return nil, err
-	}
 	entries, err := os.ReadDir(s.root)
 	if err != nil {
 		return nil, err
 	}
+	// No directory switch or recovery is allowed while a previous helper
+	// still owns an application tree, including after a Platform crash. Such
+	// an installation stays untouched; other applications continue.
+	if checker, ok := s.runner.(interface{ ConfirmStopped(string) bool }); ok {
+		for _, e := range entries {
+			id := e.Name()
+			if !idPattern.MatchString(id) || !e.IsDir() {
+				continue
+			}
+			if !checker.ConfirmStopped(id) {
+				s.markUnavailable(id, "webapp_previous_generation_alive", nil)
+				continue
+			}
+			if err := removeTree(filepath.Join(s.root, id, ".generations")); err != nil {
+				s.markUnavailable(id, "webapp_installation_invalid", err)
+			}
+		}
+	}
+	s.recover()
+	if err := s.collectUploads(); err != nil {
+		log.Printf("WebApp uploads not collected: %v", err)
+	}
 	for _, e := range entries {
-		if e.Name() == ".staging" {
+		id := e.Name()
+		if id == ".staging" || id == SDKStateDir {
 			continue
 		}
-		if !idPattern.MatchString(e.Name()) || !e.IsDir() {
-			return nil, fmt.Errorf("unexpected WebApp entry")
+		if !idPattern.MatchString(id) {
+			log.Printf("WebApp root has unexpected entry %q; ignoring it", id)
+			continue
 		}
-		id := e.Name()
-		var record Record
-		dir := filepath.Join(s.root, id)
-		if err := readJSON(filepath.Join(dir, "install.json"), &record); err != nil {
-			return nil, err
+		if s.unavailable[id] != "" {
+			continue
 		}
-		if err := validateRecord(record, id); err != nil {
-			return nil, err
+		if !e.IsDir() {
+			s.markUnavailable(id, "webapp_installation_invalid", fmt.Errorf("not a directory"))
+			continue
 		}
-		if err := verifyInstalledCode(filepath.Join(dir, "app"), record); err != nil {
-			return nil, err
+		if err := s.load(id); err != nil {
+			s.markUnavailable(id, "webapp_installation_invalid", err)
 		}
-		var desired Desired
-		if err := readJSON(filepath.Join(dir, "desired.json"), &desired); err != nil {
-			return nil, err
-		}
-		if desired.SchemaVersion != 1 || (desired.State != "stopped" && desired.State != "running") || !opaquePattern.MatchString(desired.Revision) {
-			return nil, fmt.Errorf("invalid WebApp desired state")
-		}
-		var policy Policy
-		if err := readJSON(filepath.Join(dir, "policy.json"), &policy); err != nil {
-			return nil, err
-		}
-		if policy.SchemaVersion != 1 || !opaquePattern.MatchString(policy.Revision) || validatePolicy(policy) != nil {
-			return nil, fmt.Errorf("invalid WebApp policy")
-		}
-		s.records[id] = &record
-		s.desired[id] = desired
-		s.policies[id] = policy
 	}
 	keep = true
 	return s, nil
+}
+
+// markUnavailable must run before the service is shared or with mu held.
+func (s *Service) markUnavailable(id, code string, cause error) {
+	if s.unavailable[id] == "" {
+		s.unavailable[id] = code
+	}
+	log.Printf("WebApp %s left for manual recovery (%s): %v", id, code, cause)
+}
+
+func (s *Service) load(id string) error {
+	// The directory listing was taken before recovery, which may have removed
+	// an uncommitted first installation.
+	dir := filepath.Join(s.root, id)
+	if _, err := os.Lstat(dir); os.IsNotExist(err) {
+		return nil
+	}
+	var record Record
+	if err := readJSON(filepath.Join(dir, "install.json"), &record); err != nil {
+		return err
+	}
+	if err := validateRecord(record, id); err != nil {
+		return err
+	}
+	if err := verifyInstalledCode(filepath.Join(dir, "app"), record); err != nil {
+		return err
+	}
+	var desired Desired
+	if err := readJSON(filepath.Join(dir, "desired.json"), &desired); err != nil {
+		return err
+	}
+	if desired.SchemaVersion != 1 || (desired.State != "stopped" && desired.State != "running") || !opaquePattern.MatchString(desired.Revision) {
+		return fmt.Errorf("invalid WebApp desired state")
+	}
+	var policy Policy
+	if err := readJSON(filepath.Join(dir, "policy.json"), &policy); err != nil {
+		return err
+	}
+	if policy.SchemaVersion != 1 || !opaquePattern.MatchString(policy.Revision) || validatePolicy(policy) != nil {
+		return fmt.Errorf("invalid WebApp policy")
+	}
+	s.records[id] = &record
+	s.desired[id] = desired
+	s.policies[id] = policy
+	return nil
+}
+
+// Issues reports bounded codes for installations kept for manual recovery
+// and for a host-wide mutation stop. Logs carry the application details.
+func (s *Service) Issues() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := map[string]bool{}
+	if s.recoveryRequired {
+		seen["webapp_recovery_required"] = true
+	}
+	for _, code := range s.unavailable {
+		seen[code] = true
+	}
+	codes := make([]string, 0, len(seen))
+	for code := range seen {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	return codes
 }
 func validateRecord(r Record, id string) error {
 	if r.SchemaVersion != 1 || r.Manifest.ID != id || !idPattern.MatchString(id) || !opaquePattern.MatchString(r.Revision) || !opaquePattern.MatchString(r.InstallationID) || !isSHA256(r.ArchiveSHA256) || !isSHA256(r.ContentSHA256) {
@@ -219,28 +273,57 @@ func (s *Service) Get(id string) (Entry, error) {
 	}
 	return Entry{}, fail("webapp_not_found", 404)
 }
-func (s *Service) install(ctx context.Context, req InstallRequest, resume bool, validate func(Entry) error) (Entry, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.mutationError(); err != nil {
-		return Entry{}, err
-	}
+
+// prepareInstall hashes and extracts the upload without holding mu. On
+// success the caller owns txn, which holds the frozen code in txn/new.
+func (s *Service) prepareInstall(ctx context.Context, req InstallRequest) (Upload, string, Manifest, string, error) {
+	s.packageMu.Lock()
+	defer s.packageMu.Unlock()
 	u, archive, err := s.readUpload(req.UploadID)
 	if err != nil {
-		return Entry{}, err
+		return u, "", Manifest{}, "", err
 	}
 	if req.SHA256 != u.SHA256 {
-		return Entry{}, fail("webapp_upload_changed", 409)
+		return u, "", Manifest{}, "", fail("webapp_upload_changed", 409)
 	}
 	free, err := availableBytes(s.root)
 	if err != nil {
-		return Entry{}, err
+		return u, "", Manifest{}, "", err
 	}
 	if free < uint64(s.maxExpanded)+(32<<20) {
-		return Entry{}, fail("webapp_disk_space_insufficient", 507)
+		return u, "", Manifest{}, "", fail("webapp_disk_space_insufficient", 507)
 	}
 	txn := filepath.Join(s.root, ".staging", "install-"+randomID())
 	if err := os.Mkdir(txn, 0700); err != nil {
+		return u, "", Manifest{}, "", err
+	}
+	code := filepath.Join(txn, "new")
+	m, digest, err := func() (Manifest, string, error) {
+		if err := os.Mkdir(code, 0700); err != nil {
+			return Manifest{}, "", err
+		}
+		m, _, _, err := s.extract(ctx, archive, code)
+		if err != nil {
+			return Manifest{}, "", err
+		}
+		digest, err := treeDigest(code, true)
+		return m, digest, err
+	}()
+	if err != nil {
+		_ = removeTree(txn)
+		return u, "", Manifest{}, "", err
+	}
+	return u, txn, m, digest, nil
+}
+func (s *Service) install(ctx context.Context, req InstallRequest, resume bool, validate func(Entry) error) (Entry, error) {
+	s.mu.Lock()
+	err := s.mutationError()
+	s.mu.Unlock()
+	if err != nil {
+		return Entry{}, err
+	}
+	u, txn, m, digest, err := s.prepareInstall(ctx, req)
+	if err != nil {
 		return Entry{}, err
 	}
 	journalWritten := false
@@ -251,12 +334,14 @@ func (s *Service) install(ctx context.Context, req InstallRequest, resume bool, 
 		}
 	}()
 	code := filepath.Join(txn, "new")
-	if err := os.Mkdir(code, 0700); err != nil {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Close or a failed recovery may have happened during extraction.
+	if err := s.mutationError(); err != nil {
 		return Entry{}, err
 	}
-	m, _, _, err := s.extract(ctx, archive, code)
-	if err != nil {
-		return Entry{}, err
+	if s.unavailable[m.ID] != "" {
+		return Entry{}, fail("webapp_recovery_required", 503)
 	}
 	old := s.records[m.ID]
 	revision := ""
@@ -276,10 +361,6 @@ func (s *Service) install(ctx context.Context, req InstallRequest, resume bool, 
 		if _, err := os.Lstat(filepath.Join(s.root, m.ID)); !os.IsNotExist(err) {
 			return Entry{}, fail("webapp_installation_conflict", 409)
 		}
-	}
-	digest, err := treeDigest(code, true)
-	if err != nil {
-		return Entry{}, err
 	}
 	if old != nil && old.Manifest.Version == m.Version && old.ContentSHA256 != digest {
 		return Entry{}, fail("webapp_version_content_conflict", 409)
@@ -404,46 +485,57 @@ func (s *Service) Uninstall(ctx context.Context, id, revision string, purgeData 
 	control := s.control(id)
 	control.Lock()
 	defer control.Unlock()
+	txn, j, err := s.beginUninstall(ctx, id, revision, purgeData)
+	if err != nil {
+		return err
+	}
+	// The durable journal already removed the app from service; the control
+	// lock keeps a reinstall of the same ID out while the trees are deleted.
+	if err := s.finishDelete(txn, j); err != nil {
+		s.mu.Lock()
+		s.recoveryRequired = true
+		s.mu.Unlock()
+		return err
+	}
+	return nil
+}
+func (s *Service) beginUninstall(ctx context.Context, id, revision string, purgeData bool) (string, deleteJournal, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	j := deleteJournal{SchemaVersion: 1, AppID: id, PurgeData: purgeData}
 	if err := s.mutationError(); err != nil {
-		return err
+		return "", j, err
 	}
 	r := s.records[id]
 	if r == nil {
-		return fail("webapp_not_found", 404)
+		return "", j, fail("webapp_not_found", 404)
 	}
 	if r.Revision != revision {
-		return fail("webapp_revision_conflict", 409)
+		return "", j, fail("webapp_revision_conflict", 409)
 	}
 	if s.desired[id].State == "running" || s.active[id] != nil {
-		return fail("webapp_uninstall_requires_stop", 409)
+		return "", j, fail("webapp_uninstall_requires_stop", 409)
 	}
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return "", j, ctx.Err()
 	}
 	// A durable deletion journal makes a crash between detaching code and
 	// optional data deletion retryable, without reviving an uninstalled app.
 	txn := filepath.Join(s.root, ".staging", "delete-"+randomID())
 	if err := os.Mkdir(txn, 0700); err != nil {
-		return err
+		return "", j, err
 	}
-	j := deleteJournal{SchemaVersion: 1, AppID: id, PurgeData: purgeData}
 	if err := writeJSON(filepath.Join(txn, "delete.json"), j); err != nil {
-		return err
+		return "", j, err
 	}
 	if err := syncDir(filepath.Dir(txn)); err != nil {
 		s.recoveryRequired = true
-		return err
-	}
-	if err := s.finishDelete(txn, j); err != nil {
-		s.recoveryRequired = true
-		return err
+		return "", j, err
 	}
 	delete(s.records, id)
 	delete(s.desired, id)
 	delete(s.policies, id)
-	return nil
+	return txn, j, nil
 }
 func defaultUserConfig(m Manifest) map[string]any {
 	values := map[string]any{}

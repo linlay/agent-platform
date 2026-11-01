@@ -17,6 +17,8 @@ import (
 
 func TestMountedConnectorAllOperationsAndAccessLevels(t *testing.T) {
 	session, vars, bin := connectorFixture(t)
+	nodeVars, environment := fakeSystemPrograms(t, "node")
+	vars["PATH"] = bin + string(os.PathListSeparator) + nodeVars["PATH"] + string(os.PathListSeparator) + os.Getenv("PATH")
 	commands := []string{
 		"wecom-cli auth show --status",
 		"wecom-cli message aibot sessions list",
@@ -34,7 +36,7 @@ func TestMountedConnectorAllOperationsAndAccessLevels(t *testing.T) {
 		session.AccessLevel = level
 		for _, command := range commands {
 			t.Run(level+"/"+command, func(t *testing.T) {
-				p := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "/", vars)
+				p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, session, command, "/", vars, environment, nil)
 				if p.Decision != DecisionAllow || !p.ConnectorOnly {
 					t.Fatalf("not direct allow: %+v", p)
 				}

@@ -60,6 +60,7 @@ func TestReadWriteOperandSeparationAndProtectedDescendants(t *testing.T) {
 
 func TestPlatformStateHardBlockAcrossLevels(t *testing.T) {
 	s := policyFixture(t)
+	vars, environment := fakeSystemPrograms(t, "curl", "tar", "rg")
 	protected := filepath.Join(s.WorkspaceRoot, ".state")
 	s.ProtectedPaths = []string{protected}
 	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
@@ -71,7 +72,7 @@ func TestPlatformStateHardBlockAcrossLevels(t *testing.T) {
 			}
 		}
 		for _, command := range []string{"curl file://" + protected + "/identity/token", "tar -cf archive.tar .", "rg token ."} {
-			if p := ReviewBashCommand(config.AccessPolicyConfig{}, s, command, s.WorkspaceRoot, nil); !p.Blocked() {
+			if p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, s, command, s.WorkspaceRoot, vars, environment, nil); !p.Blocked() {
 				t.Fatalf("protected indirect access %s at %s: %+v", command, level, p)
 			}
 		}

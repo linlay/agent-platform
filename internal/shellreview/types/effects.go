@@ -122,6 +122,8 @@ func (o Op) Writes() bool {
 type UnknownKind string
 
 const (
+	UnknownSyntax   UnknownKind = "syntax"
+	UnknownWrapper  UnknownKind = "wrapper"
 	UnknownOption   UnknownKind = "option"
 	UnknownBehavior UnknownKind = "behavior"
 	UnknownDialect  UnknownKind = "dialect"
