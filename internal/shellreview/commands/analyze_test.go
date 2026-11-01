@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/shellreview/dialect"
+	"agent-platform/internal/shellreview/registry"
 	"agent-platform/internal/shellreview/types"
 )
 
@@ -149,5 +150,29 @@ func TestSimpleCommandUnknownOptionsAndStateMutation(t *testing.T) {
 	}
 	if e := nativeFacts("git", "push", "--unknown", "--force"); !e.Has(types.RemoteMutation) || !e.Has(types.Discard) {
 		t.Fatal("Git unknown option erased mutation facts")
+	}
+}
+
+func TestMetadataInventoryCannotSilentlyGainAnAnalyzer(t *testing.T) {
+	// Historical identity entries without an analyzer retain opaque behavior.
+	// Deployment allowlists are a separate policy and never inferred here.
+	unmodeled := map[registry.ID]bool{
+		registry.CmdColon: true, registry.CmdBreak: true, registry.CmdContinue: true, registry.CmdDbx: true, registry.CmdDeclare: true, registry.CmdDf: true, registry.CmdExport: true,
+		registry.CmdGetChildItem: true, registry.CmdGetContent: true, registry.CmdHttpx: true, registry.CmdLocal: true, registry.CmdRead: true, registry.CmdRemoveItem: true,
+		registry.CmdReturn: true, registry.CmdSet: true, registry.CmdShift: true, registry.CmdType: true, registry.CmdTypeset: true, registry.CmdUnset: true,
+	}
+	for _, entry := range registry.Entries() {
+		if entry.Flags&(registry.Arguments|registry.Builtin) == 0 {
+			continue
+		}
+		_, analyzed := analyzers[entry.ID]
+		if analyzed == unmodeled[entry.ID] {
+			t.Fatalf("metadata/analyzer inventory drift: %s analyzed=%t", entry.Name, analyzed)
+		}
+	}
+	for id := range analyzers {
+		if name := registry.Name(id); name == "" {
+			t.Fatalf("analyzer has no shared metadata: %d", id)
+		}
 	}
 }
