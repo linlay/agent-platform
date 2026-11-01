@@ -1,4 +1,4 @@
-package shellreview
+package resources
 
 import (
 	"context"
@@ -14,7 +14,6 @@ import (
 	"time"
 
 	. "agent-platform/internal/accesspolicy"
-	. "agent-platform/internal/contracts"
 	"agent-platform/internal/shellreview/identity"
 	"agent-platform/internal/shellreview/types"
 )
@@ -38,8 +37,8 @@ var gitStateCache = struct {
 // analysis runs no program implicitly: effective configuration defines no
 // fsmonitor, diff driver, filter or signature program for reads, and for local
 // writes additionally no hook, editor, credential helper or signing program.
-func gitExecutionClean(session QuerySession, x types.BashExecution, dir string, check types.GitCheck, vars map[string]string) bool {
-	if session.AgentHasRuntimeSandbox || check == types.GitCheckNone {
+func GitExecutionClean(sandbox bool, x types.BashExecution, dir string, check types.GitCheck, vars map[string]string) bool {
+	if sandbox || check == types.GitCheckNone {
 		return false
 	}
 	program := x.Program

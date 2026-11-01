@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/shellreview/commands"
 	"agent-platform/internal/shellreview/identity"
 	shellplan "agent-platform/internal/shellreview/plan"
+	"agent-platform/internal/shellreview/resources"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"agent-platform/internal/shellreview/types"
 	"agent-platform/internal/shellreview/unwrap"
@@ -104,7 +105,11 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 		add(shellplan.ReviewPath(command, accessLevel, level, mode, p, reason))
 	}
 	opaquePlan := func(x types.BashExecution) shellplan.BashPlan {
-		return executionFingerprint(shellplan.Opaque(command, accessLevel, level.Approvals.BashOpaqueCommand, x.Identity, x.Cwd), x, variables, environment)
+		p := shellplan.Opaque(command, accessLevel, level.Approvals.BashOpaqueCommand, x.Identity, x.Cwd)
+		version := resources.ExecutionFingerprint(resources.ExecutionVersion{Fingerprint: p.Fingerprint, RuleKey: p.RuleKey, AccessLevel: p.AccessLevel}, x, variables, environment)
+		p.Fingerprint, p.RuleKey = version.Fingerprint, version.RuleKey
+		p.Scope, p.ScopeKind, p.ContentSHA256 = version.Scope, version.ScopeKind, version.ContentSHA256
+		return p
 	}
 	if session.AgentHasRuntimeSandbox && environment != nil && environment.Directory != nil {
 		if canonical, err := environment.Directory(workingDir); err == nil {
@@ -252,7 +257,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 						add(shellplan.New(command, accessLevel, DecisionBlock, "container globs require explicit paths until guest expansion is available", "bash-access:glob", raw))
 						continue
 					}
-					paths, err := expandOperandPaths(raw)
+					paths, err := resources.ExpandOperandPaths(raw)
 					if err != nil {
 						add(shellplan.New(command, accessLevel, DecisionBlock, err.Error(), "bash-access:glob", raw))
 						continue
@@ -267,7 +272,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 						}
 					}
 				}
-				gitClean := effects.GitCheck != types.GitCheckNone && !effects.ExecutesCode && gitExecutionClean(session, x, repoDir, effects.GitCheck, variables)
+				gitClean := effects.GitCheck != types.GitCheckNone && !effects.ExecutesCode && resources.GitExecutionClean(session.AgentHasRuntimeSandbox, x, repoDir, effects.GitCheck, variables)
 				if effects.ExecutesCode || effects.GitCheck != types.GitCheckNone && !gitClean {
 					executes = true
 					add(opaquePlan(x))
@@ -291,16 +296,16 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 				add(shellplan.New(command, accessLevel, DecisionBlock, workspaceReadOnlyExecutionReason, "bash-access:workspace-readonly", x.Cwd))
 			}
 			for _, redirect := range cmd.Redirects {
-				kind := classifyRedirectAccess(redirect)
-				if kind == redirectAccessNeutral {
+				kind := resources.ClassifyRedirectAccess(redirect)
+				if kind == resources.RedirectAccessNeutral {
 					continue
 				}
-				if kind == redirectAccessUnknown || redirect.Target == "" {
+				if kind == resources.RedirectAccessUnknown || redirect.Target == "" {
 					add(shellplan.ForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "bash redirection cannot be resolved statically", "bash-access:complex"))
 					continue
 				}
 				mode := ReadAccess
-				if kind == redirectAccessWrite {
+				if kind == resources.RedirectAccessWrite {
 					mode = WriteAccess
 				}
 				// The invoking shell opens redirects before a wrapper changes cwd.

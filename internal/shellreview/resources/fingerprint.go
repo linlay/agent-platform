@@ -1,4 +1,4 @@
-package shellreview
+package resources
 
 import (
 	"crypto/sha256"
@@ -9,11 +9,10 @@ import (
 	"strings"
 
 	. "agent-platform/internal/accesspolicy"
-	shellplan "agent-platform/internal/shellreview/plan"
 	"agent-platform/internal/shellreview/types"
 )
 
-func executionFingerprint(p shellplan.BashPlan, x types.BashExecution, variables map[string]string, env *types.BashEnvironment) shellplan.BashPlan {
+func ExecutionFingerprint(p ExecutionVersion, x types.BashExecution, variables map[string]string, env *types.BashEnvironment) ExecutionVersion {
 	data, _ := json.Marshal(variables)
 	content := ""
 	target := x.Script
@@ -46,3 +45,6 @@ func executionFingerprint(p shellplan.BashPlan, x types.BashExecution, variables
 	p.Scope, p.ScopeKind, p.ContentSHA256 = target, "invocation_version", content
 	return p
 }
+
+// ExecutionVersion contains only the inputs and outputs of execution-version binding.
+type ExecutionVersion struct{ Fingerprint, RuleKey, AccessLevel, Scope, ScopeKind, ContentSHA256 string }

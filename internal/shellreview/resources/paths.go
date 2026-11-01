@@ -1,4 +1,4 @@
-package shellreview
+package resources
 
 import (
 	"errors"
@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-func expandOperandPaths(raw string) ([]string, error) {
+func ExpandOperandPaths(raw string) ([]string, error) {
 	if !strings.ContainsAny(raw, "*?[") {
 		return []string{raw}, nil
 	}
