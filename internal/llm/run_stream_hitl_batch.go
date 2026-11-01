@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"agent-platform/internal/shellreview"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -92,8 +91,8 @@ func (s *llmRunStream) queuedApprovalCandidate(invocation *preparedToolInvocatio
 	if invocation == nil {
 		return queuedBashApprovalCandidate{}, false
 	}
-	if s.usesHostBashAuthorization(invocation) {
-		request := s.prepareHostBashAuthorization(invocation)
+	if s.usesBashAuthorization(invocation) {
+		request := s.prepareBashAuthorization(invocation)
 		if request == nil || !approvalRequestCanJoinBatch(*request) {
 			return queuedBashApprovalCandidate{}, false
 		}
@@ -127,16 +126,7 @@ func (s *llmRunStream) queuedBashApprovalCandidate(invocation *preparedToolInvoc
 	if invocation == nil || !isBashTool(invocation.toolName) {
 		return queuedBashApprovalCandidate{}, false
 	}
-	if review := s.lookupBashSecurityReview(invocation); review.Decision == shellreview.ReviewBlock {
-		return queuedBashApprovalCandidate{}, false
-	} else if review.Decision == shellreview.ReviewRequiresApproval {
-		request := s.bashSecurityApprovalRequest(invocation, review)
-		if handled, _ := s.tryResolveApprovalFastPath(request, approvalFastPathSkipBatch); handled {
-			return queuedBashApprovalCandidate{}, false
-		}
-		invocation.shownApproval = &request
-		return queuedBashApprovalCandidate{invocation: invocation, match: request.result}, true
-	}
+
 	if review := s.lookupBashAccessReview(invocation); review.RequiresApproval() {
 		request := s.bashAccessApprovalRequest(invocation, review)
 		if handled, _ := s.tryResolveApprovalFastPath(request, approvalFastPathSkipBatch); handled {
@@ -580,9 +570,6 @@ func (s *llmRunStream) applyHITLDecision(invocation *preparedToolInvocation, res
 		rules := []string{request.result.Rule.RuleKey}
 		if request.bashAccessReview != nil {
 			rules = append(rules, shellplan.ApprovalRules(*request.bashAccessReview)...)
-		}
-		if request.bashSecurityReview != nil {
-			rules = append(rules, request.bashSecurityReview.RuleKey)
 		}
 		seen := map[string]bool{}
 		for _, rule := range rules {

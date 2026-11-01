@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-func expectDecision(t *testing.T, want ReviewDecision, commands ...string) {
+func expectDecision(t *testing.T, want syntaxReviewDecision, commands ...string) {
 	t.Helper()
 	for _, command := range commands {
 		t.Run(command, func(t *testing.T) {
-			if got := ReviewBashSecurity(command); got.Decision != want {
+			if got := reviewBashSecurity(command); got.Decision != want {
 				t.Fatalf("%q: want %s, got %#v", command, want, got)
 			}
 		})
@@ -89,7 +89,7 @@ func TestReviewBashSecurityBlocksDangerousBuiltins(t *testing.T) {
 
 func TestReviewBashSecurityApprovalForUnanalyzableStructure(t *testing.T) {
 	for _, command := range []string{`(echo hi)`, `curl "$URL"`, `echo a\ b`, `echo {1..1000}`} {
-		result := ReviewBashSecurity(command)
+		result := reviewBashSecurity(command)
 		if result.Decision != ReviewRequiresApproval || result.RuleKey != RuleKeyTooComplex || result.Level != LevelTooComplex {
 			t.Fatalf("%q: %#v", command, result)
 		}
@@ -98,7 +98,7 @@ func TestReviewBashSecurityApprovalForUnanalyzableStructure(t *testing.T) {
 		}
 	}
 	nested := `bash -c '(echo hi)'`
-	if result := ReviewBashSecurity(nested); result.Decision != ReviewRequiresApproval || result.Fingerprint != ApprovalFingerprint(nested) {
+	if result := reviewBashSecurity(nested); result.Decision != ReviewRequiresApproval || result.Fingerprint != ApprovalFingerprint(nested) {
 		t.Fatalf("nested approval must bind the outer command: %#v", result)
 	}
 }
@@ -108,15 +108,15 @@ func TestReviewBashSecurityRuntimeWrappers(t *testing.T) {
 		`find . -exec rm {} \;`: RuleKeyRuntimeWrapperFindExec,
 		`xargs cat`:             RuleKeyRuntimeWrapperXargs,
 	} {
-		result := ReviewBashSecurity(command)
+		result := reviewBashSecurity(command)
 		if result.Decision != ReviewRequiresApproval || result.RuleKey != rule || result.Level != LevelRuntimeWrapper {
 			t.Fatalf("%q: %#v", command, result)
 		}
 	}
-	if got := ReviewBashSecurity("fc -l"); got.Decision != ReviewAllow {
+	if got := reviewBashSecurity("fc -l"); got.Decision != ReviewAllow {
 		t.Fatalf("fc listing is harmless: %#v", got)
 	}
-	if !strings.Contains(ReviewBashSecurity(`bash -c 'eval evil'`).Reason, "eval") {
+	if !strings.Contains(reviewBashSecurity(`bash -c 'eval evil'`).Reason, "eval") {
 		t.Fatal("nested block should name the builtin")
 	}
 }
@@ -126,7 +126,7 @@ func TestSharedWrapperInspectionRetainsHardBlocks(t *testing.T) {
 		"command -p eval x", "command --unknown eval x", "command -- -v eval", "nice -n1 eval x", "nice --adjustment=1 eval x",
 		"timeout --signal=TERM 1 eval x", "timeout --unknown 1 eval x", "timeout -- 1 eval x", "nohup -- eval x", "env nice -n1 eval x",
 	} {
-		if got := ReviewBashSecurity(command); got.Decision != ReviewBlock {
+		if got := reviewBashSecurity(command); got.Decision != ReviewBlock {
 			t.Fatalf("hard block weakened: %s: %+v", command, got)
 		}
 	}

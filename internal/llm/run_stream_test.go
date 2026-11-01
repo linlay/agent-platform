@@ -1,7 +1,9 @@
 package llm
 
 import (
+	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/shellreview"
+	shellplan "agent-platform/internal/shellreview/plan"
 	"bufio"
 	"context"
 	"errors"
@@ -2448,12 +2450,10 @@ func TestPrepareToolCall_BashDescriptionIsOptional(t *testing.T) {
 }
 
 func TestBuildApprovalAskItem_BashDescriptionFallsBackToCommand(t *testing.T) {
-	review := shellreview.ReviewResult{Decision: shellreview.ReviewAllow}
 	invocation := &preparedToolInvocation{
-		toolID:             "tool_1",
-		toolName:           "bash",
-		args:               map[string]any{"command": "chmod 777 ~/a.sh"},
-		bashSecurityReview: &review,
+		toolID:   "tool_1",
+		toolName: "bash",
+		args:     map[string]any{"command": "chmod 777 ~/a.sh"},
 	}
 
 	item := (&llmRunStream{}).buildApprovalAskItem(invocation)
@@ -3085,8 +3085,8 @@ func TestBashSecuritySoftBlockAutoApprovesByAccessLevel(t *testing.T) {
 	if stream.hitlPendingCall != nil || len(stream.pending) != 1 {
 		t.Fatalf("expected no approval ask and one tool result, pending=%#v hitlPending=%#v", stream.pending, stream.hitlPendingCall)
 	}
-	if len(stream.execCtx.BashSecurityApprovals) != 0 {
-		t.Fatalf("host invocation leaked its security approval into the run: %#v", stream.execCtx.BashSecurityApprovals)
+	if len(stream.execCtx.AccessPolicyApprovals) != 0 {
+		t.Fatalf("host invocation leaked its security approval into the run: %#v", stream.execCtx.AccessPolicyApprovals)
 	}
 }
 
@@ -3101,7 +3101,7 @@ func TestBashSecuritySoftBlockUsesExistingFingerprintApproval(t *testing.T) {
 		},
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{
-			BashSecurityApprovals: map[string]int{
+			AccessPolicyApprovals: map[string]int{
 				shellreview.ApprovalFingerprint(command): 1,
 			},
 		},
@@ -3111,6 +3111,9 @@ func TestBashSecuritySoftBlockUsesExistingFingerprintApproval(t *testing.T) {
 			args:     map[string]any{"command": command, "description": "创建 owner"},
 		},
 	}
+
+	plan := stream.rawBashAccessReview(stream.activeToolCall)
+	stream.execCtx.AccessPolicyApprovals = map[string]int{plan.Fingerprint: 1}
 
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)
@@ -5900,15 +5903,16 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 
 func TestAwaitHITLApprovalBatchAndContinueUsesStoredMatch(t *testing.T) {
 	runControl := contracts.NewRunControl(context.Background(), "run_1")
-	review := shellreview.ReviewBashSecurity("xargs echo")
+	review := shellplan.New("xargs echo", contracts.AccessLevelAskForApproval, accesspolicy.DecisionRequiresApproval, "runtime wrapper", shellreview.RuleKeyRuntimeWrapperXargs, "original")
+	reviewer := &changingBashReviewExecutor{plan: review}
 	invocation := &preparedToolInvocation{
-		toolID:             "tool_1",
-		toolName:           "bash",
-		args:               map[string]any{"command": "xargs echo", "description": "runtime wrapper"},
-		bashSecurityReview: &review,
+		toolID:   "tool_1",
+		toolName: "bash",
+		args:     map[string]any{"command": "xargs echo", "description": "runtime wrapper"},
 	}
 	stream := &llmRunStream{
-		ctx: context.Background(),
+		ctx:    context.Background(),
+		engine: &LLMAgentEngine{tools: reviewer},
 		session: contracts.QuerySession{
 			RequestID: "req_1",
 			ChatID:    "chat_1",
@@ -5927,8 +5931,7 @@ func TestAwaitHITLApprovalBatchAndContinueUsesStoredMatch(t *testing.T) {
 	if stream.hitlPendingBatch == nil || len(stream.hitlPendingBatch.matches) != 1 {
 		t.Fatalf("expected one stored batch match, got %#v", stream.hitlPendingBatch)
 	}
-	allow := shellreview.ReviewResult{Decision: shellreview.ReviewAllow}
-	invocation.bashSecurityReview = &allow
+	reviewer.plan = shellplan.BashPlan{Decision: accesspolicy.DecisionAllow}
 
 	ask := stream.pending[0].(contracts.DeltaAwaitAsk)
 	ack := runControl.ResolveSubmit(api.SubmitRequest{

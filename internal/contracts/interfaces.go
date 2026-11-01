@@ -619,8 +619,6 @@ type ExecutionContext struct {
 	AccessPolicyApprovals map[string]int
 	// AccessPolicyRuleApprovals stores run-scoped approvals for host bash access-policy rules.
 	AccessPolicyRuleApprovals map[string]bool
-	// BashSecurityApprovals stores one-shot approvals for exact host bash command fingerprints.
-	BashSecurityApprovals map[string]int
 	// FileReadApprovals stores one-shot approvals for exact read/glob/grep file access paths.
 	FileReadApprovals map[string]int
 	// FileReadRuleApprovals stores run-scoped approvals for read/glob/grep access under a directory root.

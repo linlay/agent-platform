@@ -947,8 +947,7 @@ func TestInvokeHostBashConsumesMatchingSoftSecurityApproval(t *testing.T) {
 	executor := softSecurityExecutor()
 	args := map[string]any{"command": command}
 	preflight := executor.ReviewBashAccess(context.Background(), args, execCtx, executor.cfg.AccessPolicy)
-	security := shellreview.SecurityReview(preflight, command, bashSecurityKnownVariables(execCtx))
-	execCtx.BashSecurityApprovals = map[string]int{security.Fingerprint: 1}
+	execCtx.AccessPolicyApprovals = map[string]int{preflight.Fingerprint: 1}
 	result, err := executor.invokeHostBash(context.Background(), args, execCtx)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
@@ -956,15 +955,15 @@ func TestInvokeHostBashConsumesMatchingSoftSecurityApproval(t *testing.T) {
 	if result.Error != "" || result.ExitCode != 0 {
 		t.Fatalf("expected approved command to execute, got %#v", result)
 	}
-	if _, ok := execCtx.BashSecurityApprovals[security.Fingerprint]; ok {
-		t.Fatalf("expected approval to be consumed, got %#v", execCtx.BashSecurityApprovals)
+	if _, ok := execCtx.AccessPolicyApprovals[preflight.Fingerprint]; ok {
+		t.Fatalf("expected approval to be consumed, got %#v", execCtx.AccessPolicyApprovals)
 	}
 }
 
 func TestInvokeHostBashRejectsMismatchedSoftSecurityApproval(t *testing.T) {
 	root := t.TempDir()
 	execCtx := bashExecutionContext(root)
-	execCtx.BashSecurityApprovals = map[string]int{shellreview.ApprovalFingerprint("printf no | xargs printf"): 1}
+	execCtx.AccessPolicyApprovals = map[string]int{shellreview.ApprovalFingerprint("printf no | xargs printf"): 1}
 	result, err := softSecurityExecutor().invokeHostBash(context.Background(), map[string]any{"command": "printf ok | xargs printf"}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
@@ -1192,7 +1191,7 @@ func TestInvokeHostBashRealOutsideRedirectionStillRequiresAccessApproval(t *test
 			AccessLevel:   contracts.AccessLevelAutoApprove,
 			WorkspaceRoot: root,
 		},
-		BashSecurityApprovals: map[string]int{
+		AccessPolicyApprovals: map[string]int{
 			shellreview.ApprovalFingerprint(command): 1,
 		},
 	}

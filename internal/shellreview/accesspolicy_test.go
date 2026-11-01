@@ -9,6 +9,7 @@ import (
 	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	shellplan "agent-platform/internal/shellreview/plan"
 	"agent-platform/internal/shellreview/types"
 	"agent-platform/internal/temppaths"
 )
@@ -418,7 +419,7 @@ func TestBashAccessPolicyComplexAndOpaqueLevels(t *testing.T) {
 
 	defaultSession := contracts.QuerySession{AccessLevel: contracts.AccessLevelAskForApproval, WorkspaceRoot: workspace}
 	complex := ReviewBashCommand(cfg, defaultSession, "cat $TARGET", workspace, nil)
-	if !complex.RequiresApproval() || complex.RuleKey != "bash-access:complex" {
+	if !complex.RequiresApproval() || !strings.Contains(strings.Join(shellplan.ApprovalRules(complex), ","), "bash-access:complex") {
 		t.Fatalf("expected complex bash approval, got %#v", complex)
 	}
 	opaque := ReviewBashCommand(cfg, defaultSession, "npm test", workspace, nil)

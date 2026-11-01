@@ -10,8 +10,8 @@ import (
 	"agent-platform/internal/shellreview/unwrap"
 )
 
-func reviewFromAST(original, command string, result bashsyntax.ParseResult, variables map[string]string, depth int) ReviewResult {
-	review := ReviewResult{Decision: ReviewAllow}
+func reviewFromAST(original, command string, result bashsyntax.ParseResult, variables map[string]string, depth int) syntaxReviewResult {
+	review := syntaxReviewResult{Decision: ReviewAllow}
 	if blocked := reviewText(command, result); blocked.Decision == ReviewBlock {
 		return blocked
 	}
@@ -36,8 +36,8 @@ func reviewFromAST(original, command string, result bashsyntax.ParseResult, vari
 	return review
 }
 
-func reviewASTCommand(command string, cmd types.Invocation) ReviewResult {
-	result := ReviewResult{Decision: ReviewAllow}
+func reviewASTCommand(command string, cmd types.Invocation) syntaxReviewResult {
+	result := syntaxReviewResult{Decision: ReviewAllow}
 	for _, argv := range deterministicCommandChain(cmd.Argv) {
 		if len(argv) == 0 {
 			continue

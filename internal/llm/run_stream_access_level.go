@@ -43,14 +43,13 @@ func invalidateAccessPolicyPlans(invocation *preparedToolInvocation) {
 	if invocation == nil {
 		return
 	}
-	invocation.bashAccessReview = nil
 	invocation.fileAccessPlan = nil
 	invocation.fileWritePlan = nil
 }
 
 func isAccessPolicyApprovalMatch(result hitl.InterceptResult) bool {
 	ruleKey := strings.ToLower(strings.TrimSpace(result.Rule.RuleKey))
-	return strings.HasPrefix(ruleKey, "file-") || strings.HasPrefix(ruleKey, "bash-access")
+	return strings.HasPrefix(ruleKey, "file-") || strings.HasPrefix(ruleKey, "bash-access") || strings.HasPrefix(ruleKey, "bashsec:") || strings.HasPrefix(ruleKey, "bashast:")
 }
 
 func (s *llmRunStream) invocationNeedsAccessPolicyApproval(invocation *preparedToolInvocation) bool {

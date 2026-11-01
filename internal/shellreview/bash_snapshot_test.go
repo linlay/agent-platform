@@ -172,23 +172,26 @@ func TestBashReviewNormalizedBaseline(t *testing.T) {
 	for i, line := range wantLines {
 		indices[key(line)] = i
 	}
-	delta, err := os.ReadFile(filepath.Join("testdata", "bash-review-unix-resource-delta.txt"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	seen := map[string]bool{}
-	for _, line := range strings.Split(strings.TrimSpace(string(delta)), "\n") {
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+	for _, deltaName := range []string{"bash-review-unix-resource-delta.txt", "bash-review-unified-policy-delta.txt"} {
+		delta, err := os.ReadFile(filepath.Join("testdata", deltaName))
+		if err != nil {
+			t.Fatal(err)
 		}
-		k := key(line)
-		index, exists := indices[k]
-		if !exists || seen[k] {
-			t.Fatalf("unknown or duplicate resource delta: %q", line)
+		for _, line := range strings.Split(strings.TrimSpace(string(delta)), "\n") {
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			k := key(line)
+			index, exists := indices[k]
+			if !exists || seen[k] {
+				t.Fatalf("unknown or duplicate resource delta: %q", line)
+			}
+			seen[k] = true
+			wantLines[index] = line
 		}
-		seen[k] = true
-		wantLines[index] = line
 	}
+
 	if got != strings.Join(wantLines, "\n")+"\n" {
 		for i, line := range lines {
 			if i >= len(wantLines) || wantLines[i] != line {
@@ -216,7 +219,7 @@ func shellBaselineLine(name, level string, p shellplan.BashPlan, command string,
 	}
 	visit(p)
 	sort.Strings(leaves)
-	security := SecurityReview(p, command, vars)
+	security := securityReview(p, command, vars)
 	return fmt.Sprintf("%s\t%s\t%s\tsecurity=%s/%s\tconnector=%t/%t\tleaves=%d:%s", name, level, p.Decision, security.Decision, security.RuleKey, p.HasConnector, p.ConnectorOnly, len(leaves), strings.Join(leaves, ","))
 }
 

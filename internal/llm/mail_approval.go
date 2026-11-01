@@ -5,7 +5,6 @@ import (
 
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
-	"agent-platform/internal/shellreview"
 )
 
 // Capture the child's execution environment and invocation bytes. Re-evaluation
@@ -40,7 +39,6 @@ func (s *llmRunStream) mailApprovalDelegator(calls ...*preparedToolInvocation) f
 			control.SetInitialAccessLevel(level)
 			exec.RunControl = control
 			exec.ToolApprovals = nil
-			exec.BashSecurityApprovals = nil
 			review := &llmRunStream{engine: engine, ctx: ctx, session: exec.Session, execCtx: &exec, runControl: control}
 			inv := call
 			inv.args = contracts.CloneMap(call.args)
@@ -68,10 +66,7 @@ func (s *llmRunStream) mailApprovalDelegator(calls ...*preparedToolInvocation) f
 				if plan.UnknownDialect || plan.Blocked() || plan.RequiresApproval() {
 					return deny()
 				}
-				security := shellreview.SecurityReview(plan, mapStringArg(inv.args, "command"), review.knownRuntimeVariables())
-				if security.Decision == shellreview.ReviewBlock || (security.Decision == shellreview.ReviewRequiresApproval && !review.shouldAutoApproveBashSecurity(security)) {
-					return deny()
-				}
+
 				// A view form review always waits for a person.
 				if review.checkBashHITL(&inv).Intercepted {
 					return deny()

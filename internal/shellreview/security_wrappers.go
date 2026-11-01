@@ -37,9 +37,9 @@ func deterministicCommandChain(argv []string) [][]string {
 	return chain
 }
 
-func reviewRuntimeWrapperCommand(command string, argv []string) ReviewResult {
+func reviewRuntimeWrapperCommand(command string, argv []string) syntaxReviewResult {
 	if len(argv) == 0 {
-		return ReviewResult{Decision: ReviewAllow}
+		return syntaxReviewResult{Decision: ReviewAllow}
 	}
 	switch registry.IDOf(normalizedCommandBase(argv[0])) {
 	case registry.CmdXargs:
@@ -62,7 +62,7 @@ func reviewRuntimeWrapperCommand(command string, argv []string) ReviewResult {
 			return approvalReview(command, "Command uses find -exec with runtime-selected paths", RuleKeyRuntimeWrapperFindExec, LevelRuntimeWrapper)
 		}
 	}
-	return ReviewResult{Decision: ReviewAllow}
+	return syntaxReviewResult{Decision: ReviewAllow}
 }
 
 func xargsInnerArgv(argv []string) ([]string, bool) {

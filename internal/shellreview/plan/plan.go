@@ -22,6 +22,8 @@ type BashPlan struct {
 	// ConnectorCall is set when the whole command is one plain connector call.
 	ConnectorCall *types.ConnectorCall
 	// Requirements are leaf decisions; a rule approval never approves sibling requirements.
+	Syntax        bool // the selected requirement comes from shell syntax safety
+	SyntaxLevel   int
 	Requirements  []BashPlan
 	Decision      Decision
 	Reason        string
@@ -150,4 +152,18 @@ func firstNonBlank(values ...string) string {
 func ForInvocation(command, accessLevel, action, reason, rule, cwd string) BashPlan {
 	sum := sha256.Sum256([]byte(command + "\x00" + cwd))
 	return New(command, accessLevel, DecisionForAction(action), reason, rule+":"+hex.EncodeToString(sum[:8]), command+"\x00"+cwd)
+}
+
+// ErrorCode preserves the public error category while all gates share a plan.
+func (p BashPlan) ErrorCode() string {
+	if p.Syntax {
+		if p.Blocked() {
+			return "bash_security_blocked"
+		}
+		return "bash_security_approval_required"
+	}
+	if p.Blocked() {
+		return "bash_access_blocked"
+	}
+	return "bash_access_approval_required"
 }

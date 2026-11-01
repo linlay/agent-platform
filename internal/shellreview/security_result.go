@@ -5,12 +5,12 @@ import (
 	"encoding/hex"
 )
 
-func blockReview(reason string) ReviewResult {
-	return ReviewResult{Decision: ReviewBlock, Reason: reason}
+func blockReview(reason string) syntaxReviewResult {
+	return syntaxReviewResult{Decision: ReviewBlock, Reason: reason}
 }
 
-func approvalReview(command, reason, ruleKey string, level int) ReviewResult {
-	return ReviewResult{
+func approvalReview(command, reason, ruleKey string, level int) syntaxReviewResult {
+	return syntaxReviewResult{
 		Decision:    ReviewRequiresApproval,
 		Reason:      reason,
 		Fingerprint: ApprovalFingerprint(command),

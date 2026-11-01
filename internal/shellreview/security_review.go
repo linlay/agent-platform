@@ -5,23 +5,23 @@ import (
 	"strings"
 )
 
-type ReviewDecision string
+type syntaxReviewDecision string
 
 const (
-	ReviewAllow            ReviewDecision = "allow"
-	ReviewRequiresApproval ReviewDecision = "requires_approval"
-	ReviewBlock            ReviewDecision = "block"
+	ReviewAllow            syntaxReviewDecision = "allow"
+	ReviewRequiresApproval syntaxReviewDecision = "requires_approval"
+	ReviewBlock            syntaxReviewDecision = "block"
 )
 
-type ReviewResult struct {
-	Decision    ReviewDecision
+type syntaxReviewResult struct {
+	Decision    syntaxReviewDecision
 	Reason      string
 	Fingerprint string
 	RuleKey     string
 	Level       int
 }
 
-func (r ReviewResult) AutoApprovedAtLevel(level string) bool {
+func (r syntaxReviewResult) AutoApprovedAtLevel(level string) bool {
 	return r.Decision == ReviewRequiresApproval && (level == "auto_approve" || level == "full_access")
 }
 
@@ -37,18 +37,18 @@ const (
 // maxScriptDepth bounds recursive review of literal `bash -c` scripts.
 const maxScriptDepth = 3
 
-func ReviewBashSecurity(command string) ReviewResult {
-	return ReviewBashSecurityWithKnownVariables(command, nil)
+func reviewBashSecurity(command string) syntaxReviewResult {
+	return reviewBashSecurityWithKnownVariables(command, nil)
 }
 
-// ReviewBashSecurityWithKnownVariables reports shell constructs the reviewer
+// reviewBashSecurityWithKnownVariables reports shell constructs the reviewer
 // cannot represent faithfully (hard block) or cannot analyze (approval). File,
 // program and network effects belong to the access policy.
-func ReviewBashSecurityWithKnownVariables(command string, variables map[string]string) ReviewResult {
+func reviewBashSecurityWithKnownVariables(command string, variables map[string]string) syntaxReviewResult {
 	return reviewScript(command, command, variables, 0)
 }
 
-func reviewScript(original, command string, variables map[string]string, depth int) ReviewResult {
+func reviewScript(original, command string, variables map[string]string, depth int) syntaxReviewResult {
 	result := bashsyntax.ParseForSecurityWithKnownVariables(command, variables)
 	switch result.Kind {
 	case bashsyntax.Simple:

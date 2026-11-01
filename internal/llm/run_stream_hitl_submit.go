@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"agent-platform/internal/shellreview"
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
@@ -218,8 +217,8 @@ func (s *llmRunStream) currentAccessLevel() string {
 }
 
 func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) error {
-	if s.usesHostBashAuthorization(invocation) {
-		return s.invokeAuthorizedHostBash(invocation)
+	if s.usesBashAuthorization(invocation) {
+		return s.invokeAuthorizedBash(invocation)
 	}
 	s.refreshAccessLevelForInvocation(invocation)
 	if isBashTool(invocation.toolName) {
@@ -345,8 +344,6 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 		result = fileAccessInterceptResult(*plan)
 	} else if plan := s.lookupFileWritePlan(invocation); plan != nil && s.fileWritePlanNeedsApproval(*plan) {
 		result = fileWriteInterceptResult(*plan)
-	} else if review := s.lookupBashSecurityReview(invocation); review.Decision == shellreview.ReviewRequiresApproval {
-		result = bashSecurityInterceptResult(invocation, review)
 	} else if invocation != nil && invocation.precheckedHITL != nil {
 		result = *invocation.precheckedHITL
 	} else {
@@ -366,9 +363,10 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 	if invocation.shownApproval != nil {
 		request := invocation.shownApproval
 		var requirements []any
-		if request.bashSecurityReview != nil {
-			requirements = append(requirements, map[string]any{"ruleKey": request.bashSecurityReview.RuleKey, "reason": request.bashSecurityReview.Reason})
+		if p := request.bashAccessReview; p != nil && p.Syntax {
+			requirements = append(requirements, map[string]any{"ruleKey": request.result.Rule.RuleKey, "reason": p.Reason})
 		}
+
 		if len(requirements) > 0 {
 			item["requirements"] = requirements
 		}

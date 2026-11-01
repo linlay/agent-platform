@@ -87,8 +87,7 @@ func TestSoftSecurityDoesNotAcceptCommandOnlyGrant(t *testing.T) {
 	command := "printf ok | xargs printf"
 	// A command-only hash from before launch binding cannot approve a launch.
 	plain := shellreview.ReviewBashCommand(executor.cfg.AccessPolicy, ctx.Session, command, "", nil)
-	security := shellreview.SecurityReview(plain, command, nil)
-	ctx.BashSecurityApprovals = map[string]int{security.Fingerprint: 1}
+	ctx.AccessPolicyApprovals = map[string]int{plain.Fingerprint: 1}
 	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": command}, ctx)
 	if err != nil || result.Error != "bash_security_approval_required" {
 		t.Fatalf("unbound security grant was accepted: %+v %v", result, err)
@@ -172,5 +171,47 @@ func TestHostBashJudgesHiddenCharactersByQuoting(t *testing.T) {
 	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "printf '%s' '" + payload + "'"}, ctx)
 	if err != nil || result.Error != "" || !strings.Contains(result.Output, payload) {
 		t.Fatalf("quoted data was not passed verbatim: %+v %v", result, err)
+	}
+}
+
+func TestCanceledHostInvocationDoesNotSpendCombinedApproval(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix launch")
+	}
+	root := t.TempDir()
+	executor := softSecurityExecutor()
+	execution := bashExecutionContext(root)
+	args := map[string]any{"command": "printf approved | xargs printf"}
+	p := executor.ReviewBashAccess(context.Background(), args, execution, executor.cfg.AccessPolicy)
+	if !p.RequiresApproval() {
+		t.Fatal(p)
+	}
+	shellplan.RegisterExactApproval(execution, p.Fingerprint)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result, err := executor.invokeHostBash(ctx, args, execution)
+	if err != nil || result.ExitCode == 0 {
+		t.Fatalf("canceled invocation ran: %+v %v", result, err)
+	}
+	if execution.AccessPolicyApprovals[p.Fingerprint] != 1 {
+		t.Fatal("canceled invocation spent approval")
+	}
+}
+
+func TestHostApprovalAndLaunchKeepOriginalWhitespace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix launch")
+	}
+	executor := softSecurityExecutor()
+	execution := bashExecutionContext(t.TempDir())
+	args := map[string]any{"command": " \n printf approved | xargs printf \n"}
+	p := executor.ReviewBashAccess(context.Background(), args, execution, executor.cfg.AccessPolicy)
+	if !p.RequiresApproval() {
+		t.Fatal(p)
+	}
+	shellplan.RegisterExactApproval(execution, p.Fingerprint)
+	result, err := executor.invokeHostBash(context.Background(), args, execution)
+	if err != nil || result.Error != "" || result.ExitCode != 0 || !strings.Contains(result.Output, "approved") {
+		t.Fatalf("reviewed source changed before launch: %+v %v", result, err)
 	}
 }

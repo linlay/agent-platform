@@ -1,7 +1,7 @@
 # Shell 命令审批：剩余工作计划
 
 > 2026-11-01 合并：原 `shell-command-analysis-implementation.md` 已并入本文并删除，剩余工作只看这一份。第 0 节是接手入口和按提交排的清单；第 1–8 节是背景、设计合同与已定决策；第 9 节是验证与完成定义；附录是回归样例、评审意见摘要和证据。
-> 代码现状：Shell 审查已完成 C6；C11u1 的资源实现由共享分支提交 `9110655e` 一并带入，快照与回归收尾见当前 git 历史（C1 开工基线为 `b8ca2ad6`）。S1、S2（含两轮复审补丁和选项补丁）已完成，S0 完成首批，S3 的 C1–C5 已完成，C6（S4）的 C6a–C6g 已完成；Unix S6 的 C11u1 空设备规则已实现并完成 macOS/容器探针验收；C11u2 已完成当前 Unix 子集的配置依赖、包装环境与启动复审核验；C12a 已移除解析包的临时依赖，下一步为 C12b 合并审批对象。S5/S7/S8 未完成，Windows 的 C7–C10 仍须逐步满足原生验收。Windows 相关结论都没有在原生 Windows 上端到端运行过。
+> 代码现状：Shell 审查已完成 C6；C11u1 的资源实现由共享分支提交 `9110655e` 一并带入，快照与回归收尾见当前 git 历史（C1 开工基线为 `b8ca2ad6`）。S1、S2（含两轮复审补丁和选项补丁）已完成，S0 完成首批，S3 的 C1–C5 已完成，C6（S4）的 C6a–C6g 已完成；Unix S6 的 C11u1 空设备规则已实现并完成 macOS/容器探针验收；C11u2 已完成当前 Unix 子集的配置依赖、包装环境与启动复审核验；C12a/C12b 已完成当前 Unix 范围的解析边界与统一审批；剩余以 Windows 的 C7–C10、C11w、C13 和跨环境 C14 为主。S5/S8 未完成，Windows 的 C7–C10 仍须逐步满足原生验收。Windows 相关结论都没有在原生 Windows 上端到端运行过。
 > 已完成工作的过程记录在 git 历史中（提交见 §0.1）；本文只保留后续还要用到的事实与证据（附录 C）。
 
 ## 0. 接手入口
@@ -31,14 +31,15 @@
 | C6h / Linux 用例隔离 | `9110655e`（共享提交） | Linux 镜像缺少 curl/node 时复现旧测试落入 opaque；四组纯语义用例改为显式安装快照，生产认可范围不变；真实启动测试仍用实际 Shell |
 | C11u1 / Unix 空设备与资源状态 | `9110655e`（共享提交带入实现）；本轮补齐快照接入与回归 | Known/Unresolved/HardViolation、Host Lstat 与 Linux/macOS 设备号、guest 不可改写 stat 探针、来源及调用完整度抵消；硬阻断先行、失败保留路径与 complex，旧特例删除；配置依赖核验仍属 C11u2 |
 | C11u2 / Unix 配置与版本 | `95ea3dde` | curl/wget/rg 默认配置按实际环境和 cwd 定位；显式配置、sed 等程序文件与 Git 有效配置/include/hooks 绑定字节摘要；env -i/-u 与嵌套 bash -c 传递环境/前序修改；启动注入不借身份或脚本证明，Git 探针不携带注入/trace 环境；Host/guest 启动复审回归通过，guest Git 仍为未知行为 |
-| C12a / S7 解析边界 | 本次提交 | 五个原安全审查文件及原测试移到 shellreview 根包 security_*.go；调用方同步使用根包结果类型；syntax/bash 不再依赖 unwrap；函数体和两套批准行为保持，C12b 合并审批对象尚未完成 |
+| C12a / S7 解析边界 | `955daa5e` | 五个原安全审查文件及原测试移到 shellreview 根包 security_*.go；调用方同步使用根包结果类型；syntax/bash 不再依赖 unwrap；该提交保持函数体与原批准行为；后续 C12b 已合并审批对象 |
+| C12b / S7 统一审批 | 本次提交 | 语法与资源合为同一个 BashPlan；tools/llm 不再调用独立语法审查，删除 BashSecurityApprovals；Host/guest 按调用独占精确批准，最终消费具备整组原子性与 Host 未启动退款；原错误码、审批卡片形状和规则作用域保留，Windows 精确语义仍未启用 |
 | 设计决定 | 本文 §8.1 | 原待确认第 1、2、3、4、6 项，以及 2026-11-01 的 Windows 补充决定；第 5、7 项已有落地建议，待原生验证（§8.2） |
 
 ### 0.2 当前代码入口
 
 - 启动合同与系统 Bash 判定：`internal/hostshell/tool.go`（`ResolveTool`、`classifyToolShell`、`toolSystemShells`）。
 - 文本检查：`internal/commandtext/text.go`（`CheckText`、`CheckHidden`、`CheckAll`）、`syntax/bash/prechecks.go`（`CheckRawText`，Bash 引号外）；Bash 解析归 `syntax/bash`；原 bashsec 的安全审查在根包 `security_{review,ast,text,wrappers,result}.go`，由根包组合。
-- 身份与脚本入口：`internal/shellreview/identity/{identity.go,paths.go,scripts.go,connector.go}`；根包 `execution.go` 保留身份→可信包装→重新确认身份的交替调度，`unwrap/{execution.go,wrappers.go,env.go}` 共用包装语法；根包 security_* 消费不授予身份信任的硬阻断候选。C12a 已移除 syntax/bash→unwrap；两套审批对象仍待 C12b 合并。
+- 身份与脚本入口：`internal/shellreview/identity/{identity.go,paths.go,scripts.go,connector.go}`；根包 `execution.go` 保留身份→可信包装→重新确认身份的交替调度，`unwrap/{execution.go,wrappers.go,env.go}` 共用包装语法；根包 security_* 消费不授予身份信任的硬阻断候选。C12a 已移除 syntax/bash→unwrap；C12b 已合并审批对象，统一入口与批准见 review.go/unified.go、plan/approval.go。
 - 名称与身份类别：`internal/shellreview/registry/registry.go`；`commands/registry.go` 只按其 ID 聚合分析函数，命令名不再各存一份。
 - 中立调用与效果：`internal/shellreview/types/invocation.go`、`effects.go`、`command.go`、`source.go`（Op/Target/Unknown/Dep、域/来源/方言与选项值范围）；执行事实与环境探针合同：`types/execution.go`；包装后来源：`BashExecution.Words`/`types.SourceWord` 与 `unwrap/{env.go,source.go}`；来源判定：`syntax/bash/provenance.go`；命令语义：`commands/`；共享包装辅助函数：`unwrap/command.go`；选项合同与通用 POSIX 算法：`types/options.go`、`options/`。
 - 根包调度：`internal/shellreview/review.go`；按方言选择文本检查与 cwd 默认值：`input.go`；外围语法审查：`bash_connector.go`（`SecurityReview`）。
@@ -71,21 +72,21 @@
 | C11u1 / S6 Unix 空设备（已完成） | resources 三态、devices 的 Linux/macOS/guest 实现，ShellRedirect/Argument 抵消分开，删除两处旧特例 | C6 已完成 | macOS、Linux 实际 Lstat 和 Bookworm 容器的数字/不可改写入口探针已通过；tee/curl/cat 通用；opaque/unknown 的字面重定向不多出路径要求；结构修改不豁免；失败 Unresolved，readonly/admin block 先行 |
 | C11u2 / S6 Unix 配置依赖（当前子集已完成） | 按有效环境和 cwd 定位默认/显式配置，存在性、Agent 可写性、摘要绑定；env -i/-u 正确传递；Host/guest 配置探针与启动复审、Git 新鲜扫描和内容绑定 | C6、C11u1 | HOME/XDG/CURL_HOME/WGETRC/SYSTEM_WGETRC/RG、同大小/mtime 变化、env -i/-u/嵌套包装、缺失/失败探针均有回归；macOS 与 Bookworm Linux 进程测试通过；guest Git 未核验完整配置、非标准 Wget 安装与其他环境仍见 §0.5 |
 | C11w / S6 Windows 资源 | FileSystem/provider、Path/LiteralPath、盘符/UNC/junction/ADS、重定向与 $null；NUL 专门身份原型 | C10 | 各路径类别按实际 Windows 证明；未证明目标 Unresolved；NUL 未完成不阻塞其他已验证能力，不能声称整个 Windows S6 已完成 |
-| C12 / S7 统一审批（C12a 已完成，C12b 下一步） | C12a 已将原安全审查搬到根包并移除 syntax/bash→unwrap；C12b 合并原安全审查与访问审查，tools/llm 只调用一个入口，统一批准消费 | C6、C11u；Windows 接入仅用已验收 C10/C11w 范围 | 保持 HITL 公开形状；一次批准只执行一次；并发兄弟调用不能借用；拒绝/取消/未启动不消耗批准；精确/规则/重试/恢复/Mailbox 代批全覆盖；任何已知硬阻断不降级 |
+| C12 / S7 统一审批（当前 Unix 范围已完成） | C12a 将原安全审查搬到根包并移除 syntax/bash→unwrap；C12b 将语法与资源要求合为 BashPlan，tools/llm 只调用一个入口，删除独立批准计数器并统一最终消费 | C6、C11u；Windows 接入仅用已验收 C10/C11w 范围 | 保持 HITL 公开形状；一次批准只执行一次；并发兄弟调用不能借用；拒绝/取消/未启动不消耗批准；精确/规则/重试/恢复/Mailbox 代批全覆盖；任何已知硬阻断不降级 |
 | C13a / S8a 只读与输出 | commands/powershell 的 params.go/common.go，加 Get-Location、Test-Path、Get-Content、Get-ChildItem、Write-Output、Select-Object、Select-String、Measure-Object、Sort-Object 各文件（后四个只支持常量形式） | C10、C11w、C12 | 每个实际模块版本参数集、缩写、provider/管道、三档权限测试通过，逐命令启用 |
 | C13b / S8b 会话 cwd | set_location.go；只跟踪可信 FileSystem 常量目标，分支/失败和后续相对路径纳入 | C13a | 不沿用错误 cwd；未建模状态操作不让后续命令使用旧身份/环境快照 |
 | C13c / S8c 文件修改 | New-Item、Set-Content、Add-Content、Out-File、Tee-Object、Copy-Item、Move-Item、Remove-Item 各文件 | C13b | 复制源/目标/替换对象、链接、递归/删除与 Output 分类正确；readonly/管理员 block 不可被 WhatIf/Confirm/Force 放宽 |
 | C13d / S8d 网络 | Invoke-WebRequest、Invoke-RestMethod 各文件 | C13c | 各实际版本的方法、Body/InFile/OutFile、内容解析及动态参数单独验收；与 curl.exe 区分 |
 | C14 / 总验收与文档 | 全仓回归、Linux/macOS基线、原生 Windows逐版本逐命令矩阵、真实容器；按 §0.6 更新现行文档 | 已交付批次 | 明列已分析子集、仍需审批项、未支持版本/路径；未完成项保留，不能只因文件齐全删除计划或宣称全部支持；完成整个 S8 后才执行 §0.6 收尾 |
 
-**C6（S4）、C11u 当前 Unix 子集、C12a 解析边界已完成，下一步是 C12b 合并审批对象**。S3 的 C1–C5、S4 的 C6a–C6g 均见 §0.1；Windows 的 C7–C10 不与 Unix 空设备工作互相等待。C6 只承诺当前 Bash 子集与新增保守回退，不表示 PowerShell 或所有 CLI 选项已经支持。
+**C6（S4）、C11u 当前 Unix 子集、C12（S7）的 Unix 范围已完成；下一步按环境推进 Windows C7–C10/C11w/C13 与 C14 验收**。S3 的 C1–C5、S4 的 C6a–C6g 均见 §0.1；Windows 的 C7–C10 不与 Unix 空设备工作互相等待。C6 只承诺当前 Bash 子集与新增保守回退，不表示 PowerShell 或所有 CLI 选项已经支持。
 
 实现边界：
 - `registry/` 是不含分析函数的只读名称/身份元数据叶子，syntax、identity、unwrap 共享它；`commands/registry.go` 通过稳定 ID 连接各命令文件。这样统一名字来源，又不让 syntax 导入命令分析器。部署白名单不从 registry 生成，未登记/缺少分析器的项继续 opaque。
 - `Effects` 的公开合同只含 Ops/Unknowns/Deps/SSHAgent；命令文件内部的 `effectDraft` 是累加器，不再流入策略层。Read/Output/Create/Delete/Rename/Chmod/Link 已区分，未知选项追加约束而保留已知危险操作。复制、移动、链接的操作包含各目标角色，移动/链接源的读取与写入约束分别映射。
 - `SourceWord` 保留原 WordSpan、原 argv 下标、来源类别与提取值的 UTF-8 范围；值范围按解析下标绑定，不按字符串相等查找。变量、glob、brace、无来源输入和 env -S 生成值不会恢复成字面。
 - `CommandInput` 显式携带命令域、身份来源和方言；目前仅 Bash 已核验来源进入 Unix 分析器。PowerShell 的 cmdlet/别名、同名函数和未经原生 argv 验证的 exe 不匹配。当前 Bash 子集的默认配置/脚本依赖已由 C11u2 核验存在性、可写性和字节摘要；Windows 资源、guest Git 完整配置以及非标准安装仍见 §0.5，不扩展为全部命令/环境已支持。
-- 包装使用共享语法，执行展开保持保守；语法侧只检查候选，不授予权限。`command -p`、未知选项、nice 附加值形式等保留有意的用途差异；timeout `--` 同时保留历史候选并检查 duration 后命令。原有硬阻断不降级，两套批准仍由 C12 合并。
+- 包装使用共享语法，执行展开保持保守；语法侧只检查候选，不授予权限。`command -p`、未知选项、nice 附加值形式等保留有意的用途差异；timeout `--` 同时保留历史候选并检查 duration 后命令。原有硬阻断不降级，C12b 已将语法与资源要求合为同一份计划；包装候选依然不能授予身份。
 
 
 **C1 的迁移范围**（已完成）。整体移出必须排在拆分身份、资源和 plan 之前：只要 `bash_review.go` 还在 `accesspolicy`，先移其中任何一块都会形成 `accesspolicy → shellreview/x → accesspolicy` 循环（§5.3）。这一步保留原函数体，只调整包、import 与五个共享函数名；共享 cwd 函数移到通用路径包：
@@ -187,11 +188,12 @@ echo "\" ; Remove-Item -Recurse C:\x ; echo "\"
 - `df`、`dbx`、`httpx` 在 `ordinaryCommands` 中但没有分析器，落到 `unknownOperands`，实际总是 opaque。
 - `Get-ChildItem`、`Get-Content`、`Remove-Item` 是 cmdlet，`LookPath` 找不到，这几个条目永远不会生效。
 
-### 2.4 两套审查、两套批准
+### 2.4 原两套审批问题（C12b 已合并）
 
-- 原 `bashsec` 安全审查已由 C12a 移至 shellreview 根包，仍返回 `ReviewResult`、批准存在 `BashSecurityApprovals`；访问审查返回 `BashPlan`、批准存在 `AccessPolicyApprovals`。`internal/llm` 为两者分别发审批请求、分别消费。
-- 原先包装命令拆了两份，C6f 已合并参数语法并审阅用途差异；硬阻断候选由根包 security_* 消费；syntax/bash 不再依赖 unwrap。两套审批仍待 C12b 合并。
-- `bash -c` 递归也是两份，各自 `maxDepth = 3`。
+- 原 `bashsec` 安全审查已由 C12a 移至根包；C12b 将其结果作为语法叶子并入资源 BashPlan，独立 ReviewResult/语法审批入口不再向 tools/llm 暴露。BashSecurityApprovals 已删除，所有批准统一通过 AccessPolicyApprovals 消费。
+- 统一入口保留未知方言合同、连接器中立投影、全部原硬阻断、语法/路径错误码和卡片字段；语法要求与路径/opaque/删除/远端要求均出现在同一份 policy 元数据中。
+- Host 与 guest 的批准按工具调用隔离；整组要求先核对再消费，缺少后续要求不会部分扣减；Host 启动失败可退还，取消在消费前检查。容器调用已送出后的传输故障不能证明未启动，因此不退还为可重发批准。
+- 语法安全检查与资源提取仍可分别消费解析事实；统一的是公开审查与授权对象，不以仅有一个入口为理由取消硬阻断扫描或信任未知身份。
 
 ### 2.5 命令特例写在策略层，事实类型太粗
 
@@ -475,6 +477,8 @@ internal/hostshell/tool.go           # 第0层（已实现）：工具专用 Lau
 internal/shellreview/                # Shell 审批唯一入口
   review.go                          # Review(Input) BashPlan：按层调用，不出现任何命令名
   input.go                           # 命令、cwd、环境、LaunchSpec、session、执行环境探针
+  unified.go                         # 语法安全事实与资源要求合为同一个计划（C12b）
+  security_*.go                      # 原安全规则与硬阻断候选，结果仅根包内部使用（C12a/b）
   dialect/                           # 方言枚举（已建；叶子包，hostshell 也依赖它）
   types/                             # 已建 LaunchBinding/Invocation、Op/Target/Unknown/Dep、CommandInput 与 SourceWord
   syntax/
@@ -551,7 +555,8 @@ internal/shellreview/                # Shell 审批唯一入口
     plan.go                          # BashPlan 与构造
     launch.go                        # 启动绑定（C2 已抽出）
     combine.go                       # 合并、待批准叶子、审批规则
-    approval.go                      # 批准登记、查询、消费、来源与元数据
+    approval.go                      # 批准登记、转移、消费、启动预留/退款与元数据
+    resolve.go                       # 待审投影、校验与消费共用的虚拟账本（C12b）
 
 internal/hostshell/powershell.go      # 受信任安装入口、托管模板与环境装载风险准入；不执行用户命令
 internal/tools/powershell_helper.go   # 一审一进程、全局并发、预算、管道限额、Job/取消清理
@@ -561,11 +566,11 @@ internal/tools/powershell_helper.go   # 一审一进程、全局并发、预算�
 
 | 现在位置 | 去向 | 批次 |
 | --- | --- | --- |
-| 根包 `security_*` 的安全审查与 `BashSecurityApprovals` | C12a 已完成物理迁移；C12b 与访问审查合并为一个 plan | C12b |
+| 根包 `security_*` 的安全审查与原独立批准 | 已合入统一 BashPlan，BashSecurityApprovals 删除；保留未降级的原安全规则 | C12b 已完成 |
 
 已完成：工具启动规则移到 `hostshell`（`5554545f`）；`bashast`、`bashsec` → `syntax/bash`，`shellanalysis` → `commands` 与 `unwrap/command.go`，`Effects`/`FileAccess`/`GitCheck` 与调用结构 → `types`（`2fe8bb52`）；Bash 访问审查整体移到 shellreview 根包，中立文本检查移到 commandtext（C1，`0c794567`）；决策、合并、启动绑定及批准移到 `plan/`，连接器调用结构移到 `types/connector.go`（C2，`115e7ef4`）。
 
-保留不动：`internal/accesspolicy` 只保留文件工具也要用的通用路径策略（`BuildPathPlan`、`BuildSubtreePlan`、档位、session 路径解析、保护目录）；`internal/hostshell` 负责启动合同；`internal/shellenv`、`internal/scriptstate`、`internal/skillsexec` 不变；进程启动、凭据注入与进程生命周期仍归 `tools`。
+保留不动：`internal/accesspolicy` 只保留文件工具也要用的通用路径策略（`BuildPathPlan`、`BuildSubtreePlan`、档位、session 路径解析、保护目录）；`internal/hostshell` 负责启动合同；`internal/shellenv` 保留中立环境合同职责，`internal/scriptstate`、`internal/skillsexec` 不迁移；进程启动、凭据注入与进程生命周期仍归 `tools`。
 
 ### 5.3 依赖方向
 
@@ -591,7 +596,7 @@ accesspolicy ──────────> 不依赖 shellreview（包括经 c
 
 C12a 已移除临时边 `syntax/bash → unwrap`：原安全审查及候选消费已迁到根包，解析包不调包装算法；执行展开仍须另有身份核验。新增的 `syntax/bash → registry` 是只读名称元数据叶子，不导入命令语义、文件系统或策略，属于 C6 为统一名单所作的依赖细化；并非新增 syntax 到 identity/commands/resources 的调用。unwrap 使用标准库和 types/registry，cwd 解析仍由调用方注入。
 
-`accesspolicy` 不依赖 `shellreview` 的门槛已在 C1 达到。Bash 代码先整体移出，再拆子包，避免经 BuildPathPlan 等路径策略形成反向循环。另发现 config 的 Shell 配置校验原先引用 shellreview/syntax，因此把中立文本校验及其测试原样移入 commandtext，并同步全部调用方；否则 go list 的传递依赖仍会包含 shellreview。C1–C6 已完成，下一批可推进 C11u 或按依赖推进 Windows 的 C7，见 §0.3。
+`accesspolicy` 不依赖 `shellreview` 的门槛已在 C1 达到。Bash 代码先整体移出，再拆子包，避免经 BuildPathPlan 等路径策略形成反向循环。另发现 config 的 Shell 配置校验原先引用 shellreview/syntax，因此把中立文本校验及其测试原样移入 commandtext，并同步全部调用方；否则 go list 的传递依赖仍会包含 shellreview。C1–C6、C11u 当前子集及 C12 的 Unix 范围已完成；后续按 §0.3 推进 Windows 或 C14 目标环境验收。
 
 C5 已把脚本证明核验移到 identity/provenance.go、可见 opaque 路径筛选移到 resources/operands.go；根包不再识别 cd/git/curl/wget 的字符串，原 cd/Git 目录知识分别在 commands/cd.go、git.go，C6 已从 registry 读取名字/类别，Git 仓库目录改由 Dep 携带。
 
@@ -1064,4 +1069,9 @@ Shell 重定向为独立来源，不受原生命令是否 opaque/Incomplete 影�
 - C11u2 Linux：在 Bookworm Linux amd64 容器中执行实际 resources、shellreview、tools 测试；与原生 macOS 使用相同的 387 行基线加显式 8 行资源增量。生产同一条配置探针验证含空格/引号/Shell 字符路径、缺失文件、SHA-256、账号查询及 root 可写工具拒绝；容器代码不回读 Host 配置。Windows 只交叉编译，不计原生验收。
 - Git 配置查询采用固定已核验程序的 `config --includes --show-origin --list -z`，解析 NUL 协议并记录包含来源；不将用户 argv 的别名/脚本传给探针，移除 trace、loader 与 helper 启动环境。依据为 [Git config](https://git-scm.com/docs/git-config) 与 [Git hooks](https://git-scm.com/docs/githooks)；程序内部任意 IO 仍不隔离。
 
-- C12a：原安全审查五个文件和原测试直接搬到根包，工具/LLM 调用方机械更新结果类型与入口包；现有 Shell、工具与 LLM 测试和 387+8 行快照通过。`go list -deps ./internal/shellreview/syntax/bash` 不含 unwrap 或根包，accesspolicy 仍不含任何 shellreview 依赖。两套批准对象尚未合并，不能因此宣称 C12/S7 完成。
+- C12a：原安全审查五个文件和原测试直接搬到根包，工具/LLM 调用方机械更新结果类型与入口包；现有 Shell、工具与 LLM 测试和 387+8 行快照通过。`go list -deps ./internal/shellreview/syntax/bash` 不含 unwrap 或根包，accesspolicy 仍不含任何 shellreview 依赖。该提交仅完成物理迁移；后续 C12b 才合并审批对象。
+
+- C12b 验证：387 行原始快照与 8 行资源增量保持不动，新增 `bash-review-unified-policy-delta.txt` 单独列出 18 行结构差异（read/set/unset、eval、xargs、find-exec 的三档）。对全部 387 行计算旧 access 与 security 的合取结果，和新统一计划决策逐项比较，0 项变化；差异来自原独立语法要求进入同一个计划。
+- C12b 批量审批、并发兄弟隔离、拒绝、预算、取消、最终硬阻断、环境/配置变化、Mailbox 代批与现有恢复路径回归均通过；新增 guest 调用独占授权、整组批准原子消费、重复指纹不足不部分扣减、Host 取消不消费和预留退款回归。未知方言依旧按原合同人工审批，Windows AST/argv/provider 能力不由本批启用。
+
+- C12b 消费账本复核：待审投影、HasApproval、最终消费和按调用转移共用同一套虚拟账本；待审列表隐藏已批准要求后，执行端仍消费原始完整计划，防止精确单项批准被留存复用。重复指纹、部分单项加部分组合批准、重复预审转移均有直接回归。Host/guest 保留审批所见的原始命令文本，含首尾 ASCII 空白的调用不会因执行前改写而丢失批准。

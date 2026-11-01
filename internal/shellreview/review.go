@@ -34,6 +34,7 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 	if reason := rawTextRejection(command, unknownDialect); reason != "" {
 		p := policy.New(cfg, session, command).Block(reason, "bash-access:text", command)
 		p.UnknownDialect = unknownDialect
+		p.Syntax = true
 		return p
 	}
 	var execCtx *ExecutionContext
@@ -41,6 +42,7 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 		execCtx = contexts[0]
 	}
 	plan := reviewBashScript(cfg, session, command, cwd, variables, environment, execCtx, 0, &scriptReviewHistory{})
+	plan = includeSyntaxRequirements(plan, session, command, cwd, variables, environment)
 	if environment != nil && environment.Launch != nil && !plan.ConnectorOnly {
 		plan = shellplan.BindLaunch(plan, *environment.Launch)
 	}

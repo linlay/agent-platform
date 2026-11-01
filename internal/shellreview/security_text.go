@@ -22,7 +22,7 @@ func isProcEnviron(value string) bool {
 // reviewText keeps the few source-level checks that the AST cannot express:
 // IFS changes word splitting for the executing shell and /proc/*/environ
 // exposes other processes' secrets. Heredoc bodies are data and are skipped.
-func reviewText(command string, result bashsyntax.ParseResult) ReviewResult {
+func reviewText(command string, result bashsyntax.ParseResult) syntaxReviewResult {
 	text := maskHeredocBodies(command, result)
 	if ifsRe.MatchString(text) {
 		return blockReview("Command contains IFS variable usage which could bypass security validation")
@@ -30,7 +30,7 @@ func reviewText(command string, result bashsyntax.ParseResult) ReviewResult {
 	if procEnvironRe.MatchString(text) {
 		return blockReview(procEnvironReason)
 	}
-	return ReviewResult{Decision: ReviewAllow}
+	return syntaxReviewResult{Decision: ReviewAllow}
 }
 
 func maskHeredocBodies(command string, result bashsyntax.ParseResult) string {

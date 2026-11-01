@@ -73,6 +73,7 @@ func TestHostExecutorRechecksConfigBytesBeforeLaunch(t *testing.T) {
 type configProbeSandbox struct {
 	t          *testing.T
 	content    string
+	command    string
 	executions int
 }
 
@@ -89,7 +90,10 @@ func (s *configProbeSandbox) Execute(_ context.Context, _ *ExecutionContext, com
 		return SandboxExecutionResult{Stdout: out, Cwd: cwd}, nil
 	}
 	switch {
-	case command == configProbeUserCommand:
+	case command == configProbeUserCommand || command == s.command:
+		if s.command != "" && command != s.command {
+			s.t.Fatal("executor rewrote original source")
+		}
 		s.executions++
 		return result("approved")
 	case strings.Contains(command, "before=$(/usr/bin/stat"):
@@ -132,5 +136,27 @@ func TestSandboxExecutorRechecksGuestConfigBeforeLaunch(t *testing.T) {
 	result, err = executor.invokeSandboxBash(context.Background(), args, ctx)
 	if err != nil || result.Error != "" || client.executions != 1 {
 		t.Fatalf("fresh guest config grant failed: %+v %v executions=%d", result, err, client.executions)
+	}
+}
+
+func TestSandboxApprovalAndLaunchKeepOriginalWhitespace(t *testing.T) {
+	root := t.TempDir()
+	executor := fileToolExecutor(root, true)
+	command := " \n" + configProbeUserCommand + "\n "
+	client := &configProbeSandbox{t: t, content: "first", command: command}
+	executor.sandbox = client
+	ctx := fileToolExecutionContext(root)
+	ctx.Session.AgentHasRuntimeSandbox = true
+	ctx.Session.RuntimeEnvironmentID = "test"
+	ctx.Session.RuntimeContext.SandboxPaths.WorkspaceDir = "/workspace"
+	args := map[string]any{"command": command}
+	p := executor.ReviewBashAccess(context.Background(), args, ctx, config.AccessPolicyConfig{})
+	if !p.RequiresApproval() {
+		t.Fatal(p)
+	}
+	shellplan.RegisterExactApproval(ctx, p.Fingerprint)
+	result, err := executor.invokeSandboxBash(context.Background(), args, ctx)
+	if err != nil || result.Error != "" || client.executions != 1 {
+		t.Fatalf("sandbox source changed before launch: %+v %v executions=%d", result, err, client.executions)
 	}
 }

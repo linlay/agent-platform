@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/shellreview"
@@ -20,7 +19,16 @@ import (
 // Host Bash. Fixtures that declare roots exercise the real access policy.
 func (r *recordingToolExecutor) ReviewBashAccess(_ context.Context, args map[string]any, ctx *ExecutionContext, cfg config.AccessPolicyConfig) shellplan.BashPlan {
 	if ctx == nil || !hasLocalFileRoots(ctx.Session) {
-		return shellplan.BashPlan{Decision: accesspolicy.DecisionAllow}
+		// This protocol backend has no filesystem model. Allow resource requirements
+		// through policy while retaining the real unified syntax gate.
+		session := QuerySession{}
+		if ctx != nil {
+			session = ctx.Session
+		}
+		session.WorkspaceRoot = os.TempDir()
+		actions := config.AccessPolicyApprovalConfig{BashWriteInWriteRoots: "allow", BashOpaqueCommand: "allow", BashComplexFilesystem: "allow", Destructive: "allow", RemoteMutation: "allow"}
+		cfg = config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{AccessLevelAskForApproval: {ReadRoots: []string{"@root"}, WriteRoots: []string{"@root"}, Approvals: actions}, AccessLevelAutoApprove: {ReadRoots: []string{"@root"}, WriteRoots: []string{"@root"}, Approvals: actions}, AccessLevelFullAccess: {ReadRoots: []string{"@root"}, WriteRoots: []string{"@root"}, Approvals: actions}}}
+		return shellreview.ReviewBashCommand(cfg, session, mapStringArg(args, "command"), os.TempDir(), nil, ctx)
 	}
 	var environment *shelltypes.BashEnvironment
 	if ctx.Session.AgentHasRuntimeSandbox {
@@ -132,8 +140,8 @@ func TestBashApprovalDescriptionDoesNotAppendPolicyReasons(t *testing.T) {
 					"ruleKey":       request.result.Rule.RuleKey,
 					"policy":        shellplan.BashPlanMetadata(*request.bashAccessReview),
 				}
-				if request.bashSecurityReview != nil {
-					want["requirements"] = []any{map[string]any{"ruleKey": request.bashSecurityReview.RuleKey, "reason": request.bashSecurityReview.Reason}}
+				if p := request.bashAccessReview; p.Syntax {
+					want["requirements"] = []any{map[string]any{"ruleKey": request.result.Rule.RuleKey, "reason": p.Reason}}
 				}
 				if item := stream.buildApprovalAskItem(invocation); !reflect.DeepEqual(item, want) {
 					t.Fatalf("approval item changed command/description or added policy notes: got %#v, want %#v", item, want)

@@ -37,10 +37,9 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if reason := commandtext.CheckText(stringArg(args, "command")); reason != "" {
 		return ToolExecutionResult{Output: reason, Error: "bash_security_blocked", ExitCode: -1}, nil
 	}
-	// Trim only ASCII layout: other whitespace at the edges stays visible to the
-	// review, which rejects it outside quotes in every grammar.
-	command := strings.Trim(stringArg(args, "command"), " \t\r\n")
-	if command == "" {
+	// Preserve the exact source reviewed in preflight and bound by approval.
+	command := stringArg(args, "command")
+	if strings.Trim(command, " \t\r\n") == "" {
 		return ToolExecutionResult{Output: "Missing argument: command", Error: "missing_command", ExitCode: -1}, nil
 	}
 	if len(command) > maxInt(t.cfg.Bash.MaxCommandChars, 16000) {
@@ -84,13 +83,6 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		reviewEnv.Launch = &launch.Binding
 	}
 	rawAccessReview := shellreview.ReviewBashCommandInEnvironment(t.cfg.AccessPolicy, session, command, workingDir, bashEnvironmentVariables(commandEnv), reviewEnv, execCtx)
-	securityReview := shellreview.SecurityReview(rawAccessReview, command, bashSecurityKnownVariables(execCtx))
-	switch securityReview.Decision {
-	case shellreview.ReviewAllow:
-	case shellreview.ReviewRequiresApproval:
-	default:
-		return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
-	}
 	if len(t.cfg.Bash.AllowedCommands) == 0 && !rawAccessReview.ConnectorOnly {
 		return ToolExecutionResult{Output: "Bash command whitelist is empty", Error: "command_whitelist_empty", ExitCode: -1}, nil
 	}
@@ -101,11 +93,11 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	switch accessReview.Decision {
 	case accesspolicy.DecisionAllow, accesspolicy.DecisionAutoApproved:
 	case accesspolicy.DecisionRequiresApproval:
-		if !shellplan.HasApproval(execCtx, accessReview) {
-			return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_approval_required", ExitCode: -1}, nil
+		if !shellplan.HasApproval(execCtx, rawAccessReview) {
+			return ToolExecutionResult{Output: accessReview.Reason, Error: accessReview.ErrorCode(), ExitCode: -1}, nil
 		}
 	default:
-		return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_blocked", ExitCode: -1}, nil
+		return ToolExecutionResult{Output: accessReview.Reason, Error: accessReview.ErrorCode(), ExitCode: -1}, nil
 	}
 	if !t.cfg.Bash.ShellFeaturesEnabled {
 		strictConfig := t.cfg.Bash
@@ -158,7 +150,9 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		outputSink = execCtx.ToolOutputSink
 	}
 	stdoutCapture := newBashOutputCapture(ctx, stdoutFile, outputSink, ToolOutputStdout)
+	defer stdoutCapture.Close()
 	stderrCapture := newBashOutputCapture(ctx, stderrFile, outputSink, ToolOutputStderr)
+	defer stderrCapture.Close()
 	cmd.Stdout = stdoutCapture
 	cmd.Stderr = stderrCapture
 
@@ -175,26 +169,23 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	// queued or preparing credentials must still affect the final review.
 	session = t.policySession(execCtx)
 	rawFinalReview := shellreview.ReviewBashCommandInEnvironment(t.cfg.AccessPolicy, session, command, workingDir, bashEnvironmentVariables(commandEnv), reviewEnv, execCtx)
-	securityReview = shellreview.SecurityReview(rawFinalReview, command, bashEnvironmentVariables(commandEnv))
 	if direct != nil {
 		fresh := shellreview.DirectConnectorInvocation(session, command, workingDir, bashEnvironmentVariables(commandEnv))
 		if fresh == nil || fresh.ID != direct.ID || fresh.Program != direct.Program {
 			return ToolExecutionResult{Output: "Connector entry changed before launch", Error: "connector_entry_changed", ExitCode: -1}, nil
 		}
 	}
-	if securityReview.Decision == shellreview.ReviewBlock {
-		return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
-	}
 	approvalSource := shellplan.BashApprovalSource(execCtx, rawFinalReview)
 	accessReview = shellplan.PendingBashPlan(execCtx, rawFinalReview)
 	if accessReview.Blocked() {
-		return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_blocked", ExitCode: -1}, nil
+		return ToolExecutionResult{Output: accessReview.Reason, Error: accessReview.ErrorCode(), ExitCode: -1}, nil
 	}
-	if accessReview.RequiresApproval() && !shellplan.ConsumeApproval(execCtx, accessReview) {
-		return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_approval_required", ExitCode: -1}, nil
+	if err := runCtx.Err(); err != nil {
+		return bashResult("", err.Error(), "host", workingDir, -1, ""), nil
 	}
-	if securityReview.Decision == shellreview.ReviewRequiresApproval && !securityReview.AutoApprovedAtLevel(session.AccessLevel) && !consumeBashSecurityApproval(execCtx, securityReview.Fingerprint) {
-		return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_approval_required", ExitCode: -1}, nil
+	reservation, approved := shellplan.ReserveApproval(execCtx, rawFinalReview)
+	if !approved {
+		return ToolExecutionResult{Output: accessReview.Reason, Error: accessReview.ErrorCode(), ExitCode: -1}, nil
 	}
 	if rawFinalReview.UsesSSHAgent && direct == nil {
 		// The SSH agent is a credential: only reviewed Git network operations get it.
@@ -202,7 +193,13 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 			cmd.Env = append(cmd.Env, "SSH_AUTH_SOCK="+sock)
 		}
 	}
-	err = cmd.Run()
+	err = cmd.Start()
+	if err != nil {
+		reservation.Restore()
+	} else {
+		reservation.Commit()
+		err = cmd.Wait()
+	}
 	stdoutCapture.Close()
 	stderrCapture.Close()
 	if captureErr := firstBashOutputCaptureError(stdoutCapture, stderrCapture); captureErr != nil {
@@ -341,22 +338,6 @@ func appendBashAccessPolicyMetadata(result *ToolExecutionResult, review shellpla
 		}
 	}
 	result.Structured["accessPolicy"] = shellplan.BashPlanMetadata(review)
-}
-
-func consumeBashSecurityApproval(execCtx *ExecutionContext, fingerprint string) bool {
-	if execCtx == nil || strings.TrimSpace(fingerprint) == "" || len(execCtx.BashSecurityApprovals) == 0 {
-		return false
-	}
-	remaining := execCtx.BashSecurityApprovals[fingerprint]
-	if remaining <= 0 {
-		return false
-	}
-	if remaining == 1 {
-		delete(execCtx.BashSecurityApprovals, fingerprint)
-		return true
-	}
-	execCtx.BashSecurityApprovals[fingerprint] = remaining - 1
-	return true
 }
 
 func bashSecurityKnownVariables(execCtx *ExecutionContext) map[string]string {

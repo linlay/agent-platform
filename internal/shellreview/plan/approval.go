@@ -27,67 +27,6 @@ func RegisterRuleApproval(execCtx *ExecutionContext, ruleKey string) {
 	execCtx.AccessPolicyRuleApprovals[ruleKey] = true
 }
 
-func ConsumeApproval(execCtx *ExecutionContext, plan BashPlan) bool {
-	if plan.Blocked() {
-		return false
-	}
-	if len(plan.Requirements) > 0 && !hasExactApproval(execCtx, plan) {
-		if !HasApproval(execCtx, plan) {
-			return false
-		}
-		for _, leaf := range plan.Requirements {
-			if leaf.RequiresApproval() && !ConsumeApproval(execCtx, leaf) {
-				return false
-			}
-		}
-		return true
-	}
-	if execCtx == nil {
-		return false
-	}
-	if RuleReusable(plan.RuleKey) && execCtx.AccessPolicyRuleApprovals != nil && execCtx.AccessPolicyRuleApprovals[plan.RuleKey] {
-		return true
-	}
-	if len(execCtx.AccessPolicyApprovals) == 0 || strings.TrimSpace(plan.Fingerprint) == "" {
-		return false
-	}
-	remaining := execCtx.AccessPolicyApprovals[plan.Fingerprint]
-	if remaining <= 0 {
-		return false
-	}
-	if remaining == 1 {
-		delete(execCtx.AccessPolicyApprovals, plan.Fingerprint)
-		return true
-	}
-	execCtx.AccessPolicyApprovals[plan.Fingerprint] = remaining - 1
-	return true
-}
-
-func HasApproval(execCtx *ExecutionContext, plan BashPlan) bool {
-	if plan.Blocked() {
-		return false
-	}
-	if len(plan.Requirements) > 0 && !hasExactApproval(execCtx, plan) {
-		for _, leaf := range plan.Requirements {
-			if leaf.RequiresApproval() && !HasApproval(execCtx, leaf) {
-				return false
-			}
-		}
-		return true
-	}
-	if execCtx == nil {
-		return false
-	}
-	if RuleReusable(plan.RuleKey) && execCtx.AccessPolicyRuleApprovals != nil && execCtx.AccessPolicyRuleApprovals[plan.RuleKey] {
-		return true
-	}
-	return execCtx.AccessPolicyApprovals != nil && execCtx.AccessPolicyApprovals[plan.Fingerprint] > 0
-}
-
-func hasExactApproval(ctx *ExecutionContext, p BashPlan) bool {
-	return ctx != nil && ctx.AccessPolicyApprovals[p.Fingerprint] > 0
-}
-
 func BashPlanMetadata(p BashPlan) map[string]any {
 	out := map[string]any{"decision": string(p.Decision), "accessLevel": p.AccessLevel, "reason": p.Reason, "ruleKey": p.RuleKey}
 	if p.Launch != nil {
@@ -110,9 +49,6 @@ func BashPlanMetadata(p BashPlan) map[string]any {
 }
 
 func BashApprovalSource(ctx *ExecutionContext, p BashPlan) string {
-	if pending := PendingBashPlan(ctx, p); pending.RequiresApproval() {
-		p = pending
-	}
 	if !p.RequiresApproval() || !HasApproval(ctx, p) {
 		return ""
 	}
@@ -122,4 +58,103 @@ func BashApprovalSource(ctx *ExecutionContext, p BashPlan) string {
 		}
 	}
 	return "run_rule"
+}
+
+// approvalConsumption computes the complete transaction before spending any
+// exact grants. A missing later leaf cannot partially consume earlier leaves.
+func approvalConsumption(ctx *ExecutionContext, p BashPlan) (map[string]int, bool) {
+	if !p.RequiresApproval() || p.Blocked() {
+		return nil, false
+	}
+	_, needed, ok := resolveApprovals(ctx, p)
+	return needed, ok
+}
+func HasApproval(ctx *ExecutionContext, p BashPlan) bool {
+	_, ok := approvalConsumption(ctx, p)
+	return ok
+}
+func ConsumeApproval(ctx *ExecutionContext, p BashPlan) bool {
+	needed, ok := approvalConsumption(ctx, p)
+	if !ok {
+		return false
+	}
+	for fingerprint, count := range needed {
+		remaining := ctx.AccessPolicyApprovals[fingerprint] - count
+		if remaining == 0 {
+			delete(ctx.AccessPolicyApprovals, fingerprint)
+		} else {
+			ctx.AccessPolicyApprovals[fingerprint] = remaining
+		}
+	}
+	return true
+}
+
+// ApprovalReservation can be returned only when launch is known not to have
+// started. An ambiguous transport failure must never manufacture another grant.
+type ApprovalReservation struct {
+	ctx   *ExecutionContext
+	exact map[string]int
+	done  bool
+}
+
+func ReserveApproval(ctx *ExecutionContext, p BashPlan) (*ApprovalReservation, bool) {
+	if !p.RequiresApproval() {
+		return nil, p.Allowed()
+	}
+	needed, ok := approvalConsumption(ctx, p)
+	if !ok {
+		return nil, false
+	}
+	if !ConsumeApproval(ctx, p) {
+		return nil, false
+	}
+	return &ApprovalReservation{ctx: ctx, exact: needed}, true
+}
+func (r *ApprovalReservation) Commit() {
+	if r != nil {
+		r.done = true
+	}
+}
+func (r *ApprovalReservation) Restore() {
+	if r == nil || r.done {
+		return
+	}
+	r.done = true
+	if r.ctx.AccessPolicyApprovals == nil {
+		r.ctx.AccessPolicyApprovals = map[string]int{}
+	}
+	for fingerprint, count := range r.exact {
+		r.ctx.AccessPolicyApprovals[fingerprint] += count
+	}
+}
+
+// TransferExactApprovals moves only grants allocated to this invocation into
+// its private context. Repeated preflight neither duplicates nor steals grants.
+func TransferExactApprovals(ctx *ExecutionContext, p BashPlan, target map[string]int) {
+	if ctx == nil || target == nil || p.Blocked() || !p.RequiresApproval() {
+		return
+	}
+	combined := *ctx
+	combined.AccessPolicyApprovals = map[string]int{}
+	for key, count := range ctx.AccessPolicyApprovals {
+		combined.AccessPolicyApprovals[key] = count
+	}
+	for key, count := range target {
+		combined.AccessPolicyApprovals[key] += count
+	}
+	needed, _ := approvalConsumption(&combined, p)
+	for key, count := range needed {
+		count -= target[key]
+		if count > ctx.AccessPolicyApprovals[key] {
+			count = ctx.AccessPolicyApprovals[key]
+		}
+		if count <= 0 {
+			continue
+		}
+		target[key] += count
+		ctx.AccessPolicyApprovals[key] -= count
+		if ctx.AccessPolicyApprovals[key] == 0 {
+			delete(ctx.AccessPolicyApprovals, key)
+		}
+	}
 }

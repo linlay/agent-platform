@@ -11,13 +11,12 @@ import (
 	"agent-platform/internal/agentconfig"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
-	"agent-platform/internal/shellreview"
 	shellplan "agent-platform/internal/shellreview/plan"
 )
 
 func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
-	command := strings.TrimSpace(stringArg(args, "command"))
-	if command == "" {
+	command := stringArg(args, "command")
+	if strings.Trim(command, " \t\r\n") == "" {
 		return ToolExecutionResult{Output: "Missing argument: command", Error: "missing_command", ExitCode: -1}, nil
 	}
 	invocationEnv, err := sandboxInvocationEnvArg(args)
@@ -35,20 +34,24 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 		}
 		return ToolExecutionResult{Output: err.Error(), Error: code, ExitCode: -1}, nil
 	}
-	accessReview := t.ReviewBashAccess(ctx, args, execCtx, t.cfg.AccessPolicy)
-	if security := shellreview.SecurityReview(accessReview, command, bashSecurityKnownVariables(execCtx)); security.Decision == shellreview.ReviewBlock {
-		return ToolExecutionResult{Output: security.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
+	if err := ctx.Err(); err != nil {
+		return ToolExecutionResult{Output: err.Error(), Error: "sandbox_execute_failed", ExitCode: -1}, nil
+	}
+	rawAccessReview := t.ReviewBashAccess(ctx, args, execCtx, t.cfg.AccessPolicy)
+	accessReview := rawAccessReview
+	if err := ctx.Err(); err != nil {
+		return ToolExecutionResult{Output: err.Error(), Error: "sandbox_execute_failed", ExitCode: -1}, nil
 	}
 	approvalSource := shellplan.BashApprovalSource(execCtx, accessReview)
 	accessReview = shellplan.PendingBashPlan(execCtx, accessReview)
 	switch accessReview.Decision {
 	case accesspolicy.DecisionAllow, accesspolicy.DecisionAutoApproved:
 	case accesspolicy.DecisionRequiresApproval:
-		if !shellplan.ConsumeApproval(execCtx, accessReview) {
-			return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_approval_required", ExitCode: -1}, nil
+		if !shellplan.ConsumeApproval(execCtx, rawAccessReview) {
+			return ToolExecutionResult{Output: accessReview.Reason, Error: accessReview.ErrorCode(), ExitCode: -1}, nil
 		}
 	default:
-		return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_blocked", ExitCode: -1}, nil
+		return ToolExecutionResult{Output: accessReview.Reason, Error: accessReview.ErrorCode(), ExitCode: -1}, nil
 	}
 	timeout := t.resolveBashTimeoutSeconds(args, execCtx)
 	result, err := t.sandbox.Execute(ctx, execCtx, command, cwd, timeout, invocationEnv)

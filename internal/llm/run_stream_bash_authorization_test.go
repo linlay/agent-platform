@@ -18,8 +18,8 @@ import (
 )
 
 type approvedBashStart struct {
-	id               string
-	access, security map[string]int
+	id     string
+	access map[string]int
 }
 
 type approvedBashExecutor struct {
@@ -37,17 +37,10 @@ func (e *approvedBashExecutor) ReviewBashAccess(_ context.Context, args map[stri
 }
 
 func (e *approvedBashExecutor) Invoke(ctx context.Context, _ string, args map[string]any, execution *ExecutionContext) (ToolExecutionResult, error) {
-	start := approvedBashStart{execution.CurrentToolID, cloneIntMap(execution.AccessPolicyApprovals), cloneIntMap(execution.BashSecurityApprovals)}
+	start := approvedBashStart{execution.CurrentToolID, cloneIntMap(execution.AccessPolicyApprovals)}
 	plan := e.ReviewBashAccess(ctx, args, execution, e.cfg.AccessPolicy)
 	if plan.Blocked() || (plan.RequiresApproval() && !shellplan.ConsumeApproval(execution, plan)) {
 		return ToolExecutionResult{Error: "bash_access_approval_required", ExitCode: -1}, nil
-	}
-	security := shellreview.ReviewBashSecurity(mapStringArg(args, "command"))
-	if security.Decision == shellreview.ReviewRequiresApproval {
-		if execution.BashSecurityApprovals[security.Fingerprint] != 1 {
-			return ToolExecutionResult{Error: "bash_security_approval_required", ExitCode: -1}, nil
-		}
-		delete(execution.BashSecurityApprovals, security.Fingerprint)
 	}
 	select {
 	case e.started <- start:
@@ -178,11 +171,9 @@ func TestHostBashApprovalConcurrent(t *testing.T) {
 						t.Fatalf("exact approval not isolated: %#v", start)
 					}
 				}
-				if mode == "security_and_access" && len(start.security) != 1 {
-					t.Fatalf("missing security grant: %#v", start)
-				}
+
 			}
-			if len(s.execCtx.AccessPolicyApprovals)+len(s.execCtx.BashSecurityApprovals) != 0 {
+			if len(s.execCtx.AccessPolicyApprovals) != 0 {
 				t.Fatal("one-shot approvals leaked into run context")
 			}
 			close(e.release["tool_2"])
@@ -346,7 +337,7 @@ func TestHostBashApprovalConcurrentBudgetDiscardsUnusedGrants(t *testing.T) {
 	if len(e.started) != 0 {
 		t.Fatal("over-budget tool executed")
 	}
-	a := calls[1].hostBashAuthorization
+	a := calls[1].bashAuthorization
 	if a == nil || a.dispatched || !a.retired || len(a.access) != 0 {
 		t.Fatalf("unused grant survived budget rejection: %#v", a)
 	}
@@ -361,7 +352,7 @@ func TestHostBashApprovalConcurrentInterruptBeforeDispatch(t *testing.T) {
 	submitApprovedBashBatch(t, s, "approve", "approve")
 	// Resolve grants without launching; the normal loop processes interrupts first.
 	for _, call := range calls {
-		if request := s.prepareHostBashAuthorization(call); request != nil {
+		if request := s.prepareBashAuthorization(call); request != nil {
 			t.Fatal("unexpected approval")
 		}
 	}
@@ -373,7 +364,7 @@ func TestHostBashApprovalConcurrentInterruptBeforeDispatch(t *testing.T) {
 		t.Fatal("interrupted command started")
 	}
 	for _, call := range calls {
-		if a := call.hostBashAuthorization; !a.retired || a.dispatched || len(a.access) != 0 {
+		if a := call.bashAuthorization; !a.retired || a.dispatched || len(a.access) != 0 {
 			t.Fatalf("interrupted grant survived: %#v", a)
 		}
 	}
@@ -390,7 +381,7 @@ func TestHostBashApprovalConcurrentControlBarrier(t *testing.T) {
 		t.Fatal("Bash preflight crossed environment barrier")
 	}
 	for _, call := range s.queuedToolCalls {
-		if call.hostBashAuthorization != nil {
+		if call.bashAuthorization != nil {
 			t.Fatal("later environment-dependent grant prepared early")
 		}
 	}

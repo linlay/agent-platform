@@ -53,7 +53,7 @@ func Combine(command, level string, plans []BashPlan) BashPlan {
 		return chosen
 	}
 	sum := sha256.Sum256([]byte(strings.Join(keys, "\x00")))
-	return BashPlan{Decision: chosen.Decision, Reason: strings.Join(reasons, "; "), RuleKey: chosen.RuleKey + ":combined:" + hex.EncodeToString(sum[:8]), Fingerprint: hex.EncodeToString(sum[:]), CommandText: command, AccessLevel: level, Requirements: unique}
+	return BashPlan{Syntax: chosen.Syntax, SyntaxLevel: chosen.SyntaxLevel, Decision: chosen.Decision, Reason: strings.Join(reasons, "; "), RuleKey: chosen.RuleKey + ":combined:" + hex.EncodeToString(sum[:8]), Fingerprint: hex.EncodeToString(sum[:]), CommandText: command, AccessLevel: level, Requirements: unique}
 }
 
 // ApprovalRules returns only requirements the user is being asked to approve.
@@ -83,24 +83,6 @@ func ApprovalRules(p BashPlan) []string {
 // PendingBashPlan removes approved leaves but never a hard block. Re-evaluation
 // uses the current file contents/environment rather than a cached allow result.
 func PendingBashPlan(ctx *ExecutionContext, p BashPlan) BashPlan {
-	if p.Blocked() || !p.RequiresApproval() || hasExactApproval(ctx, p) {
-		return p
-	}
-	if len(p.Requirements) == 0 {
-		return p
-	}
-	var leaves []BashPlan
-	for _, leaf := range p.Requirements {
-		if leaf.RequiresApproval() && HasApproval(ctx, leaf) {
-			continue
-		}
-		leaves = append(leaves, leaf)
-	}
-	result := Combine(p.CommandText, p.AccessLevel, leaves)
-	result.HasConnector, result.ReviewCommand, result.ConnectorOnly = p.HasConnector, p.ReviewCommand, p.ConnectorOnly
-	result.ConnectorIDs = append([]string(nil), p.ConnectorIDs...)
-	result.ConnectorCall = p.ConnectorCall
-	result.UnknownDialect, result.LaunchFingerprint = p.UnknownDialect, p.LaunchFingerprint
-	result.Launch = p.Launch
-	return result
+	pending, _, _ := resolveApprovals(ctx, p)
+	return pending
 }

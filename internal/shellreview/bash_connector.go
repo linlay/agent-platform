@@ -29,17 +29,17 @@ func connectorReviewCommand(command string, words []types.WordSpan) string {
 	return out.String()
 }
 
-// SecurityReview binds any residual shell approval to the original command,
+// securityReview binds any residual shell approval to the original command,
 // never to the neutral projection used to exclude mounted CLI payloads.
-func SecurityReview(p shellplan.BashPlan, command string, variables map[string]string) ReviewResult {
+func securityReview(p shellplan.BashPlan, command string, variables map[string]string) syntaxReviewResult {
 	if reason := rawTextRejection(command, p.UnknownDialect); reason != "" {
-		return ReviewResult{Decision: ReviewBlock, Reason: reason}
+		return syntaxReviewResult{Decision: ReviewBlock, Reason: reason}
 	}
 	if p.UnknownDialect {
 		// The whole-call access requirement carries unsupported grammar review.
-		return ReviewResult{Decision: ReviewAllow}
+		return syntaxReviewResult{Decision: ReviewAllow}
 	}
-	result := ReviewBashSecurityWithKnownVariables(p.ShellReviewCommand(command), variables)
+	result := reviewBashSecurityWithKnownVariables(p.ShellReviewCommand(command), variables)
 	if result.Fingerprint != "" {
 		result.Fingerprint = ApprovalFingerprint(command)
 		if p.LaunchFingerprint != "" {

@@ -91,7 +91,7 @@ func TestInterceptedConnectorCallWaitsForItsViewForm(t *testing.T) {
 			t.Fatalf("%s: params %+v", level, got.Intercept)
 		}
 	}
-	if s.usesHostBashAuthorization(call) {
+	if s.usesBashAuthorization(call) {
 		t.Fatal("a rebuilt form command entered the immutable host authorization")
 	}
 	call.args["command"] = entry + " issue list --json"
