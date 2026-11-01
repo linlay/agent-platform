@@ -93,3 +93,5 @@ HTTP/WS 保留外部请求解码、认证、来源/transport/device/lane 校验�
 - Query/Session 的重新装配不改变 Memory 服务边界。
 - 旧 `contextConfig.agents` 与 agents 标签只由 Catalog 生成非阻断弃用诊断，Runtime 不再构建候选。历史 Chat 读取不依赖当前 Agent 可执行；Query 准入仍区分 `422 agent_configuration_invalid` 与 `404 agent_not_found`。
 - Windows 验证使用 `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...`，不等同于 Windows 原生运行测试。
+
+WebApp SDK 作为受信宿主适配器调用同一 Runtime，不把应用身份或管理存储加入核心模型。`ExecuteCommand.OnPrepared` 是内部准入钩子：准备完成后、注册和执行前同步预留新 Run/Chat 的资源归属；钩子失败释放准备租约并拒绝执行，公共请求不能指定该钩子。WebApp 的授权、限额、事件投影及持久化归属由 `internal/webappbridge` 维护。其授权运行使用 owner 的 HTTP 控制身份，不伪造设备或 WebSocket lane；普通 owner 控制入口仍遵循既有 Run 规则。

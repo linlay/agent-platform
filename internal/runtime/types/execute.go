@@ -24,6 +24,11 @@ type ExecuteCommand struct {
 	// the request is valid and before the Run starts.
 	StoreFiles func(chatID string) (map[string]string, error)
 
+	// OnPrepared reserves the generated identity in a trusted caller's ownership
+	// ledger before registration or model execution. A failure aborts admission.
+	// This hook is internal; transports never decode it from request JSON.
+	OnPrepared func(RunRef) error `json:"-"`
+
 	Locale          string
 	ResourceBaseURL string
 	ChatSource      string

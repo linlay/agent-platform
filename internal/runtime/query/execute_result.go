@@ -90,6 +90,12 @@ func (s *Service) Execute(ctx context.Context, cmd runtimetypes.ExecuteCommand) 
 	if err != nil {
 		return runtimetypes.ExecuteResult{}, err
 	}
+	if cmd.OnPrepared != nil {
+		if err := cmd.OnPrepared(runtimetypes.RunRef{ChatID: prepared.Req.ChatID, RunID: prepared.Req.RunID, AgentKey: prepared.Req.AgentKey, Caller: cmd.Caller}); err != nil {
+			releaseQuery(prepared.Release)
+			return runtimetypes.ExecuteResult{}, err
+		}
+	}
 	registered, statusErr := s.RegisterPreparedQuery(ctx, prepared)
 	if statusErr != nil {
 		releaseQuery(prepared.Release)

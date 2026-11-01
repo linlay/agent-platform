@@ -8,13 +8,13 @@
 
 ## 当前实现范围
 
-完整设计见 [Linux Docker Compose WebApp 托管方案](../plans/webapp-node-hosting.md)。当前代码已接入部署选择、严格配置、owner/Host 边界、Node 制品与隔离探测，以及 owner ZIP 上传、预检、安装、停止状态更新和卸载事务。静态/Node 网关、票据/会话、启停、最小 WebClient 管理和受限 Node 监督已接入；运行中更新、失败回退和配置/授权重建已接入；SDK transport、配置和连接器适配已接入；assistant/skill/artifact 继续按后续批次实现，不能把安装管理视为完整托管交付。
+完整设计见 [Linux Docker Compose WebApp 托管方案](../plans/webapp-node-hosting.md)。当前代码已接入部署选择、严格配置、owner/Host 边界、Node 制品与隔离探测，以及 owner ZIP 上传、预检、安装、停止状态更新和卸载事务。静态/Node 网关、票据/会话、启停、最小 WebClient 管理和受限 Node 监督已接入；运行中更新、失败回退和配置/授权重建已接入；SDK transport、配置和连接器适配已接入；assistant/skill/artifact 已接入既有 Runtime/Catalog/ChatResource；完整镜像和 Compose 故障验收仍待批次 7，不能把安装管理视为完整托管交付。
 
 共享 Manifest 已补齐 Linux 目标及合法/非法输入 fixture，builder 同步离线纯 JS 包约束；Desktop 仍拒绝安装 Linux 目标包。Go 安装器嵌入 Desktop 生成的 schema 并消费同一 fixture；`scripts/sync-webapp-contracts.py --check --desktop-root <Desktop源码根>` 检查复制漂移，不在生产环境读取相邻源码。小批次边界与验证限制见计划第 21 节。
 
 ## 安装事务与数据所有权
 
-`internal/webapp` 独占安装代码、期望状态和应用授权；`app.New` 只在合法启用后创建服务，并持有运行根下的实例独占锁。Server 只校验 owner、来源和请求形状，不解析包或执行安装。`internal/webappgateway` 独立监听本地应用端口，负责私有静态文件和会话；桥接模块与后端托管由后续批次接入。
+`internal/webapp` 独占安装代码、期望状态和应用授权；`app.New` 只在合法启用后创建服务，并持有运行根下的实例独占锁。Server 只校验 owner、来源和请求形状，不解析包或执行安装。`internal/webappgateway` 独立监听本地应用端口，负责私有静态文件和会话；桥接模块与后端托管分别由 webappbridge 和 webapphost 承接。
 
 上传是有界 ZIP 字节流，不接受服务器路径。预检不执行代码、不创建安装记录；提交绑定上传摘要与当前安装 revision。解包拒绝穿越、反斜杠、大小写碰撞、链接、特殊文件、超量展开、秘密文件和原生载荷；Compose 子集拒绝其他平台、非 Node launcher 与执行链环境覆盖。
 
@@ -143,3 +143,15 @@ Node 仅获得当前 generation 的 bootstrap 能力凭证，通过精确 loopba
 Compose invoke 要求稳定 idempotencyKey；沿用连接器持久回执，更新和重启保持安装 namespace，相同 key/参数不重放，冲突参数拒绝，未知结果保持 unknown。重新安装使用新的安装身份。外部服务已经执行的副作用不能靠停止 HTTP 或回滚代码撤销。
 
 Go race 回归通过 Cookie/Origin/CSRF、配置形状、凭证过期与撤销、身份字段拒绝、bridge 关闭取消；真实本地 MCP 服务验证回执跨 generation 和更新仍不重放。原生 Linux 加固候选的受限 Node 已使用共享 SDK 完成内部凭证兑换及调用，授权变化后旧代次失效。未注册的 assistant/skill/artifact 适配当前不会被报告为可用，接入后再更新能力清单。
+
+## 助理、技能与产物（批次 6）
+
+云端 bridge 由 App 注入窄 Runtime、Catalog 和 ChatResource 门面，不经 owner HTTP/JWT 旁路，不生成 Desktop deviceId。chat 与 execute 均绑定唯一 owner，以 `ask_for_approval` 进入既有 Runtime；TEAM 仍只使用根 agentKey。Manifest Copilot、用户配置中的 Agent 选择必须与 owner 明确授权的 Agent 一致，更新和配置不能自行扩大授权。额外 Skill 引用取 Manifest 声明与 owner 白名单交集；Skill 查询只返回授权元数据，不返回路径或正文。
+
+chat 支持普通文本结果和后台受理、有限事件轮询及停止。事件只投影文本与运行/产物状态，不转发工具参数、结果或原始协议。每个安装最多 2 个并行助理任务、全局 8 个；后台运行最多 30 分钟，终态记录最多保留 30 分钟，全局记录上限 128。停止、撤权和更新取消该 generation 的任务，等待 Runtime 终态与 observer 交付确认后释放租约；清理不能确认时阻断替换实例。
+
+execute 复用 Runtime 的 schema 校验、result_submit 和取消机制，最长 10 分钟。Runtime 内部 OnPrepared 钩子在注册/模型执行前同步保存资源归属，写入失败即拒绝启动。页面/后端请求分别限制 64/256 KiB，schema 64 KiB，不接收文件 part、Agent/模型/权限覆盖或调用方路径。
+
+归属收据保存在宿主管理根 `.sdk`，以安装身份区分；代码更新保留身份，卸载重装生成新身份。每个安装最多记录 1024 个新 Chat，达到限额明确拒绝创建，不静默移除旧记录。artifact 只访问收据绑定且 Chat 根 Agent 匹配的已发布 Run 产物，复用 ChatResource 的规范路径、摘要和大小验证；读取上限 512 KiB。open/saveAs 等原生展示能力仍明确不可用，调用方可消费 read 返回的字节流。
+
+验证包含真实 Runtime 与模拟模型服务的 execute/result_submit、后台文本事件、运行中停止及 generation 租约排空；归属写入失败不启动模型，跨应用/重装/旧 generation 拒绝，元数据投影和产物内容篡改拒绝。完整镜像、Compose 进程故障及资源恢复演练另见批次 7 验收记录。
