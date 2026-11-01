@@ -18,7 +18,7 @@ RuntimeMode 仍是 standalone/desktop。新的独立启动选项为 `--webapp-ho
 - resource.public-base-url 如有配置，与 platform-origin 一致。
 - 配置限额合法；端口范围足以分配 max-running 个非特权端口。
 
-`webapps` 拒绝未知字段、错误大小写、null、错误类型和越界限额。引号中的布尔/数字保留字符串类型，不沿用旧节的布尔强转。目录固定从 AP_RUNTIME_DIR 派生 webapps/webapp-data，管理目录来自有效 StateDir/webapps；不提供 YAML paths 或新目录环境变量。
+`webapps` 拒绝未知字段、错误大小写、null、错误类型和越界限额。引号中的布尔/数字保留字符串类型，不沿用旧节的布尔强转。`webapps/` 存放代码和管理记录，`webapp-data/` 存放应用数据，都从 AP_RUNTIME_DIR 派生，不使用 StateDir；不提供 YAML paths 或新目录环境变量。
 
 关闭时不运行探测、不创建 WebApp 数据目录、不注册诊断接口，也不改变现有 Host 行为。非法部署强制开启会阻止启动。合法 Linux Compose 中 Node/隔离前提不满足仅反映为诊断不可用，不把失败降级为无隔离执行。
 
@@ -55,7 +55,7 @@ Dockerfile 的独立构建阶段锁定 Node 官方制品版本和 SHA-256，只�
 
 最低支持 ABI4：文件和 TCP 限制必须实际通过。ABI4 不传设备 ioctl 权限或 scoped 字段；ABI5 增加设备 ioctl 限制；ABI6 增加信号/抽象 socket 作用域。按实际 ABI 传入结构长度，探测协议为 v2，明确报告缺少的能力。低于 ABI4 或施加失败仍拒绝。检查 create/add/restrict 和拒绝结果，不凭 uname 判断。探测仅继承固定 PATH/LANG/LC_ALL，进程输出有界、5 秒超时；原始错误输出不回显。平台在已启用宿主下设置 dumpable=0，其余部署保持原行为。
 
-正式和开发 Compose 使用 UID 10001、只读根、drop ALL、no-new-privileges 和 tmpfs；不增加特权或放宽 seccomp。已发布代码和管理状态加入普通工具保护，持久数据不获得额外工具授权。
+正式和开发 Compose 使用 UID 10001、只读根、drop ALL、no-new-privileges 和 tmpfs；不增加特权或放宽 seccomp。`webapps/` 不论宿主是否开启都受普通工具保护；`webapp-data/` 不额外加保护，也不获得额外的工具授权。
 
 ## 验证状态
 

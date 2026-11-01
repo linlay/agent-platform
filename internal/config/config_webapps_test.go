@@ -44,7 +44,7 @@ func TestWebAppDeploymentBoundary(t *testing.T) {
 			if err := c.validateWebApps(tc.os); (err == nil) != tc.want {
 				t.Fatalf("validate = %v, want success=%t", err, tc.want)
 			}
-			for _, path := range []string{c.WebAppsCodeDir(), c.WebAppsDataDir(), c.WebAppsStateDir()} {
+			for _, path := range []string{c.WebAppsCodeDir(), c.WebAppsDataDir()} {
 				if _, err := os.Lstat(path); !os.IsNotExist(err) {
 					t.Fatalf("validation created %s", path)
 				}
@@ -150,11 +150,10 @@ func TestWebAppDerivedPathsDoNotFollowLaterEnvironmentChanges(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("AP_RUNTIME_DIR", root)
 	c := defaultConfig(LoadOptions{})
-	state := filepath.Join(t.TempDir(), "state")
-	c.Paths.StateDir = state
+	c.Paths.StateDir = filepath.Join(t.TempDir(), "state")
 	t.Setenv("AP_RUNTIME_DIR", t.TempDir())
-	if c.WebAppsCodeDir() != filepath.Join(root, "webapps") || c.WebAppsDataDir() != filepath.Join(root, "webapp-data") || c.WebAppsStateDir() != filepath.Join(state, "webapps") {
-		t.Fatal("WebApp paths were not frozen to runtime/state configuration")
+	if c.WebAppsCodeDir() != filepath.Join(root, "webapps") || c.WebAppsDataDir() != filepath.Join(root, "webapp-data") {
+		t.Fatal("WebApp paths were not frozen to runtime configuration independently of StateDir")
 	}
 }
 

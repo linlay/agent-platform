@@ -101,7 +101,7 @@ SDK 适配 → Runtime / Chat 资源窄接口 / connectorops
 
 | 模块 | 职责 |
 | --- | --- |
-| `internal/webapp` | Manifest、安装事务、版本租约、状态、应用授权及服务门面 |
+| `internal/webapp` | Manifest、安装事务、状态、应用授权及服务门面 |
 | `internal/webapphost` | Linux 监督进程协议、端口、健康、重启、日志、隔离能力探测 |
 | `internal/webappgateway` | Host 对应应用后的静态、HTTP/WS 代理与响应头处理 |
 | `internal/webappbridge` | SDK action 映射、owner/应用授权复核、资源归属与窄服务调用 |
@@ -170,7 +170,7 @@ webapps:
 
 安装包大小、解压后大小及文件数也设置服务端上限，并与 nginx 上传上限对齐。示例首版采用压缩包 100 MiB、解压 512 MiB、最多 20,000 个文件；最终默认进入同一配置事实源。
 
-Node 与 supervisor 路径固定于镜像受管目录，不能由 Manifest 选择任意解释器。所有 WebApp 子目录从 RuntimeDir/有效 StateDir 派生；不增加 YAML `paths`，不增加任意 WebApp 目录环境变量。nginx 的域名、证书与路由属于部署配置，凭据不进入示例或应用包。
+Node 与 supervisor 路径固定于镜像受管目录，不能由 Manifest 选择任意解释器。WebApp 持久目录从 RuntimeDir 派生，不使用 StateDir；不增加 YAML `paths`，不增加任意 WebApp 目录环境变量。nginx 的域名、证书与路由属于部署配置，凭据不进入示例或应用包。
 
 ## 5. 镜像与包兼容
 
@@ -220,47 +220,50 @@ Node 与 supervisor 路径固定于镜像受管目录，不能由 Manifest 选�
 ## 6. 持久目录与安装事务
 
 ```text
-<RuntimeDir>/webapps/<webappId>/versions/<contentDigest>/
-  webapp.json + frontend/ + backend/ + 依赖      # 已发布代码，只读使用
-<RuntimeDir>/webapp-data/<webappId>/             # 应用持久数据
-<StateDir>/webapps/<webappId>/
-  install.json                                # 当前版本、来源摘要与安装信息
-  desired.json                                # running/stopped + revision
-  policy.json                                 # owner 授权及应用资源关联
-  user-config.json                            # 配置，仅指定文件可交给应用读取
-  logs/                                       # stdout/stderr 轮转文件
+<RuntimeDir>/webapps/                          # 整个目录始终受普通工具保护
+  .staging/                                   # ZIP、解包目录、更新旧版备份和安装 journal，事务完成后删除
+  <id>/
+    app/                                      # 当前代码：webapp.json、frontend/、backend/ 及依赖，原地替换，不分版本
+    install.json                              # 来源摘要、app/ 内容摘要与安装信息
+    desired.json                              # running/stopped + revision
+    policy.json                               # owner 授权及应用资源关联
+    user-config.json                          # 配置，仅指定文件可交给应用读取
+    logs/                                     # stdout/stderr 轮转文件
+<RuntimeDir>/webapp-data/<id>/                 # 应用持久数据，不额外加保护
 <RuntimeDir>/.lock/webapps/                     # 服务实例及每应用 mutation 锁
-/tmp/webapps/<webappId>/<generation>/           # 本次进程临时目录/HOME
+/tmp/webapps/<id>/<generation>/                # 本次进程临时目录/HOME
 ```
 
-应用不能读取整个自身 StateDir，其中有期望状态和授权。只授予代码只读、本应用数据读写、当前 generation 临时目录读写、指定 user-config 文件只读；日志由父进程捕获，不给应用日志目录写权。
+.staging/ 必须与应用 <id>/ 位于同一文件系统，启动安装事务前核验，确保 app/ 与暂存备份之间可以原子改名。
+
+应用不能读取整个 webapps/<id>/，其中有期望状态和授权。只授予 app/ 只读、本应用数据读写、当前 generation 临时目录读写、指定 user-config 文件只读；日志由父进程捕获，不给应用日志目录写权。
 
 ### 6.1 安装与更新
 
 1. owner 在 WebClient 上传 ZIP 到专用暂存入口；浏览器不能提交服务器任意 archivePath。
 2. 对内容计算摘要、执行 Manifest/解包预检，返回名称、版本、target、后端类型、大小、申请能力和覆盖对象。
 3. 提交安装时绑定同一暂存摘要与当前安装 revision；来源变化或并发更新返回冲突，不重新解释另一份字节。
-4. 在正式应用目录外的同文件系统 staging 解包。拒绝绝对路径、`..`、反斜杠歧义、重复规范路径、符号链接、特殊文件及解压炸弹。
-5. 预检和解包不执行包中任何代码。验证所有引用路径最终位于发布版本内；移除发布文件的写权限。
-6. 获取应用锁，复核安装基准，将版本原子发布并同步写入安装记录；失败保留旧版本并清理 staging。
-7. 首次安装默认 stopped，不隐式启动、打开或发布。敏感能力另存 owner 对具体能力/资源的同意。
-8. 更新 running 应用时冻结旧版本，停止旧进程，启动并检查新版本；失败回到旧代码和原期望状态。首版接受短暂停机，不做双实例共享数据运行。
+4. 在 webapps/.staging/ 的独立事务目录保存上传 ZIP 并解包。拒绝绝对路径、`..`、反斜杠歧义、重复规范路径、符号链接、特殊文件及解压炸弹。
+5. 预检和解包不执行包中任何代码；验证所有引用路径都在解包目录内；移除代码的写权限。
+6. 获取应用锁并复核安装基准；更新时先阻止新访问、排空请求并停止旧进程，确认旧代码无活动访问者后才替换。持久化安装 journal，记录原安装信息、原期望状态、app/ 内容摘要及事务阶段；将旧 app/ 原子改名为 .staging/ 中的备份，再把解包目录原子改名为 app/，同步写入 install.json（含内容摘要）。改名与记录写入之间的中断依据安装 journal 还原旧 app/ 和安装记录，再清理暂存内容。
+7. 首次安装默认 stopped，不隐式启动、打开或发布。敏感能力另存 owner 对具体能力/资源的同意；安装完成后清理对应 .staging/ 事务目录。
+8. 更新 running 应用时，在替换后启动并检查健康，通过后恢复发布；更新 stopped 应用时保持 stopped。成功后删除备份和安装 journal；失败则停止并确认新进程退出，把备份改回 app/、恢复安装记录，并按原期望状态恢复应用，再清理对应 .staging/ 事务目录。首版接受短暂停机，不做双实例共享数据运行；成功更新后若要恢复旧版本，需要重新安装旧 ZIP。
 
 代码回滚不等于数据回滚。首版要求应用更新不执行不可逆数据迁移；确需迁移时先由 owner 备份数据并停机更新，平台不能声称自动撤销应用已写入的数据。
 
-应用更新不自动扩大授权；新增能力需重新授权。更新失败/断电后的恢复依据 journal 与已同步的当前版本指针，不能把半解包目录当成已安装版本。
+应用更新不自动扩大授权；新增能力需重新授权。更新失败/断电后的恢复依据安装 journal，不能把半解包目录当成已安装应用。
 
 ### 6.2 卸载与数据
 
 卸载须经 owner 明确提交，先停止、撤销会话/token/grant、确认无活动租约，再移除代码与记录；持久数据默认保留，另有显式 `purgeData: true` 删除选项，并在审阅中展示数据范围。不得沿用未经确认的 Desktop 全量删除语义。
 
-备份至少包含代码当前版本、webapp-data 与 StateDir 安装/授权记录；运行 PID、端口、token、临时目录不作为恢复依据。备份数据需停机或使用应用一致性机制，文件复制不等于数据库一致快照。
+备份 webapps/<id>/（可跳过 logs/）与 webapp-data/<id>/；运行 PID、端口、token、临时目录不作为恢复依据。备份数据需停机或使用应用一致性机制，文件复制不等于数据库一致快照。
 
 ### 6.3 配置修订与回收
 
 user-config 原子替换后，静态 SDK 读取新版本；运行中的 Node 通过受管重启重新获取指定文件的只读授权，避免 Landlock 仍绑定旧 inode。修改应用授权时先推进 policy revision、撤销旧 session/token/grant，再按 desiredState 重建运行实例，任何旧请求的授权 Check 均须失败。
 
-版本回收至少保留当前版本和一个最近成功版本；活动租约和未完成安装事务引用的版本不可删。未认领上传/staging 默认 24 小时回收，generation 临时目录在确认进程退出后回收。磁盘不足时在 mutation 前拒绝安装，日志按限额轮转；应用持久数据仅按显式删除操作清理。
+未认领上传/staging 默认 24 小时回收，generation 临时目录在确认进程退出后回收。磁盘不足时在 mutation 前拒绝安装，日志按限额轮转；应用持久数据仅按显式删除操作清理。
 
 ## 7. Node 启动与隔离
 
@@ -278,7 +281,7 @@ user-config 原子替换后，静态 SDK 读取新版本；运行中的 Node 通
 | --- | --- |
 | 环境 | 从空环境构建白名单；不传 os.Environ、平台 JWT、AP_ID_TOKEN、provider key 或连接器凭据 |
 | HOST/PORT | 固定 127.0.0.1 与已分配端口；禁止包覆盖 |
-| WEBAPP_* | 由宿主生成；未开放目录类变量不注入，不能指向整个管理 StateDir |
+| WEBAPP_* | 由宿主生成；未开放目录类变量不注入，不能指向 webapps/<id>/ |
 | HOME/TMPDIR | 指向本 generation 临时目录；不复用共享 HOME 的秘密或缓存 |
 | bridge | 注入 DESKTOP_ACTION_BRIDGE_URL/TOKEN 兼容变量；token 是应用实例最小权限凭证 |
 | 文件规则 | 代码/Node/必要动态库/精确系统文件只读；仅本应用 data/tmp 可写；不放行整个 /opt、/etc、/tmp 或 /proc |
@@ -297,7 +300,7 @@ ABI 探测必须实际执行 create/add/restrict 并验证拒绝行为；只看 
 
 Compose 宿主启用时，Platform 及拿到敏感启动参数的 supervisor 尽早设 `PR_SET_DUMPABLE=0`；不在其他部署形态无条件修改。Node exec 后的进程间保护依赖受限域及实际 proc 访问检查，不能假设 exec 后自动保留 dumpable 设置。
 
-普通工具受保护路径补充已发布 WebApp 代码和管理状态；数据访问沿用 owner/Agent 原信任边界，不凭此宣称任意 Agent Host 脚本已被隔离。AgentsDir/AutomationsDir 等已有只读保护继续保留，不在本次方案中顺便重做全平台权限模型。
+webapps/ 存放代码和管理记录，不论宿主是否开启都受普通工具保护；webapp-data/ 不额外加保护或授予工具权限，数据访问沿用 owner/Agent 原信任边界，不凭此宣称任意 Agent Host 脚本已被隔离。AgentsDir/AutomationsDir 等已有只读保护继续保留，不在本次方案中顺便重做全平台权限模型。
 
 本方案仍是单 owner、可信应用模型：同 UID 的高权限 Agent 任意代码不受 Node 的 Landlock 约束；整容器资源共享；TCP 端口规则不能限制远端 IP，UDP 不能据此保证禁网。Node 权限模型只减少误用，不是运行恶意代码的安全边界。[Node 24 权限说明](https://github.com/nodejs/node/blob/v24.x/doc/api/permissions.md)
 
@@ -307,7 +310,7 @@ Compose 宿主启用时，Platform 及拿到敏感启动参数的 supervisor 尽
 
 ### 8.1 状态模型
 
-期望状态仅 running/stopped，先持久化并 fsync 成功才返回受理成功。观察状态为 stopped / starting / running / unhealthy / stopping / backoff / failed / blocked。安装和更新是独立 mutation 状态，不冒充进程 running。
+期望状态仅 running/stopped，先持久化并 fsync 成功才返回受理成功。观察状态为 stopped / starting / running / unhealthy / stopping / backoff / failed / blocked。安装和更新是独立 mutation 状态，不冒充进程 running。安装或更新期间，该应用的前端和后端都返回 503。
 
 - start/stop 幂等；restart 为同应用串行的停止再启动。
 - stopped 应用不提供前端、SDK 或后端业务访问，仅保留 owner 管理和诊断；静态应用的 start/stop 直接控制网关发布，无需 Node。
@@ -317,7 +320,7 @@ Compose 宿主启用时，Platform 及拿到敏感启动参数的 supervisor 尽
 
 ### 8.2 启动与健康
 
-1. 校验当前版本、授权、宿主能力及 max-running 配额，租用版本与数据目录。
+1. 校验当前 app/、授权、宿主能力及 max-running 配额，获取应用锁并确认没有进行中的安装事务，再租用数据目录。
 2. 在 20000–20127 分配端口；先探测再交给 Node 有竞争窗口，只有明确端口冲突才重新分配并有限重试。
 3. 创建 generation、临时目录、最小环境与后端 token，启动 supervisor。
 4. supervisor 建立进程组与 subreaper，完成父进程失联处理后启动受限 Node；通过私有控制通道报告施加策略及 exec 结果。
@@ -342,7 +345,7 @@ supervisor 逐步清理本应用进程组和已接管后代，使用 pidfd 或 P
 - supervisor 监听 Platform 私有控制管道 EOF 执行清理，Pdeathsig 只作辅助；不把 Go 创建子进程线程的存活假设成整个 Platform 存活。
 - 正式和开发 Compose 停止宽限期与应用最长停止时间对齐；建议 45 秒容器宽限期，应用清理控制在 35 秒内，并行处理。
 - Platform 异常退出采用 Compose 重建/重启容器的恢复路径，使容器运行时清除旧进程；不支持在同一容器里手工拉起第二个 Platform 接管旧进程。
-- 新 Platform 取得实例独占锁，校验安装记录和版本摘要；等 HTTP 内部桥就绪，再按 desiredState 创建新 generation、端口与 token。
+- 新 Platform 取得实例独占锁，校验安装记录和 app/ 内容摘要（由 install.json 记录）；等 HTTP 内部桥就绪，再按 desiredState 创建新 generation、端口与 token。
 - 旧 PID、旧端口、旧 token 全部不接管；授权记录可保留，运行凭证必须重建。恢复只作用于 WebApp，不改变 Agent Run 重启后取消的现有合同。
 - 监督失联或清理结果不确定时标 failed，阻止新 generation 并要求重启容器；不能重复启动两个数据写入者。
 

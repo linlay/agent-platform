@@ -12,6 +12,7 @@ import (
 // secrets: the effective StateDir (connector credentials and the default
 // identity file), a separately configured identity file, and the document
 // preview records, whose share links open the previewed documents.
+// WebApp 目录存放代码和授权记录，不论宿主是否开启都受保护。
 //
 // Under Desktop the runtime root also holds Desktop's own secrets partition
 // (<runtime root>/.desktop/secrets, the saved website passwords). Agents use
@@ -31,7 +32,7 @@ func PlatformProtectedPaths(cfg config.Config) []string {
 	if cfg.RuntimeMode == config.RuntimeModeDesktop && strings.TrimSpace(state) != "" {
 		paths = append(paths, filepath.Join(filepath.Dir(state), ".desktop", "secrets"))
 	}
-	if cfg.WebApps.Enabled && strings.TrimSpace(cfg.WebAppsCodeDir()) != "" {
+	if strings.TrimSpace(cfg.WebAppsCodeDir()) != "" {
 		paths = append(paths, cfg.WebAppsCodeDir())
 	}
 	return paths

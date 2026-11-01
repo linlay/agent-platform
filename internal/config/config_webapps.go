@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
@@ -230,16 +229,8 @@ func (c *Config) validateWebApps(goos string) error {
 	if c.Server.PublicBaseURL != "" && c.Server.PublicBaseURL != w.PlatformOrigin {
 		return fmt.Errorf("webapps.platform-origin must match resource.public-base-url when set")
 	}
-	for _, name := range []string{c.WebAppsCodeDir(), c.WebAppsDataDir(), c.WebAppsStateDir()} {
-		if !filepath.IsAbs(name) {
-			return fmt.Errorf("webapps runtime paths must be absolute after configuration normalization")
-		}
-	}
 	return nil
 }
 
 func (c Config) WebAppsCodeDir() string { return c.Paths.WebAppsDir }
 func (c Config) WebAppsDataDir() string { return c.Paths.WebAppDataDir }
-func (c Config) WebAppsStateDir() string {
-	return filepath.Join(c.Paths.EffectiveStateDir(), "webapps")
-}

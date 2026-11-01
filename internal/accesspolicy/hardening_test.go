@@ -147,6 +147,68 @@ func TestPreviewRecordsHardBlockAcrossLevels(t *testing.T) {
 	}
 }
 
+func TestWebAppsHardBlockAcrossLevelsWhenDisabled(t *testing.T) {
+	s := policyFixture(t)
+	webapps := filepath.Join(s.WorkspaceRoot, "webapps")
+	data := filepath.Join(s.WorkspaceRoot, "webapp-data", "test-app", "data.json")
+	for _, path := range []string{
+		filepath.Join(webapps, "test-app", "app", "webapp.json"),
+		filepath.Join(webapps, "test-app", "policy.json"),
+		filepath.Join(webapps, ".staging", "install", "journal.json"),
+		data,
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("{}"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := config.Config{
+		WebApps: config.WebAppsConfig{Enabled: false},
+		Paths: config.PathsConfig{
+			StateDir:      filepath.Join(t.TempDir(), ".state"),
+			WebAppsDir:    webapps,
+			WebAppDataDir: filepath.Join(s.WorkspaceRoot, "webapp-data"),
+		},
+	}
+	s.ProtectedPaths = PlatformProtectedPaths(cfg)
+	found := false
+	for _, path := range s.ProtectedPaths {
+		if path == webapps {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("disabled WebApp host left code and authorization records unprotected")
+	}
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
+		s.AccessLevel = level
+		for _, mode := range []AccessMode{ReadAccess, WriteAccess} {
+			for _, path := range []string{
+				webapps,
+				filepath.Join(webapps, "test-app", "app", "webapp.json"),
+				filepath.Join(webapps, "test-app", "policy.json"),
+				filepath.Join(webapps, ".staging", "install", "journal.json"),
+			} {
+				plan, err := BuildPathPlan(config.DefaultAccessPolicyConfig(), s, mode, path)
+				if err != nil || !plan.Blocked() {
+					t.Fatalf("%s %s %s: %+v %v", level, mode, path, plan, err)
+				}
+			}
+			plan, err := BuildPathPlan(config.DefaultAccessPolicyConfig(), s, mode, data)
+			if err != nil || plan.Blocked() || plan.RequiresApproval() {
+				t.Fatalf("application data did not retain ordinary workspace access at %s %s: %+v %v", level, mode, plan, err)
+			}
+		}
+		for _, command := range []string{"cat webapps/test-app/app/webapp.json", "touch webapps/test-app/install.json", "tar -cf archive.tar webapps"} {
+			if plan := ReviewBashCommand(config.DefaultAccessPolicyConfig(), s, command, s.WorkspaceRoot, nil); !plan.Blocked() {
+				t.Fatalf("WebApp access %s at %s: %+v", command, level, plan)
+			}
+		}
+	}
+}
+
 func TestDesktopSecretsHardBlockAcrossLevels(t *testing.T) {
 	s := policyFixture(t)
 	runtimeRoot := t.TempDir()
