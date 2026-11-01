@@ -40,7 +40,8 @@ type BashEnvironment struct {
 	InspectNullDevice func() (string, error)
 	InspectConfig     func(path string) (FileInspection, error)
 	AccountHome       func() (string, error)
-	// Launch is supplied only for Host commands; containers use their own Bash.
+	// Launch describes the actual transport. Unattested guest shells are unknown;
+	// only a verified profile may declare SyntaxSupported.
 	Launch    *LaunchBinding
 	Resolve   func(name, cwd string, env map[string]string) (string, error)
 	Canonical func(path, cwd string) (string, error)

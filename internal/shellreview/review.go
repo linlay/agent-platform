@@ -30,6 +30,16 @@ func ReviewBashCommandInEnvironment(cfg config.AccessPolicyConfig, session Query
 }
 
 func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, command, cwd string, variables map[string]string, environment *types.BashEnvironment, contexts ...*ExecutionContext) shellplan.BashPlan {
+	// This reviewer implements Bash only. A backend cannot opt another grammar
+	// into Bash analysis by setting a generic supported flag.
+	if environment != nil && environment.Launch != nil && environment.Launch.SyntaxSupported && environment.Launch.Dialect != dialect.Bash {
+		copied := *environment
+		launch := *environment.Launch
+		launch.SyntaxSupported = false
+		launch.Reason = "this reviewer has no verified parser profile for the declared shell dialect"
+		copied.Launch = &launch
+		environment = &copied
+	}
 	unknownDialect := environment != nil && environment.Launch != nil && !environment.Launch.SyntaxSupported
 	if reason := rawTextRejection(command, unknownDialect); reason != "" {
 		p := policy.New(cfg, session, command).Block(reason, "bash-access:text", command)
@@ -123,6 +133,15 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 		}
 		return p
 	}
+	if environment != nil && environment.Launch != nil && !environment.Launch.SyntaxSupported &&
+		(session.AgentHasRuntimeSandbox || DirectConnectorInvocation(session, command, workingDir, variables) == nil) {
+		pathReview(ReadAccess, workingDir)
+		add(reviewer.WorkspaceExecution(workingDir))
+		add(reviewer.UnknownDialect(*environment.Launch))
+		plan := shellplan.Combine(command, accessLevel, plans)
+		plan.UnknownDialect = true
+		return plan
+	}
 	if session.AgentHasRuntimeSandbox && environment != nil && environment.Directory != nil {
 		if canonical, err := environment.Directory(workingDir); err == nil {
 			workingDir = canonical
@@ -131,15 +150,6 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 		} else {
 			add(reviewer.Complex("container working directory cannot be resolved"))
 		}
-	}
-	if environment != nil && environment.Launch != nil && !environment.Launch.SyntaxSupported &&
-		DirectConnectorInvocation(session, command, workingDir, variables) == nil {
-		pathReview(ReadAccess, workingDir)
-		add(reviewer.WorkspaceExecution(workingDir))
-		add(reviewer.UnknownDialect(*environment.Launch))
-		plan := shellplan.Combine(command, accessLevel, plans)
-		plan.UnknownDialect = true
-		return plan
 	}
 	parsed := bashsyntax.ParseForSecurityWithKnownVariables(command, variables)
 	if len(session.ConnectorCLIEntries) > 0 {

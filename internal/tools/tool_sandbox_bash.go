@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/agentconfig"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/hostshell"
 	"agent-platform/internal/pathutil"
 	shellplan "agent-platform/internal/shellreview/plan"
 )
@@ -34,6 +36,17 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 		}
 		return ToolExecutionResult{Output: err.Error(), Error: code, ExitCode: -1}, nil
 	}
+	original := execCtx
+	frozen, freezeErr := hostshell.FreezeContext(execCtx)
+	if freezeErr != nil {
+		return ToolExecutionResult{Output: freezeErr.Error(), Error: "run_env_snapshot_failed", ExitCode: -1}, nil
+	}
+	execCtx = frozen
+	defer func() {
+		if original != nil && frozen != nil {
+			original.SandboxSession = frozen.SandboxSession
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return ToolExecutionResult{Output: err.Error(), Error: "sandbox_execute_failed", ExitCode: -1}, nil
 	}
@@ -47,17 +60,31 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 	switch accessReview.Decision {
 	case accesspolicy.DecisionAllow, accesspolicy.DecisionAutoApproved:
 	case accesspolicy.DecisionRequiresApproval:
-		if !shellplan.ConsumeApproval(execCtx, rawAccessReview) {
+		if !shellplan.HasApproval(execCtx, rawAccessReview) {
 			return ToolExecutionResult{Output: accessReview.Reason, Error: accessReview.ErrorCode(), ExitCode: -1}, nil
 		}
 	default:
 		return ToolExecutionResult{Output: accessReview.Reason, Error: accessReview.ErrorCode(), ExitCode: -1}, nil
 	}
+	reservation, ok := shellplan.ReserveApproval(execCtx, rawAccessReview)
+	if !ok {
+		return ToolExecutionResult{Output: accessReview.Reason, Error: accessReview.ErrorCode(), ExitCode: -1}, nil
+	}
+	if err := ctx.Err(); err != nil {
+		reservation.Restore()
+		return ToolExecutionResult{Output: err.Error(), Error: "sandbox_execute_failed", ExitCode: -1}, nil
+	}
 	timeout := t.resolveBashTimeoutSeconds(args, execCtx)
 	result, err := t.sandbox.Execute(ctx, execCtx, command, cwd, timeout, invocationEnv)
 	if err != nil {
+		if errors.Is(err, ErrSandboxCommandNotStarted) {
+			reservation.Restore()
+		} else {
+			reservation.Commit()
+		}
 		return ToolExecutionResult{Output: err.Error(), Error: "sandbox_execute_failed", ExitCode: -1}, nil
 	}
+	reservation.Commit()
 	output := bashResult(result.Stdout, result.Stderr, "sandbox", result.Cwd, result.ExitCode, "")
 	if approvalSource != "" || accessReview.HasConnector || accessReview.AutoApproved() || accessReview.RuleKey == "bash-access:authored-script" || accessReview.RuleKey == "bash-access:temp-script" || accessReview.RuleKey == "bash-access:skill-script" {
 		if output.Structured == nil {

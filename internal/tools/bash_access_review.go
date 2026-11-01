@@ -63,13 +63,45 @@ func (t *RuntimeToolExecutor) ReviewBashAccess(ctx context.Context, args map[str
 		}
 	}
 	if session.AgentHasRuntimeSandbox {
+		if t.sandbox == nil {
+			return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: "container executor unavailable"}
+		}
+		original := execCtx
+		frozen, err := hostshell.FreezeContext(execCtx)
+		if err != nil {
+			return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+		}
+		execCtx = frozen
+		defer func() {
+			if original != nil && frozen != nil {
+				original.SandboxSession = frozen.SandboxSession
+			}
+		}()
+		vars = bashSecurityKnownVariables(execCtx)
 		invocationEnv, err := sandboxInvocationEnvArg(args)
 		if err != nil {
+			return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+		}
+		if err := agentconfig.ValidateUserEnvironment(invocationEnv); err != nil {
 			return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
 		}
 		vars = agentconfig.Merge(vars, invocationEnv, agentconfig.ContainerEnvironment(session.RuntimeContext.SandboxPaths.AgentDir, session.RuntimeContext.SandboxPaths.WorkspaceDir, session.RuntimeContext.SandboxPaths.ChatDir))
 		vars = connector.ContainerEnvironment(vars, session.ConnectorBinDirs)
 		environment = t.sandboxBashEnvironment(ctx, execCtx)
+		cwd, err := resolveSandboxCwd(execCtx, stringArg(args, "cwd"))
+		if err != nil {
+			return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+		}
+		binding := unverifiedSandboxLaunch(stringArg(args, "command"), cwd, vars)
+		if provider, ok := t.sandbox.(interface {
+			ReviewShellLaunch(*ExecutionContext, string, string, map[string]string) (shelltypes.LaunchBinding, error)
+		}); ok {
+			binding, err = provider.ReviewShellLaunch(execCtx, stringArg(args, "command"), cwd, invocationEnv)
+			if err != nil {
+				return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+			}
+		}
+		environment.Launch = &binding
 	}
 	plan := shellreview.ReviewBashCommandInEnvironment(cfg, session, stringArg(args, "command"), stringArg(args, "cwd"), vars, environment, execCtx)
 	if !t.cfg.Bash.ShellFeaturesEnabled && plan.UnknownDialect && !plan.Blocked() {

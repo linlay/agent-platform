@@ -85,7 +85,7 @@ func bashPlanFromPath(command string, pathPlan PathPlan, reason string) BashPlan
 	decision := pathPlan.Decision
 	ruleKey := "bash-access:path:" + pathPlan.RuleKey
 	fingerprintInput := command + "\x00" + pathPlan.Fingerprint
-	sum := sha256.Sum256([]byte(fingerprintInput))
+	sum := sha256.Sum256([]byte(strings.Join([]string{"shell-plan:v2", ruleKey, pathPlan.AccessLevel, fingerprintInput}, "\x00")))
 	return BashPlan{
 		Decision:    decision,
 		Reason:      firstNonBlank(reason, pathPlan.Reason),
@@ -127,7 +127,7 @@ func New(command string, accessLevel string, decision Decision, reason string, r
 	if strings.TrimSpace(fingerprintInput) == "" {
 		fingerprintInput = command + "\x00" + reason + "\x00" + ruleKey
 	}
-	sum := sha256.Sum256([]byte(fingerprintInput))
+	sum := sha256.Sum256([]byte(strings.Join([]string{"shell-plan:v2", ruleKey, accessLevel, fingerprintInput}, "\x00")))
 	return BashPlan{
 		Decision:    decision,
 		Reason:      strings.TrimSpace(reason),

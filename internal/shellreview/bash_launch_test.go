@@ -71,7 +71,7 @@ func TestLaunchBindingSurvivesLeafApprovalFiltering(t *testing.T) {
 		t.Fatalf("pending plan lost its launch binding: %+v", pending)
 	}
 	for _, leaf := range p.Requirements {
-		if !strings.Contains(leaf.RuleKey, ":launch:shell") {
+		if !strings.Contains(leaf.RuleKey, ":launch:") || leaf.LaunchFingerprint != binding.Fingerprint || leaf.Launch == nil || leaf.Launch.ContractFingerprint != binding.ContractFingerprint {
 			t.Fatalf("requirement was not launch-bound: %+v", leaf)
 		}
 	}

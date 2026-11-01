@@ -1,7 +1,7 @@
 # Shell 命令审批：剩余工作计划
 
 > 2026-11-01 合并：原 `shell-command-analysis-implementation.md` 已并入本文并删除，剩余工作只看这一份。第 0 节是接手入口和按提交排的清单；第 1–8 节是背景、设计合同与已定决策；第 9 节是验证与完成定义；附录是回归样例、评审意见摘要和证据。
-> 代码现状：Shell 审查已完成 C6；C11u1 的资源实现由共享分支提交 `9110655e` 一并带入，快照与回归收尾见当前 git 历史（C1 开工基线为 `b8ca2ad6`）。S1、S2（含两轮复审补丁和选项补丁）已完成，S0 完成首批，S3 的 C1–C5 已完成，C6（S4）的 C6a–C6g 已完成；Unix S6 的 C11u1 空设备规则已实现并完成 macOS/容器探针验收；C11u2 已完成当前 Unix 子集的配置依赖、包装环境与启动复审核验；C12a/C12b 已完成当前 Unix 范围的解析边界与统一审批；剩余以 Windows 的 C7–C10、C11w、C13 和跨环境 C14 为主。S5/S8 未完成，Windows 的 C7–C10 仍须逐步满足原生验收。Windows 相关结论都没有在原生 Windows 上端到端运行过。
+> 代码现状：Shell 审查已完成 C6；C11u1 的资源实现由共享分支提交 `9110655e` 一并带入，快照与回归收尾见当前 git 历史（C1 开工基线为 `b8ca2ad6`）。S1、S2（含两轮复审补丁和选项补丁）已完成，S0 完成首批，S3 的 C1–C5 已完成，C6（S4）的 C6a–C6g 已完成；Unix S6 的 C11u1 空设备规则已实现并完成 macOS/容器探针验收；C11u2 已完成当前 Unix 子集的配置依赖、包装环境与启动复审核验；C12a/C12b 已完成当前 Unix 范围的解析边界与统一审批；C14u1 已将实际 Container Hub 的 `/bin/sh -lc` 明确转为未知方言，审批前零 guest 探针，并冻结调用环境。剩余以 Windows 的 C7–C10、C11w、C13，以及 Container Hub 可信执行/观测合同和跨环境 C14 为主。S5/S8 未完成，Windows 的 C7–C10 仍须逐步满足原生验收。Windows 相关结论都没有在原生 Windows 上端到端运行过。
 > 已完成工作的过程记录在 git 历史中（提交见 §0.1）；本文只保留后续还要用到的事实与证据（附录 C）。
 
 ## 0. 接手入口
@@ -32,7 +32,8 @@
 | C11u1 / Unix 空设备与资源状态 | `9110655e`（共享提交带入实现）；本轮补齐快照接入与回归 | Known/Unresolved/HardViolation、Host Lstat 与 Linux/macOS 设备号、guest 不可改写 stat 探针、来源及调用完整度抵消；硬阻断先行、失败保留路径与 complex，旧特例删除；配置依赖核验仍属 C11u2 |
 | C11u2 / Unix 配置与版本 | `95ea3dde` | curl/wget/rg 默认配置按实际环境和 cwd 定位；显式配置、sed 等程序文件与 Git 有效配置/include/hooks 绑定字节摘要；env -i/-u 与嵌套 bash -c 传递环境/前序修改；启动注入不借身份或脚本证明，Git 探针不携带注入/trace 环境；Host/guest 启动复审回归通过，guest Git 仍为未知行为 |
 | C12a / S7 解析边界 | `955daa5e` | 五个原安全审查文件及原测试移到 shellreview 根包 security_*.go；调用方同步使用根包结果类型；syntax/bash 不再依赖 unwrap；该提交保持函数体与原批准行为；后续 C12b 已合并审批对象 |
-| C12b / S7 统一审批 | 本次提交 | 语法与资源合为同一个 BashPlan；tools/llm 不再调用独立语法审查，删除 BashSecurityApprovals；Host/guest 按调用独占精确批准，最终消费具备整组原子性与 Host 未启动退款；原错误码、审批卡片形状和规则作用域保留，Windows 精确语义仍未启用 |
+| C12b / S7 统一审批 | `43344be6` | 语法与资源合为同一个 BashPlan；tools/llm 不再调用独立语法审查，删除 BashSecurityApprovals；Host/guest 按调用独占精确批准，最终消费具备整组原子性与 Host 未启动退款；原错误码、审批卡片形状和规则作用域保留，Windows 精确语义仍未启用 |
+| C14u1 / 实际 guest 传输边界 | 本次提交 | 审计确认服务实际发送 `/bin/sh -lc`；未证明 guest Shell/登录初始化与可信探针前，ask/auto 整条单次人工，严格模式拒绝，预审不创建会话或执行探针；合同绑定真实 RPC 输入，要求类别/权限档位与显式启动字段进入批准域，执行环境冻结，明确未派发证据才退款，会话句柄回传 Run 清理；不宣称真实 Hub 精确分析已验收 |
 | 设计决定 | 本文 §8.1 | 原待确认第 1、2、3、4、6 项，以及 2026-11-01 的 Windows 补充决定；第 5、7 项已有落地建议，待原生验证（§8.2） |
 
 ### 0.2 当前代码入口
@@ -77,9 +78,10 @@
 | C13b / S8b 会话 cwd | set_location.go；只跟踪可信 FileSystem 常量目标，分支/失败和后续相对路径纳入 | C13a | 不沿用错误 cwd；未建模状态操作不让后续命令使用旧身份/环境快照 |
 | C13c / S8c 文件修改 | New-Item、Set-Content、Add-Content、Out-File、Tee-Object、Copy-Item、Move-Item、Remove-Item 各文件 | C13b | 复制源/目标/替换对象、链接、递归/删除与 Output 分类正确；readonly/管理员 block 不可被 WhatIf/Confirm/Force 放宽 |
 | C13d / S8d 网络 | Invoke-WebRequest、Invoke-RestMethod 各文件 | C13c | 各实际版本的方法、Body/InFile/OutFile、内容解析及动态参数单独验收；与 curl.exe 区分 |
+| C14u2 / guest 精确分析前置合同（待外部环境） | 真实 Hub 上证明所用 Shell、初始化、解释器与工具身份；受管入口或可信服务端只读观测通道，不能通过待审登录 Shell 自证；完成后再逐项启用现有 Bash/资源分析 | C14u1、真实 Hub 与镜像合同 | 不使用伪造 readlink/stat/Shell 输出授予身份；实际 argv/环境/取消/会话回收与只读边界通过；缺少证据维持 C14u1 未知方言，不以本地 Docker 的 Bash 测试替代 |
 | C14 / 总验收与文档 | 全仓回归、Linux/macOS基线、原生 Windows逐版本逐命令矩阵、真实容器；按 §0.6 更新现行文档 | 已交付批次 | 明列已分析子集、仍需审批项、未支持版本/路径；未完成项保留，不能只因文件齐全删除计划或宣称全部支持；完成整个 S8 后才执行 §0.6 收尾 |
 
-**C6（S4）、C11u 当前 Unix 子集、C12（S7）的 Unix 范围已完成；下一步按环境推进 Windows C7–C10/C11w/C13 与 C14 验收**。S3 的 C1–C5、S4 的 C6a–C6g 均见 §0.1；Windows 的 C7–C10 不与 Unix 空设备工作互相等待。C6 只承诺当前 Bash 子集与新增保守回退，不表示 PowerShell 或所有 CLI 选项已经支持。
+**C6（S4）、C11u 当前 Unix 子集、C12（S7）与 C14u1 保守传输合同已完成；下一步需要原生 Windows 和真实 Hub 的可信执行/观测环境推进剩余验收**。S3 的 C1–C5、S4 的 C6a–C6g 均见 §0.1；Windows 的 C7–C10 不与 Unix 空设备工作互相等待。C6 只承诺当前 Bash 子集与新增保守回退，不表示 PowerShell 或所有 CLI 选项已经支持。
 
 实现边界：
 - `registry/` 是不含分析函数的只读名称/身份元数据叶子，syntax、identity、unwrap 共享它；`commands/registry.go` 通过稳定 ID 连接各命令文件。这样统一名字来源，又不让 syntax 导入命令分析器。部署白名单不从 registry 生成，未登记/缺少分析器的项继续 opaque。
@@ -117,6 +119,9 @@ C11u1/C11u2 可在 C6 后与 Windows 原型分开推进；这表示依赖可独�
 - Windows 空设备：`$null` AST 语法丢弃与 `'$null'` 文件路径分开；裸 `NUL` 的身份确认和实际打开行为未通过原生验收前不启用豁免，其他保留设备写法首批 Unresolved。
 
 ### 0.5 已知限制（当前保留）
+
+- 实际 Container Hub 当前固定以 `/bin/sh -lc` 执行，属于未证明身份及登录初始化的传输。不能因为接口或工具名叫 Bash 就授予 Bash 语义：ask/auto 单次人工，严格模式拒绝，full_access 按原未知方言政策。预审不运行任何 guest 解析、身份、目录或资源探针；入口/技能/自写证明不能抵消这项外围 Shell 审查。C11u 的 guest 资源代码已在隔离的已声明 Bash 合同中验证，但当前真实 Hub 不启用这些优化，待 C14u2。
+- guest 未派发的本地准备错误由执行器提供类型化证据，才能退还已预留批准；已送出 RPC 后的网络/服务错误不能仅凭错误文本推断未执行，不自动制造可重发批准。
 
 - Bash 文本检查按 AST 确认引用数据；heredoc 正文与注释按引号外处理，正文里的全角空格等会被拒绝。解析失败或超时时不提供引号豁免。
 - 显式配置的 bash 绝对路径，如果不是启动时 PATH 选中的那一项，按未知方言处理。
@@ -255,7 +260,7 @@ echo "\" ; Remove-Item -Recurse C:\x ; echo "\"
 
 **4 语义**：命令文件是纯函数，不做 IO、不读部署凭据。输入 argv，输出事实。详见第 4 节。
 
-**5 资源**：解析相对路径、symlink/junction、容器 guest 路径、glob；识别空设备；核验 Git 配置与 hooks；按本次调用的有效环境找到命令默认配置文件的实际路径，确认是否存在、Agent 能否免审批写入（8.1）；对脚本、入口和配置文件计算摘要。除第 0 层的启动身份核验和第 1 层的受信任解析器进程外，业务资源 IO 集中在这一层和第 2 层；命令分析器与政策映射不探测文件系统或容器。每个结果三选一（R6）：
+**5 资源**（仅在执行合同允许进入精确分析时）：解析相对路径、symlink/junction、容器 guest 路径、glob；识别空设备；核验 Git 配置与 hooks；按本次调用的有效环境找到命令默认配置文件的实际路径，确认是否存在、Agent 能否免审批写入（8.1）；对脚本、入口和配置文件计算摘要。除第 0 层的启动身份核验和第 1 层的受信任解析器进程外，业务资源 IO 集中在这一层和第 2 层；命令分析器与政策映射不探测文件系统或容器。每个结果三选一（R6）：
 
 | 结果 | 含义 | 去向 |
 | --- | --- | --- |
@@ -1063,7 +1068,7 @@ Shell 重定向为独立来源，不受原生命令是否 opaque/Incomplete 影�
 ### C.5 待处理的小事
 
 - 未合并的 `chore/dead-code-cleanup` 分支改过 `bashast/parser.go`、`bashsec/bash_security.go`、`shellanalysis/command.go`、`git.go`、`operands_test.go`，合并时要按新路径处理。
-- `docs/工具目录权限.md` 的"Shell 语法硬阻断 仍然阻断"空格已在 C1 同步现行代码归属时修正。
+- `docs/工具目录权限.md` 对应文字中的多余空格已修正。
 
 - C11u2 验证：旧 `dd632bf0` 通过 git archive 导出后加入相同回归，实际复现可写 HOME 默认配置被精确放行、配置同大小/mtime 变化复用旧批准、env -u 遗留多审、嵌套环境丢失、Git 30 秒干净缓存以及启动注入借用精确分析；当前代码全部通过。Host/guest 执行器回归分别证明旧配置批准不启动命令，新内容重新批准后能执行。
 - C11u2 Linux：在 Bookworm Linux amd64 容器中执行实际 resources、shellreview、tools 测试；与原生 macOS 使用相同的 387 行基线加显式 8 行资源增量。生产同一条配置探针验证含空格/引号/Shell 字符路径、缺失文件、SHA-256、账号查询及 root 可写工具拒绝；容器代码不回读 Host 配置。Windows 只交叉编译，不计原生验收。
@@ -1075,3 +1080,12 @@ Shell 重定向为独立来源，不受原生命令是否 opaque/Incomplete 影�
 - C12b 批量审批、并发兄弟隔离、拒绝、预算、取消、最终硬阻断、环境/配置变化、Mailbox 代批与现有恢复路径回归均通过；新增 guest 调用独占授权、整组批准原子消费、重复指纹不足不部分扣减、Host 取消不消费和预留退款回归。未知方言依旧按原合同人工审批，Windows AST/argv/provider 能力不由本批启用。
 
 - C12b 消费账本复核：待审投影、HasApproval、最终消费和按调用转移共用同一套虚拟账本；待审列表隐藏已批准要求后，执行端仍消费原始完整计划，防止精确单项批准被留存复用。重复指纹、部分单项加部分组合批准、重复预审转移均有直接回归。Host/guest 保留审批所见的原始命令文本，含首尾 ASCII 空白的调用不会因执行前改写而丢失批准。
+
+- C14u1 实际代码审计：`sandbox/service.go` 发送 `/bin/sh` 与 `-lc`，此前接口按名称默认 Bash 的假设不成立。服务现在以纯数据方法提供实际传输合同；未知合同先于 guest Directory/Resolve/Inspect 分支返回，缺少合同同样保守；未证明身份不启动任何客体 helper。
+- C14u1 本地链路回归：HTTP 测试服务记录实际 Container Hub 客户端发送的程序、参数、原始源码、cwd 和环境；模拟最后一次预审后 run.env 变化，RPC 仍使用已批准的冻结版本。未证明传输在预审时零 RPC/零 Open/零 Execute；严格与只读优先；明确本地未派发与歧义 RPC 故障分别退款/不退款，远端同名错误文本不能伪造类型化证据。按调用隔离后的会话句柄会回传 Run，批准计数器不回传。
+- 这些测试证明 Platform 的合同与客户端行为，不证明外部 Hub 已提供可信 Shell、初始化、文件身份观测或完整生命周期。本地 Bookworm 中的 Bash/资源进程测试与原生 Windows、真实 Hub 验收分别记录，不能互相替代。
+
+- 批准域收尾：精确指纹按要求类别和 access level 分域，启动绑定同时核对显式 executable/template/dialect/support 字段，后端的旧或不完整摘要不能复用另一份合同的精确/规则授权。当前 Bash 审查器对非 Bash 方言保持未知，即使后端泛化的 supported 标志为 true；该拒绝不会修改调用方的证据对象。
+- 本轮全仓验证中观察到一次 `datetime` 查询历史读取缺少 `run.complete` 的 SSE 落盘时序波动，单项复跑通过；该用例不涉及 Shell 调用，保留为独立验证风险，不用它改写 Shell 快照或放宽审批。
+
+- 最终验证：macOS 串行全仓 `go test -p 1 ./...`、相关 vet、CGO=0 的 macOS/Linux 构建、Windows amd64 的 shellreview/tools 测试交叉编译通过。Bookworm Linux amd64 容器内实际执行 resources、shellreview、tools、llm 四组测试全部 PASS；仍是受控的 Bash/HTTP 客户端测试环境，不能记为外部 Hub 或原生 Windows 验收。原始 387 行文件 SHA-256 保持 `68322d37770f54d883ccb8864150f77f1b53d551edd92bd65d36bc502bf88ef8`。

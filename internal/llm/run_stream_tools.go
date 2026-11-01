@@ -945,6 +945,11 @@ func (s *llmRunStream) mergeConcurrentExecutionContext(execCtx *ExecutionContext
 	if s == nil || s.execCtx == nil || execCtx == nil {
 		return
 	}
+	// A sandbox may open only after approval. Its invocation owns a private
+	// authorization context, so return the session handle to the Run for cleanup.
+	if execCtx.SandboxSession != nil {
+		s.execCtx.SandboxSession = execCtx.SandboxSession
+	}
 	if execCtx.BudgetPaused > s.execCtx.BudgetPaused {
 		s.execCtx.BudgetPaused = execCtx.BudgetPaused
 	}
@@ -1230,6 +1235,9 @@ func (s *llmRunStream) invokeToolAndPublishResult(invocation *preparedToolInvoca
 	}
 	invocation.executionStarted = true
 	result, invokeErr := s.engine.tools.Invoke(s.ctx, invocation.toolName, invocation.args, execCtx)
+	if execCtx != s.execCtx {
+		s.mergeConcurrentExecutionContext(execCtx)
+	}
 	if invokeErr != nil {
 		if errors.Is(invokeErr, ErrRunInterrupted) && s.isWaitingInteractionInvocation(invocation) {
 			return s.handleInterruptIfNeeded()

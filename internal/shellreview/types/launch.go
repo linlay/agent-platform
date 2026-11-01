@@ -4,7 +4,8 @@ package types
 import "agent-platform/internal/shellreview/dialect"
 
 // LaunchBinding contains no environment values or command text. Fingerprints
-// bind approvals to the actual shell bytes, arguments, environment and cwd.
+// bind available launch evidence and inputs. Verified Host bindings include
+// shell bytes; opaque guest transports explicitly attest inputs only.
 type LaunchBinding struct {
 	Executable string
 	// Template contains the configured startup arguments with {{command}}, not

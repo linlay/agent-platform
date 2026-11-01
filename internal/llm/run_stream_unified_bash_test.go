@@ -42,3 +42,31 @@ func TestSandboxBashAuthorizationCannotBorrowSiblingExactGrant(t *testing.T) {
 		t.Fatal("exact grant leaked across sandbox invocations")
 	}
 }
+
+type openingSandboxExecutor struct{ stubToolExecutor }
+
+func (*openingSandboxExecutor) ReviewBashAccess(context.Context, map[string]any, *contracts.ExecutionContext, config.AccessPolicyConfig) shellplan.BashPlan {
+	return shellplan.BashPlan{Decision: accesspolicy.DecisionAllow}
+}
+func (*openingSandboxExecutor) SupportsToolOutput(string, *contracts.ExecutionContext) bool {
+	return false
+}
+func (*openingSandboxExecutor) Invoke(_ context.Context, _ string, _ map[string]any, ctx *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
+	ctx.SandboxSession = &contracts.SandboxSession{SessionID: "opened-after-approval"}
+	ctx.AccessPolicyApprovals["private-only"] = 1
+	return contracts.ToolExecutionResult{Output: "done"}, nil
+}
+func TestSandboxSessionOpenedInPrivateInvocationReturnsToRunForCleanup(t *testing.T) {
+	execution := &contracts.ExecutionContext{Session: contracts.QuerySession{AgentHasRuntimeSandbox: true}, AccessPolicyApprovals: map[string]int{"parent-only": 1}}
+	s := &llmRunStream{ctx: context.Background(), execCtx: execution, engine: &LLMAgentEngine{tools: &openingSandboxExecutor{}}}
+	invocation := &preparedToolInvocation{toolID: "tool", toolName: "bash", args: map[string]any{"command": "echo done"}, bashAuthorization: &bashAuthorization{toolID: "tool", access: map[string]int{}}}
+	if err := s.invokeToolAndPublishResult(invocation); err != nil {
+		t.Fatal(err)
+	}
+	if execution.SandboxSession == nil || execution.SandboxSession.SessionID != "opened-after-approval" {
+		t.Fatal("Run lost the session opened after authorization")
+	}
+	if len(execution.AccessPolicyApprovals) != 1 || execution.AccessPolicyApprovals["parent-only"] != 1 {
+		t.Fatal("returning session state merged private approval grants")
+	}
+}
