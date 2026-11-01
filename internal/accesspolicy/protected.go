@@ -12,7 +12,8 @@ import (
 // secrets: the effective StateDir (connector credentials and the default
 // identity file), a separately configured identity file, and the document
 // preview records, whose share links open the previewed documents.
-// WebApp 目录存放代码和授权记录，不论宿主是否开启都受保护。
+// The WebApp directory holds code, install and authorization records and is
+// protected whether or not the WebApp host is enabled.
 //
 // Under Desktop the runtime root also holds Desktop's own secrets partition
 // (<runtime root>/.desktop/secrets, the saved website passwords). Agents use

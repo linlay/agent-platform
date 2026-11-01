@@ -88,7 +88,7 @@ Go HTTP 入口：受信 Host 分类
         │                                  └── frontend.root → 静态文件/SPA
         └── loopback 专用内部调用 → 后端 token 认证 → SDK 适配
 
-internal/webapp：安装、版本、授权、期望状态、生命周期
+internal/webapp：安装、授权、期望状态、生命周期
         │ 受管启动协议
         ▼
 每应用 webapp-supervisor（同容器、无提权）
