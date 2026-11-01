@@ -630,10 +630,10 @@ singapore02 已在正式加固参数的原生 amd64 容器中验证 ABI4 核心�
 | 批次 | 范围 | 当前状态／完成门 |
 | --- | --- | --- |
 | 0 | 部署模板、HOME、文档修正及 Linux Manifest fixture | 源码及定向回归完成；完整镜像构建仍待验证，见下文 |
-| 1 | 上传、预检、安装、停止状态更新、卸载、journal 恢复及对应 owner API | 代码与定向回归完成；首次安装 stopped，暂拒绝更新 running 应用，详见第 22 节 |
+| 1 | 上传、预检、安装、停止状态更新、卸载、journal 恢复及对应 owner API | 已完成；首次安装 stopped，运行中更新与回退由批次 4 完成 |
 | 2 | 本地静态网关、票据/session/CSRF、静态启停及最小 WebClient 管理入口 | 已接入并通过定向回归；独立域名按顶部用户修订延期 |
 | 3 | supervisor 启动受限 Node、端口、启动健康、HTTP/WS/SSE、日志及停止 | 已接入并通过原生 Linux 加固容器定向验收 |
-| 4 | 持续健康、退避、后代清理、异常与 Compose 恢复、运行中更新和回退 | 持续监测/退避/后代与新 generation 恢复、运行中更新和健康失败回退已接入；实际 Compose 故障演练归批次 7 |
+| 4 | 持续健康、退避、后代清理、异常与 Compose 恢复、运行中更新和回退 | 已完成；持续监测、退避、后代清理、更新回退及真实 Compose 故障恢复均已验证 |
 | 5 | 云端 SDK transport、配置、应用授权、token 与连接器适配 | 已接入；MCP 回执、撤销、原生受限 Node SDK 调用验证通过 |
 | 6 | assistant、skill、artifact 的资源归属、流式与取消 | 已接入既有服务；真实 Runtime/模拟模型、归属拒绝及 generation 取消验证通过 |
 | 7 | 本地端口、升级回滚、故障与资源恢复验收；DNS/TLS/nginx 延期 | 原生完整镜像、真实 Compose 与 Chrome 验收通过；完整证据与既有失败见 docs/WebApp托管.md |
