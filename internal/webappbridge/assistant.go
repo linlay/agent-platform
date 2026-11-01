@@ -59,6 +59,7 @@ type assistantRun struct {
 	events                   []assistantEvent
 	cursor                   int
 	terminal, failed         bool
+	textOverflow             bool
 	text                     string
 }
 
@@ -88,7 +89,9 @@ func (a *Adapters) reserve(scope *webapp.Scope) (func(), error) {
 			delete(a.runs, id)
 		}
 	}
-	if a.total >= 8 || a.active[scope.InstallationID] >= 2 || len(a.runs) >= 128 {
+	// Include admissions that have reserved a slot but have not published their
+	// run record yet, so concurrent callers cannot overflow the record bound.
+	if a.total >= 8 || a.active[scope.InstallationID] >= 2 || len(a.runs)+a.total >= 128 {
 		return nil, sdkError("app_capacity_exceeded", 429)
 	}
 	a.total++
@@ -195,8 +198,9 @@ func (a *Adapters) chat(ctx context.Context, scope *webapp.Scope, raw json.RawMe
 		}
 	} else if handle.RunID != ref.RunID || handle.ChatID != ref.ChatID {
 		cancel()
-		lease.Release()
-		release()
+		// A broken Runtime contract must not release an accepted writer's lease.
+		r.ref = rt.RunRef{RunID: handle.RunID, ChatID: handle.ChatID, AgentKey: handle.AgentKey, Caller: a.caller()}
+		go a.observe(runCtx, r, func() { lease.Release(); release() })
 		return nil, sdkError("assistant_failed", 502)
 	}
 	go a.observe(runCtx, r, func() { cancel(); lease.Release(); release() })
@@ -210,8 +214,11 @@ func (a *Adapters) chat(ctx context.Context, scope *webapp.Scope, raw json.RawMe
 	case <-r.done:
 	}
 	a.mu.Lock()
-	text, failed := r.text, r.failed
+	text, failed, overflow := r.text, r.failed, r.textOverflow
 	a.mu.Unlock()
+	if overflow {
+		return nil, sdkError("assistant_result_too_large", 413)
+	}
 	if failed {
 		return nil, sdkError("assistant_failed", 502)
 	}
@@ -236,6 +243,7 @@ func (a *Adapters) observe(ctx context.Context, r *assistantRun, release func())
 					if text == "" {
 						text = e.String("text")
 					}
+					text = strings.ToValidUTF8(text, "�")
 					for len(text) > 0 {
 						n := min(len(text), 1024)
 						for n < len(text) && !utf8.RuneStart(text[n]) {
@@ -245,6 +253,8 @@ func (a *Adapters) observe(ctx context.Context, r *assistantRun, release func())
 						a.append(r, "text.delta", part)
 						if len(r.text)+len(part) <= 128<<10 {
 							r.text += part
+						} else {
+							r.textOverflow = true
 						}
 						text = text[n:]
 					}
@@ -296,6 +306,10 @@ func (a *Adapters) observe(ctx context.Context, r *assistantRun, release func())
 }
 func (a *Adapters) ownedRun(scope *webapp.Scope, id string) (*assistantRun, error) {
 	r := a.runs[id]
+	if r != nil && r.terminal && time.Now().After(r.expires) {
+		delete(a.runs, id)
+		r = nil
+	}
 	if r == nil || r.installation != scope.InstallationID || r.generation != scope.Generation {
 		return nil, sdkError("app_grant_required", 403)
 	}

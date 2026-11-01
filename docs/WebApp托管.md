@@ -148,7 +148,7 @@ Go race 回归通过 Cookie/Origin/CSRF、配置形状、凭证过期与撤销�
 
 云端 bridge 由 App 注入窄 Runtime、Catalog 和 ChatResource 门面，不经 owner HTTP/JWT 旁路，不生成 Desktop deviceId。chat 与 execute 均绑定唯一 owner，以 `ask_for_approval` 进入既有 Runtime；TEAM 仍只使用根 agentKey。Manifest Copilot、用户配置中的 Agent 选择必须与 owner 明确授权的 Agent 一致，更新和配置不能自行扩大授权。额外 Skill 引用取 Manifest 声明与 owner 白名单交集；Skill 查询只返回授权元数据，不返回路径或正文。
 
-chat 支持普通文本结果和后台受理、有限事件轮询及停止。事件只投影文本与运行/产物状态，不转发工具参数、结果或原始协议。每个安装最多 2 个并行助理任务、全局 8 个；后台运行最多 30 分钟，终态记录最多保留 30 分钟，全局记录上限 128。停止、撤权和更新取消该 generation 的任务，等待 Runtime 终态与 observer 交付确认后释放租约；清理不能确认时阻断替换实例。
+chat 支持普通文本结果和后台受理、有限事件轮询及停止。同步文本最多 128 KiB，超过时明确返回 assistant_result_too_large，不静默截断。事件只投影文本与运行/产物状态，不转发工具参数、结果或原始协议。每个安装最多 2 个并行助理任务、全局 8 个；后台运行最多 30 分钟，终态记录最多保留 30 分钟，全局记录上限 128。停止、撤权和更新取消该 generation 的任务，等待 Runtime 终态与 observer 交付确认后释放租约；清理不能确认时阻断替换实例。
 
 execute 复用 Runtime 的 schema 校验、result_submit 和取消机制，最长 10 分钟。Runtime 内部 OnPrepared 钩子在注册/模型执行前同步保存资源归属，写入失败即拒绝启动。页面/后端请求分别限制 64/256 KiB，schema 64 KiB，不接收文件 part、Agent/模型/权限覆盖或调用方路径。
 

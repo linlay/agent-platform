@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
@@ -95,5 +97,29 @@ func TestSDKArtifactOwnershipPersistsAndVerifiesPublishedBytes(t *testing.T) {
 	}
 	if _, err = a.artifact(context.Background(), s, raw, "artifact.get"); err == nil {
 		t.Fatal("corrupt ledger accepted")
+	}
+}
+
+func TestAssistantRetentionCountsPendingAdmissionsAndExpiresOnRead(t *testing.T) {
+	a := NewAdapters(AdapterOptions{Root: t.TempDir()})
+	scope := resourceScope()
+	for i := 0; i < 127; i++ {
+		a.runs[fmt.Sprint(i)] = &assistantRun{terminal: true, expires: time.Now().Add(time.Hour)}
+	}
+	release, err := a.reserve(scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = a.reserve(scope); err == nil {
+		t.Fatal("concurrent pending admission exceeded retention bound")
+	}
+	release()
+	a.runs["expired"] = &assistantRun{installation: scope.InstallationID, generation: scope.Generation, terminal: true, expires: time.Now().Add(-time.Second)}
+	a.mu.Lock()
+	_, err = a.ownedRun(scope, "expired")
+	_, present := a.runs["expired"]
+	a.mu.Unlock()
+	if err == nil || present {
+		t.Fatal("expired terminal remained readable")
 	}
 }
