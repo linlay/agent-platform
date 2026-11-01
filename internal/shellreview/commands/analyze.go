@@ -91,6 +91,9 @@ func Analyze(input types.CommandInput) types.Effects {
 	}
 	if valid {
 		for _, name := range ConfigVariables(input.Name, input.Args) {
+			if name != "TAR_OPTIONS" {
+				continue
+			}
 			e.Deps = append(e.Deps, types.Dep{Kind: types.Environment, Variable: name})
 		}
 	}

@@ -145,6 +145,7 @@ func gitOperands(args []string) effectDraft {
 	default:
 		// Aliases, external subcommands and tools such as bisect run or difftool.
 		e.ExecutesCode = true
+		e.GitCheck = types.GitCheckNetwork
 	}
 	if e.Incomplete || sub == "config" && e.RepoWrite {
 		escalateWrites(&e)

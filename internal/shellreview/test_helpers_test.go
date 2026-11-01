@@ -50,7 +50,7 @@ func fakeSystemPrograms(t *testing.T, names ...string) (map[string]string, *type
 		}
 		programs[name] = c.Key
 	}
-	return map[string]string{"PATH": dir}, &types.BashEnvironment{SystemPrograms: programs}
+	return map[string]string{"PATH": dir}, &types.BashEnvironment{SystemPrograms: programs, AccountHome: func() (string, error) { return "", nil }}
 }
 
 func connectorFixture(t *testing.T) (QuerySession, map[string]string, string) {

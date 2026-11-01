@@ -20,7 +20,14 @@ func wgetOperands(args []string) effectDraft {
 		e.Deps = append(e.Deps, types.Dep{Kind: types.ConfigFile, Path: file})
 	}
 	if len(wgetConfig(args)) > 0 {
-		e.Deps = append(e.Deps, types.Dep{Kind: types.ConfigFile, Path: ".wgetrc", Variable: "WGETRC", Check: "default-search"})
+		// GNU's SYSTEM_WGETRC override and standard package sysconf locations.
+		// These are conservative observations: no config language is interpreted.
+		e.Deps = append(e.Deps, types.Dep{Kind: types.ConfigFile, Check: "default-search", Candidates: []types.ConfigCandidate{{Variable: "SYSTEM_WGETRC"}}})
+		for _, path := range []string{"/etc/wgetrc", "/usr/local/etc/wgetrc", "/opt/homebrew/etc/wgetrc"} {
+			e.Deps = append(e.Deps, types.Dep{Kind: types.ConfigFile, Check: "default-search", Candidates: []types.ConfigCandidate{{Path: path}}})
+		}
+
+		e.Deps = append(e.Deps, types.Dep{Kind: types.ConfigFile, Check: "default-search", Candidates: []types.ConfigCandidate{{Variable: "WGETRC", StopWhenSet: true}, {Variable: "HOME", Relative: ".wgetrc", StopWhenSet: true, EmptyPath: "/.wgetrc"}, {NativeHome: true, Relative: ".wgetrc"}}})
 	}
 	add := func(path string, write, recursive bool, ref types.ValueRef, derived bool) {
 		if path != "" && path != "-" {

@@ -1,7 +1,7 @@
 # Shell 命令审批：剩余工作计划
 
 > 2026-11-01 合并：原 `shell-command-analysis-implementation.md` 已并入本文并删除，剩余工作只看这一份。第 0 节是接手入口和按提交排的清单；第 1–8 节是背景、设计合同与已定决策；第 9 节是验证与完成定义；附录是回归样例、评审意见摘要和证据。
-> 代码现状：Shell 审查已完成 C6；C11u1 的资源实现由共享分支提交 `9110655e` 一并带入，快照与回归收尾见当前 git 历史（C1 开工基线为 `b8ca2ad6`）。S1、S2（含两轮复审补丁和选项补丁）已完成，S0 完成首批，S3 的 C1–C5 已完成，C6（S4）的 C6a–C6g 已完成；Unix S6 的 C11u1 空设备规则已实现并完成 macOS/容器探针验收；C11u2 配置依赖核验仍待完成，S5/S7/S8 未开始，Windows 的 C7–C10 仍须逐步满足原生验收。Windows 相关结论都没有在原生 Windows 上端到端运行过。
+> 代码现状：Shell 审查已完成 C6；C11u1 的资源实现由共享分支提交 `9110655e` 一并带入，快照与回归收尾见当前 git 历史（C1 开工基线为 `b8ca2ad6`）。S1、S2（含两轮复审补丁和选项补丁）已完成，S0 完成首批，S3 的 C1–C5 已完成，C6（S4）的 C6a–C6g 已完成；Unix S6 的 C11u1 空设备规则已实现并完成 macOS/容器探针验收；C11u2 已完成当前 Unix 子集的配置依赖、包装环境与启动复审核验；下一步为 C12 统一审批。S5/S7/S8 未完成，Windows 的 C7–C10 仍须逐步满足原生验收。Windows 相关结论都没有在原生 Windows 上端到端运行过。
 > 已完成工作的过程记录在 git 历史中（提交见 §0.1）；本文只保留后续还要用到的事实与证据（附录 C）。
 
 ## 0. 接手入口
@@ -30,6 +30,7 @@
 | C6g / S4 命令语义审计 | `bbed0bbf` | 未知选项保留危险事实并保护可见子树；Git 输出/配置/连续 -C 与仓库子树、源的读写分别核验；Wget 请求体来源、派生输出目录与 printf 状态变更补回归；387 行旧快照不变，原生 Windows 未启用 |
 | C6h / Linux 用例隔离 | `9110655e`（共享提交） | Linux 镜像缺少 curl/node 时复现旧测试落入 opaque；四组纯语义用例改为显式安装快照，生产认可范围不变；真实启动测试仍用实际 Shell |
 | C11u1 / Unix 空设备与资源状态 | `9110655e`（共享提交带入实现）；本轮补齐快照接入与回归 | Known/Unresolved/HardViolation、Host Lstat 与 Linux/macOS 设备号、guest 不可改写 stat 探针、来源及调用完整度抵消；硬阻断先行、失败保留路径与 complex，旧特例删除；配置依赖核验仍属 C11u2 |
+| C11u2 / Unix 配置与版本 | 本次提交 | curl/wget/rg 默认配置按实际环境和 cwd 定位；显式配置、sed 等程序文件与 Git 有效配置/include/hooks 绑定字节摘要；env -i/-u 与嵌套 bash -c 传递环境/前序修改；启动注入不借身份或脚本证明，Git 探针不携带注入/trace 环境；Host/guest 启动复审回归通过，guest Git 仍为未知行为 |
 | 设计决定 | 本文 §8.1 | 原待确认第 1、2、3、4、6 项，以及 2026-11-01 的 Windows 补充决定；第 5、7 项已有落地建议，待原生验证（§8.2） |
 
 ### 0.2 当前代码入口
@@ -67,7 +68,7 @@
 | C9 / S5c 模块与执行一致性 | identity/powershell{,_modules}.go；前置核验内置依赖；两端按绝对路径导入同一组可信模块，helper 关闭自动加载、执行端保留；别名/正式名/参数元数据；执行端前置守卫 | C8 | 未知模块初始化标记不出现；helper 与执行端模块/身份相同；5.1/7.6 实测"PATH 有外部程序时不自动加载"；守卫失败用户源码零执行；行为变化与 S3 分开提交 |
 | C10 / S5d 原生 argv 与启用 | syntax/powershell/native_argv.go；独立 argv 回显 exe；Legacy/Standard/Windows 模式及可信 exe 身份；仅已验证 git.exe/rg.exe/curl.exe 等子集接共享分析器 | C9、原生 Windows fixture | 对每个已支持精确 profile 证明 argv 一致；脚本宿主/批处理/未覆盖参数不借用 exe 合同；命令和版本范围明确后才启用对应分析，其他仍为 Exec/6.6 |
 | C11u1 / S6 Unix 空设备（已完成） | resources 三态、devices 的 Linux/macOS/guest 实现，ShellRedirect/Argument 抵消分开，删除两处旧特例 | C6 已完成 | macOS、Linux 实际 Lstat 和 Bookworm 容器的数字/不可改写入口探针已通过；tee/curl/cat 通用；opaque/unknown 的字面重定向不多出路径要求；结构修改不豁免；失败 Unresolved，readonly/admin block 先行 |
-| C11u2 / S6 Unix 配置依赖（下一步） | 按有效环境和 cwd 定位默认/显式配置，存在性、Agent 可写性、摘要绑定；env -i/-u 正确传递；完整容器/启动复审链路与配置探针 | C6、C11u1 | HOME/XDG/CURL_HOME/WGETRC/RG 等来源、配置变化使旧批准失效、探针故障保守；不读取 Host 同名 guest 配置；仍未实现的内容保留 §0.5，不因空设备落地而声称整个 S6 完成 |
+| C11u2 / S6 Unix 配置依赖（当前子集已完成） | 按有效环境和 cwd 定位默认/显式配置，存在性、Agent 可写性、摘要绑定；env -i/-u 正确传递；Host/guest 配置探针与启动复审、Git 新鲜扫描和内容绑定 | C6、C11u1 | HOME/XDG/CURL_HOME/WGETRC/SYSTEM_WGETRC/RG、同大小/mtime 变化、env -i/-u/嵌套包装、缺失/失败探针均有回归；macOS 与 Bookworm Linux 进程测试通过；guest Git 未核验完整配置、非标准 Wget 安装与其他环境仍见 §0.5 |
 | C11w / S6 Windows 资源 | FileSystem/provider、Path/LiteralPath、盘符/UNC/junction/ADS、重定向与 $null；NUL 专门身份原型 | C10 | 各路径类别按实际 Windows 证明；未证明目标 Unresolved；NUL 未完成不阻塞其他已验证能力，不能声称整个 Windows S6 已完成 |
 | C12 / S7 统一审批 | 合并 syntax/bash 原安全审查与访问审查，移除临时 syntax/bash→unwrap 边；tools/llm 只调用一个入口；统一批准消费 | C6、C11u；Windows 接入仅用已验收 C10/C11w 范围 | 保持 HITL 公开形状；一次批准只执行一次；并发兄弟调用不能借用；拒绝/取消/未启动不消耗批准；精确/规则/重试/恢复/Mailbox 代批全覆盖；任何已知硬阻断不降级 |
 | C13a / S8a 只读与输出 | commands/powershell 的 params.go/common.go，加 Get-Location、Test-Path、Get-Content、Get-ChildItem、Write-Output、Select-Object、Select-String、Measure-Object、Sort-Object 各文件（后四个只支持常量形式） | C10、C11w、C12 | 每个实际模块版本参数集、缩写、provider/管道、三档权限测试通过，逐命令启用 |
@@ -76,13 +77,13 @@
 | C13d / S8d 网络 | Invoke-WebRequest、Invoke-RestMethod 各文件 | C13c | 各实际版本的方法、Body/InFile/OutFile、内容解析及动态参数单独验收；与 curl.exe 区分 |
 | C14 / 总验收与文档 | 全仓回归、Linux/macOS基线、原生 Windows逐版本逐命令矩阵、真实容器；按 §0.6 更新现行文档 | 已交付批次 | 明列已分析子集、仍需审批项、未支持版本/路径；未完成项保留，不能只因文件齐全删除计划或宣称全部支持；完成整个 S8 后才执行 §0.6 收尾 |
 
-**C6（S4）和 C11u1 已完成，下一步是 C11u2 配置依赖核验**。S3 的 C1–C5、S4 的 C6a–C6g 均见 §0.1；Windows 的 C7–C10 不与 Unix 空设备工作互相等待。C6 只承诺当前 Bash 子集与新增保守回退，不表示 PowerShell 或所有 CLI 选项已经支持。
+**C6（S4）与 C11u 当前 Unix 子集已完成，下一步是 C12 统一审批**。S3 的 C1–C5、S4 的 C6a–C6g 均见 §0.1；Windows 的 C7–C10 不与 Unix 空设备工作互相等待。C6 只承诺当前 Bash 子集与新增保守回退，不表示 PowerShell 或所有 CLI 选项已经支持。
 
 实现边界：
 - `registry/` 是不含分析函数的只读名称/身份元数据叶子，syntax、identity、unwrap 共享它；`commands/registry.go` 通过稳定 ID 连接各命令文件。这样统一名字来源，又不让 syntax 导入命令分析器。部署白名单不从 registry 生成，未登记/缺少分析器的项继续 opaque。
 - `Effects` 的公开合同只含 Ops/Unknowns/Deps/SSHAgent；命令文件内部的 `effectDraft` 是累加器，不再流入策略层。Read/Output/Create/Delete/Rename/Chmod/Link 已区分，未知选项追加约束而保留已知危险操作。复制、移动、链接的操作包含各目标角色，移动/链接源的读取与写入约束分别映射。
 - `SourceWord` 保留原 WordSpan、原 argv 下标、来源类别与提取值的 UTF-8 范围；值范围按解析下标绑定，不按字符串相等查找。变量、glob、brace、无来源输入和 env -S 生成值不会恢复成字面。
-- `CommandInput` 显式携带命令域、身份来源和方言；目前仅 Bash 已核验来源进入 Unix 分析器。PowerShell 的 cmdlet/别名、同名函数和未经原生 argv 验证的 exe 不匹配。默认配置文件/脚本依赖已输出，但完整存在性、可写性与摘要资源核验仍是 C11u/C11w，§0.5 的限制仍在；不可因新增 Dep 就声称漏洞已经消除。
+- `CommandInput` 显式携带命令域、身份来源和方言；目前仅 Bash 已核验来源进入 Unix 分析器。PowerShell 的 cmdlet/别名、同名函数和未经原生 argv 验证的 exe 不匹配。当前 Bash 子集的默认配置/脚本依赖已由 C11u2 核验存在性、可写性和字节摘要；Windows 资源、guest Git 完整配置以及非标准安装仍见 §0.5，不扩展为全部命令/环境已支持。
 - 包装使用共享语法，执行展开保持保守；语法侧只检查候选，不授予权限。`command -p`、未知选项、nice 附加值形式等保留有意的用途差异；timeout `--` 同时保留历史候选并检查 duration 后命令。原有硬阻断不降级，两套批准仍由 C12 合并。
 
 
@@ -119,7 +120,9 @@ C11u1/C11u2 可在 C6 后与 Windows 原型分开推进；这表示依赖可独�
 - 显式配置的 bash 绝对路径，如果不是启动时 PATH 选中的那一项，按未知方言处理。
 - Platform 启动后新装的 Bash（包括装进更靠前 PATH 目录的），要重启后才按 Bash 分析。
 - S5 之前的 Windows：ask/auto 档每条普通 Shell 调用都要单次人工审批；严格模式全部拒绝。
-- 隐式配置（S6 之前）：`HOME`/`XDG_CONFIG_HOME` 改到可写位置、或 `HOME` 本身在写根内时，默认配置文件（`.curlrc`、`.wgetrc`）不审查；配置来源被批准时不绑定配置文件内容；`env -i`/`env -u` 清掉的配置变量仍按存在处理（多审不漏审）。
+- 配置核验（C11u2）：当前覆盖 curl 的 Unix 默认搜索、rg 指定配置、GNU Wget 用户配置/系统覆盖变量与 `/etc`、`/usr/local/etc`、`/opt/homebrew/etc` 三种标准安装的系统配置。未验证其他编译前缀的 Wget，不能据此宣布所有自定义系统安装已精确建模；后续新增安装 profile 时须补来源合同。配置/程序文件超过 8 MiB、非普通文件、无法解析的账号 home 或探针失败走 Unresolved 与 opaque。
+- guest Git 配置/包含文件/hooks 尚无已验证的完整 guest 探针，保持 opaque，不拿 Host 同名文件做干净证明或配置摘要。Host Git 每次扫描有效配置，废除 30 秒 size/mtime 缓存；本轮只绑定已观测配置/include 与 hooks，不锁定配置里引用程序的完整依赖图。
+- guest 配置探针当前只接受不可改写、非链接的 `/usr/bin/{stat,sha256sum,readlink,getent}` GNU 兼容入口；root、可改写父目录、缺少工具或不兼容镜像保持 Unresolved。Bookworm uid 65534 的真实验证不代表所有 Container Hub 镜像或整个生命周期均已验收。
 - Host 只做执行前检查，不隔离任意代码的内部访问；未知方言的人工批准不代表正文已经审查。
 
 ### 0.6 收尾
@@ -192,7 +195,7 @@ echo "\" ; Remove-Item -Recurse C:\x ; echo "\"
 ### 2.5 命令特例写在策略层，事实类型太粗
 
 - curl/wget 输出到 `/dev/null` 的豁免和 `git -C` 的仓库目录判断原先写在 Bash 审查循环里；C5 后空设备特例暂留 policy/legacy.go，Git 目录事实已归 commands/git.go，通用化仍在 C6/C11u。
-- 原 Effects 只有 Read/Write；C6d 已改为 Op/Unknown/Dep 并区分操作。C11u1 已按来源与设备身份替换旧 `/dev/null` 特判；配置资源验证仍未完成。
+- 原 Effects 只有 Read/Write；C6d 已改为 Op/Unknown/Dep 并区分操作。C11u1 已按来源与设备身份替换旧 `/dev/null` 特判；当前 Bash 子集的配置资源验证已由 C11u2 接入，未覆盖环境见 §0.5。
 - 旧合同的 Incomplete/ExecutesCode 已退出公开 Effects；未知语法事实、执行/未知行为与已知危险操作分别输出和消费。
 
 ## 3. 分层流水线
@@ -1041,7 +1044,7 @@ Shell 重定向为独立来源，不受原生命令是否 opaque/Incomplete 影�
 
 - C11u1 实际验证：macOS Lstat 确认字符设备 `3:2`；Linux amd64 Bookworm 容器中运行交叉编译的 resources 与 shellreview 测试，实际确认字符设备 `1:3` 并通过完整 Shell 快照。运行的是容器内 Linux 进程（Docker 在 ARM 主机上模拟 amd64），不是仅交叉编译。生产同一条 stat 探针在该镜像 uid 65534 下通过；uid 0 可改写 stat 时在执行 stat 前失败。未把它写成所有镜像、原生 Windows 或完整 Container Hub 生命周期已验收。
 - guest stat 当前只支持 `/usr/bin/stat` 为真实、可执行、对实际执行 uid 不可改写且各父目录也不可改写的镜像；路径固定且不从 PATH 搜索，检查在启动 stat 前完成，不猜其他路径。缺失、链接、可写、参数不兼容或输出非法都保留路径要求并加 complex。该 profile 已用 Bookworm 镜像实测；Alpine/其他布局没有默认豁免承诺。
-- 原始 387 行迁移快照文件未改，SHA-256 仍为原值。`testdata/bash-review-unix-resource-delta.txt` 明列 6 行审核后的差异：ask/auto 的 `cat /dev/null`、`tee /dev/null` 免路径要求，`//dev/null` 重定向回到普通路径审查；其余 381 行保持。Source/完整度/只读/设备变化逐次审查/失败缓存各有直接回归。
+- 原始 387 行迁移快照文件未改，SHA-256 仍为原值。`testdata/bash-review-unix-resource-delta.txt` 明列 8 行审核后的差异：ask/auto 的 `cat /dev/null`、`tee /dev/null` 免路径要求，`//dev/null` 重定向回到普通路径审查；C11u2 的默认配置不存在案例在 ask/auto 恢复 allow；其余 379 行保持。Source/完整度/只读/设备变化逐次审查/失败缓存各有直接回归。
 - 共享分支并发记录：`9110655e` 的 WebApp 提交同时带入当时已完成的 C6h 测试与 C11u1 生产文件；未改写或拆分该用户提交，本轮单独补齐快照接入与资源回归。WebApp 内容不属于本任务的修改范围。
 
 ### C.4 已修复的复审问题
@@ -1055,3 +1058,7 @@ Shell 重定向为独立来源，不受原生命令是否 opaque/Incomplete 影�
 
 - 未合并的 `chore/dead-code-cleanup` 分支改过 `bashast/parser.go`、`bashsec/bash_security.go`、`shellanalysis/command.go`、`git.go`、`operands_test.go`，合并时要按新路径处理。
 - `docs/工具目录权限.md` 的"Shell 语法硬阻断 仍然阻断"空格已在 C1 同步现行代码归属时修正。
+
+- C11u2 验证：旧 `dd632bf0` 通过 git archive 导出后加入相同回归，实际复现可写 HOME 默认配置被精确放行、配置同大小/mtime 变化复用旧批准、env -u 遗留多审、嵌套环境丢失、Git 30 秒干净缓存以及启动注入借用精确分析；当前代码全部通过。Host/guest 执行器回归分别证明旧配置批准不启动命令，新内容重新批准后能执行。
+- C11u2 Linux：在 Bookworm Linux amd64 容器中执行实际 resources、shellreview、tools 测试；与原生 macOS 使用相同的 387 行基线加显式 8 行资源增量。生产同一条配置探针验证含空格/引号/Shell 字符路径、缺失文件、SHA-256、账号查询及 root 可写工具拒绝；容器代码不回读 Host 配置。Windows 只交叉编译，不计原生验收。
+- Git 配置查询采用固定已核验程序的 `config --includes --show-origin --list -z`，解析 NUL 协议并记录包含来源；不将用户 argv 的别名/脚本传给探针，移除 trace、loader 与 helper 启动环境。依据为 [Git config](https://git-scm.com/docs/git-config) 与 [Git hooks](https://git-scm.com/docs/githooks)；程序内部任意 IO 仍不隔离。

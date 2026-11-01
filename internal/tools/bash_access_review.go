@@ -160,6 +160,21 @@ func (t *RuntimeToolExecutor) sandboxBashEnvironment(ctx context.Context, execCt
 		return nil
 	}
 	return &shelltypes.BashEnvironment{
+		InspectConfig: func(raw string) (shelltypes.FileInspection, error) {
+			target := guestPath(raw)
+			out, err := probe(sandboxConfigProbeCommand(target), "/tmp", nil)
+			if err != nil {
+				return shelltypes.FileInspection{}, err
+			}
+			return parseConfigProbe(out, target)
+		},
+		AccountHome: func() (string, error) {
+			out, err := probe(immutableDependencyTools("getent")+accountHomeProbeBody, "/tmp", nil)
+			if err != nil {
+				return "", err
+			}
+			return parseAccountHomeProbe(out)
+		},
 		InspectNullDevice: func() (string, error) { return probe(sandboxNullDeviceProbeCommand, "/tmp", nil) },
 		PathKind: func(raw string) (shelltypes.PathKind, error) {
 			target := shellQuoteProbe(guestPath(raw))

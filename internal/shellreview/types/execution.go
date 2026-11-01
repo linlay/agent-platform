@@ -22,7 +22,10 @@ type BashExecution struct {
 	BlockReason        string
 	// Env is the environment visible to Argv: the reviewed environment plus
 	// shell scope, inline assignments and env(1) assignments.
-	Env map[string]string
+	Env              map[string]string
+	StartupDeps      []Dep // captured before each native wrapper starts
+	DependencySHA256 string
+	DependencyReason string
 }
 
 // BashEnvironment inspects the actual execution filesystem. A missing/failed
@@ -35,6 +38,8 @@ type BashEnvironment struct {
 	// InspectNullDevice uses an image-verified immutable guest stat entry and
 	// returns numeric mode|major|minor; absent or failed probes stay unresolved.
 	InspectNullDevice func() (string, error)
+	InspectConfig     func(path string) (FileInspection, error)
+	AccountHome       func() (string, error)
 	// Launch is supplied only for Host commands; containers use their own Bash.
 	Launch    *LaunchBinding
 	Resolve   func(name, cwd string, env map[string]string) (string, error)

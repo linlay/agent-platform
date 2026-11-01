@@ -17,7 +17,14 @@ func Execution(base string, args []string, words []types.SourceWord, cwd string,
 			return Expansion{Cwd: cwd}, true
 		}
 		if expanded.Ignore {
+			clear(vars)
 			vars["PATH"] = ""
+		}
+		for _, name := range expanded.Unset {
+			delete(vars, name)
+			if name == "PATH" {
+				vars["PATH"] = ""
+			}
 		}
 		for name, value := range expanded.Assignments {
 			vars[name] = value

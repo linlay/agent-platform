@@ -39,6 +39,9 @@ func analyzeBashExecution(session QuerySession, cmd types.Invocation, cwd string
 			break
 		}
 		proof := identity.ResolveIdentity(session, name, x.Cwd, vars, env, allowBuiltins)
+		if proof.Domain == types.NativeCLI || !proof.Known() {
+			x.StartupDeps = append(x.StartupDeps, identity.StartupDependencies(vars, x.Cwd)...)
+		}
 		known := proof.Known()
 		x.CommandIdentity = proof
 		if identity.IsWrapper(base) && known {

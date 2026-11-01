@@ -1,6 +1,8 @@
 package shellreview
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -78,6 +80,11 @@ func TestBashReviewOptionsAndImplicitConfig(t *testing.T) {
 	want := map[string]Decision{AccessLevelAskForApproval: DecisionRequiresApproval, AccessLevelAutoApprove: DecisionAutoApproved, AccessLevelFullAccess: DecisionAllow}
 	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		f := newCapabilityFixture(t, level)
+		for _, name := range []string{".curlrc", "w", "rgrc"} {
+			if err := os.WriteFile(filepath.Join(f.workspace, name), []byte("fixture config"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
 		check := func(command string, decision Decision, rule string) {
 			t.Helper()
 			p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, f.workspace, vars, environment, nil)
@@ -122,6 +129,11 @@ func TestBashReviewOptionsAndImplicitConfig(t *testing.T) {
 
 	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		f := newCapabilityFixture(t, level)
+		for _, name := range []string{".curlrc", "w", "rgrc"} {
+			if err := os.WriteFile(filepath.Join(f.workspace, name), []byte("fixture config"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
 		f.session.WorkspaceReadOnly = true
 		for _, command := range []string{"curl -K ./cfg " + url, "CURL_HOME=. curl " + url} {
 			if p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, "@workspace", vars, environment, nil); !p.Blocked() {

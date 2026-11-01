@@ -138,17 +138,19 @@ type Unknown struct {
 type DepKind string
 
 const (
-	GitConfig   DepKind = "git_config"
-	ConfigFile  DepKind = "config_file"
-	Script      DepKind = "script"
-	Environment DepKind = "environment"
+	GitConfig         DepKind = "git_config"
+	ConfigFile        DepKind = "config_file"
+	Script            DepKind = "script"
+	Environment       DepKind = "environment"
+	EnvironmentOutput DepKind = "environment_output"
 )
 
 type Dep struct {
-	Kind     DepKind
-	Check    string
-	Path     string
-	Variable string
+	Kind       DepKind
+	Check      string
+	Path       string
+	Variable   string
+	Candidates []ConfigCandidate
 }
 
 // Effects contains facts only. Identity and policy decisions belong to callers.

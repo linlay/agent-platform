@@ -2,6 +2,7 @@ package commands
 
 import (
 	"agent-platform/internal/shellreview/options"
+	"agent-platform/internal/shellreview/registry"
 	"agent-platform/internal/shellreview/types"
 )
 
@@ -13,4 +14,12 @@ func rgConfig(args []string) []string {
 		return []string{"RIPGREP_CONFIG_PATH"}
 	}
 	return nil
+}
+
+func rgOperands(args []string) effectDraft {
+	e := fileOperands(registry.CmdRg, rgSpec, args)
+	if !configDisabled(args) {
+		e.Deps = append(e.Deps, types.Dep{Kind: types.ConfigFile, Check: "default-search", Candidates: []types.ConfigCandidate{{Variable: "RIPGREP_CONFIG_PATH", StopWhenSet: true}}})
+	}
+	return e
 }

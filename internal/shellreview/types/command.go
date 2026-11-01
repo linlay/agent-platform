@@ -22,6 +22,7 @@ const (
 type CommandIdentity struct {
 	Domain Domain
 	Source IdentitySource
+	Path   string
 }
 
 func (c CommandIdentity) Known() bool { return c.Domain != "" && c.Source != "" }

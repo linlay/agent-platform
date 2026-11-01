@@ -40,14 +40,16 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 	if len(contexts) > 0 {
 		execCtx = contexts[0]
 	}
-	plan := reviewBashScript(cfg, session, command, cwd, variables, environment, execCtx, 0)
+	plan := reviewBashScript(cfg, session, command, cwd, variables, environment, execCtx, 0, &scriptReviewHistory{})
 	if environment != nil && environment.Launch != nil && !plan.ConnectorOnly {
 		plan = shellplan.BindLaunch(plan, *environment.Launch)
 	}
 	return plan
 }
 
-func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, command, cwd string, variables map[string]string, environment *types.BashEnvironment, execCtx *ExecutionContext, depth int) shellplan.BashPlan {
+type scriptReviewHistory struct{ mayMutate bool }
+
+func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, command, cwd string, variables map[string]string, environment *types.BashEnvironment, execCtx *ExecutionContext, depth int, history *scriptReviewHistory) shellplan.BashPlan {
 	accessLevel := SessionAccessLevel(session)
 	command = strings.TrimSpace(command)
 	reviewer := policy.New(cfg, session, command)
@@ -66,8 +68,12 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 		return reviewer.Block(err.Error(), "bash-access:cwd", cwd)
 	}
 	var plans []shellplan.BashPlan
+	hardViolationSeen := false
 	sshAgent := false
 	add := func(p shellplan.BashPlan) {
+		if p.Blocked() {
+			hardViolationSeen = true
+		}
 		if policy.KeepRequirement(p) {
 			plans = append(plans, p)
 		}
@@ -75,23 +81,44 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 	pathReview := func(mode AccessMode, raw string) {
 		add(reviewer.Path(mode, raw, containsUnresolvedPlaceholder(raw)))
 	}
+	dependencyInspector := resources.NewDependencyInspector(session.AgentHasRuntimeSandbox, environment, func(path string) (resources.DependencyPermission, error) {
+		read := reviewer.Path(ReadAccess, path, false)
+		if read.Blocked() {
+			return resources.DependencyPermission{HardReason: read.Reason}, nil
+		}
+		write, err := BuildPathPlan(cfg, session, WriteAccess, path)
+		if err != nil {
+			return resources.DependencyPermission{}, err
+		}
+		return resources.DependencyPermission{Writable: write.Allowed(), Readonly: write.Blocked()}, nil
+	})
 	deviceInspector := resources.NewDeviceInspector(session.AgentHasRuntimeSandbox, environment)
 	resourcePath := func(mode AccessMode, raw string, op types.Op, target types.Target, complete bool) {
 		pathPlan := reviewer.Path(mode, raw, containsUnresolvedPlaceholder(raw))
-		if pathPlan.Blocked() {
+		if pathPlan.Blocked() || hardViolationSeen {
 			add(pathPlan)
 			return
 		}
 		result := deviceInspector.NullOffset(op, target, complete)
+		if mode == WriteAccess && !(result.State == types.Known && result.NullDevice) {
+			history.mayMutate = true
+		}
 		for _, requirement := range reviewer.ResourceRequirements(pathPlan, result, raw) {
 			add(requirement)
 		}
 	}
 	opaquePlan := func(x types.BashExecution) shellplan.BashPlan {
 		p := reviewer.Opaque(x)
-		version := resources.ExecutionFingerprint(session.AgentHasRuntimeSandbox, resources.ExecutionVersion{Fingerprint: p.Fingerprint, RuleKey: p.RuleKey, AccessLevel: p.AccessLevel}, x, variables, environment)
+		versionInput := x
+		if versionInput.Program == "" {
+			versionInput.Program = x.CommandIdentity.Path
+		}
+		version := resources.ExecutionFingerprint(session.AgentHasRuntimeSandbox, resources.ExecutionVersion{Fingerprint: p.Fingerprint, RuleKey: p.RuleKey, AccessLevel: p.AccessLevel}, versionInput, variables, environment)
 		p.Fingerprint, p.RuleKey = version.Fingerprint, version.RuleKey
 		p.Scope, p.ScopeKind, p.ContentSHA256 = version.Scope, version.ScopeKind, version.ContentSHA256
+		if x.DependencyReason != "" {
+			p.Reason += "; " + x.DependencyReason
+		}
 		return p
 	}
 	if session.AgentHasRuntimeSandbox && environment != nil && environment.Directory != nil {
@@ -140,12 +167,28 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 			if x.BlockReason != "" {
 				add(reviewer.Block(x.BlockReason, "bash-access:temp-escape", cmd.Text))
 			}
+			for _, dep := range x.StartupDeps {
+				if dep.Kind == types.EnvironmentOutput {
+					pathReview(WriteAccess, dep.Path)
+				}
+			}
+			if len(x.StartupDeps) > 0 && !hardViolationSeen {
+				startup := dependencyInspector.Review(x.StartupDeps, x, history.mayMutate)
+				x.DependencySHA256, x.DependencyReason = startup.SHA256, startup.Reason
+				if startup.State == types.HardViolation {
+					add(reviewer.Block(startup.Reason, "bash-access:dependency", x.Cwd))
+				} else {
+					add(reviewer.Complex(startup.Reason))
+					add(opaquePlan(x))
+				}
+				history.mayMutate = true
+			}
 			allConnector = allConnector && x.Connector
 			if x.ConnectorID != "" {
 				connectorIDs[x.ConnectorID] = true
 			}
 			// executes marks code whose file effects are not described by the analysis.
-			executes := x.Connector
+			executes := x.Connector || len(x.StartupDeps) > 0
 			if !x.Connector {
 				pathReview(ReadAccess, candidateCwd)
 				pathReview(ReadAccess, x.Cwd)
@@ -156,16 +199,19 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 					pathReview(ReadAccess, ResolveAgainstCwd(x.Script, x.Cwd))
 				}
 			}
+			if hardViolationSeen {
+				continue
+			}
 			switch {
 			case x.Connector, len(x.Argv) == 0:
 			case x.Uncertain:
 				executes = true
 				add(reviewer.Complex("bash execution wrapper or target cannot be resolved statically"))
 			case x.Opaque:
-				if script, ok := unwrap.ShellScript(x.Argv); ok && x.TrustedInterpreter && depth < maxShellScriptDepth {
+				if script, ok := unwrap.ShellScript(x.Argv); ok && x.TrustedInterpreter && len(x.StartupDeps) == 0 && depth < maxShellScriptDepth {
 					// A literal `bash -c` script is analyzed like the outer command, so
 					// wrappers cannot hide remote mutations or file effects.
-					inner := reviewBashScript(cfg, session, script, x.Cwd, variables, environment, execCtx, depth+1)
+					inner := reviewBashScript(cfg, session, script, x.Cwd, x.Env, environment, execCtx, depth+1, history)
 					sshAgent = sshAgent || inner.UsesSSHAgent
 					// A wrapper does not hide which connectors run.
 					for _, id := range inner.ConnectorIDs {
@@ -201,10 +247,25 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 				repoDir := x.Cwd
 				gitCheck := types.GitCheckNone
 				executesBehavior := effects.Has(types.Exec)
+				priorMutation := history.mayMutate
+				dependency := dependencyInspector.Review(effects.Deps, x, priorMutation)
+				x.DependencySHA256, x.DependencyReason = dependency.SHA256, dependency.Reason
+				executesBehavior = executesBehavior || dependency.Unsafe
+				executes = executes || dependency.HasConfig
+				if dependency.State == types.Unresolved {
+					add(reviewer.Complex(dependency.Reason))
+				}
+				if dependency.State == types.HardViolation {
+					add(reviewer.Block(dependency.Reason, "bash-access:dependency", x.Cwd))
+				}
+				for _, effect := range effects.Ops {
+					if effect.Kind == types.Exec || effect.Kind == types.RepoWrite {
+						history.mayMutate = true
+					}
+				}
+				history.mayMutate = history.mayMutate || len(effects.Unknowns) > 0
 				for _, dep := range effects.Deps {
 					switch dep.Kind {
-					case types.Environment:
-						executesBehavior = executesBehavior || x.Env[dep.Variable] != ""
 					case types.GitConfig:
 						gitCheck = types.GitCheck(dep.Check)
 						if dep.Path != "" {
@@ -212,8 +273,18 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 						}
 					}
 				}
-				gitClean := gitCheck != types.GitCheckNone && !executesBehavior && resources.GitExecutionClean(session.AgentHasRuntimeSandbox, x, repoDir, gitCheck, variables)
-				complete := len(effects.Unknowns) == 0 && !executesBehavior && (gitCheck == types.GitCheckNone || gitClean)
+				gitClean := false
+				if gitCheck != types.GitCheckNone {
+					gitState := dependencyInspector.ReviewGitExecution(x, repoDir, gitCheck, priorMutation)
+					if gitState.State == types.HardViolation {
+						add(reviewer.Block(gitState.Reason, "bash-access:dependency", repoDir))
+					}
+					if gitState.SHA256 != "" {
+						x.DependencySHA256 += ":" + gitState.SHA256
+					}
+					gitClean = gitState.State == types.Known && !gitState.Unsafe && !executesBehavior
+				}
+				complete := dependency.State == types.Known && len(x.StartupDeps) == 0 && len(effects.Unknowns) == 0 && !executesBehavior && (gitCheck == types.GitCheckNone || gitClean)
 				for _, op := range effects.Ops {
 					for _, target := range op.Targets {
 						file := types.FileAccess{Path: target.Path, Write: op.WritesTarget(target), Recursive: op.Recursive}
@@ -270,6 +341,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 				sshAgent = sshAgent || effects.SSHAgent
 			}
 			if executes {
+				history.mayMutate = true
 				add(reviewer.WorkspaceExecution(x.Cwd))
 			}
 			redirects := resources.RedirectEffects(cmd.Redirects)

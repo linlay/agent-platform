@@ -156,10 +156,10 @@ func TestGitClassification(t *testing.T) {
 		"git push":                    {GitCheck: types.GitCheckNetwork, RemoteMutation: true, SSHAgent: true},
 		"git push --force":            {GitCheck: types.GitCheckNetwork, RemoteMutation: true, Destructive: true, SSHAgent: true},
 		"git fetch":                   {GitCheck: types.GitCheckNetwork, RepoWrite: true, SSHAgent: true},
-		"git -c alias.x=!id x":        {ExecutesCode: true},
+		"git -c alias.x=!id x":        {ExecutesCode: true, GitCheck: types.GitCheckNetwork},
 		"git -c core.pager=id log":    {ExecutesCode: true, GitCheck: types.GitCheckRead},
 		"git log --show-signature":    {ExecutesCode: true, GitCheck: types.GitCheckRead},
-		"git bisect run make":         {ExecutesCode: true},
+		"git bisect run make":         {ExecutesCode: true, GitCheck: types.GitCheckNetwork},
 		"git config core.hooksPath x": {ExecutesCode: true, GitCheck: types.GitCheckWrite, RepoWrite: true},
 	} {
 		e := effectsOf(command)

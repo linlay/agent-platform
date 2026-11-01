@@ -59,7 +59,7 @@ var analyzers = map[registry.ID]command{
 	registry.CmdMv:        {analyze: mvOperands},
 	registry.CmdReadlink:  {analyze: func(args []string) effectDraft { return fileOperands(registry.CmdReadlink, readlinkSpec, args) }},
 	registry.CmdRealpath:  {analyze: func(args []string) effectDraft { return fileOperands(registry.CmdRealpath, realpathSpec, args) }},
-	registry.CmdRg:        {analyze: func(args []string) effectDraft { return fileOperands(registry.CmdRg, rgSpec, args) }, config: rgConfig},
+	registry.CmdRg:        {analyze: rgOperands, config: rgConfig},
 	registry.CmdRm:        {analyze: func(args []string) effectDraft { return fileOperationOperands(registry.CmdRm, rmSpec, args) }},
 	registry.CmdRmdir:     {analyze: func(args []string) effectDraft { return fileOperationOperands(registry.CmdRmdir, rmdirSpec, args) }},
 	registry.CmdSort:      {analyze: func(args []string) effectDraft { return fileOperands(registry.CmdSort, sortSpec, args) }},

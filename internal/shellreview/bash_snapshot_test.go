@@ -159,7 +159,7 @@ func TestBashReviewNormalizedBaseline(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Keep the migration snapshot immutable during this rollout. Reviewed
-	// resource behavior changes are visible in a separate six-row delta file.
+	// resource behavior changes are visible in a separate resource delta file.
 	wantLines := strings.Split(strings.TrimSuffix(string(want), "\n"), "\n")
 	indices := map[string]int{}
 	key := func(line string) string {

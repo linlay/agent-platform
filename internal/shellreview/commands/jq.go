@@ -3,6 +3,7 @@ package commands
 import (
 	"agent-platform/internal/shellreview/options"
 	"agent-platform/internal/shellreview/types"
+	"regexp"
 )
 
 func jqOperands(args []string) effectDraft {
@@ -12,6 +13,9 @@ func jqOperands(args []string) effectDraft {
 	positional := p.Positional
 	refs := p.PositionalRefs
 	if !p.Has("f") && !p.Has("from-file") && len(positional) > 0 {
+		if jqModuleProgram.MatchString(positional[0]) {
+			e.Deps = append(e.Deps, types.Dep{Kind: types.Script, Check: "inline-program"})
+		}
 		positional = positional[1:]
 		refs = refs[1:]
 	}
@@ -35,3 +39,5 @@ func jqOperands(args []string) effectDraft {
 
 var jqSpec = types.OptionSpec{ShortFlags: "rcsnejaSCMRh", ShortArgs: map[byte]types.OptionRole{'f': types.OptionRead, 'L': types.OptionReadDir},
 	Long: options.Merge(options.Longs(types.OptionNone, "raw-output", "compact-output", "slurp", "null-input", "exit-status", "join-output", "ascii-output", "sort-keys", "color-output", "monochrome-output", "tab", "raw-input", "seq", "stream", "stream-errors", "raw-output0", "unbuffered", "args", "jsonargs"), options.Longs(types.OptionValue, "indent"), options.Longs(types.OptionRead, "from-file"), options.Longs(types.OptionTwoValues, "arg", "argjson"), options.Longs(types.OptionNameFile, "slurpfile", "rawfile"))}
+
+var jqModuleProgram = regexp.MustCompile(`\b(import|include|module)\b`)

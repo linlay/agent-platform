@@ -22,7 +22,7 @@ func curlOperands(args []string) effectDraft {
 		}
 	}
 	if len(curlConfig(args)) > 0 {
-		e.Deps = append(e.Deps, types.Dep{Kind: types.ConfigFile, Path: ".curlrc", Variable: "CURL_HOME", Check: "default-search"})
+		e.Deps = append(e.Deps, types.Dep{Kind: types.ConfigFile, Check: "default-search", Candidates: []types.ConfigCandidate{{Variable: "CURL_HOME", Relative: ".curlrc"}, {Variable: "XDG_CONFIG_HOME", Relative: "curlrc"}, {Variable: "HOME", Relative: ".curlrc"}, {NativeHome: true, Relative: ".curlrc"}}})
 	}
 	add := func(path string, write, recursive bool, ref types.ValueRef, derived bool) {
 		if path != "" && path != "-" {

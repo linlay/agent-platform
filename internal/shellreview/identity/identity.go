@@ -51,7 +51,7 @@ func ResolveIdentity(session QuerySession, name, cwd string, vars map[string]str
 		// Canonical comparison still permits sh -> dash and versioned Python.
 		for _, root := range []string{"/usr/bin/", "/bin/", "/usr/local/bin/"} {
 			if system, err := env.Resolve(root+base, cwd, vars); err == nil && system == p {
-				return types.CommandIdentity{Domain: types.NativeCLI, Source: types.ContainerSystemProgram}
+				return types.CommandIdentity{Domain: types.NativeCLI, Source: types.ContainerSystemProgram, Path: p}
 			}
 		}
 		return types.CommandIdentity{}
@@ -69,12 +69,12 @@ func ResolveIdentity(session QuerySession, name, cwd string, vars map[string]str
 		systems = env.SystemPrograms
 	}
 	if systems[base] == canonical.Key {
-		return types.CommandIdentity{Domain: types.NativeCLI, Source: types.SystemProgram}
+		return types.CommandIdentity{Domain: types.NativeCLI, Source: types.SystemProgram, Path: canonical.Host}
 	}
 	if registry.Is(base, registry.PlatformBuiltin) {
 		if builtin, err := builtins.ResolveProcessBuiltin(base); err == nil {
 			if c, err := pathutil.Canonicalize(builtin); err == nil && c.Key == canonical.Key {
-				return types.CommandIdentity{Domain: types.NativeCLI, Source: types.PlatformProgram}
+				return types.CommandIdentity{Domain: types.NativeCLI, Source: types.PlatformProgram, Path: c.Host}
 			}
 		}
 	}

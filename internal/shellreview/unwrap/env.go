@@ -9,6 +9,7 @@ type EnvExpansion struct {
 	Command     []string
 	Chdir       string
 	Ignore      bool
+	Unset       []string
 	refs        []argumentRef
 }
 
@@ -29,7 +30,13 @@ func Env(args []string) (EnvExpansion, bool) {
 				return EnvExpansion{}, false
 			}
 			i++
+			result.Unset = append(result.Unset, args[i])
 		case strings.HasPrefix(a, "--unset=") || strings.HasPrefix(a, "-u") && len(a) > 2:
+			name := strings.TrimPrefix(a, "--unset=")
+			if strings.HasPrefix(a, "-u") {
+				name = a[2:]
+			}
+			result.Unset = append(result.Unset, name)
 		case a == "-C" || a == "--chdir":
 			if i+1 >= len(args) {
 				return EnvExpansion{}, false

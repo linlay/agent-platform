@@ -5,3 +5,7 @@ effect/null-noncanonical	ask_for_approval	requires_approval	security=allow/	conn
 effect/null-noncanonical	auto_approve	requires_approval	security=allow/	connector=false/false	leaves=1:requires_approval/bash-access:path:access-write::<hash>/exact_target/reusable=true
 effect/null-tee	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 effect/null-tee	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+
+# C11u2: absent default config does not supply unknown behavior.
+effect/implicit-config	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+effect/implicit-config	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true

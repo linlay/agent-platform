@@ -30,7 +30,7 @@ func TestDiagnosticCommandsAccess(t *testing.T) {
 			cwd := f.workspace
 			if sandbox {
 				cwd = "/workspace"
-				env = &types.BashEnvironment{InspectNullDevice: func() (string, error) { return "21b6|1|3", nil }, Resolve: func(name, cwd string, vars map[string]string) (string, error) {
+				env = &types.BashEnvironment{AccountHome: func() (string, error) { return "", nil }, InspectConfig: func(string) (types.FileInspection, error) { return types.FileInspection{}, nil }, InspectNullDevice: func() (string, error) { return "21b6|1|3", nil }, Resolve: func(name, cwd string, vars map[string]string) (string, error) {
 					if strings.HasPrefix(name, "/") {
 						return name, nil
 					}

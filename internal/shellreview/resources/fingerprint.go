@@ -15,7 +15,11 @@ import (
 // ExecutionFingerprint binds the invocation to evidence from its execution environment.
 // Missing container probes leave content unknown; guest names never inspect Host files.
 func ExecutionFingerprint(sandbox bool, p ExecutionVersion, x types.BashExecution, variables map[string]string, env *types.BashEnvironment) ExecutionVersion {
-	data, _ := json.Marshal(variables)
+	effective := variables
+	if x.Env != nil {
+		effective = x.Env
+	}
+	data, _ := json.Marshal(effective)
 	content := ""
 	target := x.Script
 	if target == "" {
@@ -39,7 +43,11 @@ func ExecutionFingerprint(sandbox bool, p ExecutionVersion, x types.BashExecutio
 			}
 		}
 	}
-	sum := sha256.Sum256([]byte(strings.Join([]string{p.Fingerprint, p.RuleKey, p.AccessLevel, x.Cwd, x.Identity, target, content, string(data)}, "\x00")))
+	fields := []string{p.Fingerprint, p.RuleKey, p.AccessLevel, x.Cwd, x.Identity, target, content, string(data)}
+	if x.DependencySHA256 != "" {
+		fields = append(fields, x.DependencySHA256)
+	}
+	sum := sha256.Sum256([]byte(strings.Join(fields, "\x00")))
 	p.Fingerprint = hex.EncodeToString(sum[:])
 	// Run reuse is limited to this exact invocation/environment/content version,
 	// never all programs sharing an interpreter and working directory.
