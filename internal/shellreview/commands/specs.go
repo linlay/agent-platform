@@ -1,8 +1,10 @@
-package shellanalysis
+package commands
 
 import (
 	"strconv"
 	"strings"
+
+	"agent-platform/internal/shellreview/types"
 )
 
 // optionRole describes the local effect of an option value.
@@ -36,7 +38,7 @@ type commandSpec struct {
 
 type parsedOptions struct {
 	Positional []string
-	Files      []FileAccess
+	Files      []types.FileAccess
 	Incomplete bool
 	Exec       bool
 	Remote     bool
@@ -54,13 +56,13 @@ func parseOptions(spec commandSpec, args []string) parsedOptions {
 		p.values[key] = append(p.values[key], value)
 		switch role {
 		case optRead:
-			p.Files = append(p.Files, FileAccess{Path: value})
+			p.Files = append(p.Files, types.FileAccess{Path: value})
 		case optWrite:
-			p.Files = append(p.Files, FileAccess{Path: value, Write: true})
+			p.Files = append(p.Files, types.FileAccess{Path: value, Write: true})
 		case optReadDir:
-			p.Files = append(p.Files, FileAccess{Path: value, Recursive: true})
+			p.Files = append(p.Files, types.FileAccess{Path: value, Recursive: true})
 		case optWriteDir:
-			p.Files = append(p.Files, FileAccess{Path: value, Write: true})
+			p.Files = append(p.Files, types.FileAccess{Path: value, Write: true})
 		case optExec:
 			p.Exec = true
 		case optRemote:
@@ -86,7 +88,7 @@ func parseOptions(spec commandSpec, args []string) parsedOptions {
 			if !known {
 				p.Incomplete = true
 				if hasValue && strings.ContainsAny(value, "/\\") {
-					p.Files = append(p.Files, FileAccess{Path: value, Write: true})
+					p.Files = append(p.Files, types.FileAccess{Path: value, Write: true})
 				}
 				continue
 			}

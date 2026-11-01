@@ -7,15 +7,15 @@ import (
 
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/agentconfig"
-	"agent-platform/internal/bashsec"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
-func (s *llmRunStream) lookupBashSecurityReview(invocation *preparedToolInvocation) bashsec.ReviewResult {
+func (s *llmRunStream) lookupBashSecurityReview(invocation *preparedToolInvocation) bashsyntax.ReviewResult {
 	if invocation == nil || !isBashTool(invocation.toolName) {
-		return bashsec.ReviewResult{Decision: bashsec.ReviewAllow}
+		return bashsyntax.ReviewResult{Decision: bashsyntax.ReviewAllow}
 	}
 	if invocation.bashSecurityReview != nil {
 		return *invocation.bashSecurityReview
@@ -237,11 +237,11 @@ func fileAccessPlanInput(toolName string, args map[string]any) (filetools.Access
 	}
 }
 
-func (s *llmRunStream) reviewBashSecurity(command string) bashsec.ReviewResult {
+func (s *llmRunStream) reviewBashSecurity(command string) bashsyntax.ReviewResult {
 	if s == nil || s.execCtx == nil {
-		return bashsec.ReviewBashSecurity(command)
+		return bashsyntax.ReviewBashSecurity(command)
 	}
-	return bashsec.ReviewBashSecurityWithKnownVariables(command, s.knownRuntimeVariables())
+	return bashsyntax.ReviewBashSecurityWithKnownVariables(command, s.knownRuntimeVariables())
 }
 
 func (s *llmRunStream) knownRuntimeVariables() map[string]string {
@@ -348,7 +348,7 @@ func fileAccessDeniedToolResult(invocation *preparedToolInvocation, code string)
 	return result
 }
 
-func (s *llmRunStream) executeApprovedBashSecurityInvocation(invocation *preparedToolInvocation, review bashsec.ReviewResult) error {
+func (s *llmRunStream) executeApprovedBashSecurityInvocation(invocation *preparedToolInvocation, review bashsyntax.ReviewResult) error {
 	switch strings.ToLower(strings.TrimSpace(invocation.approvalDecision)) {
 	case "reject":
 		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))

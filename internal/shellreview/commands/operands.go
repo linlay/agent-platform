@@ -1,55 +1,16 @@
-// Package shellanalysis describes command effects without deciding permissions.
-package shellanalysis
+// Package commands describes command effects without deciding permissions.
+package commands
 
 import (
 	"net/url"
 	"strings"
+
+	"agent-platform/internal/shellreview/types"
 )
-
-type FileAccess struct {
-	Path      string
-	Write     bool
-	Recursive bool
-}
-
-// GitCheck names the repository state an analyzed Git invocation depends on.
-// The caller must verify it before treating the invocation as non-executing.
-type GitCheck string
-
-const (
-	GitCheckNone GitCheck = ""
-	// GitCheckRead requires that effective configuration defines no program
-	// that read commands run implicitly (fsmonitor, diff drivers, filters, gpg).
-	GitCheckRead GitCheck = "read"
-	// GitCheckWrite additionally requires that no repository hook is active.
-	GitCheckWrite GitCheck = "write"
-	// GitCheckNetwork additionally requires standard credential helpers and no
-	// custom SSH or askpass programs.
-	GitCheckNetwork GitCheck = "network"
-)
-
-type Effects struct {
-	Files []FileAccess
-	// Incomplete marks options or grammar the analyzer does not model. Visible
-	// file operands are then treated as writes; it does not imply code execution.
-	Incomplete bool
-	// ExecutesCode means the invocation can run code, or take behavior from a
-	// source this analysis does not read (such as a config file), that operands
-	// do not describe.
-	ExecutesCode   bool
-	RemoteMutation bool
-	// Destructive marks recursive deletion and discarding uncommitted work.
-	Destructive bool
-	// RepoWrite marks Git commands that mutate repository metadata in cwd.
-	RepoWrite bool
-	GitCheck  GitCheck
-	// SSHAgent marks network operations that may authenticate with an SSH agent.
-	SSHAgent bool
-}
 
 // Operands is conservative for unsupported options. Plain filenames are file
 // operands according to the program grammar, not according to slash presence.
-func Operands(base string, args []string) Effects {
+func Operands(base string, args []string) types.Effects {
 	switch base {
 	case "git":
 		return gitOperands(args)
@@ -68,11 +29,11 @@ func Operands(base string, args []string) Effects {
 	case "tar", "bsdtar", "gtar":
 		return tarOperands(args)
 	case "echo", "printf", "pwd", "true", "false", "date", "sleep", "uname", "whoami", "id", "basename", "dirname", "which", "printenv", "test", "tr", "cd", "top", "free":
-		e := Effects{}
+		e := types.Effects{}
 		if base == "cd" {
 			for _, p := range args {
 				if !strings.HasPrefix(p, "-") {
-					e.Files = append(e.Files, FileAccess{Path: p})
+					e.Files = append(e.Files, types.FileAccess{Path: p})
 				}
 			}
 		}
@@ -83,11 +44,11 @@ func Operands(base string, args []string) Effects {
 		return unknownOperands(args)
 	}
 	p := parseOptions(spec, args)
-	e := Effects{Incomplete: p.Incomplete, ExecutesCode: p.Exec}
+	e := types.Effects{Incomplete: p.Incomplete, ExecutesCode: p.Exec}
 	e.Files = append(e.Files, p.Files...)
 	add := func(path string, write, recursive bool) {
 		if path != "" && path != "-" {
-			e.Files = append(e.Files, FileAccess{Path: path, Write: write, Recursive: recursive})
+			e.Files = append(e.Files, types.FileAccess{Path: path, Write: write, Recursive: recursive})
 		}
 	}
 	recursive := p.Recursive || p.has("r") || p.has("R")
@@ -273,15 +234,15 @@ func remoteDataFile(key, value string) string {
 	return ""
 }
 
-func escalateWrites(e *Effects) {
+func escalateWrites(e *types.Effects) {
 	// An unrecognized option may turn read operands into output targets.
 	for i := range e.Files {
 		e.Files[i].Write = true
 	}
 }
 
-func unknownOperands(args []string) Effects {
-	e := Effects{Incomplete: true, ExecutesCode: true}
+func unknownOperands(args []string) types.Effects {
+	e := types.Effects{Incomplete: true, ExecutesCode: true}
 	for _, p := range args {
 		if value, ok := strings.CutPrefix(p, "--"); ok {
 			if _, v, has := strings.Cut(value, "="); has {
@@ -291,15 +252,15 @@ func unknownOperands(args []string) Effects {
 			}
 		}
 		if strings.ContainsAny(p, "/\\") && !strings.Contains(p, "://") {
-			e.Files = append(e.Files, FileAccess{Path: p, Write: true})
+			e.Files = append(e.Files, types.FileAccess{Path: p, Write: true})
 		}
 	}
 	return e
 }
 
-func jqOperands(args []string) Effects {
+func jqOperands(args []string) types.Effects {
 	p := parseOptions(specs["jq"], args)
-	e := Effects{Incomplete: p.Incomplete}
+	e := types.Effects{Incomplete: p.Incomplete}
 	e.Files = append(e.Files, p.Files...)
 	positional := p.Positional
 	if !p.has("f") && !p.has("from-file") && len(positional) > 0 {
@@ -308,7 +269,7 @@ func jqOperands(args []string) Effects {
 	if !p.has("args") && !p.has("jsonargs") {
 		for _, path := range positional {
 			if path != "-" {
-				e.Files = append(e.Files, FileAccess{Path: path})
+				e.Files = append(e.Files, types.FileAccess{Path: path})
 			}
 		}
 	}
@@ -318,8 +279,8 @@ func jqOperands(args []string) Effects {
 	return e
 }
 
-func pdftotextOperands(args []string) Effects {
-	var e Effects
+func pdftotextOperands(args []string) types.Effects {
+	var e types.Effects
 	var positional []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -337,10 +298,10 @@ func pdftotextOperands(args []string) Effects {
 		positional = append(positional, a)
 	}
 	if len(positional) > 0 {
-		e.Files = append(e.Files, FileAccess{Path: positional[0]})
+		e.Files = append(e.Files, types.FileAccess{Path: positional[0]})
 	}
 	if len(positional) > 1 && positional[1] != "-" {
-		e.Files = append(e.Files, FileAccess{Path: positional[1], Write: true})
+		e.Files = append(e.Files, types.FileAccess{Path: positional[1], Write: true})
 	}
 	if e.Incomplete {
 		escalateWrites(&e)
@@ -348,18 +309,18 @@ func pdftotextOperands(args []string) Effects {
 	return e
 }
 
-func findOperands(args []string) Effects {
-	var e Effects
+func findOperands(args []string) types.Effects {
+	var e types.Effects
 	i := 0
 	for i < len(args) && (args[i] == "-L" || args[i] == "-H" || args[i] == "-P") {
 		i++
 	}
 	for i < len(args) && !strings.HasPrefix(args[i], "-") && args[i] != "!" && args[i] != "(" {
-		e.Files = append(e.Files, FileAccess{Path: args[i], Recursive: true})
+		e.Files = append(e.Files, types.FileAccess{Path: args[i], Recursive: true})
 		i++
 	}
 	if len(e.Files) == 0 {
-		e.Files = append(e.Files, FileAccess{Path: ".", Recursive: true})
+		e.Files = append(e.Files, types.FileAccess{Path: ".", Recursive: true})
 	}
 	roots := len(e.Files)
 	for ; i < len(args); i++ {
@@ -372,21 +333,21 @@ func findOperands(args []string) Effects {
 		case "-newer", "-anewer", "-cnewer", "-samefile":
 			i++
 			if i < len(args) {
-				e.Files = append(e.Files, FileAccess{Path: args[i]})
+				e.Files = append(e.Files, types.FileAccess{Path: args[i]})
 			} else {
 				e.Incomplete = true
 			}
 		case "-fprint", "-fprint0", "-fls":
 			i++
 			if i < len(args) {
-				e.Files = append(e.Files, FileAccess{Path: args[i], Write: true})
+				e.Files = append(e.Files, types.FileAccess{Path: args[i], Write: true})
 			} else {
 				e.Incomplete = true
 			}
 		case "-fprintf":
 			i += 2
 			if i-1 < len(args) {
-				e.Files = append(e.Files, FileAccess{Path: args[i-1], Write: true})
+				e.Files = append(e.Files, types.FileAccess{Path: args[i-1], Write: true})
 			} else {
 				e.Incomplete = true
 			}

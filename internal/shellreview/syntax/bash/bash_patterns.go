@@ -1,4 +1,4 @@
-package bashsec
+package bash
 
 // astDangerousCommands change the shell's own state or evaluate strings as
 // code; the reviewer cannot follow their effects.

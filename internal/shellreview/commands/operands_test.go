@@ -1,8 +1,11 @@
-package shellanalysis
+package commands
 
 import (
 	"strings"
 	"testing"
+
+	"agent-platform/internal/shellreview/types"
+	"agent-platform/internal/shellreview/unwrap"
 )
 
 type fileWant struct {
@@ -11,9 +14,9 @@ type fileWant struct {
 	recursive bool
 }
 
-func effectsOf(command string) Effects {
+func effectsOf(command string) types.Effects {
 	fields := strings.Fields(command)
-	return Operands(CommandName(fields[0]), fields[1:])
+	return Operands(unwrap.CommandName(fields[0]), fields[1:])
 }
 
 func TestOperandGrammarSeparatesPatternsProgramsAndFiles(t *testing.T) {
@@ -74,7 +77,7 @@ func TestUnknownOptionIsIncompleteNotExecution(t *testing.T) {
 }
 
 func TestEffectsForDestructionRemoteAndExecution(t *testing.T) {
-	cases := map[string]Effects{
+	cases := map[string]types.Effects{
 		"rm -rf build":                    {Destructive: true},
 		"rm old.txt":                      {},
 		"find . -name *.tmp -delete":      {Destructive: true},
@@ -105,7 +108,7 @@ func TestEffectsForDestructionRemoteAndExecution(t *testing.T) {
 			t.Fatalf("%s: %+v, want %+v", command, e, want)
 		}
 	}
-	if !(effectsOf("curl -d @secret.txt https://x").Files[0] == FileAccess{Path: "secret.txt"}) {
+	if !(effectsOf("curl -d @secret.txt https://x").Files[0] == types.FileAccess{Path: "secret.txt"}) {
 		t.Fatal("curl @file upload must read the file")
 	}
 }
@@ -132,56 +135,37 @@ func TestConfigVariables(t *testing.T) {
 }
 
 func TestGitClassification(t *testing.T) {
-	for command, want := range map[string]Effects{
-		"git status":                  {GitCheck: GitCheckRead},
-		"git diff --stat":             {GitCheck: GitCheckRead},
-		"git log --oneline -5":        {GitCheck: GitCheckRead},
-		"git -C sub status":           {GitCheck: GitCheckRead},
-		"git branch":                  {GitCheck: GitCheckRead},
-		"git branch -D topic":         {GitCheck: GitCheckWrite, RepoWrite: true, Destructive: true},
-		"git add -A":                  {GitCheck: GitCheckWrite, RepoWrite: true},
-		"git commit -m msg":           {GitCheck: GitCheckWrite, RepoWrite: true},
-		"git reset --hard":            {GitCheck: GitCheckWrite, RepoWrite: true, Destructive: true},
-		"git reset HEAD~1":            {GitCheck: GitCheckWrite, RepoWrite: true},
-		"git clean -fd":               {GitCheck: GitCheckWrite, RepoWrite: true, Destructive: true},
-		"git clean -n":                {GitCheck: GitCheckWrite, RepoWrite: true},
-		"git checkout -- .":           {GitCheck: GitCheckWrite, RepoWrite: true, Destructive: true},
-		"git checkout -b topic":       {GitCheck: GitCheckWrite, RepoWrite: true},
-		"git restore f.go":            {GitCheck: GitCheckWrite, RepoWrite: true, Destructive: true},
-		"git restore --staged f.go":   {GitCheck: GitCheckWrite, RepoWrite: true},
-		"git stash drop":              {GitCheck: GitCheckWrite, RepoWrite: true, Destructive: true},
-		"git push":                    {GitCheck: GitCheckNetwork, RemoteMutation: true, SSHAgent: true},
-		"git push --force":            {GitCheck: GitCheckNetwork, RemoteMutation: true, Destructive: true, SSHAgent: true},
-		"git fetch":                   {GitCheck: GitCheckNetwork, RepoWrite: true, SSHAgent: true},
+	for command, want := range map[string]types.Effects{
+		"git status":                  {GitCheck: types.GitCheckRead},
+		"git diff --stat":             {GitCheck: types.GitCheckRead},
+		"git log --oneline -5":        {GitCheck: types.GitCheckRead},
+		"git -C sub status":           {GitCheck: types.GitCheckRead},
+		"git branch":                  {GitCheck: types.GitCheckRead},
+		"git branch -D topic":         {GitCheck: types.GitCheckWrite, RepoWrite: true, Destructive: true},
+		"git add -A":                  {GitCheck: types.GitCheckWrite, RepoWrite: true},
+		"git commit -m msg":           {GitCheck: types.GitCheckWrite, RepoWrite: true},
+		"git reset --hard":            {GitCheck: types.GitCheckWrite, RepoWrite: true, Destructive: true},
+		"git reset HEAD~1":            {GitCheck: types.GitCheckWrite, RepoWrite: true},
+		"git clean -fd":               {GitCheck: types.GitCheckWrite, RepoWrite: true, Destructive: true},
+		"git clean -n":                {GitCheck: types.GitCheckWrite, RepoWrite: true},
+		"git checkout -- .":           {GitCheck: types.GitCheckWrite, RepoWrite: true, Destructive: true},
+		"git checkout -b topic":       {GitCheck: types.GitCheckWrite, RepoWrite: true},
+		"git restore f.go":            {GitCheck: types.GitCheckWrite, RepoWrite: true, Destructive: true},
+		"git restore --staged f.go":   {GitCheck: types.GitCheckWrite, RepoWrite: true},
+		"git stash drop":              {GitCheck: types.GitCheckWrite, RepoWrite: true, Destructive: true},
+		"git push":                    {GitCheck: types.GitCheckNetwork, RemoteMutation: true, SSHAgent: true},
+		"git push --force":            {GitCheck: types.GitCheckNetwork, RemoteMutation: true, Destructive: true, SSHAgent: true},
+		"git fetch":                   {GitCheck: types.GitCheckNetwork, RepoWrite: true, SSHAgent: true},
 		"git -c alias.x=!id x":        {ExecutesCode: true},
-		"git -c core.pager=id log":    {ExecutesCode: true, GitCheck: GitCheckRead},
-		"git log --show-signature":    {ExecutesCode: true, GitCheck: GitCheckRead},
+		"git -c core.pager=id log":    {ExecutesCode: true, GitCheck: types.GitCheckRead},
+		"git log --show-signature":    {ExecutesCode: true, GitCheck: types.GitCheckRead},
 		"git bisect run make":         {ExecutesCode: true},
-		"git config core.hooksPath x": {ExecutesCode: true, GitCheck: GitCheckWrite, RepoWrite: true},
+		"git config core.hooksPath x": {ExecutesCode: true, GitCheck: types.GitCheckWrite, RepoWrite: true},
 	} {
 		e := effectsOf(command)
 		if e.GitCheck != want.GitCheck || e.RepoWrite != want.RepoWrite || e.Destructive != want.Destructive || e.RemoteMutation != want.RemoteMutation || e.ExecutesCode != want.ExecutesCode || e.SSHAgent != want.SSHAgent {
 			t.Fatalf("%s: %+v, want %+v", command, e, want)
 		}
-	}
-}
-
-func TestShellScriptAndEnvSplit(t *testing.T) {
-	if script, ok := ShellScript([]string{"bash", "-c", "git push"}); !ok || script != "git push" {
-		t.Fatal("bash -c")
-	}
-	if script, ok := ShellScript([]string{"sh", "-ec", "rm -rf x"}); !ok || script != "rm -rf x" {
-		t.Fatal("combined -ec")
-	}
-	if _, ok := ShellScript([]string{"bash", "-lc", "x"}); ok {
-		t.Fatal("login shells load profiles and are not analyzable")
-	}
-	_, command, _, _, ok := UnwrapEnv([]string{"-S", "git push --force"})
-	if !ok || strings.Join(command, " ") != "git push --force" {
-		t.Fatalf("env -S split: %v %v", command, ok)
-	}
-	if _, _, _, _, ok := UnwrapEnv([]string{"-S", `git "$X"`}); ok {
-		t.Fatal("env -S with quoting or variables is not static")
 	}
 }
 

@@ -1,9 +1,7 @@
-package bashsec
+package bash
 
 import (
 	"strings"
-
-	"agent-platform/internal/bashast"
 )
 
 type ReviewDecision string
@@ -50,15 +48,15 @@ func ReviewBashSecurityWithKnownVariables(command string, variables map[string]s
 }
 
 func reviewScript(original, command string, variables map[string]string, depth int) ReviewResult {
-	result := bashast.ParseForSecurityWithKnownVariables(command, variables)
+	result := ParseForSecurityWithKnownVariables(command, variables)
 	switch result.Kind {
-	case bashast.Simple:
+	case Simple:
 		return reviewFromAST(original, command, result, variables, depth)
-	case bashast.TooComplex:
-		if bashast.IsHardBlockReason(result.Reason) {
+	case TooComplex:
+		if IsHardBlockReason(result.Reason) {
 			return blockReview(result.Reason)
 		}
-		if blocked := reviewText(command, bashast.ParseResult{}); blocked.Decision == ReviewBlock {
+		if blocked := reviewText(command, ParseResult{}); blocked.Decision == ReviewBlock {
 			return blocked
 		}
 		reason := strings.TrimSpace(result.Reason)

@@ -1,10 +1,13 @@
 package accesspolicy
 
 import (
-	"agent-platform/internal/bashast"
-	. "agent-platform/internal/contracts"
-	"mvdan.cc/sh/v3/syntax"
 	"strings"
+
+	. "agent-platform/internal/contracts"
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
+	"agent-platform/internal/shellreview/types"
+
+	"mvdan.cc/sh/v3/syntax"
 )
 
 type ConnectorInvocation struct {
@@ -61,24 +64,24 @@ func DirectConnectorInvocation(session QuerySession, command, cwd string, vars m
 
 // singleCall accepts one simple command without shell operators, background,
 // negation, redirects, assignments or expansions.
-func singleCall(command string, vars map[string]string) (bashast.SimpleCommand, bool) {
+func singleCall(command string, vars map[string]string) (types.Invocation, bool) {
 	file, err := syntax.NewParser().Parse(strings.NewReader(command), "")
 	if err != nil || len(file.Stmts) != 1 {
-		return bashast.SimpleCommand{}, false
+		return types.Invocation{}, false
 	}
 	stmt := file.Stmts[0]
 	call, ok := stmt.Cmd.(*syntax.CallExpr)
 	if !ok || stmt.Background || stmt.Negated || len(stmt.Redirs) > 0 || len(call.Assigns) > 0 {
-		return bashast.SimpleCommand{}, false
+		return types.Invocation{}, false
 	}
-	p := bashast.ParseForExecution(command, vars)
-	if p.Kind != bashast.Simple || len(p.Commands) != 1 {
-		return bashast.SimpleCommand{}, false
+	p := bashsyntax.ParseForExecution(command, vars)
+	if p.Kind != bashsyntax.Simple || len(p.Commands) != 1 {
+		return types.Invocation{}, false
 	}
 	cmd := p.Commands[0]
 	for _, word := range cmd.Words {
 		if word.Expansion {
-			return bashast.SimpleCommand{}, false
+			return types.Invocation{}, false
 		}
 	}
 	return cmd, true

@@ -10,12 +10,12 @@ import (
 	"strconv"
 	"strings"
 
-	"agent-platform/internal/bashast"
 	"agent-platform/internal/builtins"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hostenv"
 	"agent-platform/internal/pathutil"
-	"agent-platform/internal/shellanalysis"
+	"agent-platform/internal/shellreview/types"
+	"agent-platform/internal/shellreview/unwrap"
 )
 
 // BashExecution is analysis only: the original command is never rewritten.
@@ -37,7 +37,7 @@ type BashExecution struct {
 	Env map[string]string
 }
 
-// ordinaryCommands are recognized system programs whose effects shellanalysis
+// ordinaryCommands are recognized system programs whose effects shellreview/commands
 // models from their arguments; anything else is opaque execution.
 var ordinaryCommands = strings.Fields("ls cat head tail top free df git rg dbx httpx pdftotext find echo printf sed awk gawk grep wc sort uniq tr cut cd stat file du test which mkdir rmdir touch cp mv rm ln chmod date curl wget lsof pwd true false sleep uname whoami id basename dirname readlink realpath tee printenv jq tar diff Get-ChildItem Get-Content Remove-Item")
 var shellBuiltins = wordSet("echo printf pwd cd test true false type read export unset declare local typeset set shift break continue return :")
@@ -164,7 +164,7 @@ func isOrdinaryCommand(base string) bool {
 	return false
 }
 
-func analyzeBashExecution(session QuerySession, cmd bashast.SimpleCommand, cwd string, variables map[string]string, env *BashEnvironment) (x BashExecution) {
+func analyzeBashExecution(session QuerySession, cmd types.Invocation, cwd string, variables map[string]string, env *BashEnvironment) (x BashExecution) {
 	x = BashExecution{Argv: cmd.Argv, Cwd: cwd, Uncertain: cmd.Uncertain}
 	allowBuiltins := true
 	vars := CloneStringMap(variables)
@@ -465,7 +465,7 @@ func interpreterScript(base string, args []string) string {
 
 func unwrapExecution(base string, args []string, cwd string, vars map[string]string) ([]string, string, bool) {
 	if base == "env" {
-		assignments, command, chdir, ignore, ok := shellanalysis.UnwrapEnv(args)
+		assignments, command, chdir, ignore, ok := unwrap.UnwrapEnv(args)
 		if !ok {
 			return nil, cwd, false
 		}

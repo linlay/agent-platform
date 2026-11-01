@@ -9,9 +9,9 @@ import (
 
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/agentconfig"
-	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
 func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -35,7 +35,7 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 		return ToolExecutionResult{Output: err.Error(), Error: code, ExitCode: -1}, nil
 	}
 	accessReview := t.ReviewBashAccess(ctx, args, execCtx, t.cfg.AccessPolicy)
-	if security := accessReview.SecurityReview(command, bashSecurityKnownVariables(execCtx)); security.Decision == bashsec.ReviewBlock {
+	if security := accessReview.SecurityReview(command, bashSecurityKnownVariables(execCtx)); security.Decision == bashsyntax.ReviewBlock {
 		return ToolExecutionResult{Output: security.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
 	}
 	approvalSource := accesspolicy.BashApprovalSource(execCtx, accessReview)

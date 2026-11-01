@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"agent-platform/internal/bashast"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"agent-platform/internal/shellreview/types"
 )
 
@@ -76,7 +76,7 @@ func ReviewBashCommand(cfg config.AccessPolicyConfig, session QuerySession, comm
 func ReviewBashCommandInEnvironment(cfg config.AccessPolicyConfig, session QuerySession, command, cwd string, variables map[string]string, environment *BashEnvironment, ctx *ExecutionContext) BashPlan {
 	return reviewBashExecution(cfg, session, command, cwd, variables, environment, ctx)
 }
-func classifyRedirectAccess(redirect bashast.Redirect) redirectAccessKind {
+func classifyRedirectAccess(redirect types.Redirect) redirectAccessKind {
 	if redirect.IsHeredoc {
 		return redirectAccessNeutral
 	}
@@ -303,8 +303,8 @@ func resolveAgainstCwd(raw string, cwd string) string {
 }
 
 func containsUnresolvedPlaceholder(value string) bool {
-	return strings.Contains(value, bashast.CommandSubstitutionPlaceholder) ||
-		strings.Contains(value, bashast.TrackedVariablePlaceholder)
+	return strings.Contains(value, bashsyntax.CommandSubstitutionPlaceholder) ||
+		strings.Contains(value, bashsyntax.TrackedVariablePlaceholder)
 }
 
 func firstNonBlank(values ...string) string {

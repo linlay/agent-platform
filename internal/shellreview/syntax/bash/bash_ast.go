@@ -1,14 +1,14 @@
-package bashsec
+package bash
 
 import (
 	"fmt"
 	"strings"
 
-	"agent-platform/internal/bashast"
-	"agent-platform/internal/shellanalysis"
+	"agent-platform/internal/shellreview/types"
+	"agent-platform/internal/shellreview/unwrap"
 )
 
-func reviewFromAST(original, command string, result bashast.ParseResult, variables map[string]string, depth int) ReviewResult {
+func reviewFromAST(original, command string, result ParseResult, variables map[string]string, depth int) ReviewResult {
 	review := ReviewResult{Decision: ReviewAllow}
 	if blocked := reviewText(command, result); blocked.Decision == ReviewBlock {
 		return blocked
@@ -21,7 +21,7 @@ func reviewFromAST(original, command string, result bashast.ParseResult, variabl
 		if next.Decision == ReviewRequiresApproval && review.Decision == ReviewAllow {
 			review = next
 		}
-		if script, ok := shellanalysis.ShellScript(cmd.Argv); ok && depth < maxScriptDepth {
+		if script, ok := unwrap.ShellScript(cmd.Argv); ok && depth < maxScriptDepth {
 			inner := reviewScript(original, script, variables, depth+1)
 			if inner.Decision == ReviewBlock {
 				return inner
@@ -34,7 +34,7 @@ func reviewFromAST(original, command string, result bashast.ParseResult, variabl
 	return review
 }
 
-func reviewASTCommand(command string, cmd bashast.SimpleCommand) ReviewResult {
+func reviewASTCommand(command string, cmd types.Invocation) ReviewResult {
 	result := ReviewResult{Decision: ReviewAllow}
 	for _, argv := range deterministicCommandChain(cmd.Argv) {
 		if len(argv) == 0 {

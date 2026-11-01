@@ -1,10 +1,12 @@
-package bashast
+package bash
 
 import (
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"agent-platform/internal/shellreview/types"
 
 	"mvdan.cc/sh/v3/expand"
 	"mvdan.cc/sh/v3/syntax"
@@ -124,7 +126,7 @@ var unsafeDeclFlagRe = regexp.MustCompile(`^[+-][A-Za-z]*[niaA]`)
 type walker struct {
 	source   string
 	scope    *varScope
-	commands []SimpleCommand
+	commands []types.Invocation
 }
 
 const maxExtractedCommands = 256
@@ -170,7 +172,7 @@ func (w *walker) walkStmt(stmt *syntax.Stmt, scope *varScope) (*varScope, *walkE
 			return scope, err
 		}
 		if len(redirects) > 0 {
-			if err := w.appendCommand(SimpleCommand{Redirects: redirects, Text: w.sourceForNode(stmt), Variables: scope.knownValues()}); err != nil {
+			if err := w.appendCommand(types.Invocation{Redirects: redirects, Text: w.sourceForNode(stmt), Variables: scope.knownValues()}); err != nil {
 				return scope, err
 			}
 		}
@@ -270,7 +272,7 @@ func (w *walker) walkCallExpr(call *syntax.CallExpr, redirs []*syntax.Redirect, 
 			if err != nil {
 				return scope, err
 			}
-			if err := w.appendCommand(SimpleCommand{EnvVars: envVars, Redirects: redirects, Text: w.sourceForNode(stmt), Variables: scope.knownValues()}); err != nil {
+			if err := w.appendCommand(types.Invocation{EnvVars: envVars, Redirects: redirects, Text: w.sourceForNode(stmt), Variables: scope.knownValues()}); err != nil {
 				return scope, err
 			}
 		}
@@ -281,23 +283,17 @@ func (w *walker) walkCallExpr(call *syntax.CallExpr, redirs []*syntax.Redirect, 
 		return next, nil
 	}
 	argv := make([]string, 0, len(call.Args))
-	words := make([]WordSpan, 0, len(call.Args))
+	words := make([]types.WordSpan, 0, len(call.Args))
 	for _, word := range call.Args {
 		expanded, err := expandBraceWord(word)
 		if err != nil {
 			return scope, err
 		}
-		span := WordSpan{Start: int(word.Pos().Offset()), End: int(word.End().Offset())}
-		syntax.Walk(word, func(node syntax.Node) bool {
-			switch node.(type) {
-			case *syntax.CmdSubst, *syntax.ProcSubst, *syntax.ArithmExp:
-				span.Expansion = true
-			}
-			return true
-		})
+		span := wordSpan(word)
 		// Brace expansion yields several argv entries from one source span;
 		// the span stays shared so verified-connector projection remains exact.
 		span.Expansion = span.Expansion || len(expanded) > 1 || expanded[0] != word
+		span.Literal = span.Literal && !span.Expansion
 		for _, item := range expanded {
 			value, err := w.parseWord(item, scope)
 			if err != nil {
@@ -311,7 +307,7 @@ func (w *walker) walkCallExpr(call *syntax.CallExpr, redirs []*syntax.Redirect, 
 	if err != nil {
 		return scope, err
 	}
-	if err := w.appendCommand(SimpleCommand{
+	if err := w.appendCommand(types.Invocation{
 		Words:     words,
 		Variables: scope.knownValues(),
 		Argv:      argv,
@@ -330,7 +326,7 @@ func (w *walker) walkDeclClause(decl *syntax.DeclClause, redirs []*syntax.Redire
 	}
 	next := scope.snapshot()
 	argv := []string{decl.Variant.Value}
-	envVars := make([]EnvVar, 0, len(decl.Args))
+	envVars := make([]types.EnvVar, 0, len(decl.Args))
 	restrictedDecl := isRestrictedDeclVariant(decl.Variant.Value)
 	for _, assign := range decl.Args {
 		if assign == nil {
@@ -344,7 +340,7 @@ func (w *walker) walkDeclClause(decl *syntax.DeclClause, redirs []*syntax.Redire
 			if err != nil {
 				return scope, err
 			}
-			envVars = append(envVars, EnvVar{Name: assign.Name.Value, Value: value})
+			envVars = append(envVars, types.EnvVar{Name: assign.Name.Value, Value: value})
 			next.set(assign.Name.Value, value)
 			argv = append(argv, assign.Name.Value+"="+value)
 			continue
@@ -375,7 +371,7 @@ func (w *walker) walkDeclClause(decl *syntax.DeclClause, redirs []*syntax.Redire
 	if err != nil {
 		return scope, err
 	}
-	if err := w.appendCommand(SimpleCommand{
+	if err := w.appendCommand(types.Invocation{
 		Variables: scope.knownValues(),
 		Argv:      argv,
 		EnvVars:   envVars,
@@ -401,7 +397,7 @@ func (s *varScope) knownValues() map[string]string {
 	return values
 }
 
-func (w *walker) appendCommand(cmd SimpleCommand) *walkError {
+func (w *walker) appendCommand(cmd types.Invocation) *walkError {
 	if len(w.commands) >= maxExtractedCommands {
 		return tooComplex("syntax.File", "too many commands to analyze")
 	}
@@ -474,8 +470,8 @@ func (w *walker) walkForClause(clause *syntax.ForClause, scope *varScope) (*varS
 	return joinScopes(scope, body), nil
 }
 
-func (w *walker) parseAssignments(assigns []*syntax.Assign, scope *varScope) ([]EnvVar, *walkError) {
-	envVars := make([]EnvVar, 0, len(assigns))
+func (w *walker) parseAssignments(assigns []*syntax.Assign, scope *varScope) ([]types.EnvVar, *walkError) {
+	envVars := make([]types.EnvVar, 0, len(assigns))
 	for _, assign := range assigns {
 		if assign == nil {
 			continue
@@ -491,13 +487,13 @@ func (w *walker) parseAssignments(assigns []*syntax.Assign, scope *varScope) ([]
 			}
 			value = parsed
 		}
-		envVars = append(envVars, EnvVar{Name: assign.Name.Value, Value: value})
+		envVars = append(envVars, types.EnvVar{Name: assign.Name.Value, Value: value})
 	}
 	return envVars, nil
 }
 
-func (w *walker) parseRedirects(redirs []*syntax.Redirect, scope *varScope) ([]Redirect, *walkError) {
-	out := make([]Redirect, 0, len(redirs))
+func (w *walker) parseRedirects(redirs []*syntax.Redirect, scope *varScope) ([]types.Redirect, *walkError) {
+	out := make([]types.Redirect, 0, len(redirs))
 	for _, redir := range redirs {
 		if redir == nil {
 			continue
@@ -518,7 +514,7 @@ func (w *walker) parseRedirects(redirs []*syntax.Redirect, scope *varScope) ([]R
 			}
 			fd = parsed
 		}
-		next := Redirect{Op: redir.Op.String(), Target: target, Fd: fd}
+		next := types.Redirect{Op: redir.Op.String(), Target: target, TargetWord: wordSpan(redir.Word), Fd: fd}
 		if redir.Hdoc != nil {
 			if _, err := w.parseWord(redir.Hdoc, scope); err != nil {
 				return nil, err

@@ -1,12 +1,16 @@
-package shellanalysis
+package commands
 
-import "strings"
+import (
+	"strings"
+
+	"agent-platform/internal/shellreview/types"
+)
 
 // tarOperands models archive creation and extraction. Members named on the
 // command line during extraction are archive entries, not local paths; the
 // extraction target is -C or the working directory.
-func tarOperands(args []string) Effects {
-	var e Effects
+func tarOperands(args []string) types.Effects {
+	var e types.Effects
 	mode := byte(0)
 	archive, chdir := "", ""
 	var positional []string
@@ -33,9 +37,9 @@ func tarOperands(args []string) Effects {
 				case 'C':
 					chdir = value
 				case 'T', 'X':
-					e.Files = append(e.Files, FileAccess{Path: value})
+					e.Files = append(e.Files, types.FileAccess{Path: value})
 				case 'g':
-					e.Files = append(e.Files, FileAccess{Path: value, Write: true})
+					e.Files = append(e.Files, types.FileAccess{Path: value, Write: true})
 				}
 			case 'I':
 				e.ExecutesCode = true
@@ -97,7 +101,7 @@ func tarOperands(args []string) Effects {
 			case "directory":
 				chdir = take()
 			case "files-from", "exclude-from":
-				e.Files = append(e.Files, FileAccess{Path: take()})
+				e.Files = append(e.Files, types.FileAccess{Path: take()})
 			case "to-command", "use-compress-program", "rsh-command", "info-script", "new-volume-script", "checkpoint-action":
 				take()
 				e.ExecutesCode = true
@@ -134,10 +138,10 @@ func tarOperands(args []string) Effects {
 	switch mode {
 	case 'c', 'r', 'u', 'A':
 		if archive != "" && archive != "-" {
-			e.Files = append(e.Files, FileAccess{Path: archive, Write: true})
+			e.Files = append(e.Files, types.FileAccess{Path: archive, Write: true})
 		}
 		for _, p := range positional {
-			e.Files = append(e.Files, FileAccess{Path: join(p), Recursive: true})
+			e.Files = append(e.Files, types.FileAccess{Path: join(p), Recursive: true})
 		}
 		if e.Destructive {
 			for i := range e.Files {
@@ -146,19 +150,19 @@ func tarOperands(args []string) Effects {
 		}
 	case 'x':
 		if archive != "" && archive != "-" {
-			e.Files = append(e.Files, FileAccess{Path: archive})
+			e.Files = append(e.Files, types.FileAccess{Path: archive})
 		}
-		e.Files = append(e.Files, FileAccess{Path: base, Write: true, Recursive: true})
+		e.Files = append(e.Files, types.FileAccess{Path: base, Write: true, Recursive: true})
 	case 't', 'd':
 		if archive != "" && archive != "-" {
-			e.Files = append(e.Files, FileAccess{Path: archive})
+			e.Files = append(e.Files, types.FileAccess{Path: archive})
 		}
 		if mode == 'd' {
-			e.Files = append(e.Files, FileAccess{Path: base, Recursive: true})
+			e.Files = append(e.Files, types.FileAccess{Path: base, Recursive: true})
 		}
 	case 'D':
 		if archive != "" && archive != "-" {
-			e.Files = append(e.Files, FileAccess{Path: archive, Write: true})
+			e.Files = append(e.Files, types.FileAccess{Path: archive, Write: true})
 		}
 	default:
 		e.Incomplete = true

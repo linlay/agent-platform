@@ -1,13 +1,17 @@
-package shellanalysis
+package commands
 
-import "strings"
+import (
+	"strings"
+
+	"agent-platform/internal/shellreview/types"
+)
 
 // lsofOperands recognizes query selectors and output flags. Its optional
 // arguments may be attached (-iTCP:8080) or separate (-i TCP:8080).
 // Device-cache operations (-D), directory walks (+d/+D), and unknown options
 // retain opaque review rather than treating an unknown operation as read-only.
-func lsofOperands(args []string) Effects {
-	var e Effects
+func lsofOperands(args []string) types.Effects {
+	var e types.Effects
 	end := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -16,7 +20,7 @@ func lsofOperands(args []string) Effects {
 			continue
 		}
 		if end || !strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "+") {
-			e.Files = append(e.Files, FileAccess{Path: a})
+			e.Files = append(e.Files, types.FileAccess{Path: a})
 			continue
 		}
 		if len(a) < 2 || a[0] != '-' {

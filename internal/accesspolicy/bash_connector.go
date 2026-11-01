@@ -7,11 +7,11 @@ import (
 	"sort"
 	"strings"
 
-	"agent-platform/internal/bashast"
-	"agent-platform/internal/bashsec"
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
+	"agent-platform/internal/shellreview/types"
 )
 
 // connectorExecution checks the actual target, including interpreter script
@@ -118,7 +118,7 @@ func connectorExecution(session QuerySession, x BashExecution, vars map[string]s
 // connectorReviewCommand removes only verified CLI words from analysis. The
 // original source is always executed; redirects, assignments, operators and
 // nested shell commands remain subject to ordinary review.
-func connectorReviewCommand(command string, words []bashast.WordSpan) string {
+func connectorReviewCommand(command string, words []types.WordSpan) string {
 	sort.Slice(words, func(i, j int) bool { return words[i].Start < words[j].Start })
 	var out strings.Builder
 	end := 0
@@ -136,17 +136,17 @@ func connectorReviewCommand(command string, words []bashast.WordSpan) string {
 
 // SecurityReview binds any residual shell approval to the original command,
 // never to the neutral projection used to exclude mounted CLI payloads.
-func (p BashPlan) SecurityReview(command string, variables map[string]string) bashsec.ReviewResult {
+func (p BashPlan) SecurityReview(command string, variables map[string]string) bashsyntax.ReviewResult {
 	if reason := rawTextRejection(command, p.UnknownDialect); reason != "" {
-		return bashsec.ReviewResult{Decision: bashsec.ReviewBlock, Reason: reason}
+		return bashsyntax.ReviewResult{Decision: bashsyntax.ReviewBlock, Reason: reason}
 	}
 	if p.UnknownDialect {
 		// The whole-call access requirement carries unsupported grammar review.
-		return bashsec.ReviewResult{Decision: bashsec.ReviewAllow}
+		return bashsyntax.ReviewResult{Decision: bashsyntax.ReviewAllow}
 	}
-	result := bashsec.ReviewBashSecurityWithKnownVariables(p.ShellReviewCommand(command), variables)
+	result := bashsyntax.ReviewBashSecurityWithKnownVariables(p.ShellReviewCommand(command), variables)
 	if result.Fingerprint != "" {
-		result.Fingerprint = bashsec.ApprovalFingerprint(command)
+		result.Fingerprint = bashsyntax.ApprovalFingerprint(command)
 		if p.LaunchFingerprint != "" {
 			sum := sha256.Sum256([]byte(result.Fingerprint + "\x00" + p.LaunchFingerprint))
 			result.Fingerprint = hex.EncodeToString(sum[:])

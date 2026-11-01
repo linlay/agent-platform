@@ -10,12 +10,12 @@ import (
 	"agent-platform/internal/accesspolicy"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
-	"agent-platform/internal/bashsec"
 	"agent-platform/internal/chat"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
 	. "agent-platform/internal/models"
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
 type llmRunStream struct {
@@ -196,7 +196,7 @@ type preparedToolInvocation struct {
 	awaitExternalResult      bool
 	toolCallCounted          bool
 	precheckedHITL           *hitl.InterceptResult
-	bashSecurityReview       *bashsec.ReviewResult
+	bashSecurityReview       *bashsyntax.ReviewResult
 	bashAccessReview         *accesspolicy.BashPlan
 	shownApproval            *approvalRequest // immutable requirements displayed to the user
 	fileAccessPlan           *filetools.AccessPlan

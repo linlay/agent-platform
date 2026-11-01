@@ -3,9 +3,9 @@ package llm
 import (
 	"context"
 
-	"agent-platform/internal/bashsec"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
 // Capture the child's execution environment and invocation bytes. Re-evaluation
@@ -69,7 +69,7 @@ func (s *llmRunStream) mailApprovalDelegator(calls ...*preparedToolInvocation) f
 					return deny()
 				}
 				security := plan.SecurityReview(mapStringArg(inv.args, "command"), review.knownRuntimeVariables())
-				if security.Decision == bashsec.ReviewBlock || (security.Decision == bashsec.ReviewRequiresApproval && !review.shouldAutoApproveBashSecurity(security)) {
+				if security.Decision == bashsyntax.ReviewBlock || (security.Decision == bashsyntax.ReviewRequiresApproval && !review.shouldAutoApproveBashSecurity(security)) {
 					return deny()
 				}
 				// A view form review always waits for a person.

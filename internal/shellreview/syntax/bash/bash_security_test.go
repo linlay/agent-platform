@@ -1,4 +1,4 @@
-package bashsec
+package bash
 
 import (
 	"strings"

@@ -11,10 +11,10 @@ import (
 
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/api"
-	"agent-platform/internal/bashsec"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
 type approvedBashStart struct {
@@ -42,8 +42,8 @@ func (e *approvedBashExecutor) Invoke(ctx context.Context, _ string, args map[st
 	if plan.Blocked() || (plan.RequiresApproval() && !accesspolicy.ConsumeApproval(execution, plan)) {
 		return ToolExecutionResult{Error: "bash_access_approval_required", ExitCode: -1}, nil
 	}
-	security := bashsec.ReviewBashSecurity(mapStringArg(args, "command"))
-	if security.Decision == bashsec.ReviewRequiresApproval {
+	security := bashsyntax.ReviewBashSecurity(mapStringArg(args, "command"))
+	if security.Decision == bashsyntax.ReviewRequiresApproval {
 		if execution.BashSecurityApprovals[security.Fingerprint] != 1 {
 			return ToolExecutionResult{Error: "bash_security_approval_required", ExitCode: -1}, nil
 		}

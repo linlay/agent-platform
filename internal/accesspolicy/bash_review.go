@@ -9,11 +9,13 @@ import (
 	"sort"
 	"strings"
 
-	"agent-platform/internal/bashast"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
-	"agent-platform/internal/shellanalysis"
+	"agent-platform/internal/shellreview/commands"
 	shellsyntax "agent-platform/internal/shellreview/syntax"
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
+	"agent-platform/internal/shellreview/types"
+	"agent-platform/internal/shellreview/unwrap"
 )
 
 // maxShellScriptDepth bounds recursive analysis of literal `bash -c` scripts.
@@ -44,7 +46,7 @@ func rawTextRejection(command string, unknownDialect bool) string {
 	if unknownDialect {
 		return shellsyntax.CheckAll(command)
 	}
-	return bashast.CheckRawText(command)
+	return bashsyntax.CheckRawText(command)
 }
 
 // DefaultBashCwd is the working directory used when a Bash call names none.
@@ -132,11 +134,11 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 		plan.UnknownDialect = true
 		return plan
 	}
-	parsed := bashast.ParseForSecurityWithKnownVariables(command, variables)
+	parsed := bashsyntax.ParseForSecurityWithKnownVariables(command, variables)
 	if len(session.ConnectorCLIEntries) > 0 {
-		parsed = bashast.ParseForExecution(command, variables)
+		parsed = bashsyntax.ParseForExecution(command, variables)
 	}
-	if parsed.Kind != bashast.Simple {
+	if parsed.Kind != bashsyntax.Simple {
 		pathReview(ReadAccess, workingDir)
 		if editingDisabled && PathInSessionWorkspace(session, workingDir) {
 			add(bashPlan(command, accessLevel, DecisionBlock, workspaceReadOnlyExecutionReason, "bash-access:workspace-readonly", workingDir))
@@ -144,7 +146,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 		add(bashPlanForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "bash command is too complex for access-policy path analysis", "bash-access:complex"))
 		return combineBashPlans(command, accessLevel, plans)
 	}
-	var connectorWords []bashast.WordSpan
+	var connectorWords []types.WordSpan
 	connectorIDs := map[string]bool{}
 	onlyConnectors := len(parsed.Commands) > 0
 	if len(parsed.Commands) == 0 {
@@ -184,7 +186,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 				executes = true
 				add(bashPlanForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "bash execution wrapper or target cannot be resolved statically", "bash-access:complex"))
 			case x.Opaque:
-				if script, ok := shellanalysis.ShellScript(x.Argv); ok && x.TrustedInterpreter && depth < maxShellScriptDepth {
+				if script, ok := unwrap.ShellScript(x.Argv); ok && x.TrustedInterpreter && depth < maxShellScriptDepth {
 					// A literal `bash -c` script is analyzed like the outer command, so
 					// wrappers cannot hide remote mutations or file effects.
 					inner := reviewBashScript(cfg, session, script, x.Cwd, variables, environment, execCtx, depth+1)
@@ -221,8 +223,8 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 					}
 				}
 			default:
-				effects := shellanalysis.Operands(commandFamily(x.Argv[0]), x.Argv[1:])
-				for _, name := range shellanalysis.ConfigVariables(commandFamily(x.Argv[0]), x.Argv[1:]) {
+				effects := commands.Operands(commandFamily(x.Argv[0]), x.Argv[1:])
+				for _, name := range commands.ConfigVariables(commandFamily(x.Argv[0]), x.Argv[1:]) {
 					if x.Env[name] != "" {
 						effects.ExecutesCode = true
 					}
@@ -264,8 +266,8 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 						}
 					}
 				}
-				gitClean := effects.GitCheck != shellanalysis.GitCheckNone && !effects.ExecutesCode && gitExecutionClean(session, x, repoDir, effects.GitCheck, variables)
-				if effects.ExecutesCode || effects.GitCheck != shellanalysis.GitCheckNone && !gitClean {
+				gitClean := effects.GitCheck != types.GitCheckNone && !effects.ExecutesCode && gitExecutionClean(session, x, repoDir, effects.GitCheck, variables)
+				if effects.ExecutesCode || effects.GitCheck != types.GitCheckNone && !gitClean {
 					executes = true
 					add(opaquePlan(x))
 				} else if effects.Incomplete {

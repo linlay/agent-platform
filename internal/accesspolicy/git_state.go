@@ -14,7 +14,7 @@ import (
 	"time"
 
 	. "agent-platform/internal/contracts"
-	"agent-platform/internal/shellanalysis"
+	"agent-platform/internal/shellreview/types"
 )
 
 // gitStateTTL bounds reuse of a configuration scan whose watched files did not
@@ -32,12 +32,12 @@ var gitStateCache = struct {
 	entries map[string]gitStateEntry
 }{entries: map[string]gitStateEntry{}}
 
-// gitExecutionClean reports whether a Git invocation classified by
-// shellanalysis runs no program implicitly: effective configuration defines no
+// gitExecutionClean reports whether a Git invocation classified by command
+// analysis runs no program implicitly: effective configuration defines no
 // fsmonitor, diff driver, filter or signature program for reads, and for local
 // writes additionally no hook, editor, credential helper or signing program.
-func gitExecutionClean(session QuerySession, x BashExecution, dir string, check shellanalysis.GitCheck, vars map[string]string) bool {
-	if session.AgentHasRuntimeSandbox || check == shellanalysis.GitCheckNone {
+func gitExecutionClean(session QuerySession, x BashExecution, dir string, check types.GitCheck, vars map[string]string) bool {
+	if session.AgentHasRuntimeSandbox || check == types.GitCheckNone {
 		return false
 	}
 	program := x.Program
@@ -58,7 +58,7 @@ func gitExecutionClean(session QuerySession, x BashExecution, dir string, check 
 	gitDir, _ := runGit(program, canonicalDir, env, "rev-parse", "--absolute-git-dir")
 	gitDir = strings.TrimSpace(gitDir)
 	hooksDir := ""
-	if check != shellanalysis.GitCheckRead && gitDir != "" {
+	if check != types.GitCheckRead && gitDir != "" {
 		if out, err := runGit(program, canonicalDir, env, "rev-parse", "--git-path", "hooks"); err == nil {
 			hooksDir = strings.TrimSpace(out)
 			if hooksDir != "" && !filepath.IsAbs(hooksDir) {
@@ -81,7 +81,7 @@ func gitExecutionClean(session QuerySession, x BashExecution, dir string, check 
 	return clean
 }
 
-func scanGitState(program, dir string, env []string, check shellanalysis.GitCheck, hooksDir string) bool {
+func scanGitState(program, dir string, env []string, check types.GitCheck, hooksDir string) bool {
 	out, err := runGit(program, dir, env, "config", "--list", "-z")
 	if err != nil {
 		return false
@@ -95,7 +95,7 @@ func scanGitState(program, dir string, env []string, check shellanalysis.GitChec
 			return false
 		}
 	}
-	if check != shellanalysis.GitCheckRead && hooksDir != "" {
+	if check != types.GitCheckRead && hooksDir != "" {
 		entries, err := os.ReadDir(hooksDir)
 		if err != nil && !os.IsNotExist(err) {
 			return false
@@ -116,7 +116,7 @@ func scanGitState(program, dir string, env []string, check shellanalysis.GitChec
 	return true
 }
 
-func gitKeyRunsProgram(key, value string, check shellanalysis.GitCheck) bool {
+func gitKeyRunsProgram(key, value string, check types.GitCheck) bool {
 	falsy := value == "" || strings.EqualFold(value, "false") || value == "0" || strings.EqualFold(value, "no") || strings.EqualFold(value, "off")
 	switch {
 	case key == "core.fsmonitor":
@@ -131,7 +131,7 @@ func gitKeyRunsProgram(key, value string, check shellanalysis.GitCheck) bool {
 	case key == "log.showsignature":
 		return !falsy
 	}
-	if check == shellanalysis.GitCheckRead {
+	if check == types.GitCheckRead {
 		return false
 	}
 	switch {
@@ -144,7 +144,7 @@ func gitKeyRunsProgram(key, value string, check shellanalysis.GitCheck) bool {
 	case strings.HasPrefix(key, "merge.") && strings.HasSuffix(key, ".driver"):
 		return !falsy
 	}
-	if check != shellanalysis.GitCheckNetwork {
+	if check != types.GitCheckNetwork {
 		return false
 	}
 	switch {

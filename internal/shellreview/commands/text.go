@@ -1,9 +1,13 @@
-package shellanalysis
+package commands
 
-import "strings"
+import (
+	"strings"
 
-func sedOperands(args []string) Effects {
-	var e Effects
+	"agent-platform/internal/shellreview/types"
+)
+
+func sedOperands(args []string) types.Effects {
+	var e types.Effects
 	var scripts, positional []string
 	inPlace, sandbox, fromFile := false, false, false
 	end := false
@@ -34,10 +38,10 @@ func sedOperands(args []string) Effects {
 			}
 			i++
 			fromFile = true
-			e.Files = append(e.Files, FileAccess{Path: args[i]})
+			e.Files = append(e.Files, types.FileAccess{Path: args[i]})
 		case strings.HasPrefix(a, "--file="):
 			fromFile = true
-			e.Files = append(e.Files, FileAccess{Path: strings.TrimPrefix(a, "--file=")})
+			e.Files = append(e.Files, types.FileAccess{Path: strings.TrimPrefix(a, "--file=")})
 		case a == "-i" || strings.HasPrefix(a, "-i") || a == "--in-place" || strings.HasPrefix(a, "--in-place="):
 			inPlace = true
 		case a == "-l" || a == "--line-length":
@@ -65,7 +69,7 @@ func sedOperands(args []string) Effects {
 	}
 	for _, p := range positional {
 		if p != "-" {
-			e.Files = append(e.Files, FileAccess{Path: p, Write: inPlace})
+			e.Files = append(e.Files, types.FileAccess{Path: p, Write: inPlace})
 		}
 	}
 	if e.Incomplete {
@@ -232,8 +236,8 @@ func sedScriptSafe(script string) bool {
 	return depth == 0
 }
 
-func awkOperands(args []string) Effects {
-	var e Effects
+func awkOperands(args []string) types.Effects {
+	var e types.Effects
 	var positional []string
 	program := ""
 	hasProgram := false
@@ -259,7 +263,7 @@ func awkOperands(args []string) Effects {
 			if i+1 < len(args) {
 				i++
 				if a == "-f" || a == "--file" || a == "-i" || a == "--include" {
-					e.Files = append(e.Files, FileAccess{Path: args[i]})
+					e.Files = append(e.Files, types.FileAccess{Path: args[i]})
 				}
 				hasProgram = hasProgram || a == "-f" || a == "--file" || a == "-e" || a == "--source"
 			}
@@ -278,7 +282,7 @@ func awkOperands(args []string) Effects {
 			continue // command-line variable assignment
 		}
 		if p != "-" {
-			e.Files = append(e.Files, FileAccess{Path: p})
+			e.Files = append(e.Files, types.FileAccess{Path: p})
 		}
 	}
 	if e.Incomplete {

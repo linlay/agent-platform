@@ -1,16 +1,16 @@
-package bashsec
+package bash
 
 import (
 	"fmt"
 	"strings"
 
-	"agent-platform/internal/shellanalysis"
+	"agent-platform/internal/shellreview/unwrap"
 )
 
 // normalizedCommandBase shares command-name normalization with the access
 // policy and hook matching so a ".exe" suffix means the same thing everywhere.
 func normalizedCommandBase(command string) string {
-	return shellanalysis.CommandName(command)
+	return unwrap.CommandName(command)
 }
 
 func deterministicCommandChain(argv []string) [][]string {
@@ -61,7 +61,7 @@ func unwrapCommandBuiltin(args []string) ([]string, bool) {
 }
 
 func unwrapEnv(args []string) ([]string, bool) {
-	_, command, _, _, ok := shellanalysis.UnwrapEnv(args)
+	_, command, _, _, ok := unwrap.UnwrapEnv(args)
 	if !ok || len(command) == 0 {
 		return nil, false
 	}

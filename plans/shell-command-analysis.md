@@ -1,7 +1,7 @@
 # Shell 命令审批：分层流水线与目录方案
 
-> 状态：部分实施。启动合同与方言保护（实施计划 S0–S2）已在 `5554545f` 实现，复审补丁见 `ef0b41f4` 与实施计划 §8.6，选项与隐式配置补丁见实施计划 §8.8；目录迁移、命令事实细化、PowerShell AST 和两套审批合并尚未实施。
-> 核对日期：2026-10-31（§8.2 第 1、2、6 项已确认并移入 §8.1）。进度、下一步与遗留项见[实施计划](shell-command-analysis-implementation.md)第 0 节；其评审意见 R1–R8 已并入本文。Windows 结论未在 Windows 上端到端运行。
+> 状态：部分实施。启动合同与方言保护（实施计划 S0–S2）已在 `5554545f` 实现，复审补丁见 `ef0b41f4` 与实施计划 §8.6，选项与隐式配置补丁见实施计划 §8.8；S3 已迁入 Bash 解析/语法审查、命令语义与共享包装辅助函数，并保留字面量来源（实施计划 §8.10）。身份/资源/plan/policy 拆分、命令事实细化、PowerShell AST 和两套审批合并尚未完成。
+> 核对日期：2026-10-31（原 §8.2 第 1、2、3、4、6 项已确认并移入 §8.1；第 3、4 项仅设计已决定，分别待 S6、S5 实现与目标环境验收）。进度、下一步与遗留项见[实施计划](shell-command-analysis-implementation.md)第 0 节；其评审意见 R1–R8 已并入本文。Windows 结论未在 Windows 上端到端运行。
 
 ## 1. 目标
 
@@ -100,7 +100,7 @@ echo "\" ; Remove-Item -Recurse C:\x ; echo "\"
 
 其余都是不支持的方言或模板：Windows 的 PowerShell、cmd、bash.exe（MSYS），以及其他 Shell、登录/交互模板、附加源码的模板。容器使用容器内 bash，不经 LaunchSpec。单条直接连接器调用不经 Shell。
 
-**1 语法**：每种方言一个解析器，输出相同的调用结构。Bash 使用 mvdan/sh；PowerShell 使用 PowerShell 自带的 AST 解析器（6.2）。Shell 级硬阻断归这一层：
+**1 语法**：每种方言一个解析器，输出相同的调用结构。Bash 使用 mvdan/sh；PowerShell 使用 PowerShell 自带的 AST 解析器（6.2）。参数与重定向目标保留原始源范围及是否为字面量，不能在变量、glob 或其他展开完成后仅凭结果字符串恢复来源；S3 保留来源，S4 将来源传到每个文件事实。Shell 级硬阻断归这一层：
 - Bash：引号外的 Unicode 空白与零宽/格式字符（引号内是数据，原样保留）、IFS、`/proc/*/environ`、`eval`/`source`/`exec`/`trap`/`alias` 等改变 Shell 自身状态的内建命令、zsh 模块命令。`bashsec` 与严格模式的同类名单合并到这里。
 - PowerShell：改变命令解析的命令（6.2）。
 - 所有方言（包括未知方言），任何位置：控制字符、双向覆盖与隔离字符、无效 UTF-8。它们会让审批卡片显示的内容与实际字节不一致，与语法无关。
@@ -136,6 +136,16 @@ echo "\" ; Remove-Item -Recurse C:\x ; echo "\"
 
 探针失败不能擦掉已经发现的 HardViolation，也不能覆盖已识别的读写、删除和远端事实。
 
+**空设备合同（原待确认第 3 项，设计已决定，S6 实现）**：
+
+- Unix 只将去除语法引号后字面值严格等于 `/dev/null` 的操作数或重定向目标列为候选，不做 trim、home 展开或路径规整后匹配。`//dev/null`、`/dev/./null`、相对路径、变量或 glob 展开所得目标、指向空设备的符号链接不享受豁免，继续原有路径审查。`/dev/zero`、`/dev/full`、`/dev/tty`、`/dev/stdout`、`/dev/stderr`、`/dev/fd/*`、随机设备均不算空设备。
+- Linux/macOS Host 用 `Lstat` 检查末级目标，不跟随符号链接；要求字符设备且 `Rdev` 主次设备号分别为 Linux `1:3`、macOS `3:2`。按 GOOS 隔离实现，检查函数可注入替身；其他 Unix GOOS 不授予空设备豁免。不在启动时冻结设备身份。
+- 容器必须在实际执行容器内探测，复用现有只读策略探针通道。使用镜像中预先确定的受信任 stat 绝对路径，不按用户 PATH 搜索；输出数字字段 `%f|%t|%T`，校验文件类型位与十六进制设备号 `1:3`，不跟随末级链接，不依赖 `%F` 的本地化类型文本。探针路径、参数兼容性与不可免审批替换的入口在镜像验收时核实，不假定所有镜像都位于 `/usr/bin/stat`。
+- 已确认是普通文件、符号链接或其他设备：无空设备豁免，继续路径审查；探针失败、超时、输出不合法或身份无法确认：`Unresolved`，保留可见路径要求并追加 Unknown(path)；已发现的 `HardViolation` 保持阻断。不得为降低延迟退回信任字面字符串。
+- 预审与启动前复审分别重新检查；同一次审查、同一执行环境内可复用一次设备结果（含失败），不同审查、Run 或容器之间不缓存。这是执行前核验，不承诺消除核验后资源变化的竞争窗口。
+- 仅抵消完整识别调用的 `Read`、`Output` 对应路径要求。`Incomplete`/UnknownOption 影响的当前调用不豁免，不将不完整状态扩大到独立兄弟调用。`Create/Delete/Rename/Chmod/Link` 与可能替换目标的 cp、mv、install、ln 目标操作不豁免；不能仅因目标是 `/dev/null` 就把目标操作降为 Output。
+- readonly、平台保护、临时根逃逸和管理员显式 block 先于抵消；执行代码、删除、上传、远端修改及其他目标的要求各自保留。Windows 的 `$null` 语法丢弃与 `NUL` 设备候选分开处理，见 6.5。
+
 **6 策略**：见 3.3、3.4。
 
 **7 合并**：沿用现有 BashPlan 的叶子要求、规则批准与精确批准语义。每个叶子关联调用、事实来源（argv 下标、规则）与启动绑定：
@@ -148,7 +158,7 @@ S7 合并 `bashsec` 的批准时，保持 HITL 公开形状与规则语义，协
 ### 3.3 策略层判断顺序
 
 1. **硬阻断**（任何档位、任何批准都不能放宽）：Shell 级硬阻断、资源层 HardViolation、递归目标包含受保护子树、容器 glob、editing=false 时在 Workspace 内写入或执行 Exec、管理员显式 block。
-2. **按合同抵消**：资源层确认的空设备只抵消该 Output 的路径要求；连接器入口、本次选中技能脚本、本 Run 自写脚本的凭据只抵消对应调用的 Exec。两者都不能删除兄弟要求（R8）。
+2. **按合同抵消**：资源层确认的空设备只抵消完整识别调用中该 Read/Output 的路径要求；PowerShell AST 确认的 `$null` 重定向直接表示语法丢弃输出，不当作文件设备探测（6.5）。当前调用分析不完整时不享受空设备路径豁免。连接器入口、本次选中技能脚本、本 Run 自写脚本的凭据只抵消对应调用的 Exec。各类抵消都不能删除兄弟要求（R8）。
 3. **逐个事实查映射表**（3.4）。
 4. **合并**：同一调用的多个要求各自成为叶子，规则批准只覆盖对应叶子。
 
@@ -162,7 +172,7 @@ S7 合并 `bashsec` 的批准时，保持 HITL 公开形状与规则语义，协
 | Output / Create / Delete / Rename / Chmod / Link | 越出写根 | `write-outside-roots` |
 | 同上 | 在写根内 | `bash-write-in-write-roots` |
 | 写入 Git 可执行配置路径 | — | `executable-config`（由路径规则判定，现状） |
-| Output | 目标经第 5 层确认为空设备 | 无要求 |
+| Read / Output | 当前调用分析完整，字面候选经第 5 层确认为空设备，且未命中硬阻断 | 仅抵消该项路径要求 |
 | Delete（递归）/ Discard（丢弃未提交修改） | — | `destructive` |
 | RemoteMutation | — | `remote-mutation` |
 | Exec、UnknownBehavior、Dep 核验失败 | 无凭据抵消 | `bash-opaque-command` |
@@ -315,11 +325,11 @@ internal/shellreview/                # Shell 审批唯一入口
   review.go                          # Review(Input) BashPlan：按层调用，不出现任何命令名
   input.go                           # 命令、cwd、环境、LaunchSpec、session、执行环境探针
   dialect/                           # 方言枚举（已建；叶子包，hostshell 也依赖它）
-  types/                             # 中立类型（已建 LaunchBinding）；后续加入 Invocation、Effects、Op、Unknown、Dep
+  types/                             # 已建 LaunchBinding/Invocation/Effects 与来源类型；Op/Unknown/Dep 留 S4
   syntax/
-    bash/                            # 第1层 Bash：现 bashast + bashsec 的 Shell 级检查
+    bash/                            # 第1层 Bash：已迁入原 bashast + bashsec；两套审批对象尚未合并
     powershell/                      # 第1层 PowerShell（S5）
-      helper.ps1                     # 固定 helper 脚本（go:embed）：只解析，不执行
+      helper.ps1                     # 固定 helper（go:embed）：解析与受限身份查询，不执行用户命令或自动加载待查模块
       helper.go                      # helper 进程：启动、请求、超时、输出上限
       ast.go                         # AST 节点白名单 → 调用结构；硬阻断名单
     text.go                          # 文本检查：所有位置的控制/双向/编码检查；隐藏字符检查由调用方按引号规则选择范围
@@ -332,7 +342,7 @@ internal/shellreview/                # Shell 审批唯一入口
     scripts.go                       # 解释器脚本识别、shebang
     connector.go                     # 连接器入口核验与直接调用
   unwrap/                            # 第3层：包装命令与 bash -c，只此一份；由 review.go 与身份交替调度
-  commands/                          # 第4层：纯函数，无 IO
+  commands/                          # 第4层：已等价迁入原 shellanalysis 语义；registry、文件细拆与 Op 留 S4
     registry.go                      # 描述符聚合、Kind、按 Dialect + Name 查找
     options.go                       # 共享选项解析
     simple.go                        # echo printf pwd true false date sleep uname whoami id basename dirname which printenv test tr cd top free
@@ -349,7 +359,7 @@ internal/shellreview/                # Shell 审批唯一入口
     result.go                        # Known / Unresolved / HardViolation
     paths.go                         # 相对路径、glob、容器目录
     windows.go                       # 盘符、UNC、ADS、PowerShell provider 路径
-    devices.go                       # 空设备：确认实际设备身份；Unix /dev/null、Windows NUL 与 $null
+    devices.go                       # 空设备身份：Unix /dev/null、Windows NUL；$null 为语法层丢弃输出
     gitstate.go                      # Git 配置与 hooks 核验
     fingerprint.go                   # 执行环境与内容版本指纹
   policy/                            # 第6层
@@ -382,6 +392,8 @@ internal/shellreview/                # Shell 审批唯一入口
 保留不动：`internal/accesspolicy` 只保留文件工具也要用的通用路径策略（`BuildPathPlan`、`BuildSubtreePlan`、档位、session 路径解析、保护目录）；`internal/hostshell` 负责启动合同；`internal/shellenv`、`internal/scriptstate`、`internal/skillsexec` 不变；进程启动、凭据注入与进程生命周期仍归 `tools`。
 
 迁移某个旧入口时，同一变更改完所有调用方（`internal/tools`、`internal/llm`）并删除旧入口，不保留转发别名。两套授权对象在 S7 之前按现有合同共存，纯搬家时不改它们的形状。
+
+S3 首批已完成：原 `bashast`、`bashsec` 已整包迁到 `syntax/bash`，原 `shellanalysis` 的命令语义移到 `commands`，`command.go` 的共享辅助函数移到 `unwrap`。原 `SimpleCommand` 改为 `types.Invocation`，`WordSpan/Redirect/EnvVar` 与原 `Effects/FileAccess/GitCheck` 一并移到 `types`；调用方已切换，旧包已删除，公开 ruleKey 和两套批准对象不变。`WordSpan.Literal` 与重定向 `TargetWord` 仅保存来源事实，尚不启用新空设备豁免；`Expansion` 保持原连接器投影含义。身份/资源/plan/policy 与两套包装逻辑尚未拆分或合并，不能将整个 S3 标记完成。
 
 ### 5.3 依赖方向
 
@@ -421,12 +433,25 @@ accesspolicy ──────────> 不依赖 shellreview
 **做法**
 
 - 用与执行相同的 PowerShell 可执行文件解析。`powershell.exe`（5.1）与 `pwsh`（7）语法不同，例如 `&&`、`||` 只有 7 支持，所以不能用一个版本代替另一个。
-- 平台自带一个固定 helper 脚本（`go:embed`），以 `-NoProfile -NonInteractive` 启动，只调用 `[System.Management.Automation.Language.Parser]::ParseInput`，不执行被审查的命令。命令文本经 stdin 传入，不拼接进 helper 脚本或命令行。
+- 平台自带一个固定 helper 脚本（`go:embed`），用 `[System.Management.Automation.Language.Parser]::ParseInput` 解析，受限身份查询按 6.3 执行；不执行被审查的命令，不在审批前自动加载待检查模块。命令文本经 stdin 传入，不拼接进 helper 脚本或命令行。
 - helper 使用与执行相同的环境（PATH、PATHEXT、PSModulePath）与 cwd，输出 JSON：语句、调用、参数、重定向，以及每个命令名的解析结果（6.3）。Go 端按下方白名单映射为与 Bash 相同的调用结构。
-- 生命周期：先做无状态请求，每次审查启动一次 helper，正确性优先；有基准数据后再考虑常驻。常驻时每个请求带独立 ID、超时与输出上限，不在不同 Run 之间共享环境或会话状态（R4）。
-- helper 不可用、有解析错误、超时或输出不符合预期时，整条命令走未知方言合同。
+- 生命周期按下方固定合同执行；helper 普通故障进入 6.6，用户取消和启动绑定变化单独终止，不进入回退审批。
 - 解析对象是用户命令本身。平台前置的 UTF-8 输出设置和 `$env:PATH=` 环境绑定是固定模板，由单独测试覆盖其转义。
 - 预审与启动前复审都重新解析，不复用缓存的 AST。
+
+**helper 生命周期（原待确认第 4 项，设计已决定，S5 实现）**：
+
+1. 仅用于 Windows Host 的受支持 PowerShell 启动模板；容器 Bash 不使用它。一次审查启动一个 helper 进程，完成解析及获准的身份查询后退出；预审、启动前复审分别运行，不常驻、不缓存 AST 或身份。同一审查不为身份查询另起第二个 PowerShell。
+2. 使用 LaunchSpec 对应的 canonical 可执行文件，并核验摘要，继承与执行一致的有效环境、cwd；不通过 basename 或另一套 PATH 重新选择程序。自定义登录/profile、附加源码等未验证启动模板继续走 6.6。
+3. 参数固定为 `-NoProfile -NonInteractive -NoLogo -ExecutionPolicy Bypass -EncodedCommand <bootstrap>`。bootstrap 为固定短脚本，编码为 UTF-16LE 后 Base64；stdin 第一行传内嵌 helper 的 UTF-8 Base64，第二行传用户命令原始 UTF-8 字节的 Base64，写入后关闭 stdin。只有受平台控制的 helper 被构造并执行为 scriptblock，用户命令只能进入 Parser，不调用或求值。响应使用 `[Console]` 直接输出一行 UTF-8 JSON 的 Base64，避免管道格式化与 5.1 控制台编码差异。
+4. 固定启动参数用于无临时脚本文件的传输，不承诺绕过组策略、AMSI、EDR 或语言模式限制。受阻、超时或启动失败时按第 8 条处理；不自动改用另一套启动方式。
+5. 总预算 10 秒，从进入队列开始计时；全局最多同时运行 4 个 helper，等待可取消。stdout 编码后上限 1 MiB（包含行结束符），stderr 上限 64 KiB，命中上限即终止进程树；解码 JSON 上限 768 KiB。命令 UTF-8 原文上限 1 MiB，进入队列前检查；helper 源码不占命令限额。AST 最多输出 256 个调用，遍历深度最多 64；超出按不支持处理，不能静默截断。
+6. 用现有 Windows `processgroup.Run` 在挂起状态加入 Job 后恢复运行，隐藏窗口。退出、超时、超限、取消及协议失败均清理整棵进程树，释放并发槽；父请求取消直接返回取消，不申请未知方言批准。
+7. 响应协议固定 `v:1`，含真实 `psVersion`、`psEdition`、解析错误、语句结构及身份结果。Go 严格解码 Base64、UTF-8 与 JSON，只接收一个完整响应，拒绝未知字段、重复字段、尾随内容及无效源范围。LaunchBinding 当前尚无实际 PowerShell 版本字段，S5 需补充版本与执行身份绑定；只接受原生 Windows 验证过的 Desktop 5.1 / Core 7 版本与参数形态，不能只按程序名认为版本匹配，也不能将所有 7.x 视为同一传参合同。
+8. helper 不可用、启动失败、超时、非零退出、输出超限、协议不合法、版本不支持、用户命令有解析错误：整条命令走 6.6，提供稳定的失败类别与简短原因，不退回 Bash 分析。实际 Shell/模板/摘要/环境/cwd 绑定变化遵循原有 `bash_launch_changed` 合同，旧批准失效，不能通过回退继续消费旧批准；已发现的文本或资源硬阻断始终保留。
+9. 记录排队耗时、进程耗时、实际版本、失败类别，不记录命令正文、环境值或原始诊断载荷。分别测 5.1/7 冷启动、热启动及完整工具调用的 helper 总开销；p95 超过 1 秒时触发常驻设计评估，不自动切换。常驻需另行解决环境指纹隔离、新 runspace、请求关联和清理，不能在当前实现中预设安全等价。
+
+此生命周期合同不关闭第 5 项模块与身份规则；该项未经原生 Windows 验证前，不恢复相关命令的免审批。编码与启动参数依据 [PowerShell CLI](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_powershell_exe?view=powershell-5.1)，设备数字输出依据 [GNU stat](https://www.gnu.org/software/coreutils/manual/html_node/stat-invocation.html)；文档与交叉编译不能替代目标环境验收。
 
 **允许的节点**（白名单，其他节点一律 Unknown(syntax)）：
 
@@ -437,7 +462,7 @@ accesspolicy ──────────> 不依赖 shellreview
 | 常量参数：裸词、单引号字符串、不含变量和子表达式的双引号字符串、数字 | 参数 |
 | CommandParameterAst（`-Recurse`、`-Path:value`） | 参数，保留原文交给命令语义层匹配 |
 | `&` 调用常量命令名 | 同 CommandAst |
-| 文件重定向，目标为常量或 `$null` | Output；`$null` 为空设备 |
+| 文件重定向，目标为常量或 `$null` | 常量目标为 Output；AST 确认的 `$null` 为语法丢弃输出（6.5） |
 | 流合并重定向（`2>&1`） | 中性 |
 | `cd` / `Set-Location` / `sl` 加常量路径 | 与 Bash 的 cd 相同，记录可能的 cwd |
 
@@ -489,7 +514,9 @@ accesspolicy ──────────> 不依赖 shellreview
 
 ### 6.5 Windows 资源
 
-- 空设备：`NUL`、PowerShell 的 `$null` 重定向。Windows 上任意目录下的保留设备名（`NUL`、`CON`、`PRN`、`AUX`、`COM1`…，含带扩展名的形式）都指向设备而不是普通文件；只有 `NUL` 视为空设备，其他保留名为 Unresolved。
+- PowerShell 的 `$null` 重定向是语法丢弃输出：仅 AST 明确识别的自动变量 `$null` 在重定向目标位置适用，不查询文件身份；单引号字符串 `'$null'`、变量展开为同名字符串及作为外部程序普通参数的 `$null` 不适用。规则不能外推为 Bash 的输入重定向语法。
+- Windows 设备首批仅接受去除语法引号后的裸 `NUL`（大小写不敏感、不带目录或扩展名）作为候选。其实际打开行为、非修改式身份确认方法与重定向/外部程序参数差异，必须在原生 Windows 5.1/7 验收后才能启用路径豁免；只有字符设备类型不足以证明是空设备。未实现或未通过验收时为 `Unresolved`，不能按程序名或保留名字符串直接豁免。
+- `NUL.txt`、`C:\x\NUL`、`\\.\NUL`、扩展路径或其他保留设备名（`CON`、`PRN`、`AUX`、`COM1`…）首批统一 `Unresolved`，不进入普通文件快速放行。Windows 保留名语义受实际路径形式与 API 影响，不宣称任意写法都已经确认指向设备。
 - 路径：盘符绝对 `C:\`、盘符相对 `C:foo`、UNC `\\server\share`、`\\?\` 前缀、大小写不敏感、8.3 短名、ADS `file.txt:stream`、junction。无法确定为普通路径时为 Unresolved。
 - PowerShell provider 路径：`Env:`、`Alias:`、`Function:`、`Variable:`、`HKLM:`、`HKCU:`、`Cert:`、`WSMan:` 不是文件系统，一律 Unresolved；`Alias:`、`Function:` 的写入为 6.2 的硬阻断。`FileSystem::C:\x` 这类 provider 限定路径首批也按 Unresolved 处理。
 
@@ -523,6 +550,9 @@ accesspolicy ──────────> 不依赖 shellreview
 - helper 不可用、解析错误、超时：整条命令走未知方言合同。
 - 用 powershell.exe 与 pwsh 分别解析 `a && b`，结果与各自的执行行为一致。
 - 商店安装的 pwsh 应用执行别名需验证 LookPath、EvalSymlinks、内容摘要及实际启动，失败时保守拒绝；当前仅列入验收，未在原生 Windows 验证。
+- 5.1/7 分别验证 `-EncodedCommand` 下 stdin 两行协议与中文、引号、换行命令的逐字节往返；冷/热启动、含排队的总超时、并发上限、取消与进程树清理。非 Windows 使用 Go 假 helper 覆盖进程和协议失败，不能替代原生验收。
+- 企业策略、AMSI/EDR 阻止 bootstrap 或 helper 时，记录目标环境与失败类别，确认进入 6.6；带初始化标记的测试模块不得在审批前被加载。测试诊断不得泄露命令正文或环境值。
+- `$null`、`'$null'`、裸 `NUL`、带目录或扩展名的保留设备写法分别验收；Unix 符号链接与 cp 目标用例见附录 B，不把 Windows 的待验收结论写成已交付。
 - PowerShell 5.1 与 7 各用无害的 argv 回显程序，核对引号、空参数、空格、反斜杠、尾随斜杠和 Unicode。
 - 直接连接器调用在三档下行为不变。
 - 原生 Windows 运行：中文/空格路径、跨盘、UNC、junction、`NUL` 输出；交叉编译与 macOS 模拟不算验收。
@@ -560,6 +590,8 @@ S5 依赖 S3、S4，在这之前 Windows 两档每条命令都要人工审批。
   - 资源层按本次调用的有效环境（继承环境、run.env、命令内赋值与 export）求实际路径：不存在，无要求；探测失败，Unresolved；存在但 Agent 免审批写不到（写根外），视为用户自己的配置，无要求；存在且 Agent 免审批可写（写根内，或 `HOME` 等被改到可写位置），记 UnknownBehavior。
   - 记为 UnknownBehavior 并被批准时，批准绑定配置文件的内容摘要，内容变了旧批准失效。
 - 默认白名单（原 8.2 第 6 项，2026-10-31）：`bash.allowed-commands` 维持现有部署政策，不由 registry 或"存在解析器"生成。它只在严格模式下检查，默认模式只要求名单非空；登记分析器不等于允许，未登记的允许项（如 `df`、`dbx`、`httpx`）照旧按 opaque 审查。
+- 空设备身份（原 8.2 第 3 项，2026-10-31）：设计已决定，S6 实现与验收。Unix 仅认字面 `/dev/null` 并确认字符设备及主次设备号；容器必须探测，失败为 Unresolved，不因性能退回字符串信任。仅抵消完整调用的 Read/Output 路径要求，硬阻断优先。Windows `$null` 为 AST 语法丢弃，裸 `NUL` 仅为候选，身份确认与实际行为待原生验收；其余保留设备形式首批 Unresolved。完整合同见 3.2、3.3、6.5。
+- PowerShell helper 生命周期（原 8.2 第 4 项，2026-10-31）：设计已决定，S5 实现与验收。一次审查一个进程，解析与受限身份查询合并，使用冻结启动身份、环境与 cwd；固定 bootstrap/stdin Base64 协议、10 秒含排队预算、并发 4、输出和 AST 上限按 6.2。普通故障走 6.6，取消直接结束、绑定变化使旧批准失效；模块规则第 5 项仍待确认，不以生命周期决定恢复免审批。
 
 ### 8.2 待确认
 
@@ -567,8 +599,6 @@ S0 需要关闭以下事项；每项最晚在哪一步之前确认，见实施�
 
 | # | 事项 | 建议 |
 | --- | --- | --- |
-| 3 | 空设备身份 | 确认实际设备身份，不能只看路径字符串或"是字符设备"；`/dev/zero`、`/dev/tty` 不算丢弃输出 |
-| 4 | PowerShell helper 生命周期 | 先无状态请求，有基准数据再考虑常驻（6.2） |
 | 5 | PowerShell 模块与身份规则 | helper 与执行端一致且可验证；候选做法见 6.3，需在 Windows 核实 |
 | 7 | 首批 cmdlet | 按 6.4 的顺序，先只读，再文件修改，最后网络 |
 
@@ -596,6 +626,17 @@ S0 需要关闭以下事项；每项最晚在哪一步之前确认，见实施�
 | `tee /dev/null` | tee 的输出目标仍按写入审查 | S6 后去掉这一项路径要求，tee 的其他要求照常 |
 | `cmd > /dev/null` | — | 重定向本身现已不产生要求；`cmd` 自己的要求（Exec、上传等）照常，不能笼统写成无需审批 |
 | `rm /dev/null`、`chmod 600 /dev/null` | — | 不豁免 |
+| `cat /dev/null`、`cat < /dev/null` | 直接读取参数与重定向规则不统一 | S6 后仅在字面候选、身份确认且当前调用完整时移除该读取路径要求 |
+| `echo ok > '/dev/null'`、`echo ok > "/dev/null"` | — | 去除语法引号仍为字面候选；S6 校验设备后移除该输出路径要求 |
+| `echo ok > //dev/null`、`echo ok > /dev/./null`、`target=/dev/null; echo ok > "$target"` | 旧逻辑规整路径或丢失展开来源 | S6 不享受空设备豁免，继续路径审查 |
+| Workspace 的 `null-link` 指向 `/dev/null`，随后 `tee null-link` | — | 符号链接不享受空设备豁免；canonical 路径审查照常 |
+| `tee /dev/zero`，或 `/dev/null` 被换为普通文件/链接/错误设备号 | — | 已确认非空设备不豁免；相关路径与其他要求照常 |
+| `cp x /dev/null`、`mv x /dev/null`、`install x /dev/null`、`ln x /dev/null` | Write 不足以区分输出与替换目标 | 目标不得按 Output 豁免，源、目标、替换/删除/链接事实分别审查 |
+| 容器空设备探针超时、退出失败或输出异常 | — | Unresolved，保留可见事实并追加 complex；已有 readonly 等硬阻断不变 |
+| 当前调用带未知选项且目标为 `/dev/null` | — | 当前调用不豁免，保留 complex 和可见路径；不影响独立兄弟调用的完整性 |
+| `curl -F file=@/dev/null -o /dev/null URL` | — | 已确认空设备的读/输出路径可按合同抵消，上传/远端修改要求保留 |
+| PowerShell `echo ok > $null` 与 `echo ok > '$null'` | 语法丢弃与文件路径混淆 | 前者由 AST 确认语法丢弃，后者是文件路径，其他命令要求继续审查 |
+| Windows 裸 `NUL`、`NUL.txt`、`C:\x\NUL`、`\\.\NUL` | — | 裸名仅为候选，身份未验收前 Unresolved；其余写法首批 Unresolved |
 | 同名 Workspace 程序 `./lsof`，假 `env` / `bash` 包装 | — | 不取得 System 身份，不按包装展开 |
 | `cp a b`（`b` 已存在） | 只看最后一个操作数 | 源读、目标写、被替换对象都检查 |
 | 2.1 的 PowerShell 样例（Windows Host） | 被当成单个 echo 放行 | 当前单次人工（已实现）；S5 后解析出 `Remove-Item` 为 Exec |

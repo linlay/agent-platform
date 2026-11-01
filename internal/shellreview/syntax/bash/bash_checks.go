@@ -1,10 +1,10 @@
-package bashsec
+package bash
 
 import (
 	"regexp"
 	"strings"
 
-	"agent-platform/internal/bashast"
+	"agent-platform/internal/shellreview/types"
 )
 
 const procEnvironReason = "Command accesses /proc/*/environ which could expose sensitive environment variables"
@@ -21,7 +21,7 @@ func isProcEnviron(value string) bool {
 // reviewText keeps the few source-level checks that the AST cannot express:
 // IFS changes word splitting for the executing shell and /proc/*/environ
 // exposes other processes' secrets. Heredoc bodies are data and are skipped.
-func reviewText(command string, result bashast.ParseResult) ReviewResult {
+func reviewText(command string, result ParseResult) ReviewResult {
 	text := maskHeredocBodies(command, result)
 	if ifsRe.MatchString(text) {
 		return blockReview("Command contains IFS variable usage which could bypass security validation")
@@ -32,7 +32,7 @@ func reviewText(command string, result bashast.ParseResult) ReviewResult {
 	return ReviewResult{Decision: ReviewAllow}
 }
 
-func maskHeredocBodies(command string, result bashast.ParseResult) string {
+func maskHeredocBodies(command string, result ParseResult) string {
 	var masked []byte
 	for _, cmd := range result.Commands {
 		for _, redirect := range cmd.Redirects {
@@ -54,7 +54,7 @@ func maskHeredocBodies(command string, result bashast.ParseResult) string {
 	return string(masked)
 }
 
-func heredocMaskRange(command string, redirect bashast.Redirect) (int, int, bool) {
+func heredocMaskRange(command string, redirect types.Redirect) (int, int, bool) {
 	if !redirect.IsHeredoc {
 		return 0, 0, false
 	}

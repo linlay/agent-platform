@@ -1,6 +1,10 @@
-package shellanalysis
+package commands
 
-import "strings"
+import (
+	"strings"
+
+	"agent-platform/internal/shellreview/types"
+)
 
 // Git read commands whose only implicit program execution comes from
 // repository configuration (fsmonitor, diff drivers, filters, signing).
@@ -21,8 +25,8 @@ var gitWriteCommands = map[string]bool{
 
 var gitNetworkCommands = map[string]bool{"fetch": true, "pull": true, "push": true, "clone": true, "ls-remote": true, "submodule": true}
 
-func gitOperands(args []string) Effects {
-	var e Effects
+func gitOperands(args []string) types.Effects {
+	var e types.Effects
 	i := 0
 	for i < len(args) && strings.HasPrefix(args[i], "-") {
 		a := args[i]
@@ -33,10 +37,10 @@ func gitOperands(args []string) Effects {
 				e.Incomplete, e.ExecutesCode = true, true
 				return e
 			}
-			e.Files = append(e.Files, FileAccess{Path: args[i]})
+			e.Files = append(e.Files, types.FileAccess{Path: args[i]})
 			i++
 		case strings.HasPrefix(a, "-C") && len(a) > 2:
-			e.Files = append(e.Files, FileAccess{Path: a[2:]})
+			e.Files = append(e.Files, types.FileAccess{Path: a[2:]})
 		case a == "--no-pager" || a == "-P" || a == "--no-optional-locks" || a == "--literal-pathspecs" || a == "--glob-pathspecs" || a == "--noglob-pathspecs" || a == "--icase-pathspecs" || a == "--no-replace-objects" || a == "-p" || a == "--paginate":
 		default:
 			// -c/--config-env inject configuration; --git-dir/--work-tree/--exec-path
@@ -74,7 +78,7 @@ func gitOperands(args []string) Effects {
 		positional = append(positional, a)
 	}
 	for _, p := range afterDashes {
-		e.Files = append(e.Files, FileAccess{Path: p})
+		e.Files = append(e.Files, types.FileAccess{Path: p})
 	}
 	switch {
 	case gitReadCommands[sub] || isGitListing(sub, flags, positional):
@@ -83,17 +87,17 @@ func gitOperands(args []string) Effects {
 		}
 		if sub == "diff" && flags["--no-index"] {
 			for _, p := range positional {
-				e.Files = append(e.Files, FileAccess{Path: p})
+				e.Files = append(e.Files, types.FileAccess{Path: p})
 			}
 		}
-		e.GitCheck = GitCheckRead
+		e.GitCheck = types.GitCheckRead
 	case gitWriteCommands[sub]:
 		e.RepoWrite = true
-		e.GitCheck = GitCheckWrite
+		e.GitCheck = types.GitCheckWrite
 		gitWriteEffects(&e, sub, flags, positional, afterDashes)
 	case gitNetworkCommands[sub]:
 		e.SSHAgent = true
-		e.GitCheck = GitCheckNetwork
+		e.GitCheck = types.GitCheckNetwork
 		switch sub {
 		case "push":
 			e.RemoteMutation = true
@@ -109,10 +113,10 @@ func gitOperands(args []string) Effects {
 			e.RepoWrite = true
 		case "clone":
 			if len(positional) >= 2 {
-				e.Files = append(e.Files, FileAccess{Path: positional[len(positional)-1], Write: true, Recursive: true})
+				e.Files = append(e.Files, types.FileAccess{Path: positional[len(positional)-1], Write: true, Recursive: true})
 			} else {
 				// The destination is derived from the URL inside cwd.
-				e.Files = append(e.Files, FileAccess{Path: ".", Write: true})
+				e.Files = append(e.Files, types.FileAccess{Path: ".", Write: true})
 			}
 		}
 	default:
@@ -148,7 +152,7 @@ func isGitListing(sub string, flags map[string]bool, positional []string) bool {
 	return false
 }
 
-func gitWriteEffects(e *Effects, sub string, flags map[string]bool, positional, afterDashes []string) {
+func gitWriteEffects(e *types.Effects, sub string, flags map[string]bool, positional, afterDashes []string) {
 	switch sub {
 	case "reset":
 		e.Destructive = flags["--hard"] || flags["--merge"] || flags["--keep"]
@@ -164,19 +168,19 @@ func gitWriteEffects(e *Effects, sub string, flags map[string]bool, positional, 
 		e.Destructive = flags["-D"] || (flags["-d"] || flags["--delete"]) && (flags["-f"] || flags["--force"])
 	case "mv":
 		for _, p := range positional {
-			e.Files = append(e.Files, FileAccess{Path: p, Write: true})
+			e.Files = append(e.Files, types.FileAccess{Path: p, Write: true})
 		}
 	case "rm":
 		for _, p := range append(positional, afterDashes...) {
-			e.Files = append(e.Files, FileAccess{Path: p, Write: true, Recursive: flags["-r"]})
+			e.Files = append(e.Files, types.FileAccess{Path: p, Write: true, Recursive: flags["-r"]})
 		}
 	case "init":
 		if len(positional) > 0 {
-			e.Files = append(e.Files, FileAccess{Path: positional[0], Write: true})
+			e.Files = append(e.Files, types.FileAccess{Path: positional[0], Write: true})
 		}
 	case "worktree":
 		if len(positional) > 1 && positional[0] == "add" {
-			e.Files = append(e.Files, FileAccess{Path: positional[len(positional)-1], Write: true, Recursive: true})
+			e.Files = append(e.Files, types.FileAccess{Path: positional[len(positional)-1], Write: true, Recursive: true})
 		} else if len(positional) > 0 && positional[0] != "prune" {
 			e.ExecutesCode = true
 		}
@@ -190,7 +194,7 @@ func gitWriteEffects(e *Effects, sub string, flags map[string]bool, positional, 
 		}
 	case "apply", "am":
 		for _, p := range positional {
-			e.Files = append(e.Files, FileAccess{Path: p})
+			e.Files = append(e.Files, types.FileAccess{Path: p})
 		}
 	}
 }

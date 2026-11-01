@@ -6,10 +6,10 @@ import (
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
-	"agent-platform/internal/bashsec"
 	"agent-platform/internal/chat"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
 func (s *llmRunStream) executeApprovedBashInvocation(invocation *preparedToolInvocation, result hitl.InterceptResult) error {
@@ -126,9 +126,9 @@ func (s *llmRunStream) queuedBashApprovalCandidate(invocation *preparedToolInvoc
 	if invocation == nil || !isBashTool(invocation.toolName) {
 		return queuedBashApprovalCandidate{}, false
 	}
-	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewBlock {
+	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsyntax.ReviewBlock {
 		return queuedBashApprovalCandidate{}, false
-	} else if review.Decision == bashsec.ReviewRequiresApproval {
+	} else if review.Decision == bashsyntax.ReviewRequiresApproval {
 		request := s.bashSecurityApprovalRequest(invocation, review)
 		if handled, _ := s.tryResolveApprovalFastPath(request, approvalFastPathSkipBatch); handled {
 			return queuedBashApprovalCandidate{}, false

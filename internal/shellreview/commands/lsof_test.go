@@ -1,6 +1,10 @@
-package shellanalysis
+package commands
 
-import "testing"
+import (
+	"testing"
+
+	"agent-platform/internal/shellreview/types"
+)
 
 func TestLsofQuerySelectorsAndUnknownOperations(t *testing.T) {
 	for _, args := range [][]string{
@@ -23,7 +27,7 @@ func TestLsofQuerySelectorsAndUnknownOperations(t *testing.T) {
 		}
 	}
 	e := Operands("lsof", []string{"-nP", "--", "plain.txt", "/outside/file"})
-	if e.ExecutesCode || len(e.Files) != 2 || e.Files[0] != (FileAccess{Path: "plain.txt"}) || e.Files[1] != (FileAccess{Path: "/outside/file"}) {
+	if e.ExecutesCode || len(e.Files) != 2 || e.Files[0] != (types.FileAccess{Path: "plain.txt"}) || e.Files[1] != (types.FileAccess{Path: "/outside/file"}) {
 		t.Fatalf("file operands must retain read checks: %+v", e)
 	}
 }

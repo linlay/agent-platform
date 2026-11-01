@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"agent-platform/internal/bashsec"
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
 func connectorFixture(t *testing.T) (QuerySession, map[string]string, string) {
@@ -56,7 +56,7 @@ func TestMountedConnectorAllOperationsAndAccessLevels(t *testing.T) {
 				if p.Decision != DecisionAllow || !p.ConnectorOnly {
 					t.Fatalf("not direct allow: %+v", p)
 				}
-				if s := p.SecurityReview(command, vars); s.Decision != bashsec.ReviewAllow {
+				if s := p.SecurityReview(command, vars); s.Decision != bashsyntax.ReviewAllow {
 					t.Fatalf("security still intercepted: %+v / %s", s, p.ReviewCommand)
 				}
 			})
@@ -82,7 +82,7 @@ func TestMountedConnectorLeavesSurroundingShellUnderReview(t *testing.T) {
 	}
 	for _, command := range []string{"wecom-cli send; eval 'echo unsafe'", "wecom-cli send \"$(eval 'echo unsafe')\""} {
 		p := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "", vars)
-		if s := p.SecurityReview(command, vars); s.Decision != bashsec.ReviewBlock {
+		if s := p.SecurityReview(command, vars); s.Decision != bashsyntax.ReviewBlock {
 			t.Fatalf("lost shell block for %s: %+v", command, s)
 		}
 	}
@@ -99,13 +99,13 @@ func TestMountedConnectorCannotBypassRawTextGuard(t *testing.T) {
 			"wecom-cli send --json\u200b'{}'",
 		} {
 			p := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "/", vars)
-			if !p.Blocked() || p.SecurityReview(command, vars).Decision != bashsec.ReviewBlock {
+			if !p.Blocked() || p.SecurityReview(command, vars).Decision != bashsyntax.ReviewBlock {
 				t.Fatalf("%s: trusted payload bypassed raw-text guard: %+v", level, p)
 			}
 		}
 		// Quoted data keeps emoji joiners and CJK spaces verbatim.
 		command := "wecom-cli send --json '{\"content\":\"\u3000\u3000👨\u200d💻\"}'"
-		if p := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "/", vars); p.Blocked() || p.SecurityReview(command, vars).Decision == bashsec.ReviewBlock {
+		if p := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "/", vars); p.Blocked() || p.SecurityReview(command, vars).Decision == bashsyntax.ReviewBlock {
 			t.Fatalf("%s: quoted payload was rejected: %+v", level, p)
 		}
 	}

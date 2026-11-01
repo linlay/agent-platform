@@ -1,15 +1,15 @@
 package llm
 
 import (
-	"agent-platform/internal/view"
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/apperrors"
-	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
+	"agent-platform/internal/view"
 )
 
 func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
@@ -344,7 +344,7 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 		result = fileAccessInterceptResult(*plan)
 	} else if plan := s.lookupFileWritePlan(invocation); plan != nil && s.fileWritePlanNeedsApproval(*plan) {
 		result = fileWriteInterceptResult(*plan)
-	} else if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
+	} else if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsyntax.ReviewRequiresApproval {
 		result = bashSecurityInterceptResult(invocation, review)
 	} else if invocation != nil && invocation.precheckedHITL != nil {
 		result = *invocation.precheckedHITL

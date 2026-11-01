@@ -1,14 +1,7 @@
-package bashast
+package types
 
-type ParseKind int
-
-const (
-	Simple ParseKind = iota
-	TooComplex
-	ParseUnavailable
-)
-
-type SimpleCommand struct {
+// Invocation describes a parsed call without assigning identity or permissions.
+type Invocation struct {
 	Words     []WordSpan        // source spans; shell substitutions stay visible in review projections
 	Uncertain bool              // loop iterations may observe different variable values
 	Variables map[string]string // statically known shell scope before this command
@@ -20,7 +13,10 @@ type SimpleCommand struct {
 
 type WordSpan struct {
 	Start, End int
-	Expansion  bool
+	// Expansion marks source that cannot be masked during connector review.
+	// Literal separately records whether quote removal alone yields this word.
+	Expansion bool
+	Literal   bool
 }
 
 type EnvVar struct {
@@ -31,20 +27,9 @@ type EnvVar struct {
 type Redirect struct {
 	Op               string
 	Target           string
+	TargetWord       WordSpan
 	Fd               int
 	IsHeredoc        bool
 	HeredocBodyStart int
 	HeredocBodyEnd   int
 }
-
-type ParseResult struct {
-	Kind     ParseKind
-	Commands []SimpleCommand
-	Reason   string
-	NodeType string
-}
-
-const (
-	CommandSubstitutionPlaceholder = "__CMDSUB_OUTPUT__"
-	TrackedVariablePlaceholder     = "__TRACKED_VAR__"
-)

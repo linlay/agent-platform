@@ -1,8 +1,6 @@
 package llm
 
 import (
-	"agent-platform/internal/contracts/queryinput"
-	"agent-platform/internal/view"
 	"bufio"
 	"context"
 	"errors"
@@ -19,15 +17,17 @@ import (
 	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
-	"agent-platform/internal/bashsec"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	contracts "agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/hitl"
 	"agent-platform/internal/models"
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	streampkg "agent-platform/internal/stream"
 	"agent-platform/internal/toolinteraction"
 	runtimetools "agent-platform/internal/tools"
+	"agent-platform/internal/view"
 )
 
 func encodedSubmitParams(t *testing.T, value any) api.SubmitParams {
@@ -2448,7 +2448,7 @@ func TestPrepareToolCall_BashDescriptionIsOptional(t *testing.T) {
 }
 
 func TestBuildApprovalAskItem_BashDescriptionFallsBackToCommand(t *testing.T) {
-	review := bashsec.ReviewResult{Decision: bashsec.ReviewAllow}
+	review := bashsyntax.ReviewResult{Decision: bashsyntax.ReviewAllow}
 	invocation := &preparedToolInvocation{
 		toolID:             "tool_1",
 		toolName:           "bash",
@@ -2866,7 +2866,7 @@ func TestBashSecuritySoftBlockEmitsApprovalWithoutChecker(t *testing.T) {
 		t.Fatalf("expected one approval item, got %#v", ask)
 	}
 	approval, _ := ask.Approvals[0].(map[string]any)
-	if approval["ruleKey"] != bashsec.RuleKeyRuntimeWrapperXargs {
+	if approval["ruleKey"] != bashsyntax.RuleKeyRuntimeWrapperXargs {
 		t.Fatalf("expected stable bash security rule key, got %#v", approval)
 	}
 	options, _ := approval["options"].([]any)
@@ -3034,7 +3034,7 @@ func TestBashSecuritySoftBlockPrefixApprovalWhitelistsRule(t *testing.T) {
 	if err := stream.awaitHITLSubmitAndExecute(); err != nil {
 		t.Fatalf("awaitHITLSubmitAndExecute returned error: %v", err)
 	}
-	if !stream.isRuleWhitelisted(bashsec.RuleKeyRuntimeWrapperXargs) {
+	if !stream.isRuleWhitelisted(bashsyntax.RuleKeyRuntimeWrapperXargs) {
 		t.Fatalf("expected bash security rule whitelist, got %#v", stream.hitlRuleWhitelist)
 	}
 
@@ -3102,7 +3102,7 @@ func TestBashSecuritySoftBlockUsesExistingFingerprintApproval(t *testing.T) {
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{
 			BashSecurityApprovals: map[string]int{
-				bashsec.ApprovalFingerprint(command): 1,
+				bashsyntax.ApprovalFingerprint(command): 1,
 			},
 		},
 		activeToolCall: &preparedToolInvocation{
@@ -5900,7 +5900,7 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 
 func TestAwaitHITLApprovalBatchAndContinueUsesStoredMatch(t *testing.T) {
 	runControl := contracts.NewRunControl(context.Background(), "run_1")
-	review := bashsec.ReviewBashSecurity("xargs echo")
+	review := bashsyntax.ReviewBashSecurity("xargs echo")
 	invocation := &preparedToolInvocation{
 		toolID:             "tool_1",
 		toolName:           "bash",
@@ -5927,7 +5927,7 @@ func TestAwaitHITLApprovalBatchAndContinueUsesStoredMatch(t *testing.T) {
 	if stream.hitlPendingBatch == nil || len(stream.hitlPendingBatch.matches) != 1 {
 		t.Fatalf("expected one stored batch match, got %#v", stream.hitlPendingBatch)
 	}
-	allow := bashsec.ReviewResult{Decision: bashsec.ReviewAllow}
+	allow := bashsyntax.ReviewResult{Decision: bashsyntax.ReviewAllow}
 	invocation.bashSecurityReview = &allow
 
 	ask := stream.pending[0].(contracts.DeltaAwaitAsk)

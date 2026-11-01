@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"agent-platform/internal/bashsec"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/shellreview/dialect"
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"agent-platform/internal/shellreview/types"
 )
 
@@ -22,7 +22,7 @@ func TestUnsupportedShellIsAnExactHumanDecision(t *testing.T) {
 		if !p.UnknownDialect || p.RequiresApproval() != (level != AccessLevelFullAccess) {
 			t.Fatalf("%s: %+v", level, p)
 		}
-		if p.SecurityReview(command, nil).Decision != bashsec.ReviewAllow {
+		if p.SecurityReview(command, nil).Decision != bashsyntax.ReviewAllow {
 			t.Fatal("unknown grammar must not be interpreted a second time as Bash")
 		}
 		if level != AccessLevelFullAccess {
@@ -129,7 +129,7 @@ func TestUnsafeTextCannotBeApprovedInAnyDialect(t *testing.T) {
 				p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, f.workspace, nil, &BashEnvironment{Launch: &binding}, nil)
 				ctx := &ExecutionContext{}
 				RegisterExactApproval(ctx, p.Fingerprint)
-				security := p.SecurityReview(command, nil).Decision == bashsec.ReviewBlock
+				security := p.SecurityReview(command, nil).Decision == bashsyntax.ReviewBlock
 				if p.Blocked() != security || p.Blocked() && HasApproval(ctx, p) {
 					t.Fatalf("%s/%s review and security disagree on %q: %+v", grammar, level, command, p)
 				}
@@ -156,11 +156,11 @@ func TestUnsafeTextCannotBeApprovedInAnyDialect(t *testing.T) {
 	unknownProjection := BashPlan{UnknownDialect: true, HasConnector: true, ReviewCommand: ":"}
 	bashProjection := BashPlan{HasConnector: true, ReviewCommand: ":"}
 	for _, command := range []string{"echo '\u202ehidden'", "echo\u3000hidden"} {
-		if unknownProjection.SecurityReview(command, nil).Decision != bashsec.ReviewBlock || bashProjection.SecurityReview(command, nil).Decision != bashsec.ReviewBlock {
+		if unknownProjection.SecurityReview(command, nil).Decision != bashsyntax.ReviewBlock || bashProjection.SecurityReview(command, nil).Decision != bashsyntax.ReviewBlock {
 			t.Fatalf("connector projection bypassed raw-text check: %q", command)
 		}
 	}
-	if unknownProjection.SecurityReview("echo '\u3000hidden'", nil).Decision != bashsec.ReviewBlock || bashProjection.SecurityReview("echo '\u3000hidden'", nil).Decision == bashsec.ReviewBlock {
+	if unknownProjection.SecurityReview("echo '\u3000hidden'", nil).Decision != bashsyntax.ReviewBlock || bashProjection.SecurityReview("echo '\u3000hidden'", nil).Decision == bashsyntax.ReviewBlock {
 		t.Fatal("quoted hidden character must depend on the reviewed grammar")
 	}
 }

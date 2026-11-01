@@ -1,6 +1,6 @@
 # Shell 命令审批：方案评审与实施计划
 
-> 状态：实施中。S1、S2 已完成（含两轮复审修正），S0 部分完成，S3–S8 未开始；方案 §8.2 第 1、2、6 项已于 2026-10-31 确认，对应的 S2 补丁已实施（§8.8）；未部署。接手从第 0 节开始。
+> 状态：实施中。S1、S2 已完成（含两轮复审修正），S0、S3 部分完成，S4–S8 未开始；原方案 §8.2 第 1、2、3、4、6 项已于 2026-10-31 确认；第 1、2 项对应的 S2 补丁已实施（§8.8），第 3、4 项仅设计已决定，分别待 S6、S5 实现与目标环境验收（§8.9）；S3 首批迁移见 §8.10，未部署。接手从第 0 节开始。
 > 日期：2026-10-30。评审代码基线：`509b81a5`；原方案使用本次评审读取的版本，指纹见下行。
 > 依据：[分层流水线与目录方案](shell-command-analysis.md)。本次读取版本 SHA-256：`3c4e8713b113a506c958acd285a7173cab85558c73e18291923fff08871e2092`。
 > 2026-10-30 复审：R1–R8 已并入方案正文（层次、资源三态、registry、Windows 身份与 6.6 未知方言合同），第 5 节的待定项汇总在方案 §8.2；对 `5554545f` 的代码复审发现见 §8.4。
@@ -13,46 +13,47 @@
 
 | 步骤 | 状态 | 记录 |
 | --- | --- | --- |
-| S0 合同与基线 | 部分完成：首批 Unix 行为基线已有；方案 §8.2 第 1、2、6 项已确认，第 3、4、5、7 项及完整命令清单、规范化快照未完成 | §8.1、§8.7 |
+| S0 合同与基线 | 部分完成：原方案 §8.2 第 1、2、3、4、6 项已确认；已有普通命令/内建/包装/解释器与各授权入口的三档规范化快照；第 5、7 项及完整名单统一审计仍待完成 | §8.1、§8.7、§8.9、§8.10 |
 | S1 工具专用 LaunchSpec | 完成 | §8.1 |
 | S2 未知方言合同 | 完成，含两轮复审修正；Windows 未实测 | §8.1、§8.4–§8.6 |
 | S2 补丁：选项与隐式配置 | 完成；默认配置文件探测与 `HOME` 改向留到 S4/S6 | §8.7、§8.8 |
-| S3 中立类型与目录迁移 | 未开始；`shellreview/dialect`、`shellreview/types`、`shellreview/syntax`（文本检查）已建 | — |
+| S3 中立类型与目录迁移 | 部分完成：中立 Invocation/Effects 与来源、Bash 解析/语法审查、命令语义及共享包装辅助函数已迁入；身份/资源/plan/policy 迁移未完成 | §8.10 |
 | S4–S8 | 未开始 | — |
 
 当前实现的入口：
 
 - 启动合同与系统 Bash 判定：`internal/hostshell/tool.go`（`ResolveTool`、`classifyToolShell`、`toolSystemShells`）。
-- 文本检查：`internal/shellreview/syntax/text.go`（`CheckText`、`CheckHidden`、`CheckAll`）、`internal/bashast/prechecks.go`（`CheckRawText`，Bash 引号外）。
+- 文本检查：`internal/shellreview/syntax/text.go`（`CheckText`、`CheckHidden`、`CheckAll`）、`syntax/bash/prechecks.go`（`CheckRawText`，Bash 引号外）；Bash 解析与旧 bashsec 审查均在 `syntax/bash`。
+- 中立调用与效果：`internal/shellreview/types/invocation.go`、`effects.go`；来源判定：`syntax/bash/provenance.go`；命令语义：`commands/`；共享包装辅助函数：`unwrap/command.go`。
 - 未知方言与按方言选择文本检查：`internal/accesspolicy/bash_review.go`（`reviewBashExecution`、`rawTextRejection`）、`bash_connector.go`（`SecurityReview`）。
 - 批准绑定：`internal/accesspolicy/bash_launch.go`（精确批准用 `Fingerprint`，规则用 `RuleFingerprint`）。
-- 行为基线：`internal/accesspolicy/bash_baseline_test.go`。
+- 行为基线：`internal/accesspolicy/bash_baseline_test.go`、`bash_snapshot_test.go` 与 `testdata/bash-review-baseline.txt`。
 
 ### 0.2 下一步
 
-1. **关闭方案 §8.2 剩余项。** 第 1、2、6 项已于 2026-10-31 确认（方案 §8.1）。其余项建议值已写在方案里，确认后移到方案 §8.1：
+1. **关闭方案 §8.2 剩余项。** 第 1、2、3、4、6 项已于 2026-10-31 确认（方案 §8.1）。第 3、4 项的设计决定不代表已实现，也不关闭第 5 项。其余项建议值已写在方案里，确认后移到方案 §8.1：
 
    | 待确认项 | 最晚在 |
    | --- | --- |
-   | 3 空设备身份 | S6 |
-   | 4 PowerShell helper 生命周期 | S5 |
    | 5 PowerShell 模块与身份规则 | S5（需 Windows 实测） |
    | 7 首批 cmdlet | S8 |
 
    S3 是纯结构迁移，不依赖这些决定，可以先做。
 
-2. **补完 S0 基线。** 在 `bash_baseline_test.go` 覆盖方案 §2.3 各名单的全部命令与入口：普通命令、内建、包装、解释器、opaque、连接器、技能脚本与自写脚本。路径、环境与叶子顺序规范化后，比较决策、规则类别与叶子数量；另列授权作用域（单次、规则、跨 cwd/环境）和硬阻断用例。S3 的每个提交都用它证明行为不变。
+2. **补完 S0 名单审计。** `bash_snapshot_test.go` 已显式覆盖当前 ordinaryCommands、shellBuiltins、wrapperNames 和解释器/build/opaque 示例，连同连接器、技能、自写脚本及 readonly/多要求案例，得到三档 387 行规范化快照（迁移前生成）。排序叶子并去掉机器相关摘要，比较决策、规则类别、作用域、叶子数量和 Shell 安全审查；现有测试继续覆盖单次、规则、跨 cwd/环境的批准作用域。尚需统一核对命令 specs/switch、语法硬阻断与配置/严格模式名单，不应将首批快照写成所有名单已统一。后续迁移继续保持这份基线。
 
-3. **S3 迁移**，按方案 §5.2 的去向表。建议拆成以下提交，每个只挪结构，同一提交改完调用方并删除旧入口：
-   1. `types`：Invocation、Effects、Op、Unknown、Dep；先等价搬入 `shellanalysis.Effects`，不改字段语义。
-   2. `syntax/bash`：`internal/bashast` 整包迁入，随后迁入 `bashsec` 的 Shell 级检查。
+3. **继续 S3 迁移**，按方案 §5.2 的去向表。每个只挪结构，同一提交改完调用方并删除旧入口：
+   1. `types`：已等价迁入 Invocation、原 Effects 与来源类型；Op、Unknown、Dep 在 S4 细化事实时引入，不提前创建未使用合同。
+   2. `syntax/bash` 与命令语义：已迁入原 `bashast`、`bashsec` 和 `shellanalysis`，共享辅助函数进入 `unwrap`；参数与重定向目标保留源范围及字面量来源，新空设备豁免尚未启用。
    3. `identity` 与 `unwrap`：拆分 `accesspolicy/bash_execution.go` 与 `bashsec/bash_wrappers.go`，保持"先确认身份再展开包装"。
    4. `resources`：`git_state.go`、`bash_environment.go`、glob 展开。
    5. `plan` 与 `policy`：BashPlan、启动绑定与批准；`bash_review.go` 拆成 `review.go`、`policy/`、`plan/`。
 
    完成标志：包图无环；`accesspolicy` 不依赖 `shellreview`；基线不变。
 
-4. **之后按 S4 → S6 → S7 → S8。** S5 依赖 S3、S4，不等 S7。如果 Windows 上 ask/auto 每条命令都要人工审批的代价太高，可以先在现有结构上接入 PowerShell AST，只放行外部程序（方案 §7）。
+   当前仅完成首批，`accesspolicy` 暂仍调用新目录内的解析/命令分析器；这项最终依赖方向门槛尚未达到，不将 S3 标记完成。
+
+4. **之后按 S4 → S6 → S7 → S8。** S4 先产出细粒度 Read/Output/Create/Delete/Rename/Chmod/Link 及来源，S6 才统一空设备抵消并删除两处旧特例。S5 依赖 S3、S4，不等 S7；Windows 的 S6 依赖 S5。若先在现有结构接入 PowerShell helper，也必须完成第 5 项模块/身份规则及原生 argv 验收后，才能恢复已验证外部程序的免审批（方案 §6.2、§6.3）。
 
 ### 0.3 待做的目标环境验收（可并行）
 
@@ -60,6 +61,9 @@
 - PowerShell 外部程序传参：5.1 与 7 各用无害的 argv 回显程序核对（S5 前置条件，方案 §6.7）。
 - 真实系统包升级：apt 原地替换、Homebrew 切换链接后无需重启仍按 Bash 分析，旧批准失效。目前只有模拟测试。
 - 真实容器端到端：身份、路径、摘要、探针失败。
+- 空设备：Linux/macOS 真实 Lstat 类型与主次设备号；真实容器固定 stat 路径、数字格式、不跟随链接、错误设备号与故障的三态处理；预审与启动前复审分别重新检查。模拟 resolver 或交叉编译不能替代这些验收。
+- PowerShell helper：5.1/7 启动与 stdin 协议、UTF-8 原文往返、版本与参数合同、冷/热启动、并发/含排队预算、输出上限、取消及进程树清理；AMSI/EDR 受阻时走 6.6。测试模块不得在审批前加载。
+- Windows 空设备：`$null` AST 语法丢弃与 `'$null'` 文件路径分开；裸 `NUL` 的身份确认和实际打开行为未通过原生验收前不启用豁免，其他保留设备写法首批 Unresolved。
 
 ### 0.4 已知限制（当前保留）
 
@@ -194,10 +198,10 @@ LaunchSpec 建议包含实际 Shell canonical 路径、方言与版本、命令�
 | S0 合同与基线 | 关闭第 5 节的政策决策；列出命令/入口清单、规范化行为快照、授权作用域与 hard block 用例 | 无 | 当前可观察行为可解释；Windows 残余风险明确；不再有关键授权待定项 |
 | S1 统一启动描述 | hostshell 增加工具用途的 LaunchSpec；tools 预审与启动共享它；方言与启动模板判定；接入批准失效指纹 | S0 | Unix 启动参数逐项一致；Windows 保持 PowerShell；Terminal/Git Bash 不被隐式改变；配置 ShellArgs 正确分类 |
 | S2 方言保护 | 对缺少解析器的方言执行 S0 确定的策略；直接连接器仍按冻结 argv 合同验证；禁止错误 Bash 快速路径 | S1 | 三档、Host/容器、直接连接器与取消/重试用例；此步骤单独列为行为变化 |
-| S3 中立类型与目录迁移 | 建 types/dialect 与层间接口；迁移既有 AST、安全检查、命令解析及相关调用方，尚不改授权结果 | S0，S1 | 包图无环；所有调用方可编译；规范化行为与已批准作用域一致；旧入口按迁移范围删除 |
-| S4 统一命令、包装与事实 | registry 按方言登记；特殊命令独立文件；有界身份—包装展开；Op/Unknown/Dep 多目标与来源；Git -C 移到命令事实 | S3 | 假包装/假解释器不展开；未知不丢已知效果；复制/移动/链接各目标权限正确；名单一致性检查 |
-| S5 PowerShell AST 与身份 | 固定 helper；绑定 Shell 版本、环境与模块规则；AST 白名单；首批只分析已证明 argv 一致的外部程序，cmdlet 保守处理 | S1，S2，S3，S4 | 原生 Windows 5.1/7 实测；helper 不在审批前加载测试模块；别名不套 GNU 语义；实际 argv 与分析一致；失败不降级 |
-| S6 资源与通用输出 | 细化资源 Known/Unresolved/HardViolation；确认真实空设备；Output 统一规则；删除 curl/wget 名称特例 | S4；Windows 部分依赖 S5 | tee/curl 输出通用；rm/chmod/rename 不豁免；普通/伪装设备与 readonly 仍受限；真实容器校验 |
+| S3 中立类型与目录迁移 | 建 types/dialect 与层间接口；迁移既有 AST、安全检查、命令解析及相关调用方；保留参数/重定向字面量与源范围，尚不改授权结果 | S0，S1 | 包图无环；所有调用方可编译；字面与展开来源可区分；规范化行为与已批准作用域一致；旧入口按迁移范围删除 |
+| S4 统一命令、包装与事实 | registry 按方言登记；特殊命令独立文件；有界身份—包装展开；Op/Unknown/Dep 多目标与来源；Git -C 移到命令事实；区分 Read/Output 与替换目标操作 | S3 | 假包装/假解释器不展开；未知不丢已知效果；复制/移动/链接各目标权限正确；文件事实保留参数来源；名单一致性检查 |
+| S5 PowerShell AST 与身份 | 固定无状态 helper，按方案 6.2 的进程/协议/限额合同；绑定真实版本、环境与模块规则；AST 白名单；首批只分析已证明 argv 一致的外部程序，cmdlet 保守处理 | S1，S2，S3，S4；第 5 项需确认 | 原生 Windows 5.1/7 实测；模块无审批前加载；别名不套 GNU 语义；argv 一致；普通故障走 6.6，取消/绑定变化终止；进程树与并发槽正确清理 |
+| S6 资源与通用输出 | 细化资源 Known/Unresolved/HardViolation；按方案 3.2 确认字面空设备；Read/Output 统一抵消；删除重定向与 curl/wget 两处旧特例；Windows 语法丢弃和设备身份分开 | S4；Windows 部分依赖 S5 | tee/curl/cat 通用；cp 等替换目标与 rm/chmod/rename 不豁免；当前调用不完整不豁免；探针失败 Unresolved，readonly 等硬阻断优先；真实容器校验；裸 NUL 未验收不启用 |
 | S7 统一审批与调度接入 | bashsec/accesspolicy 的要求并入一个 plan；llm/tools 只调一个入口；保留 HITL 公开合同；移除旧批准分发/消费代码 | S4，S6；不阻塞 S5 的首次交付 | 一次批准只执行一次；并发兄弟调用不能借用；拒绝/取消/未启动不消耗错；重评、恢复与 Mailbox 代批覆盖 |
 | S8 cmdlet 语义与收尾 | 按文件接入首批只读 cmdlet，再补文件与网络修改；公开参数/缩写/provider 等；清理重复入口；更新现行文档 | S5，S7 | 每个 cmdlet 独立语义与三档授权验收；原生 Windows 与真实容器完成各自范围；全仓测试通过 |
 
@@ -212,13 +216,13 @@ LaunchSpec 建议包含实际 Shell canonical 路径、方言与版本、命令�
 | 未支持方言在 auto_approve 下怎样处理 | 不自动运行；采用显式人工或拒绝的受控回退，错误原因清晰 | 已采纳并实现（§8.1）；原方案为自动通过 |
 | UnknownOption 是否追加要求 | 追加与调用绑定的 complex 要求，同时保留已知效果 | 已采纳（方案 §8.1，2026-10-31） |
 | curl -K/默认配置等隐式行为 | 首期记录依赖与 UnknownBehavior；不在首期重写完整配置语言 | 已采纳，并补充按能否免审批写入区分已存在的默认配置（方案 §8.1，2026-10-31） |
-| 空设备身份 | 确认实际类型及空设备身份，不能仅以“字符设备”或字符串判断 | 原方案待定；不把 /dev/zero 等视为丢弃输出 |
-| PowerShell helper 生命周期 | 先完成无状态请求合同与安全原型；基准数据支持后再选择常驻 | 原方案偏向常驻；正确性先于性能 |
+| 空设备身份 | 字面候选与身份双重确认；容器必须探测；仅完整调用 Read/Output 抵消；Windows 语法丢弃与设备分开 | 设计已决定（方案 §3.2、§6.5、§8.1，2026-10-31）；待 S6 实现和目标环境验收 |
+| PowerShell helper 生命周期 | 一次审查一个进程；冻结身份/环境/cwd；固定 stdin 协议与限额；故障、取消、绑定变化分别处理 | 设计已决定（方案 §6.2、§8.1，2026-10-31）；待 S5 实现和原生验收；第 5 项仍待确认 |
 | PowerShell 模块规则 | helper 与执行端采用一致且可验证的加载策略；不接受仅模块名或 helper 单边禁用 | 补齐原方案残余风险；未确认前不恢复对应免审批 |
 | 默认白名单 | 首期保持现有部署政策，不由“存在解析器”直接生成 | 已采纳（方案 §8.1，2026-10-31） |
 | 首批 cmdlet | 先 Get-Location/Test-Path/Get-Content/Get-ChildItem/Write-Output，再文件修改与网络 | 原方案范围待定；每个命令需核验真实类型与来源，不因名称带 Get 就免审批 |
 
-本表为评审阶段建议。第一项已实现；UnknownOption、隐式配置与默认白名单已确认，前两项的 S2 补丁已实施（§8.8），默认配置文件探测待 S4/S6；其余项的当前状态以方案 §8.2 为准，确认前不能视为当前配置或运行合同。
+本表区分设计决定与实现状态。第一项已实现；UnknownOption、隐式配置与默认白名单已确认，前两项的 S2 补丁已实施（§8.8），默认配置文件探测待 S4/S6；空设备身份与 helper 生命周期仅设计已决定（§8.9）；模块规则与首批 cmdlet 仍以方案 §8.2 为准。未实现或未经目标环境验收的内容不能视为当前配置或运行合同。
 
 ## 6. 验证方案与完成定义
 
@@ -389,3 +393,50 @@ R1–R8 本次逐条核对，均成立，已并入方案。
 - 未在原生 Windows 或真实容器运行，未部署。
 
 现行文档：`docs/工具目录权限.md` 的命令语义段已改写为当前行为。
+
+### 8.9 空设备与 helper 生命周期设计确认（2026-10-31）
+
+原方案 §8.2 第 3、4 项已移入 §8.1，设计合同分别写入 §3.2/§3.3/§3.4/§6.5 与 §6.2，附录 B 补齐来源、符号链接、错误设备、替换目标、探针失败和 Windows 语法丢弃用例。本节只记录设计决定，不代表 S5/S6 已实现。
+
+- 空设备采用字面候选与实际身份双重确认，Unix Host 检查 Lstat 类型及 Rdev，容器必须通过固定受信任路径的数字 stat 探针；不为降低延迟退回字符串信任。已确认非空设备继续路径审查，探针无法确认则 Unresolved；仅完整调用的 Read/Output 可抵消当前路径要求，readonly 等硬阻断优先。
+- Windows `$null` 是 AST 确认的语法丢弃，`'$null'` 是文件路径；裸 `NUL` 仅为设备候选，身份确认与实际打开行为未经原生验收前不豁免，其余保留设备路径首批 Unresolved。
+- helper 一次审查一个进程，解析与获准的身份查询合并；使用冻结启动身份、有效环境与 cwd。协议、版本、预算、限额、进程树清理与无正文的诊断按方案 §6.2；普通故障进入 6.6，父请求取消直接结束，绑定变化使旧批准失效。
+- 第 5 项 PowerShell 模块与命令身份规则仍需确认及原生验收；第 7 项首批 cmdlet 范围仍待确认。生命周期决定不能单独恢复相关免审批。
+
+当前可推进与仍待解决的边界：
+
+| 工作 | 是否需要新政策决定 | 前置/未决事项 |
+| --- | --- | --- |
+| S0 现有 Unix 行为基线与名单审计 | 不需要 | 首批快照已补齐，完整名单统一审计继续做 |
+| S3 结构迁移与参数来源 | 不需要 | 首批已完成，身份/资源/plan/policy 拆分继续做 |
+| S4 registry 与细粒度事实 | 不需要 | 依赖 S3 剩余迁移完成，保持已有授权边界 |
+| S6 Unix Host/容器空设备 | 不需要 | 依赖 S4 的操作分类与来源；真实 Linux/macOS/容器验收 |
+| S5 helper 进程/协议框架 | 生命周期已决定 | 可据合同实现基础设施，启用分析须满足 S3/S4、第 5 项和原生 argv 验收 |
+| S5 PowerShell 命令身份与模块加载 | 仍需确认 | helper 与执行端一致的模块策略、命令优先级与安装来源，原生 Windows 5.1/7 验证 |
+| S6 Windows NUL 豁免 | 仍需实现验证 | 非修改式身份确认与实际打开行为；未通过前保持 Unresolved |
+| S7 审批合并 | 现有公开合同已确定 | 依赖 S4/S6；本轮不改变两套批准对象或 HITL 协议 |
+| S8 cmdlet 语义 | 第 7 项仍需确认 | 首批范围以及 S5/S7、每个 cmdlet 的原生语义验收 |
+
+### 8.10 S0 基线与 S3 首批迁移（2026-11-01）
+
+本批为可独立验收的结构迁移与来源事实补充，不启用新的空设备或 Windows 豁免。S0、S3 均仍为部分完成。
+
+| 改动 | 位置 | 验证 |
+| --- | --- | --- |
+| 新增迁移前规范化行为快照：129 个示例 × 三档，387 行 | `accesspolicy/bash_snapshot_test.go`、`testdata/bash-review-baseline.txt` | 显式覆盖当前普通命令/内建/包装名单，解释器/build/opaque，连接器、技能脚本、Chat 自写脚本、readonly 与多叶子要求；排序叶子并去掉机器相关摘要；比较决策、规则、作用域、复用属性及 Shell 语法审查 |
+| 等价迁入已有调用及效果合同，无旧包别名 | `shellreview/types/invocation.go`、`effects.go` | Invocation/WordSpan/Redirect/EnvVar、原 Effects/FileAccess/GitCheck 统一由调用方引用；保留原 Read/Write、Incomplete 与执行事实语义，细粒度 Op 留 S4 |
+| 原 Bash AST 与 Shell 安全审查整包迁入 | `shellreview/syntax/bash/` | `tools`、`llm`、`accesspolicy` 调用方一起切换；旧 `bashast`/`bashsec` 包删除，公开 ruleKey、两套批准对象和递归深度不变 |
+| 原命令语义及共享包装辅助函数迁入 | `shellreview/commands/`、`unwrap/command.go` | 原 `shellanalysis` 包删除；保留既有 switch/specs 行为，命令文件拆分、registry 统一及两套包装算法合并仍待后续阶段 |
+| 保留字面量来源及重定向目标源范围 | `types.WordSpan.Literal`、`types.Redirect.TargetWord`、`syntax/bash/provenance.go` | 同值的字面 `/dev/null` 与 `$TARGET` 可区分；引号、中文 UTF-8 字节偏移、glob、tilde、ANSI-C 引号、命令替换与共享 brace 源范围均有回归用例；既有 Expansion 的连接器投影含义保持不变 |
+
+快照在迁移前生成，迁移后未更新基准，387 行全部一致。默认测试只读快照，显式 `go test ./internal/accesspolicy -run '^TestBashReviewNormalizedBaseline$' -args -update-shell-baseline` 才更新；行为变化必须先审核差异，不能用更新快照掩盖迁移回归。
+
+验证：
+
+- `go test ./...` 全仓通过（含 tools/llm/server 与现有连接器、技能、自写脚本授权测试）。
+- `go vet ./internal/shellreview/... ./internal/accesspolicy ./internal/tools ./internal/llm` 通过。
+- `shellreview/syntax/bash`、`accesspolicy` 的 Windows amd64 测试交叉编译通过；这不代表原生 Windows 验收。
+- `git diff --check` 通过；现行 AGENTS 与工具目录权限文档已更新代码归属。
+- 未实现 S5 helper 或 S6 新设备身份规则，未部署；当前没有将 Windows 或真实容器的待验收能力写为已交付。
+
+下一步仍可自主推进 S3 的身份/包装、资源、plan/policy 拆分与剩余名单审计；S3 完成标志中的 `accesspolicy` 不再依赖 `shellreview` 尚未达到。S4/S6 的细粒度事实与新豁免必须在后续独立变更实施，不能在本批结构迁移中提前生效。

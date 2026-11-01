@@ -5,10 +5,10 @@ import (
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
-	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
 type approvalKind string
@@ -41,7 +41,7 @@ type approvalRequest struct {
 	imageAccessPlans   []filetools.AccessPlan
 	fileAccessPlan     *filetools.AccessPlan
 	fileWritePlan      *filetools.WritePlan
-	bashSecurityReview *bashsec.ReviewResult
+	bashSecurityReview *bashsyntax.ReviewResult
 	bashAccessReview   *accesspolicy.BashPlan
 }
 
@@ -58,7 +58,7 @@ func (s *llmRunStream) approvalRequestForInvocation(invocation *preparedToolInvo
 	if request, ok := s.toolApprovalRequest(invocation); ok {
 		return request, true
 	}
-	if isBashTool(invocation.toolName) && (s.lookupBashSecurityReview(invocation).Decision == bashsec.ReviewBlock || s.lookupBashAccessReview(invocation).Blocked()) {
+	if isBashTool(invocation.toolName) && (s.lookupBashSecurityReview(invocation).Decision == bashsyntax.ReviewBlock || s.lookupBashAccessReview(invocation).Blocked()) {
 		return approvalRequest{}, false
 	}
 	if request, ok := s.imageAccessApprovalRequest(invocation); ok {
@@ -79,7 +79,7 @@ func (s *llmRunStream) approvalRequestForInvocation(invocation *preparedToolInvo
 	if plan := s.lookupFileWritePlan(invocation); plan != nil && s.fileWritePlanNeedsApproval(*plan) {
 		return s.fileWriteApprovalRequest(invocation, *plan), true
 	}
-	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
+	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsyntax.ReviewRequiresApproval {
 		return s.bashSecurityApprovalRequest(invocation, review), true
 	}
 	if review := s.lookupBashAccessReview(invocation); review.RequiresApproval() {
@@ -110,7 +110,7 @@ func (s *llmRunStream) fileWriteApprovalRequest(invocation *preparedToolInvocati
 	}
 }
 
-func (s *llmRunStream) bashSecurityApprovalRequest(invocation *preparedToolInvocation, review bashsec.ReviewResult) approvalRequest {
+func (s *llmRunStream) bashSecurityApprovalRequest(invocation *preparedToolInvocation, review bashsyntax.ReviewResult) approvalRequest {
 	access := s.lookupBashAccessReview(invocation)
 	return approvalRequest{
 		kind:               approvalKindBashSecurity,
@@ -269,7 +269,7 @@ func (s *llmRunStream) tryResolveApprovalFastPath(request approvalRequest, mode 
 	return false, nil
 }
 
-func (s *llmRunStream) tryResolveBashSecurityApprovalFastPath(request approvalRequest, review bashsec.ReviewResult, mode approvalFastPathMode) (bool, error) {
+func (s *llmRunStream) tryResolveBashSecurityApprovalFastPath(request approvalRequest, review bashsyntax.ReviewResult, mode approvalFastPathMode) (bool, error) {
 	if s.isRuleWhitelisted(review.RuleKey) {
 		s.applyHITLDecision(request.invocation, request.result, "", "approve_rule_run", "", true)
 		if mode == approvalFastPathExecuteNow {

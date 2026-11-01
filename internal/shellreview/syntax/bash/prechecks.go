@@ -1,4 +1,4 @@
-package bashast
+package bash
 
 import (
 	"regexp"
