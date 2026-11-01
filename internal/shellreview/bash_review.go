@@ -106,7 +106,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 	}
 	opaquePlan := func(x types.BashExecution) shellplan.BashPlan {
 		p := shellplan.Opaque(command, accessLevel, level.Approvals.BashOpaqueCommand, x.Identity, x.Cwd)
-		version := resources.ExecutionFingerprint(resources.ExecutionVersion{Fingerprint: p.Fingerprint, RuleKey: p.RuleKey, AccessLevel: p.AccessLevel}, x, variables, environment)
+		version := resources.ExecutionFingerprint(session.AgentHasRuntimeSandbox, resources.ExecutionVersion{Fingerprint: p.Fingerprint, RuleKey: p.RuleKey, AccessLevel: p.AccessLevel}, x, variables, environment)
 		p.Fingerprint, p.RuleKey = version.Fingerprint, version.RuleKey
 		p.Scope, p.ScopeKind, p.ContentSHA256 = version.Scope, version.ScopeKind, version.ContentSHA256
 		return p

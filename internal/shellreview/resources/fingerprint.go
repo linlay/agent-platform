@@ -12,7 +12,9 @@ import (
 	"agent-platform/internal/shellreview/types"
 )
 
-func ExecutionFingerprint(p ExecutionVersion, x types.BashExecution, variables map[string]string, env *types.BashEnvironment) ExecutionVersion {
+// ExecutionFingerprint binds the invocation to evidence from its execution environment.
+// Missing container probes leave content unknown; guest names never inspect Host files.
+func ExecutionFingerprint(sandbox bool, p ExecutionVersion, x types.BashExecution, variables map[string]string, env *types.BashEnvironment) ExecutionVersion {
 	data, _ := json.Marshal(variables)
 	content := ""
 	target := x.Script
@@ -23,7 +25,7 @@ func ExecutionFingerprint(p ExecutionVersion, x types.BashExecution, variables m
 		target = ResolveAgainstCwd(target, x.Cwd)
 		if env != nil && env.Inspect != nil {
 			_, content, _ = env.Inspect(target)
-		} else {
+		} else if !sandbox {
 			if canonical, err := NormalizePath(target); err == nil {
 				target = canonical
 			}
@@ -47,4 +49,11 @@ func ExecutionFingerprint(p ExecutionVersion, x types.BashExecution, variables m
 }
 
 // ExecutionVersion contains only the inputs and outputs of execution-version binding.
-type ExecutionVersion struct{ Fingerprint, RuleKey, AccessLevel, Scope, ScopeKind, ContentSHA256 string }
+type ExecutionVersion struct {
+	Fingerprint   string
+	RuleKey       string
+	AccessLevel   string
+	Scope         string
+	ScopeKind     string
+	ContentSHA256 string
+}
