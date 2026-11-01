@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 
+	"agent-platform/internal/shellreview/options"
 	"agent-platform/internal/shellreview/types"
 )
 
@@ -43,7 +44,7 @@ func Operands(base string, args []string) types.Effects {
 	if !known {
 		return unknownOperands(args)
 	}
-	p := parseOptions(spec, args)
+	p := options.Parse(spec, args)
 	e := types.Effects{Incomplete: p.Incomplete, ExecutesCode: p.Exec}
 	e.Files = append(e.Files, p.Files...)
 	add := func(path string, write, recursive bool) {
@@ -51,7 +52,7 @@ func Operands(base string, args []string) types.Effects {
 			e.Files = append(e.Files, types.FileAccess{Path: path, Write: write, Recursive: recursive})
 		}
 	}
-	recursive := p.Recursive || p.has("r") || p.has("R")
+	recursive := p.Recursive || p.Has("r") || p.Has("R")
 	switch base {
 	case "cat", "head", "tail", "wc", "file", "stat", "readlink", "realpath", "cut", "sort", "du", "ls":
 		if base == "sort" || base == "cat" || base == "head" || base == "tail" || base == "wc" || base == "cut" {
@@ -75,7 +76,7 @@ func Operands(base string, args []string) types.Effects {
 		}
 	case "grep", "rg":
 		positional := p.Positional
-		if !p.has("e") && !p.has("regexp") && !p.has("f") && !p.has("file") && !(base == "rg" && (p.has("files") || p.has("type-list"))) && len(positional) > 0 {
+		if !p.Has("e") && !p.Has("regexp") && !p.Has("f") && !p.Has("file") && !(base == "rg" && (p.Has("files") || p.Has("type-list"))) && len(positional) > 0 {
 			positional = positional[1:]
 		}
 		if base == "rg" {
@@ -93,7 +94,7 @@ func Operands(base string, args []string) types.Effects {
 		}
 	case "mkdir", "touch", "tee", "chmod", "rmdir":
 		positional := p.Positional
-		if base == "chmod" && !p.has("reference") && len(positional) > 0 {
+		if base == "chmod" && !p.Has("reference") && len(positional) > 0 {
 			positional = positional[1:]
 		}
 		for _, path := range positional {
@@ -105,14 +106,14 @@ func Operands(base string, args []string) types.Effects {
 		}
 		e.Destructive = recursive
 	case "cp", "mv", "ln":
-		targetGiven := p.has("t") || p.has("target-directory")
+		targetGiven := p.Has("t") || p.Has("target-directory")
 		for i, path := range p.Positional {
 			isTarget := !targetGiven && i == len(p.Positional)-1 && len(p.Positional) > 1
 			switch base {
 			case "mv":
 				add(path, true, true)
 			case "cp":
-				add(path, isTarget, recursive || p.has("a") || p.has("archive"))
+				add(path, isTarget, recursive || p.Has("a") || p.Has("archive"))
 			case "ln":
 				// ln TARGET LINK: the link location is written; the target is only named.
 				if isTarget || len(p.Positional) == 1 {
@@ -121,12 +122,12 @@ func Operands(base string, args []string) types.Effects {
 			}
 		}
 	case "curl", "wget":
-		for key, values := range p.values {
-			role := spec.long[key]
+		for key, values := range p.Values {
+			role := spec.Long[key]
 			if len(key) == 1 {
-				role = spec.shortArgs[key[0]]
+				role = spec.ShortArgs[key[0]]
 			}
-			if role != optRemoteData {
+			if role != types.OptionRemoteData {
 				continue
 			}
 			e.RemoteMutation = true
@@ -136,26 +137,26 @@ func Operands(base string, args []string) types.Effects {
 				}
 			}
 		}
-		for _, method := range append(p.values["X"], p.values["request"]...) {
+		for _, method := range append(p.Values["X"], p.Values["request"]...) {
 			if upper := strings.ToUpper(method); upper != "GET" && upper != "HEAD" && upper != "OPTIONS" {
 				e.RemoteMutation = true
 			}
 		}
-		for _, method := range p.values["method"] {
+		for _, method := range p.Values["method"] {
 			if upper := strings.ToUpper(method); upper != "GET" && upper != "HEAD" {
 				e.RemoteMutation = true
 			}
 		}
-		if p.has("T") || p.has("upload-file") {
+		if p.Has("T") || p.Has("upload-file") {
 			e.RemoteMutation = true
 		}
-		if (base == "curl" && p.has("K")) || p.has("config") {
+		if (base == "curl" && p.Has("K")) || p.Has("config") {
 			// A config file can add outputs, uploads and URLs that are not reviewed here.
 			e.ExecutesCode = true
 		}
-		if p.has("O") || p.has("remote-name") || p.has("remote-name-all") || base == "wget" && !p.has("O") && !p.has("output-document") && !p.has("spider") {
+		if p.Has("O") || p.Has("remote-name") || p.Has("remote-name-all") || base == "wget" && !p.Has("O") && !p.Has("output-document") && !p.Has("spider") {
 			// The output file name comes from the URL and lands in cwd.
-			add(".", true, base == "wget" && (p.has("r") || p.has("recursive") || p.has("m") || p.has("mirror")))
+			add(".", true, base == "wget" && (p.Has("r") || p.Has("recursive") || p.Has("m") || p.Has("mirror")))
 		}
 		for _, raw := range p.Positional {
 			if u, err := url.Parse(raw); err == nil && strings.EqualFold(u.Scheme, "file") {
@@ -254,117 +255,6 @@ func unknownOperands(args []string) types.Effects {
 		if strings.ContainsAny(p, "/\\") && !strings.Contains(p, "://") {
 			e.Files = append(e.Files, types.FileAccess{Path: p, Write: true})
 		}
-	}
-	return e
-}
-
-func jqOperands(args []string) types.Effects {
-	p := parseOptions(specs["jq"], args)
-	e := types.Effects{Incomplete: p.Incomplete}
-	e.Files = append(e.Files, p.Files...)
-	positional := p.Positional
-	if !p.has("f") && !p.has("from-file") && len(positional) > 0 {
-		positional = positional[1:]
-	}
-	if !p.has("args") && !p.has("jsonargs") {
-		for _, path := range positional {
-			if path != "-" {
-				e.Files = append(e.Files, types.FileAccess{Path: path})
-			}
-		}
-	}
-	if e.Incomplete {
-		escalateWrites(&e)
-	}
-	return e
-}
-
-func pdftotextOperands(args []string) types.Effects {
-	var e types.Effects
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch a {
-		case "-f", "-l", "-r", "-x", "-y", "-W", "-H", "-enc", "-eol", "-opw", "-upw", "-fixed", "-cropbox":
-			i++
-			continue
-		case "-layout", "-raw", "-nopgbrk", "-q", "-htmlmeta", "-bbox", "-bbox-layout", "-nodiag", "-listenc", "-v", "-tsv", "-simple", "-simple2":
-			continue
-		}
-		if strings.HasPrefix(a, "-") && a != "-" {
-			e.Incomplete = true
-			continue
-		}
-		positional = append(positional, a)
-	}
-	if len(positional) > 0 {
-		e.Files = append(e.Files, types.FileAccess{Path: positional[0]})
-	}
-	if len(positional) > 1 && positional[1] != "-" {
-		e.Files = append(e.Files, types.FileAccess{Path: positional[1], Write: true})
-	}
-	if e.Incomplete {
-		escalateWrites(&e)
-	}
-	return e
-}
-
-func findOperands(args []string) types.Effects {
-	var e types.Effects
-	i := 0
-	for i < len(args) && (args[i] == "-L" || args[i] == "-H" || args[i] == "-P") {
-		i++
-	}
-	for i < len(args) && !strings.HasPrefix(args[i], "-") && args[i] != "!" && args[i] != "(" {
-		e.Files = append(e.Files, types.FileAccess{Path: args[i], Recursive: true})
-		i++
-	}
-	if len(e.Files) == 0 {
-		e.Files = append(e.Files, types.FileAccess{Path: ".", Recursive: true})
-	}
-	roots := len(e.Files)
-	for ; i < len(args); i++ {
-		switch args[i] {
-		case "-name", "-iname", "-path", "-ipath", "-wholename", "-iwholename", "-lname", "-ilname", "-regex", "-iregex", "-regextype", "-type", "-xtype", "-maxdepth", "-mindepth", "-size", "-mtime", "-mmin", "-atime", "-amin", "-ctime", "-cmin", "-perm", "-user", "-group", "-uid", "-gid", "-links", "-inum", "-printf", "-used":
-			i++
-			if i >= len(args) {
-				e.Incomplete = true
-			}
-		case "-newer", "-anewer", "-cnewer", "-samefile":
-			i++
-			if i < len(args) {
-				e.Files = append(e.Files, types.FileAccess{Path: args[i]})
-			} else {
-				e.Incomplete = true
-			}
-		case "-fprint", "-fprint0", "-fls":
-			i++
-			if i < len(args) {
-				e.Files = append(e.Files, types.FileAccess{Path: args[i], Write: true})
-			} else {
-				e.Incomplete = true
-			}
-		case "-fprintf":
-			i += 2
-			if i-1 < len(args) {
-				e.Files = append(e.Files, types.FileAccess{Path: args[i-1], Write: true})
-			} else {
-				e.Incomplete = true
-			}
-		case "-print", "-print0", "-ls", "-empty", "-a", "-o", "-and", "-or", "!", "-not", "(", ")", "-prune", "-true", "-false", "-depth", "-d", "-follow", "-xdev", "-mount", "-readable", "-writable", "-executable", "-nouser", "-nogroup", "-quit", "-noleaf", "-daystart":
-		case "-delete":
-			for j := 0; j < roots; j++ {
-				e.Files[j].Write = true
-			}
-			e.Destructive = true
-		default:
-			// -exec/-execdir/-ok run programs over runtime-selected paths.
-			e.ExecutesCode = true
-			e.Incomplete = true
-		}
-	}
-	if e.Incomplete {
-		escalateWrites(&e)
 	}
 	return e
 }
