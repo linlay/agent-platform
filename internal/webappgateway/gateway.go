@@ -18,12 +18,13 @@ import (
 )
 
 type Gateway struct {
-	service   *webapp.Service
-	config    config.WebAppsConfig
-	auth      *authorization
-	mu        sync.Mutex
-	listeners map[string]*localListener
-	closed    bool
+	PlatformAuthorization func(string) bool
+	service               *webapp.Service
+	config                config.WebAppsConfig
+	auth                  *authorization
+	mu                    sync.Mutex
+	listeners             map[string]*localListener
+	closed                bool
 }
 type Launch struct {
 	Action    string `json:"action"`
@@ -121,6 +122,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer close(deadlineDone)
 		cancel()
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Now())
+		_ = http.NewResponseController(w).SetReadDeadline(time.Now())
 	})
 	defer func() {
 		if !stop() {
@@ -188,6 +190,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/__desktop" || strings.HasPrefix(r.URL.Path, "/__desktop/") {
 		http.NotFound(w, r)
+		return
+	}
+	if backendPath(r.URL.Path, scope.Manifest.Frontend.RouteConfig.BackendPrefixes) {
+		g.proxy(w, r, scope)
 		return
 	}
 	g.serveStatic(w, r, scope)

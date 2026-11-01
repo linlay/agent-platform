@@ -16,6 +16,7 @@ type Options struct {
 	Root     string
 	DataRoot string
 	Config   config.WebAppsConfig
+	Runner   Runner
 }
 type Service struct {
 	mu                      sync.Mutex
@@ -32,13 +33,14 @@ type Service struct {
 	active                  map[string]*activeApp
 	controls                map[string]*sync.Mutex
 	closing                 bool
+	runner                  Runner
 }
 
 func Open(options Options) (*Service, error) {
 	if options.Root == "" || options.DataRoot == "" {
 		return nil, fmt.Errorf("WebApp roots are required")
 	}
-	s := &Service{root: options.Root, dataRoot: options.DataRoot, config: options.Config, records: map[string]*Record{}, desired: map[string]Desired{}, policies: map[string]Policy{}, active: map[string]*activeApp{}, controls: map[string]*sync.Mutex{}}
+	s := &Service{root: options.Root, dataRoot: options.DataRoot, config: options.Config, runner: options.Runner, records: map[string]*Record{}, desired: map[string]Desired{}, policies: map[string]Policy{}, active: map[string]*activeApp{}, controls: map[string]*sync.Mutex{}}
 	s.maxArchive = int64(options.Config.MaxArchiveMiB) << 20
 	s.maxExpanded = int64(options.Config.MaxExtractedMiB) << 20
 	s.maxFiles = options.Config.MaxFiles
@@ -73,6 +75,27 @@ func Open(options Options) (*Service, error) {
 			s.lock.Close()
 		}
 	}()
+	// No directory switch or recovery is allowed while a previous helper
+	// still owns an application tree, including after a Platform crash.
+	if checker, ok := s.runner.(interface{ ConfirmStopped(string) bool }); ok {
+		entries, err := os.ReadDir(s.root)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range entries {
+			if idPattern.MatchString(e.Name()) {
+				if !e.IsDir() || e.Type()&os.ModeSymlink != 0 {
+					return nil, fmt.Errorf("unexpected WebApp entry")
+				}
+				if !checker.ConfirmStopped(e.Name()) {
+					return nil, fail("webapp_previous_generation_alive", 503)
+				}
+				if err := removeTree(filepath.Join(s.root, e.Name(), ".generations")); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
 	if err := s.recover(); err != nil {
 		return nil, fmt.Errorf("recover WebApp install: %w", err)
 	}
@@ -154,7 +177,15 @@ func (s *Service) entry(record *Record) Entry {
 		observed = a.state
 		generation = a.generation
 	}
-	return Entry{ID: m.ID, Key: m.Key, Label: m.Label, Version: m.Version, Target: m.Target, Revision: record.Revision, StateRevision: s.desired[m.ID].Revision, DesiredState: state, ObservedState: observed, Generation: generation, Backend: m.Backend != nil, InstalledAt: record.InstalledAt}
+	lastError := ""
+	restartCount := 0
+	var exitCode *int
+	if a := s.active[m.ID]; a != nil {
+		lastError = a.lastError
+		restartCount = a.restartCount
+		exitCode = a.exitCode
+	}
+	return Entry{LastError: lastError, RestartCount: restartCount, ExitCode: exitCode, ID: m.ID, Key: m.Key, Label: m.Label, Version: m.Version, Target: m.Target, Revision: record.Revision, StateRevision: s.desired[m.ID].Revision, DesiredState: state, ObservedState: observed, Generation: generation, Backend: m.Backend != nil, InstalledAt: record.InstalledAt}
 }
 func (s *Service) List() []Entry {
 	s.mu.Lock()
@@ -384,3 +415,5 @@ func defaultUserConfig(m Manifest) map[string]any {
 	}
 	return values
 }
+
+func (s *Service) BackendAvailable() bool { return s.runner != nil && s.runner.Ready() }

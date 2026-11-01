@@ -57,19 +57,46 @@ func writeJSON(path string, value any) error {
 	}
 	return syncDir(filepath.Dir(path))
 }
+func readManaged(path string, limit int64) ([]byte, error) {
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	info, err := root.Lstat(filepath.Base(path))
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > limit {
+		return nil, fmt.Errorf("invalid managed record")
+	}
+	file, err := root.Open(filepath.Base(path))
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err = file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("invalid managed record")
+	}
+	raw, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(raw)) > limit {
+		return nil, fmt.Errorf("invalid managed record")
+	}
+	return raw, nil
+}
 func readJSON(path string, target any) error {
-	fi, err := os.Lstat(path)
+	raw, err := readManaged(path, 512<<10)
 	if err != nil {
 		return err
 	}
-	if !fi.Mode().IsRegular() || fi.Size() > 512<<10 {
-		return fmt.Errorf("invalid managed record")
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	return strictJSON(b, target)
+	return strictJSON(raw, target)
 }
 func removeTree(path string) error {
 	if err := filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {

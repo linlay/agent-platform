@@ -61,6 +61,10 @@ func (s *Server) handleWebAppHost(w http.ResponseWriter, r *http.Request) {
 		status.Stage = "static"
 		status.StaticAvailable = true
 	}
+	if s.deps.WebApps != nil && s.deps.WebApps.BackendAvailable() {
+		status.Stage = "backend"
+		status.HostingAvailable = true
+	}
 	status.Issues = append([]webapphost.Issue{}, status.Issues...)
 	status.Warnings = append([]webapphost.Issue{}, status.Warnings...)
 	writeJSON(w, http.StatusOK, api.Success(status))

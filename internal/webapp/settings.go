@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -39,7 +38,7 @@ var skillIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9.
 func (s *Service) readUserConfig(id string) (map[string]any, string, error) {
 	file := filepath.Join(s.root, id, "user-config.json")
 	var values map[string]any
-	raw, err := os.ReadFile(file)
+	raw, err := readManaged(file, 64<<10)
 	if err != nil {
 		return nil, "", err
 	}

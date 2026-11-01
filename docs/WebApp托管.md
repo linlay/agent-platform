@@ -8,7 +8,7 @@
 
 ## 当前实现范围
 
-完整设计见 [Linux Docker Compose WebApp 托管方案](../plans/webapp-node-hosting.md)。当前代码已接入部署选择、严格配置、owner/Host 边界、Node 制品与隔离探测，以及 owner ZIP 上传、预检、安装、停止状态更新和卸载事务。静态网关、票据/会话、静态启停及最小 WebClient 管理已接入；Node 托管、应用 SDK 和异常恢复继续按后续批次实现，不能把安装管理视为完整托管交付。
+完整设计见 [Linux Docker Compose WebApp 托管方案](../plans/webapp-node-hosting.md)。当前代码已接入部署选择、严格配置、owner/Host 边界、Node 制品与隔离探测，以及 owner ZIP 上传、预检、安装、停止状态更新和卸载事务。静态/Node 网关、票据/会话、启停、最小 WebClient 管理和受限 Node 监督已接入；运行中更新及应用 SDK 继续按后续批次实现，不能把安装管理视为完整托管交付。
 
 共享 Manifest 已补齐 Linux 目标及合法/非法输入 fixture，builder 同步离线纯 JS 包约束；Desktop 仍拒绝安装 Linux 目标包。Go 安装器嵌入 Desktop 生成的 schema 并消费同一 fixture；`scripts/sync-webapp-contracts.py --check --desktop-root <Desktop源码根>` 检查复制漂移，不在生产环境读取相邻源码。小批次边界与验证限制见计划第 21 节。
 
@@ -55,8 +55,8 @@ RuntimeMode 仍是 standalone/desktop。新的独立启动选项为 `--webapp-ho
 | isolationProfile / ipcScoped / deviceIoctlRestricted | 文件/TCP 或文件/TCP/IPC 档位，以及真实可用的增强能力 |
 | warnings | ABI4/5 缺少 IPC、ABI4 缺少设备 ioctl 限制等非阻断提示 |
 | backendPrerequisitesReady | 当前 linux/amd64 后端运行前提是否满足 |
-| hostingAvailable | 当前固定 false，Node 托管尚未交付；静态能力看 staticAvailable |
-| stage | foundation / installation / static；staticAvailable 独立报告静态可用性 |
+| hostingAvailable | 已组装受限 Node runner 且前提满足时为 true；不代表完整 SDK 已交付 |
+| stage | foundation / installation / static / backend；staticAvailable 独立报告静态可用性 |
 | issues | 有界诊断码，不包含环境、凭证或任意进程输出 |
 
 接口响应 no-store。平台 Host 来自固定 platform-origin，不采信 X-Forwarded-Host；未知或应用内容 Host 在平台 mux 前拒绝，不能借 `/api/admin/*`、`/healthz` 或 `/ws` 进入原 handler。loopback peer 对精确 loopback:平台端口的 GET /healthz 单独放行。来自内容域的 Origin 也不能进入平台 API/主 WS。
@@ -65,7 +65,7 @@ RuntimeMode 仍是 standalone/desktop。新的独立启动选项为 `--webapp-ho
 
 Dockerfile 的独立构建阶段锁定 Node 官方制品版本和 SHA-256，只复制 node、LICENSE 与摘要，不复制 npm、头文件和编译器到运行层。Node/helper 及父目录为 root 所有；主 Go 程序仍 CGO_ENABLED=0。该阶段仅支持 linux/amd64，不向其他 program 包扩展 Node 分发。
 
-辅助程序使用 C，在构建阶段编译。当前只支持 `--version` 和 `--probe`，尚不支持运行应用。探测在一次性子进程施加 Landlock，实际检查：
+辅助程序使用 C，在构建阶段编译。协议 v3 增加私有管道的 `--run`；旧 v2 仅探测 helper 不通过新宿主的版本准入。探测在一次性子进程施加 Landlock，实际检查：
 
 - 放行文件可读，另一个文件不可读，放行文件仍不可写。
 - 分配端口可 bind/connect，未授权 TCP bind/connect 被拒绝。
@@ -109,3 +109,15 @@ WebClient `/webapps` 仅在普通 Platform 模式展示；Desktop 沿用自己�
 静态只读 `frontend.root`，不列目录、不公开 Manifest/后端文件；只对 HTML 导航做 SPA fallback。应用端口不能进入平台管理路由，Host 必须精确匹配本监听端口；请求不采信转发头。业务写入/WS 要求应用精确 Origin，SDK 保留路径暂不转发。
 
 回归已覆盖 Go race、共享契约、设置修订、停止排空与恢复、真实 loopback HTTP Host 校验、会话/票据过期及撤销。WebClient 类型、边界、国际化、定向测试及独立缓存的生产 build 通过；浏览器 fixture 验证安装后 stopped 展示、启动交互与访问范围页面，无脚本错误。整个 server 包首次回归出现已有连接数时序用例失败，单独复测该例与 WebApp 用例通过，未放宽断言。
+
+## 受限 Node 监督（批次 3）
+
+每应用 runner 从空环境构建变量，固定镜像 Node、权限参数、HOST/PORT、只读代码和配置、可写本应用数据及 generation 临时根；不运行 shell/npm，不给 child_process/addon/inspector 权限。Landlock 施加失败不执行 Node，默认只允许分配端口 bind 和显式授权 TCP connect；必要动态库、ELF 加载器、CA、OpenSSL 配置及 DNS 文件精确放行，不放行整个 /etc、/opt、/tmp 或 /proc。ABI4 仍不具备进程信号/抽象 socket scope，也不限制远端 IP/UDP；可信应用边界不变。
+
+监督使用 watcher 与内部 subreaper，私有父进程存活/状态管道不进入 Node。两层 helper 持有独占 generation 锁，Node exec 前关闭所有非 stdio 管理 FD；清理以子进程收养、pidfd 与当前父身份校验为依据，不接管旧 PID。确认锁释放和无存活后代前，不释放端口或替换目录。启动恢复先检查旧 generation 锁，再回收临时根，保留持久数据。
+
+启动先返回 starting，固定 loopback 健康检查并核验监听 socket 由本 Node 持有后才发布。持续健康和 RSS 监测失败时撤销访问，再清理并有界退避；显式停止取消重启。RSS 只是监测阈值，整容器资源限额仍是硬边界。stdout/stderr 有界轮转，owner 可读取尾部与游标，不按行积累无换行输出。
+
+代理仅使用当前 generation 的 loopback 地址，按 backendPrefixes 路径段匹配，保留业务凭据并剥离宿主 Cookie、已验证平台 Authorization 与伪造身份/转发头；后端不能设置宿主或 Domain Cookie。停止显式关闭 Upgrade 的后端连接，SSE 立即 flush，均不回落到静态 SPA。
+
+2026-11-01 在 singapore02 原生 linux/amd64、既有 v0.5.31 Node 镜像上覆盖新 helper 并运行新交叉编译测试：UID10001、init、只读根、drop ALL、no-new-privileges、默认 seccomp、network none、1 GiB/1 CPU。文件/端口拒绝、最小环境、HTTP 代理凭据、日志、WS/SSE 停止、新 generation、数据保留、恢复及两层监督进程分别 SIGKILL 后重启通过。单独 C harness 验证 setsid/double-fork 后代回收，保留无关 sibling。该隔离候选不挂载生产数据，不替代完整新镜像/业务 SDK/资源压力验收。

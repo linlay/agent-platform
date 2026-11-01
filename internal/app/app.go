@@ -486,7 +486,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	var webapps *webapp.Service
 	cleanupWebapps := true
 	if cfg.WebApps.Enabled {
-		webapps, err = webapp.Open(webapp.Options{Root: cfg.Paths.WebAppsDir, DataRoot: cfg.Paths.WebAppDataDir, Config: cfg.WebApps})
+		webapps, err = webapp.Open(webapp.Options{Root: cfg.Paths.WebAppsDir, DataRoot: cfg.Paths.WebAppDataDir, Config: cfg.WebApps, Runner: webapphost.NewRunner(cfg.Paths.WebAppsDir, cfg.WebApps, webappHostStatus != nil && webappHostStatus.BackendPrerequisitesReady)})
 		if err != nil {
 			return nil, fmt.Errorf("initialize WebApp storage: %w", err)
 		}
@@ -650,7 +650,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 	log.Printf("app dependencies initialized in %s", startupElapsed(appInitStartedAt))
 	if webapps != nil {
-		if err := webapps.RestoreStatic(backgroundCtx); err != nil {
+		if err := webapps.RestoreDesired(backgroundCtx); err != nil {
 			return nil, fmt.Errorf("restore static WebApps: %w", err)
 		}
 	}

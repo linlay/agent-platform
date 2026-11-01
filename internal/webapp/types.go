@@ -118,6 +118,9 @@ type Policy struct {
 	ConnectPorts  []int            `json:"connectPorts"`
 }
 type Entry struct {
+	LastError     string `json:"lastError,omitempty"`
+	RestartCount  int    `json:"restartCount"`
+	ExitCode      *int   `json:"exitCode,omitempty"`
 	StateRevision string `json:"stateRevision"`
 	Generation    string `json:"generation,omitempty"`
 	ID            string `json:"id"`

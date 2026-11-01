@@ -123,12 +123,22 @@ func (s *Server) handleWebAppAdmin(w http.ResponseWriter, r *http.Request) {
 			var err error
 			if parts[1] == "start" {
 				value, err = s.deps.WebApps.Start(ctx, id, input)
+			} else if parts[1] == "restart" {
+				value, err = s.deps.WebApps.Restart(ctx, id, input)
 			} else {
 				value, err = s.deps.WebApps.Stop(ctx, id, input)
-				if err == nil && parts[1] == "restart" {
-					value, err = s.deps.WebApps.Start(ctx, id, webapp.StateRequest{ExpectedRevision: value.Revision, ExpectedStateRevision: value.StateRevision})
-				}
 			}
+			webAppResponse(w, value, err)
+			return
+		case "logs":
+			if r.Method != http.MethodGet {
+				break
+			}
+			stream := r.URL.Query().Get("stream")
+			if stream == "" {
+				stream = "stdout"
+			}
+			value, err := s.deps.WebApps.Logs(id, stream, r.URL.Query().Get("cursor"))
 			webAppResponse(w, value, err)
 			return
 		case "launch-ticket":

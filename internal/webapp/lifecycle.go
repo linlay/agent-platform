@@ -2,8 +2,10 @@ package webapp
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
@@ -13,6 +15,14 @@ type activeApp struct {
 	ctx               context.Context
 	cancel            context.CancelFunc
 	leases            sync.WaitGroup
+	root              context.Context
+	stop              context.CancelFunc
+	done              chan struct{}
+	clean             bool
+	process           Process
+	lastError         string
+	restartCount      int
+	exitCode          *int
 }
 type StateRequest struct {
 	ExpectedRevision      string `json:"expectedRevision"`
@@ -26,6 +36,7 @@ type Scope struct {
 	Policy             Policy
 	UserConfig         map[string]any
 	CodeRoot, DataRoot string
+	BackendAddress     string
 	Generation         string
 	Context            context.Context
 	Check              func() error
@@ -49,6 +60,9 @@ func (s *Service) Start(ctx context.Context, id string, request StateRequest) (E
 	control := s.control(id)
 	control.Lock()
 	defer control.Unlock()
+	return s.start(ctx, id, request)
+}
+func (s *Service) start(ctx context.Context, id string, request StateRequest) (Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.mutationError(); err != nil {
@@ -62,16 +76,28 @@ func (s *Service) Start(ctx context.Context, id string, request StateRequest) (E
 		return Entry{}, fail("webapp_revision_conflict", 409)
 	}
 	if a := s.active[id]; a != nil {
-		if a.state == "running" {
+		if a.state == "running" || a.state == "starting" || a.state == "backoff" {
 			return s.entry(r), nil
 		}
-		return Entry{}, fail("webapp_transition_in_progress", 409)
+		if !a.clean {
+			return Entry{}, fail("webapp_transition_in_progress", 409)
+		}
+		delete(s.active, id)
 	}
 	if request.ExpectedStateRevision != s.desired[id].Revision {
 		return Entry{}, fail("webapp_revision_conflict", 409)
 	}
-	if r.Manifest.Backend != nil {
+	if r.Manifest.Backend != nil && (s.runner == nil || !s.runner.Ready()) {
 		return Entry{}, fail("webapp_backend_unavailable", 503)
+	}
+	running := 0
+	for _, a := range s.active {
+		if a.state != "failed" && a.state != "blocked" {
+			running++
+		}
+	}
+	if running >= s.config.MaxRunning {
+		return Entry{}, fail("webapp_max_running", 409)
 	}
 	if err := verifyInstalledCode(filepath.Join(s.root, id, "app"), *r); err != nil {
 		return Entry{}, err
@@ -90,8 +116,17 @@ func (s *Service) Start(ctx context.Context, id string, request StateRequest) (E
 	if err := writeJSON(filepath.Join(s.root, id, "desired.json"), desired); err != nil {
 		return Entry{}, err
 	}
-	appCtx, cancel := context.WithCancel(context.Background())
-	s.active[id] = &activeApp{state: "running", generation: randomID(), ctx: appCtx, cancel: cancel}
+	root, stop := context.WithCancel(context.Background())
+	appCtx, cancel := context.WithCancel(root)
+	a := &activeApp{state: "running", generation: randomID(), ctx: appCtx, cancel: cancel, root: root, stop: stop, done: make(chan struct{}), clean: true}
+	s.active[id] = a
+	if r.Manifest.Backend != nil {
+		a.state = "starting"
+		a.clean = false
+		go s.runBackend(id, a, *r, s.policies[id])
+	} else {
+		close(a.done)
+	}
 	s.desired[id] = desired
 	return s.entry(r), nil
 }
@@ -105,6 +140,9 @@ func (s *Service) stop(ctx context.Context, id string, request StateRequest, pre
 	control := s.control(id)
 	control.Lock()
 	defer control.Unlock()
+	return s.stopLocked(ctx, id, request, preserve)
+}
+func (s *Service) stopLocked(ctx context.Context, id string, request StateRequest, preserve bool) (Entry, error) {
 	s.mu.Lock()
 	r := s.records[id]
 	if r == nil {
@@ -141,9 +179,10 @@ func (s *Service) stop(ctx context.Context, id string, request StateRequest, pre
 	}
 	a.state = "stopping"
 	a.cancel()
+	a.stop()
 	s.mu.Unlock()
 	done := make(chan struct{})
-	go func() { a.leases.Wait(); close(done) }()
+	go func() { <-a.done; a.leases.Wait(); close(done) }()
 	select {
 	case <-done:
 	case <-ctx.Done():
@@ -154,6 +193,15 @@ func (s *Service) stop(ctx context.Context, id string, request StateRequest, pre
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !a.clean {
+		if checker, ok := s.runner.(interface{ ConfirmStopped(string) bool }); ok && checker.ConfirmStopped(id) {
+			a.clean = true
+		}
+	}
+	if !a.clean {
+		a.state = "failed"
+		return Entry{}, fail("webapp_stop_incomplete", 503)
+	}
 	if s.active[id] == a {
 		delete(s.active, id)
 	}
@@ -183,7 +231,11 @@ func (s *Service) Acquire(id string) (*Scope, error) {
 	policy := s.policies[id]
 	a.leases.Add(1)
 	var once sync.Once
-	return &Scope{Entry: s.entry(r), Manifest: r.Manifest, Policy: policy, UserConfig: values, CodeRoot: filepath.Join(s.root, id, "app"), DataRoot: filepath.Join(s.dataRoot, id), Generation: a.generation, Context: a.ctx, Release: func() { once.Do(a.leases.Done) }, Check: func() error { return s.Check(id, a.generation, policy.Revision) }}, nil
+	address := ""
+	if a.process != nil {
+		address = a.process.Address()
+	}
+	return &Scope{BackendAddress: address, Entry: s.entry(r), Manifest: r.Manifest, Policy: policy, UserConfig: values, CodeRoot: filepath.Join(s.root, id, "app"), DataRoot: filepath.Join(s.dataRoot, id), Generation: a.generation, Context: a.ctx, Release: func() { once.Do(a.leases.Done) }, Check: func() error { return s.Check(id, a.generation, policy.Revision) }}, nil
 }
 func (s *Service) Check(id, generation, policyRevision string) error {
 	s.mu.Lock()
@@ -212,31 +264,57 @@ func (s *Service) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
 	var wg sync.WaitGroup
+	var errorsMu sync.Mutex
+	var failures []error
 	for _, id := range ids {
 		wg.Add(1)
-		go func(id string) { defer wg.Done(); _, _ = s.stop(ctx, id, StateRequest{}, true) }(id)
+		go func(id string) {
+			defer wg.Done()
+			_, err := s.stop(ctx, id, StateRequest{}, true)
+			if err != nil {
+				errorsMu.Lock()
+				failures = append(failures, err)
+				errorsMu.Unlock()
+			}
+		}(id)
 	}
 	wg.Wait()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(failures) > 0 {
+		return errors.Join(failures...)
+	}
 	s.closed = true
 	return s.lock.Close()
 }
 
-// RestoreStatic publishes only previously running static apps. Node recovery
-// is wired after its internal HTTP bridge and runner become available.
-func (s *Service) RestoreStatic(ctx context.Context) error {
+// RestoreDesired never adopts recorded PIDs or endpoints; every generation
+// is created through the same locked runner and health path as a fresh start.
+func (s *Service) RestoreDesired(ctx context.Context) error {
 	s.mu.Lock()
 	requests := map[string]StateRequest{}
 	for id, r := range s.records {
-		if r.Manifest.Backend == nil && s.desired[id].State == "running" {
+		if s.desired[id].State == "running" {
 			requests[id] = StateRequest{ExpectedRevision: r.Revision, ExpectedStateRevision: s.desired[id].Revision}
 		}
 	}
 	s.mu.Unlock()
-	for id, req := range requests {
+	ids := make([]string, 0, len(requests))
+	for id := range requests {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		req := requests[id]
 		if _, err := s.Start(ctx, id, req); err != nil {
-			return err
+			code, _ := ErrorCode(err)
+			s.mu.Lock()
+			root, stop := context.WithCancel(context.Background())
+			stop()
+			done := make(chan struct{})
+			close(done)
+			s.active[id] = &activeApp{state: "blocked", generation: randomID(), ctx: root, cancel: stop, root: root, stop: stop, done: done, clean: true, lastError: code}
+			s.mu.Unlock()
 		}
 	}
 	return nil
@@ -254,4 +332,136 @@ func (scope *Scope) CodeFile(name string) (*os.File, error) {
 	}
 	defer root.Close()
 	return root.Open(filepath.FromSlash(name))
+}
+
+// RestoreStatic is retained as an internal compatibility name for fixtures.
+func (s *Service) RestoreStatic(ctx context.Context) error { return s.RestoreDesired(ctx) }
+func (s *Service) Restart(ctx context.Context, id string, req StateRequest) (Entry, error) {
+	if !idPattern.MatchString(id) {
+		return Entry{}, fail("webapp_not_found", 404)
+	}
+	l := s.control(id)
+	l.Lock()
+	defer l.Unlock()
+	e, err := s.stopLocked(ctx, id, req, false)
+	if err != nil {
+		return Entry{}, err
+	}
+	return s.start(ctx, id, StateRequest{ExpectedRevision: e.Revision, ExpectedStateRevision: e.StateRevision})
+}
+func (s *Service) runBackend(id string, a *activeApp, r Record, policy Policy) {
+	defer close(a.done)
+	var attempts []time.Time
+	for {
+		if a.root.Err() != nil {
+			s.mu.Lock()
+			a.clean = true
+			s.mu.Unlock()
+			return
+		}
+		s.mu.Lock()
+		generation := a.generation
+		appCtx := a.ctx
+		s.mu.Unlock()
+		spec := RuntimeSpec{ID: id, Generation: generation, CodeRoot: filepath.Join(s.root, id, "app"), DataRoot: filepath.Join(s.dataRoot, id), ManagementRoot: filepath.Join(s.root, id), Manifest: r.Manifest, Policy: policy, Context: appCtx, Check: func() error { return s.instanceCheck(id, generation, policy.Revision) }}
+		spec.OnUnavailable = func(reason string) {
+			s.mu.Lock()
+			if s.active[id] == a && a.generation == generation && a.state != "stopping" {
+				a.state = "unhealthy"
+				a.lastError = reason
+				a.cancel()
+			}
+			s.mu.Unlock()
+		}
+
+		p, err := s.runner.Start(appCtx, spec)
+		clean := true
+		reason := ""
+		code := 0
+		started := time.Now()
+		if err == nil {
+			s.mu.Lock()
+			a.process = p
+			if a.root.Err() == nil {
+				a.state = "running"
+				a.lastError = ""
+			}
+			s.mu.Unlock()
+			select {
+			case <-p.Done():
+			case <-a.root.Done():
+			}
+			stopCtx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+			stopErr := p.Stop(stopCtx)
+			cancel()
+			result := p.Exit()
+			clean = result.Clean && stopErr == nil
+			reason = result.Reason
+			code = result.Code
+		} else {
+			reason, _ = ErrorCode(err)
+			if reason == "webapp_stop_incomplete" || reason == "webapp_previous_generation_alive" {
+				clean = false
+			}
+		}
+		s.mu.Lock()
+		a.cancel()
+		a.process = nil
+		a.state = "backoff"
+		a.exitCode = &code
+		a.lastError = reason
+		s.mu.Unlock()
+		a.leases.Wait()
+		s.mu.Lock()
+		a.clean = clean
+		if a.root.Err() != nil {
+			s.mu.Unlock()
+			return
+		}
+		if !clean || reason == "webapp_isolation_required" || reason == "webapp_backend_unavailable" {
+			a.state = "blocked"
+			s.mu.Unlock()
+			return
+		}
+		now := time.Now()
+		if now.Sub(started) >= time.Duration(s.config.Backend.Restart.StableResetSeconds)*time.Second {
+			attempts = nil
+		}
+		cutoff := now.Add(-time.Duration(s.config.Backend.Restart.WindowSeconds) * time.Second)
+		kept := attempts[:0]
+		for _, t := range attempts {
+			if t.After(cutoff) {
+				kept = append(kept, t)
+			}
+		}
+		attempts = kept
+		if len(attempts) >= s.config.Backend.Restart.MaxAttempts {
+			a.state = "failed"
+			a.lastError = "webapp_restart_exhausted"
+			s.mu.Unlock()
+			return
+		}
+		attempts = append(attempts, now)
+		a.restartCount++
+		a.state = "backoff"
+		s.mu.Unlock()
+		delay := time.Second << min(len(attempts)-1, 5)
+		timer := time.NewTimer(delay)
+		select {
+		case <-a.root.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		s.mu.Lock()
+		if a.root.Err() != nil {
+			s.mu.Unlock()
+			return
+		}
+		a.generation = randomID()
+		a.ctx, a.cancel = context.WithCancel(a.root)
+		a.state = "starting"
+		a.clean = false
+		s.mu.Unlock()
+	}
 }

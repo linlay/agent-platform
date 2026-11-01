@@ -10,16 +10,16 @@ import (
 )
 
 func TestDecodeProbeResult(t *testing.T) {
-	result, err := decodeProbeResult([]byte(`{"protocolVersion":2,"abi":6,"ready":true,"ipcScoped":true,"deviceIoctlRestricted":true}`))
+	result, err := decodeProbeResult([]byte(`{"protocolVersion":3,"abi":6,"ready":true,"ipcScoped":true,"deviceIoctlRestricted":true}`))
 	if err != nil || !result.Ready || result.ABI != 6 {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	for _, raw := range []string{
-		`{"protocolVersion":2,"abi":6,"ready":true} {}`,
-		`{"protocolVersion":2,"abi":6,"ready":true,"stage":"enforcement"}`,
-		`{"protocolVersion":2,"abi":-1,"ready":false}`,
+		`{"protocolVersion":3,"abi":6,"ready":true} {}`,
+		`{"protocolVersion":3,"abi":6,"ready":true,"stage":"enforcement"}`,
+		`{"protocolVersion":3,"abi":-1,"ready":false}`,
 		`{"protocolVersion":0,"abi":6,"ready":true}`,
-		`{"protocolVersion":2,"abi":6,"ready":true,"unknown":true}`,
+		`{"protocolVersion":3,"abi":6,"ready":true,"unknown":true}`,
 		`not json`,
 	} {
 		if _, err := decodeProbeResult([]byte(raw)); err == nil {
@@ -74,14 +74,14 @@ func TestIsolationReportABICapabilities(t *testing.T) {
 		ready, ipc, ioctl  bool
 		warnings           int
 	}{
-		{"abi4", `{"protocolVersion":2,"abi":4,"ready":true,"ipcScoped":false,"deviceIoctlRestricted":false}`, "landlock-files-tcp", true, false, false, 2},
-		{"abi5", `{"protocolVersion":2,"abi":5,"ready":true,"ipcScoped":false,"deviceIoctlRestricted":true}`, "landlock-files-tcp", true, false, true, 1},
-		{"abi6", `{"protocolVersion":2,"abi":6,"ready":true,"ipcScoped":true,"deviceIoctlRestricted":true}`, "landlock-files-tcp-ipc", true, true, true, 0},
-		{"abi3", `{"protocolVersion":2,"abi":3,"ready":false,"stage":"landlock_abi"}`, "", false, false, false, 0},
-		{"missing_enforcement", `{"protocolVersion":2,"abi":4,"ready":false,"stage":"create_ruleset","errno":1}`, "", false, false, false, 0},
-		{"old_protocol", `{"protocolVersion":1,"abi":4,"ready":false}`, "", false, false, false, 0},
-		{"false_ipc_claim", `{"protocolVersion":2,"abi":4,"ready":true,"ipcScoped":true}`, "", false, false, false, 0},
-		{"false_ioctl_claim", `{"protocolVersion":2,"abi":4,"ready":true,"deviceIoctlRestricted":true}`, "", false, false, false, 0},
+		{"abi4", `{"protocolVersion":3,"abi":4,"ready":true,"ipcScoped":false,"deviceIoctlRestricted":false}`, "landlock-files-tcp", true, false, false, 2},
+		{"abi5", `{"protocolVersion":3,"abi":5,"ready":true,"ipcScoped":false,"deviceIoctlRestricted":true}`, "landlock-files-tcp", true, false, true, 1},
+		{"abi6", `{"protocolVersion":3,"abi":6,"ready":true,"ipcScoped":true,"deviceIoctlRestricted":true}`, "landlock-files-tcp-ipc", true, true, true, 0},
+		{"abi3", `{"protocolVersion":3,"abi":3,"ready":false,"stage":"landlock_abi"}`, "", false, false, false, 0},
+		{"missing_enforcement", `{"protocolVersion":3,"abi":4,"ready":false,"stage":"create_ruleset","errno":1}`, "", false, false, false, 0},
+		{"old_protocol", `{"protocolVersion":2,"abi":4,"ready":false}`, "", false, false, false, 0},
+		{"false_ipc_claim", `{"protocolVersion":3,"abi":4,"ready":true,"ipcScoped":true}`, "", false, false, false, 0},
+		{"false_ioctl_claim", `{"protocolVersion":3,"abi":4,"ready":true,"deviceIoctlRestricted":true}`, "", false, false, false, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			status := Status{Issues: []Issue{}, Warnings: []Issue{}}

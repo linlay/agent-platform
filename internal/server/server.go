@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -293,6 +294,13 @@ func New(deps Dependencies) (*Server, error) {
 	s.skillOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.SkillsCenterDir)
 	if deps.Config.WebApps.Enabled && deps.WebApps != nil {
 		s.webAppGateway = webappgateway.New(deps.WebApps, deps.Config.WebApps)
+		s.webAppGateway.PlatformAuthorization = func(value string) bool {
+			if !strings.HasPrefix(value, "Bearer ") {
+				return false
+			}
+			_, err := s.authVerifier.Verify(strings.TrimPrefix(value, "Bearer "))
+			return err == nil
+		}
 	}
 	s.connectorOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.EffectiveConnectorsCenterDir())
 	s.connectorGrants = connectorops.NewGrants(backgroundCtx)

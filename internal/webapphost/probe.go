@@ -23,7 +23,7 @@ const (
 	NodePath            = "/opt/node/bin/node"
 	SupervisorPath      = "/opt/libexec/webapp-supervisor"
 	RequiredLandlockABI = 4
-	ProtocolVersion     = 2
+	ProtocolVersion     = 3
 )
 
 type Issue struct {
