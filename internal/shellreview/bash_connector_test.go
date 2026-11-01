@@ -10,6 +10,7 @@ import (
 	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	shellplan "agent-platform/internal/shellreview/plan"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
@@ -36,7 +37,7 @@ func TestMountedConnectorAllOperationsAndAccessLevels(t *testing.T) {
 				if p.Decision != DecisionAllow || !p.ConnectorOnly {
 					t.Fatalf("not direct allow: %+v", p)
 				}
-				if s := p.SecurityReview(command, vars); s.Decision != bashsyntax.ReviewAllow {
+				if s := SecurityReview(p, command, vars); s.Decision != bashsyntax.ReviewAllow {
 					t.Fatalf("security still intercepted: %+v / %s", s, p.ReviewCommand)
 				}
 			})
@@ -62,7 +63,7 @@ func TestMountedConnectorLeavesSurroundingShellUnderReview(t *testing.T) {
 	}
 	for _, command := range []string{"wecom-cli send; eval 'echo unsafe'", "wecom-cli send \"$(eval 'echo unsafe')\""} {
 		p := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "", vars)
-		if s := p.SecurityReview(command, vars); s.Decision != bashsyntax.ReviewBlock {
+		if s := SecurityReview(p, command, vars); s.Decision != bashsyntax.ReviewBlock {
 			t.Fatalf("lost shell block for %s: %+v", command, s)
 		}
 	}
@@ -79,13 +80,13 @@ func TestMountedConnectorCannotBypassRawTextGuard(t *testing.T) {
 			"wecom-cli send --json\u200b'{}'",
 		} {
 			p := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "/", vars)
-			if !p.Blocked() || p.SecurityReview(command, vars).Decision != bashsyntax.ReviewBlock {
+			if !p.Blocked() || SecurityReview(p, command, vars).Decision != bashsyntax.ReviewBlock {
 				t.Fatalf("%s: trusted payload bypassed raw-text guard: %+v", level, p)
 			}
 		}
 		// Quoted data keeps emoji joiners and CJK spaces verbatim.
 		command := "wecom-cli send --json '{\"content\":\"\u3000\u3000👨\u200d💻\"}'"
-		if p := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "/", vars); p.Blocked() || p.SecurityReview(command, vars).Decision == bashsyntax.ReviewBlock {
+		if p := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "/", vars); p.Blocked() || SecurityReview(p, command, vars).Decision == bashsyntax.ReviewBlock {
 			t.Fatalf("%s: quoted payload was rejected: %+v", level, p)
 		}
 	}
@@ -144,7 +145,7 @@ func TestMountedConnectorContainerUsesGuestIdentityAndHash(t *testing.T) {
 		Canonical: func(p, cwd string) (string, error) { return canonical, nil },
 		Inspect:   func(string) (string, string, error) { return "#!/bin/sh\n", hash, nil },
 	}
-	review := func() BashPlan {
+	review := func() shellplan.BashPlan {
 		return ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, session, "wecom-cli send", "", vars, env, nil)
 	}
 	if p := review(); !p.ConnectorOnly || p.Decision != DecisionAllow {

@@ -9,7 +9,7 @@ import (
 	"agent-platform/internal/chat"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
-	"agent-platform/internal/shellreview"
+	shellplan "agent-platform/internal/shellreview/plan"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
@@ -579,7 +579,7 @@ func (s *llmRunStream) applyHITLDecision(invocation *preparedToolInvocation, res
 	if request := invocation.shownApproval; request != nil && request.bashArguments != "" {
 		rules := []string{request.result.Rule.RuleKey}
 		if request.bashAccessReview != nil {
-			rules = append(rules, shellreview.ApprovalRules(*request.bashAccessReview)...)
+			rules = append(rules, shellplan.ApprovalRules(*request.bashAccessReview)...)
 		}
 		if request.bashSecurityReview != nil {
 			rules = append(rules, request.bashSecurityReview.RuleKey)

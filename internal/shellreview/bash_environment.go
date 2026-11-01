@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	. "agent-platform/internal/accesspolicy"
+	shellplan "agent-platform/internal/shellreview/plan"
 	"agent-platform/internal/shellreview/types"
 )
 
@@ -26,7 +27,7 @@ type BashEnvironment struct {
 
 var ErrBashTemporaryEscape = errors.New("container temporary path escapes /tmp through a symlink")
 
-func executionFingerprint(p BashPlan, x BashExecution, variables map[string]string, env *BashEnvironment) BashPlan {
+func executionFingerprint(p shellplan.BashPlan, x BashExecution, variables map[string]string, env *BashEnvironment) shellplan.BashPlan {
 	data, _ := json.Marshal(variables)
 	content := ""
 	target := x.Script

@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
+	shellplan "agent-platform/internal/shellreview/plan"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"agent-platform/internal/shellreview/types"
 )
@@ -137,7 +138,7 @@ func connectorReviewCommand(command string, words []types.WordSpan) string {
 
 // SecurityReview binds any residual shell approval to the original command,
 // never to the neutral projection used to exclude mounted CLI payloads.
-func (p BashPlan) SecurityReview(command string, variables map[string]string) bashsyntax.ReviewResult {
+func SecurityReview(p shellplan.BashPlan, command string, variables map[string]string) bashsyntax.ReviewResult {
 	if reason := rawTextRejection(command, p.UnknownDialect); reason != "" {
 		return bashsyntax.ReviewResult{Decision: bashsyntax.ReviewBlock, Reason: reason}
 	}
@@ -154,11 +155,4 @@ func (p BashPlan) SecurityReview(command string, variables map[string]string) ba
 		}
 	}
 	return result
-}
-
-func (p BashPlan) ShellReviewCommand(command string) string {
-	if p.HasConnector {
-		return p.ReviewCommand
-	}
-	return command
 }

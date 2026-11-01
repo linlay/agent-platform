@@ -12,13 +12,14 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/shellreview"
+	shellplan "agent-platform/internal/shellreview/plan"
 )
 
 // Protocol fixtures without a filesystem model simulate a tool backend, not
 // Host Bash. Fixtures that declare roots exercise the real access policy.
-func (r *recordingToolExecutor) ReviewBashAccess(_ context.Context, args map[string]any, ctx *ExecutionContext, cfg config.AccessPolicyConfig) shellreview.BashPlan {
+func (r *recordingToolExecutor) ReviewBashAccess(_ context.Context, args map[string]any, ctx *ExecutionContext, cfg config.AccessPolicyConfig) shellplan.BashPlan {
 	if ctx == nil || !hasLocalFileRoots(ctx.Session) {
-		return shellreview.BashPlan{Decision: accesspolicy.DecisionAllow}
+		return shellplan.BashPlan{Decision: accesspolicy.DecisionAllow}
 	}
 	var environment *shellreview.BashEnvironment
 	if ctx.Session.AgentHasRuntimeSandbox {
@@ -32,11 +33,11 @@ func (r *recordingToolExecutor) ReviewBashAccess(_ context.Context, args map[str
 	return shellreview.ReviewBashCommandInEnvironment(cfg, ctx.Session, mapStringArg(args, "command"), mapStringArg(args, "cwd"), ctx.StaticRuntimeEnv, environment, ctx)
 }
 
-func (stubToolExecutor) ReviewBashAccess(ctx context.Context, args map[string]any, execution *ExecutionContext, cfg config.AccessPolicyConfig) shellreview.BashPlan {
+func (stubToolExecutor) ReviewBashAccess(ctx context.Context, args map[string]any, execution *ExecutionContext, cfg config.AccessPolicyConfig) shellplan.BashPlan {
 	return (&recordingToolExecutor{}).ReviewBashAccess(ctx, args, execution, cfg)
 }
 
-func (*streamingOutputToolExecutor) ReviewBashAccess(ctx context.Context, args map[string]any, execution *ExecutionContext, cfg config.AccessPolicyConfig) shellreview.BashPlan {
+func (*streamingOutputToolExecutor) ReviewBashAccess(ctx context.Context, args map[string]any, execution *ExecutionContext, cfg config.AccessPolicyConfig) shellplan.BashPlan {
 	return (&recordingToolExecutor{}).ReviewBashAccess(ctx, args, execution, cfg)
 }
 
@@ -84,7 +85,7 @@ func TestDisplayedScriptApprovalCannotGrantChangedContent(t *testing.T) {
 		t.Fatal("shown snapshot replaced with new requirements")
 	}
 	stream.grantDisplayedBashAccess("approve", *request.bashAccessReview)
-	if shellreview.HasApproval(ctx, stream.rawBashAccessReview(invocation)) {
+	if shellplan.HasApproval(ctx, stream.rawBashAccessReview(invocation)) {
 		t.Fatal("old exact approval authorized changed script")
 	}
 }
@@ -128,7 +129,7 @@ func TestBashApprovalDescriptionDoesNotAppendPolicyReasons(t *testing.T) {
 					"options":       buildApprovalOptions(),
 					"allowFreeText": true,
 					"ruleKey":       request.result.Rule.RuleKey,
-					"policy":        shellreview.BashPlanMetadata(*request.bashAccessReview),
+					"policy":        shellplan.BashPlanMetadata(*request.bashAccessReview),
 				}
 				if request.bashSecurityReview != nil {
 					want["requirements"] = []any{map[string]any{"ruleKey": request.bashSecurityReview.RuleKey, "reason": request.bashSecurityReview.Reason}}
@@ -136,7 +137,7 @@ func TestBashApprovalDescriptionDoesNotAppendPolicyReasons(t *testing.T) {
 				if item := stream.buildApprovalAskItem(invocation); !reflect.DeepEqual(item, want) {
 					t.Fatalf("approval item changed command/description or added policy notes: got %#v, want %#v", item, want)
 				}
-				if shellreview.HasApproval(ctx, *request.bashAccessReview) {
+				if shellplan.HasApproval(ctx, *request.bashAccessReview) {
 					t.Fatal("building the approval item must not authorize execution")
 				}
 			})

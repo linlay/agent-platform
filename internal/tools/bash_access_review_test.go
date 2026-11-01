@@ -10,7 +10,7 @@ import (
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
-	"agent-platform/internal/shellreview"
+	shellplan "agent-platform/internal/shellreview/plan"
 )
 
 type scriptProbeSandbox struct {
@@ -110,7 +110,7 @@ func TestSandboxExecutorVerifiesMappedContentBeforeAuthoredAllow(t *testing.T) {
 	if !preflight.RequiresApproval() {
 		t.Fatalf("preflight: %+v", preflight)
 	}
-	shellreview.RegisterExactApproval(ctx, preflight.Fingerprint)
+	shellplan.RegisterExactApproval(ctx, preflight.Fingerprint)
 	result, err := executor.invokeSandboxBash(context.Background(), args, ctx)
 	if err != nil || result.Error != "" || result.Output != "container-ok\n" || client.executions != 1 || client.probes == 0 {
 		t.Fatalf("execute: %+v %v", result, err)

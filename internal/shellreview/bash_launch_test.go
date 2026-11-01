@@ -9,6 +9,7 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/shellreview/dialect"
+	shellplan "agent-platform/internal/shellreview/plan"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"agent-platform/internal/shellreview/types"
 )
@@ -23,7 +24,7 @@ func TestUnsupportedShellIsAnExactHumanDecision(t *testing.T) {
 		if !p.UnknownDialect || p.RequiresApproval() != (level != AccessLevelFullAccess) {
 			t.Fatalf("%s: %+v", level, p)
 		}
-		if p.SecurityReview(command, nil).Decision != bashsyntax.ReviewAllow {
+		if SecurityReview(p, command, nil).Decision != bashsyntax.ReviewAllow {
 			t.Fatal("unknown grammar must not be interpreted a second time as Bash")
 		}
 		if level != AccessLevelFullAccess {
@@ -31,10 +32,10 @@ func TestUnsupportedShellIsAnExactHumanDecision(t *testing.T) {
 				t.Fatal("unknown grammar must only accept an exact approval")
 			}
 			ctx := &ExecutionContext{}
-			RegisterExactApproval(ctx, p.Fingerprint)
+			shellplan.RegisterExactApproval(ctx, p.Fingerprint)
 			binding.Fingerprint = "changed-launch"
 			fresh := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, f.workspace, nil, env, nil)
-			if HasApproval(ctx, fresh) || !ConsumeApproval(ctx, p) || ConsumeApproval(ctx, p) {
+			if shellplan.HasApproval(ctx, fresh) || !shellplan.ConsumeApproval(ctx, p) || shellplan.ConsumeApproval(ctx, p) {
 				t.Fatal("grant did not remain exact, launch bound and one-shot")
 			}
 		}
@@ -56,17 +57,17 @@ func TestLaunchBindingSurvivesLeafApprovalFiltering(t *testing.T) {
 		t.Fatalf("expected independent path and remote requirements: %+v", p)
 	}
 	ctx := &ExecutionContext{}
-	whole := PendingBashPlan(ctx, p)
+	whole := shellplan.PendingBashPlan(ctx, p)
 	if whole.Fingerprint != p.Fingerprint {
 		t.Fatal("unfiltered combined plan must preserve its exact grant identity")
 	}
-	RegisterExactApproval(ctx, whole.Fingerprint)
+	shellplan.RegisterExactApproval(ctx, whole.Fingerprint)
 	fresh := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, f.workspace, nil, env, nil)
-	if !HasApproval(ctx, fresh) || !ConsumeApproval(ctx, fresh) || ConsumeApproval(ctx, fresh) {
+	if !shellplan.HasApproval(ctx, fresh) || !shellplan.ConsumeApproval(ctx, fresh) || shellplan.ConsumeApproval(ctx, fresh) {
 		t.Fatal("combined launch-bound approval did not survive re-review and consume once")
 	}
-	RegisterExactApproval(ctx, p.Requirements[0].Fingerprint)
-	pending := PendingBashPlan(ctx, p)
+	shellplan.RegisterExactApproval(ctx, p.Requirements[0].Fingerprint)
+	pending := shellplan.PendingBashPlan(ctx, p)
 	if !pending.RequiresApproval() || pending.LaunchFingerprint != binding.Fingerprint {
 		t.Fatalf("pending plan lost its launch binding: %+v", pending)
 	}
@@ -104,19 +105,19 @@ func TestPathRuleGrantSurvivesCwdAndEnvironmentButNotShellChange(t *testing.T) {
 		t.Fatalf("expected an absolute path requirement: %+v", p)
 	}
 	ctx := &ExecutionContext{}
-	RegisterRuleApproval(ctx, p.RuleKey)
+	shellplan.RegisterRuleApproval(ctx, p.RuleKey)
 	binding.ContractFingerprint, binding.Fingerprint = "cwd-env-two", "call-two"
 	fresh := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, f.chat, map[string]string{"CHANGED": "yes"}, env, nil)
-	if fresh.Fingerprint == p.Fingerprint || fresh.RuleKey != p.RuleKey || !HasApproval(ctx, fresh) {
+	if fresh.Fingerprint == p.Fingerprint || fresh.RuleKey != p.RuleKey || !shellplan.HasApproval(ctx, fresh) {
 		t.Fatalf("path rule was narrowed by cwd/environment: %+v", fresh)
 	}
 	other := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, "cat /outside/other", f.chat, nil, env, nil)
-	if HasApproval(ctx, other) {
+	if shellplan.HasApproval(ctx, other) {
 		t.Fatal("path rule expanded to a different target")
 	}
 	binding.RuleFingerprint = "another-shell-or-template"
 	changed := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, f.chat, nil, env, nil)
-	if HasApproval(ctx, changed) {
+	if shellplan.HasApproval(ctx, changed) {
 		t.Fatal("path rule ignored a shell/template/dialect change")
 	}
 }
@@ -129,9 +130,9 @@ func TestUnsafeTextCannotBeApprovedInAnyDialect(t *testing.T) {
 			blocked := func(command string) bool {
 				p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, f.workspace, nil, &BashEnvironment{Launch: &binding}, nil)
 				ctx := &ExecutionContext{}
-				RegisterExactApproval(ctx, p.Fingerprint)
-				security := p.SecurityReview(command, nil).Decision == bashsyntax.ReviewBlock
-				if p.Blocked() != security || p.Blocked() && HasApproval(ctx, p) {
+				shellplan.RegisterExactApproval(ctx, p.Fingerprint)
+				security := SecurityReview(p, command, nil).Decision == bashsyntax.ReviewBlock
+				if p.Blocked() != security || p.Blocked() && shellplan.HasApproval(ctx, p) {
 					t.Fatalf("%s/%s review and security disagree on %q: %+v", grammar, level, command, p)
 				}
 				return p.Blocked()
@@ -154,14 +155,14 @@ func TestUnsafeTextCannotBeApprovedInAnyDialect(t *testing.T) {
 			}
 		}
 	}
-	unknownProjection := BashPlan{UnknownDialect: true, HasConnector: true, ReviewCommand: ":"}
-	bashProjection := BashPlan{HasConnector: true, ReviewCommand: ":"}
+	unknownProjection := shellplan.BashPlan{UnknownDialect: true, HasConnector: true, ReviewCommand: ":"}
+	bashProjection := shellplan.BashPlan{HasConnector: true, ReviewCommand: ":"}
 	for _, command := range []string{"echo '\u202ehidden'", "echo\u3000hidden"} {
-		if unknownProjection.SecurityReview(command, nil).Decision != bashsyntax.ReviewBlock || bashProjection.SecurityReview(command, nil).Decision != bashsyntax.ReviewBlock {
+		if SecurityReview(unknownProjection, command, nil).Decision != bashsyntax.ReviewBlock || SecurityReview(bashProjection, command, nil).Decision != bashsyntax.ReviewBlock {
 			t.Fatalf("connector projection bypassed raw-text check: %q", command)
 		}
 	}
-	if unknownProjection.SecurityReview("echo '\u3000hidden'", nil).Decision != bashsyntax.ReviewBlock || bashProjection.SecurityReview("echo '\u3000hidden'", nil).Decision == bashsyntax.ReviewBlock {
+	if SecurityReview(unknownProjection, "echo '\u3000hidden'", nil).Decision != bashsyntax.ReviewBlock || SecurityReview(bashProjection, "echo '\u3000hidden'", nil).Decision == bashsyntax.ReviewBlock {
 		t.Fatal("quoted hidden character must depend on the reviewed grammar")
 	}
 }

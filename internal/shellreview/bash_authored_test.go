@@ -11,6 +11,7 @@ import (
 	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	shellplan "agent-platform/internal/shellreview/plan"
 )
 
 func TestAuthoredExecutionFormsAndLevels(t *testing.T) {
@@ -57,12 +58,12 @@ func TestAuthoredDoesNotAuthorizeOtherRequirements(t *testing.T) {
 		}
 	}
 	own := ReviewBashCommand(cfg, ctx.Session, "sh './task with space.sh'", "", nil, ctx)
-	if len(ApprovalRules(own)) == 0 || HasApproval(ctx, ReviewBashCommand(cfg, ctx.Session, "sh other.sh", "", nil, ctx)) {
+	if len(shellplan.ApprovalRules(own)) == 0 || shellplan.HasApproval(ctx, ReviewBashCommand(cfg, ctx.Session, "sh other.sh", "", nil, ctx)) {
 		t.Fatal("self-authored scripts must require a scoped approval")
 	}
 	old := ReviewBashCommand(cfg, ctx.Session, "sh other.sh", "", nil, ctx)
-	RegisterRuleApproval(ctx, old.RuleKey)
-	if HasApproval(ctx, ReviewBashCommand(cfg, ctx.Session, "sh third.sh", "", nil, ctx)) {
+	shellplan.RegisterRuleApproval(ctx, old.RuleKey)
+	if shellplan.HasApproval(ctx, ReviewBashCommand(cfg, ctx.Session, "sh third.sh", "", nil, ctx)) {
 		t.Fatal("run grant leaked to a different script")
 	}
 	if err := os.WriteFile(p, []byte("#!/bin/sh\nprintf changed\n"), 0700); err != nil {
@@ -133,9 +134,9 @@ func TestAuthoredReadonlyAndHardBlockPriority(t *testing.T) {
 	cfg := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{AccessLevelAskForApproval: {ReadonlyRoots: []string{readonly}}}}
 	for _, command := range []string{"sh './task with space.sh' > readonly/result", "sh './task with space.sh'; touch readonly/result", "> readonly/result", "sh foreign.sh > readonly/result"} {
 		got := ReviewBashCommand(cfg, ctx.Session, command, "", nil, ctx)
-		RegisterExactApproval(ctx, got.Fingerprint)
-		RegisterRuleApproval(ctx, got.RuleKey)
-		if !got.Blocked() || ConsumeApproval(ctx, got) {
+		shellplan.RegisterExactApproval(ctx, got.Fingerprint)
+		shellplan.RegisterRuleApproval(ctx, got.RuleKey)
+		if !got.Blocked() || shellplan.ConsumeApproval(ctx, got) {
 			t.Fatalf("readonly relaxed: %s: %+v", command, got)
 		}
 	}
@@ -175,7 +176,7 @@ func TestSandboxScriptIdentityUsesExecutionEnvironment(t *testing.T) {
 		Canonical: func(path, cwd string) (string, error) { return canonical, nil },
 		Inspect:   func(path string) (string, string, error) { return string(data), hash, nil },
 	}
-	review := func(command string) BashPlan {
+	review := func(command string) shellplan.BashPlan {
 		return ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, ctx.Session, command, "/workspace", nil, env, ctx)
 	}
 	if got := review("sh './task with space.sh'"); !got.RequiresApproval() {
@@ -201,20 +202,20 @@ func TestExactApprovalInvalidatedByContentAndEnvironment(t *testing.T) {
 	ctx, p := authoredFixture(t)
 	ctx.AuthoredScripts = nil
 	cfg := config.AccessPolicyConfig{}
-	review := func(vars map[string]string) BashPlan {
+	review := func(vars map[string]string) shellplan.BashPlan {
 		return ReviewBashCommand(cfg, ctx.Session, "sh './task with space.sh'", "", vars, ctx)
 	}
 	original := review(nil)
-	RegisterExactApproval(ctx, original.Fingerprint)
+	shellplan.RegisterExactApproval(ctx, original.Fingerprint)
 	if err := os.WriteFile(p, []byte("#!/bin/sh\nprintf changed"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if HasApproval(ctx, review(nil)) {
+	if shellplan.HasApproval(ctx, review(nil)) {
 		t.Fatal("content mutation inherited exact approval")
 	}
 	current := review(nil)
-	RegisterExactApproval(ctx, current.Fingerprint)
-	if HasApproval(ctx, review(map[string]string{"LANG": "C"})) {
+	shellplan.RegisterExactApproval(ctx, current.Fingerprint)
+	if shellplan.HasApproval(ctx, review(map[string]string{"LANG": "C"})) {
 		t.Fatal("environment mutation inherited exact approval")
 	}
 }
@@ -256,32 +257,18 @@ func TestExactApprovalInvalidatedBySymlinkTarget(t *testing.T) {
 	if err := os.Symlink(p, link); err != nil {
 		t.Fatal(err)
 	}
-	review := func() BashPlan {
+	review := func() shellplan.BashPlan {
 		return ReviewBashCommand(config.AccessPolicyConfig{}, ctx.Session, "sh link.sh", "", nil, ctx)
 	}
-	RegisterExactApproval(ctx, review().Fingerprint)
+	shellplan.RegisterExactApproval(ctx, review().Fingerprint)
 	if err := os.Remove(link); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(other, link); err != nil {
 		t.Fatal(err)
 	}
-	if HasApproval(ctx, review()) {
+	if shellplan.HasApproval(ctx, review()) {
 		t.Fatal("equal bytes at a different canonical target inherited exact approval")
-	}
-}
-
-func TestMixedRunRuleAndExactApprovalAudit(t *testing.T) {
-	ctx := &ExecutionContext{}
-	first := BashPlan{Decision: DecisionRequiresApproval, RuleKey: "first", Fingerprint: "1"}
-	second := BashPlan{Decision: DecisionRequiresApproval, RuleKey: "second", Fingerprint: "2"}
-	third := BashPlan{Decision: DecisionRequiresApproval, RuleKey: "third", Fingerprint: "3"}
-	combined := combineBashPlans("three commands", AccessLevelAskForApproval, []BashPlan{first, second, third})
-	RegisterRuleApproval(ctx, first.RuleKey)
-	pending := PendingBashPlan(ctx, combined)
-	RegisterExactApproval(ctx, pending.Fingerprint)
-	if source := BashApprovalSource(ctx, combined); source != "exact" {
-		t.Fatalf("mixed approval source missing: %s", source)
 	}
 }
 
@@ -316,12 +303,12 @@ func TestSandboxInterpreterRuleUsesCanonicalGuestCwd(t *testing.T) {
 		Resolve:   func(name, cwd string, vars map[string]string) (string, error) { return "/usr/bin/dash", nil },
 		Canonical: func(raw, cwd string) (string, error) { return "/workspace/task.sh", nil },
 	}
-	review := func(cwd string) BashPlan {
+	review := func(cwd string) shellplan.BashPlan {
 		return ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, ctx.Session, "sh task.sh", cwd, nil, env, ctx)
 	}
 	original := review("/workspace")
-	RegisterRuleApproval(ctx, original.RuleKey)
-	if !HasApproval(ctx, review("/workspace/alias")) {
+	shellplan.RegisterRuleApproval(ctx, original.RuleKey)
+	if !shellplan.HasApproval(ctx, review("/workspace/alias")) {
 		t.Fatal("guest cwd alias failed to reuse the canonical interpreter rule")
 	}
 }

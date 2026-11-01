@@ -8,6 +8,7 @@ import (
 	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	shellplan "agent-platform/internal/shellreview/plan"
 )
 
 func TestImplicitFilenameAndPhysicalParentTraversal(t *testing.T) {
@@ -90,18 +91,18 @@ func TestRunGrantsDoNotBroadenToParentOrChangedScript(t *testing.T) {
 	if err := os.WriteFile(script, []byte("echo one\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	review := func() BashPlan {
+	review := func() shellplan.BashPlan {
 		return ReviewBashCommand(config.AccessPolicyConfig{}, s, "sh task.sh", s.WorkspaceRoot, nil, ctx)
 	}
 	first := review()
-	RegisterRuleApproval(ctx, first.RuleKey)
-	if !HasApproval(ctx, review()) {
+	shellplan.RegisterRuleApproval(ctx, first.RuleKey)
+	if !shellplan.HasApproval(ctx, review()) {
 		t.Fatal("same version lost grant")
 	}
 	if err := os.WriteFile(script, []byte("echo two\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if HasApproval(ctx, review()) {
+	if shellplan.HasApproval(ctx, review()) {
 		t.Fatal("changed content reused grant")
 	}
 }

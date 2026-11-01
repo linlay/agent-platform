@@ -5,6 +5,7 @@ import (
 
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
+	"agent-platform/internal/shellreview"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
@@ -68,7 +69,7 @@ func (s *llmRunStream) mailApprovalDelegator(calls ...*preparedToolInvocation) f
 				if plan.UnknownDialect || plan.Blocked() || plan.RequiresApproval() {
 					return deny()
 				}
-				security := plan.SecurityReview(mapStringArg(inv.args, "command"), review.knownRuntimeVariables())
+				security := shellreview.SecurityReview(plan, mapStringArg(inv.args, "command"), review.knownRuntimeVariables())
 				if security.Decision == bashsyntax.ReviewBlock || (security.Decision == bashsyntax.ReviewRequiresApproval && !review.shouldAutoApproveBashSecurity(security)) {
 					return deny()
 				}

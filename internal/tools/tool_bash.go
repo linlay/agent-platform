@@ -25,6 +25,7 @@ import (
 	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/shellenv"
 	"agent-platform/internal/shellreview"
+	shellplan "agent-platform/internal/shellreview/plan"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"agent-platform/internal/textcodec"
 )
@@ -82,7 +83,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		reviewEnv.Launch = &launch.Binding
 	}
 	rawAccessReview := shellreview.ReviewBashCommandInEnvironment(t.cfg.AccessPolicy, session, command, workingDir, bashEnvironmentVariables(commandEnv), reviewEnv, execCtx)
-	securityReview := rawAccessReview.SecurityReview(command, bashSecurityKnownVariables(execCtx))
+	securityReview := shellreview.SecurityReview(rawAccessReview, command, bashSecurityKnownVariables(execCtx))
 	switch securityReview.Decision {
 	case bashsyntax.ReviewAllow:
 	case bashsyntax.ReviewRequiresApproval:
@@ -95,11 +96,11 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if !t.cfg.Bash.ShellFeaturesEnabled && rawAccessReview.UnknownDialect {
 		return ToolExecutionResult{Output: "Strict command validation requires a supported shell grammar", Error: "command_not_allowed", ExitCode: -1}, nil
 	}
-	accessReview := shellreview.PendingBashPlan(execCtx, rawAccessReview)
+	accessReview := shellplan.PendingBashPlan(execCtx, rawAccessReview)
 	switch accessReview.Decision {
 	case accesspolicy.DecisionAllow, accesspolicy.DecisionAutoApproved:
 	case accesspolicy.DecisionRequiresApproval:
-		if !shellreview.HasApproval(execCtx, accessReview) {
+		if !shellplan.HasApproval(execCtx, accessReview) {
 			return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_approval_required", ExitCode: -1}, nil
 		}
 	default:
@@ -173,7 +174,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	// queued or preparing credentials must still affect the final review.
 	session = t.policySession(execCtx)
 	rawFinalReview := shellreview.ReviewBashCommandInEnvironment(t.cfg.AccessPolicy, session, command, workingDir, bashEnvironmentVariables(commandEnv), reviewEnv, execCtx)
-	securityReview = rawFinalReview.SecurityReview(command, bashEnvironmentVariables(commandEnv))
+	securityReview = shellreview.SecurityReview(rawFinalReview, command, bashEnvironmentVariables(commandEnv))
 	if direct != nil {
 		fresh := shellreview.DirectConnectorInvocation(session, command, workingDir, bashEnvironmentVariables(commandEnv))
 		if fresh == nil || fresh.ID != direct.ID || fresh.Program != direct.Program {
@@ -183,12 +184,12 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if securityReview.Decision == bashsyntax.ReviewBlock {
 		return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
 	}
-	approvalSource := shellreview.BashApprovalSource(execCtx, rawFinalReview)
-	accessReview = shellreview.PendingBashPlan(execCtx, rawFinalReview)
+	approvalSource := shellplan.BashApprovalSource(execCtx, rawFinalReview)
+	accessReview = shellplan.PendingBashPlan(execCtx, rawFinalReview)
 	if accessReview.Blocked() {
 		return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_blocked", ExitCode: -1}, nil
 	}
-	if accessReview.RequiresApproval() && !shellreview.ConsumeApproval(execCtx, accessReview) {
+	if accessReview.RequiresApproval() && !shellplan.ConsumeApproval(execCtx, accessReview) {
 		return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_approval_required", ExitCode: -1}, nil
 	}
 	if securityReview.Decision == bashsyntax.ReviewRequiresApproval && !securityReview.AutoApprovedAtLevel(session.AccessLevel) && !consumeBashSecurityApproval(execCtx, securityReview.Fingerprint) {
@@ -235,7 +236,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		if result.Structured == nil {
 			result.Structured = map[string]any{"stdout": stdout, "stderr": stderr, "mode": "host", "cwd": workingDir, "exitCode": exitCode}
 		}
-		result.Structured["accessPolicy"] = shellreview.BashPlanMetadata(accessReview)
+		result.Structured["accessPolicy"] = shellplan.BashPlanMetadata(accessReview)
 		if approvalSource != "" {
 			metadata := result.Structured["accessPolicy"].(map[string]any)
 			metadata["decision"] = "allow"
@@ -325,7 +326,7 @@ func readBashOutputFile(file *os.File, runtimeInfo runtimeenv.Info) (string, err
 	return textcodec.DecodeSubprocessOutput(output, runtimeInfo), nil
 }
 
-func appendBashAccessPolicyMetadata(result *ToolExecutionResult, review shellreview.BashPlan, stdout, stderr, cwd string, exitCode int) {
+func appendBashAccessPolicyMetadata(result *ToolExecutionResult, review shellplan.BashPlan, stdout, stderr, cwd string, exitCode int) {
 	if result == nil || !review.AutoApproved() {
 		return
 	}
@@ -338,7 +339,7 @@ func appendBashAccessPolicyMetadata(result *ToolExecutionResult, review shellrev
 			"stderr":   stderr,
 		}
 	}
-	result.Structured["accessPolicy"] = shellreview.BashPlanMetadata(review)
+	result.Structured["accessPolicy"] = shellplan.BashPlanMetadata(review)
 }
 
 func consumeBashSecurityApproval(execCtx *ExecutionContext, fingerprint string) bool {

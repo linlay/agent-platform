@@ -5,7 +5,7 @@ import (
 
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
-	"agent-platform/internal/shellreview"
+	shellplan "agent-platform/internal/shellreview/plan"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"agent-platform/internal/view"
 )
@@ -68,7 +68,7 @@ func bashSecurityInterceptResult(invocation *preparedToolInvocation, review bash
 	}
 }
 
-func bashAccessInterceptResult(invocation *preparedToolInvocation, review shellreview.BashPlan) hitl.InterceptResult {
+func bashAccessInterceptResult(invocation *preparedToolInvocation, review shellplan.BashPlan) hitl.InterceptResult {
 	command := strings.TrimSpace(review.CommandText)
 	if command == "" && invocation != nil {
 		command = strings.TrimSpace(mapStringArg(invocation.args, "command"))

@@ -14,6 +14,7 @@ import (
 	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	shellplan "agent-platform/internal/shellreview/plan"
 )
 
 var updateShellBaseline = flag.Bool("update-shell-baseline", false, "update the reviewed shell policy baseline")
@@ -167,10 +168,10 @@ func TestBashReviewNormalizedBaseline(t *testing.T) {
 	}
 }
 
-func shellBaselineLine(name, level string, p BashPlan, command string, vars map[string]string) string {
+func shellBaselineLine(name, level string, p shellplan.BashPlan, command string, vars map[string]string) string {
 	var leaves []string
-	var visit func(BashPlan)
-	visit = func(p BashPlan) {
+	var visit func(shellplan.BashPlan)
+	visit = func(p shellplan.BashPlan) {
 		if len(p.Requirements) > 0 {
 			for _, leaf := range p.Requirements {
 				visit(leaf)
@@ -184,7 +185,7 @@ func shellBaselineLine(name, level string, p BashPlan, command string, vars map[
 	}
 	visit(p)
 	sort.Strings(leaves)
-	security := p.SecurityReview(command, vars)
+	security := SecurityReview(p, command, vars)
 	return fmt.Sprintf("%s\t%s\t%s\tsecurity=%s/%s\tconnector=%t/%t\tleaves=%d:%s", name, level, p.Decision, security.Decision, security.RuleKey, p.HasConnector, p.ConnectorOnly, len(leaves), strings.Join(leaves, ","))
 }
 

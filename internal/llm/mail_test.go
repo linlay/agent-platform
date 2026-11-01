@@ -11,15 +11,15 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
-	"agent-platform/internal/shellreview"
+	shellplan "agent-platform/internal/shellreview/plan"
 )
 
 type unknownShellApprovalExecutor struct{ stubToolExecutor }
 
-func (unknownShellApprovalExecutor) ReviewBashAccess(context.Context, map[string]any, *contracts.ExecutionContext, config.AccessPolicyConfig) shellreview.BashPlan {
+func (unknownShellApprovalExecutor) ReviewBashAccess(context.Context, map[string]any, *contracts.ExecutionContext, config.AccessPolicyConfig) shellplan.BashPlan {
 	// At full_access an unknown call may be directly allowed, but that is not
 	// authorization for an agent to approve another run's human-only question.
-	return shellreview.BashPlan{Decision: accesspolicy.DecisionAllow, UnknownDialect: true}
+	return shellplan.BashPlan{Decision: accesspolicy.DecisionAllow, UnknownDialect: true}
 }
 
 func TestDelegatedApprovalCannotRelaxUnknownShellHumanReview(t *testing.T) {

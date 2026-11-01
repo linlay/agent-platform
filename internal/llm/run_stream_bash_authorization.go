@@ -8,6 +8,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
 	"agent-platform/internal/shellreview"
+	shellplan "agent-platform/internal/shellreview/plan"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
@@ -61,7 +62,7 @@ func (s *llmRunStream) prepareHostBashAuthorization(invocation *preparedToolInvo
 		return nil
 	}
 	access := s.rawBashAccessReview(invocation)
-	security := access.SecurityReview(command, s.knownRuntimeVariables())
+	security := shellreview.SecurityReview(access, command, s.knownRuntimeVariables())
 	if security.Decision == bashsyntax.ReviewBlock {
 		result := bashSecurityBlockedToolResult(security)
 		invocation.queuedResult = &result
@@ -88,7 +89,7 @@ func (s *llmRunStream) prepareHostBashAuthorization(invocation *preparedToolInvo
 			if review := request.bashAccessReview; review != nil && review.RequiresApproval() {
 				a.access[review.Fingerprint] = 1
 				if decision == "approve_rule_run" && request.kind == approvalKindBashAccess {
-					shellreview.RegisterRuleApproval(s.execCtx, request.result.Rule.RuleKey)
+					shellplan.RegisterRuleApproval(s.execCtx, request.result.Rule.RuleKey)
 				}
 			}
 			if review := request.bashSecurityReview; review != nil {
@@ -121,18 +122,18 @@ func (s *llmRunStream) prepareHostBashAuthorization(invocation *preparedToolInvo
 			return s.hostBashApprovalNeeded(invocation, request, "bash_security_approval_required", security.Reason)
 		}
 	}
-	for _, rule := range shellreview.ApprovalRules(access) {
+	for _, rule := range shellplan.ApprovalRules(access) {
 		if s.isRuleWhitelisted(rule) {
-			shellreview.RegisterRuleApproval(s.execCtx, rule)
+			shellplan.RegisterRuleApproval(s.execCtx, rule)
 		}
 	}
 	ctx := s.hostBashReviewContext(invocation)
 	if access.RequiresApproval() {
-		if !shellreview.HasApproval(ctx, access) {
-			request := s.bashAccessApprovalRequest(invocation, shellreview.PendingBashPlan(ctx, access))
+		if !shellplan.HasApproval(ctx, access) {
+			request := s.bashAccessApprovalRequest(invocation, shellplan.PendingBashPlan(ctx, access))
 			return s.hostBashApprovalNeeded(invocation, request, "bash_access_approval_required", access.Reason)
 		}
-		if shellreview.BashApprovalSource(ctx, access) == "run_rule" {
+		if shellplan.BashApprovalSource(ctx, access) == "run_rule" {
 			s.recordHostBashRuleApproval(invocation, bashAccessInterceptResult(invocation, access))
 		}
 	}
@@ -150,7 +151,7 @@ func (s *llmRunStream) hostBashApprovalNeeded(invocation *preparedToolInvocation
 	request.bashArguments = hostBashArguments(invocation)
 	request.bashFingerprint = s.rawBashAccessReview(invocation).Fingerprint
 	if request.kind == approvalKindBashAccess && request.bashAccessReview != nil {
-		if rules := shellreview.ApprovalRules(*request.bashAccessReview); len(rules) > 0 {
+		if rules := shellplan.ApprovalRules(*request.bashAccessReview); len(rules) > 0 {
 			request.result.Rule.RuleKey = rules[0]
 		}
 	}
@@ -184,7 +185,7 @@ func moveOneShotApproval(source, target map[string]int, fingerprint string) {
 	}
 }
 
-func reserveBashAccessApprovals(ctx *ExecutionContext, plan shellreview.BashPlan, target map[string]int) {
+func reserveBashAccessApprovals(ctx *ExecutionContext, plan shellplan.BashPlan, target map[string]int) {
 	if !plan.RequiresApproval() || accesspolicy.RuleReusable(plan.RuleKey) && ctx.AccessPolicyRuleApprovals[plan.RuleKey] || target[plan.Fingerprint] > 0 {
 		return
 	}

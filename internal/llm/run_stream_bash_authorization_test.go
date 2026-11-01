@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/shellreview"
+	shellplan "agent-platform/internal/shellreview/plan"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
@@ -32,14 +33,14 @@ func (e *approvedBashExecutor) Definitions() []api.ToolDetailResponse {
 	return []api.ToolDetailResponse{bashToolDefinition()}
 }
 
-func (e *approvedBashExecutor) ReviewBashAccess(_ context.Context, args map[string]any, ctx *ExecutionContext, cfg config.AccessPolicyConfig) shellreview.BashPlan {
+func (e *approvedBashExecutor) ReviewBashAccess(_ context.Context, args map[string]any, ctx *ExecutionContext, cfg config.AccessPolicyConfig) shellplan.BashPlan {
 	return shellreview.ReviewBashCommand(cfg, ctx.Session, mapStringArg(args, "command"), mapStringArg(args, "cwd"), nil, ctx)
 }
 
 func (e *approvedBashExecutor) Invoke(ctx context.Context, _ string, args map[string]any, execution *ExecutionContext) (ToolExecutionResult, error) {
 	start := approvedBashStart{execution.CurrentToolID, cloneIntMap(execution.AccessPolicyApprovals), cloneIntMap(execution.BashSecurityApprovals)}
 	plan := e.ReviewBashAccess(ctx, args, execution, e.cfg.AccessPolicy)
-	if plan.Blocked() || (plan.RequiresApproval() && !shellreview.ConsumeApproval(execution, plan)) {
+	if plan.Blocked() || (plan.RequiresApproval() && !shellplan.ConsumeApproval(execution, plan)) {
 		return ToolExecutionResult{Error: "bash_access_approval_required", ExitCode: -1}, nil
 	}
 	security := bashsyntax.ReviewBashSecurity(mapStringArg(args, "command"))

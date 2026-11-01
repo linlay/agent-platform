@@ -10,6 +10,7 @@ import (
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
+	shellplan "agent-platform/internal/shellreview/plan"
 	"agent-platform/internal/skillsexec"
 )
 
@@ -117,7 +118,7 @@ func newCapabilityFixture(t *testing.T, level string) capabilityFixture {
 	return f
 }
 
-func review(f capabilityFixture, command string, ctx ...*ExecutionContext) BashPlan {
+func review(f capabilityFixture, command string, ctx ...*ExecutionContext) shellplan.BashPlan {
 	return ReviewBashCommand(config.AccessPolicyConfig{}, f.session, command, "", nil, ctx...)
 }
 

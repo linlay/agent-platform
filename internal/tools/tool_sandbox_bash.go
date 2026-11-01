@@ -12,6 +12,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
 	"agent-platform/internal/shellreview"
+	shellplan "agent-platform/internal/shellreview/plan"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
@@ -36,15 +37,15 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 		return ToolExecutionResult{Output: err.Error(), Error: code, ExitCode: -1}, nil
 	}
 	accessReview := t.ReviewBashAccess(ctx, args, execCtx, t.cfg.AccessPolicy)
-	if security := accessReview.SecurityReview(command, bashSecurityKnownVariables(execCtx)); security.Decision == bashsyntax.ReviewBlock {
+	if security := shellreview.SecurityReview(accessReview, command, bashSecurityKnownVariables(execCtx)); security.Decision == bashsyntax.ReviewBlock {
 		return ToolExecutionResult{Output: security.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
 	}
-	approvalSource := shellreview.BashApprovalSource(execCtx, accessReview)
-	accessReview = shellreview.PendingBashPlan(execCtx, accessReview)
+	approvalSource := shellplan.BashApprovalSource(execCtx, accessReview)
+	accessReview = shellplan.PendingBashPlan(execCtx, accessReview)
 	switch accessReview.Decision {
 	case accesspolicy.DecisionAllow, accesspolicy.DecisionAutoApproved:
 	case accesspolicy.DecisionRequiresApproval:
-		if !shellreview.ConsumeApproval(execCtx, accessReview) {
+		if !shellplan.ConsumeApproval(execCtx, accessReview) {
 			return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_approval_required", ExitCode: -1}, nil
 		}
 	default:
@@ -60,7 +61,7 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 		if output.Structured == nil {
 			output.Structured = map[string]any{"stdout": result.Stdout, "stderr": result.Stderr, "mode": "sandbox", "cwd": result.Cwd, "exitCode": result.ExitCode}
 		}
-		output.Structured["accessPolicy"] = shellreview.BashPlanMetadata(accessReview)
+		output.Structured["accessPolicy"] = shellplan.BashPlanMetadata(accessReview)
 		if approvalSource != "" {
 			metadata := output.Structured["accessPolicy"].(map[string]any)
 			metadata["decision"] = "allow"

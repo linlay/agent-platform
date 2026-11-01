@@ -14,7 +14,7 @@ import (
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
 	. "agent-platform/internal/models"
-	"agent-platform/internal/shellreview"
+	shellplan "agent-platform/internal/shellreview/plan"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
@@ -197,7 +197,7 @@ type preparedToolInvocation struct {
 	toolCallCounted          bool
 	precheckedHITL           *hitl.InterceptResult
 	bashSecurityReview       *bashsyntax.ReviewResult
-	bashAccessReview         *shellreview.BashPlan
+	bashAccessReview         *shellplan.BashPlan
 	shownApproval            *approvalRequest // immutable requirements displayed to the user
 	fileAccessPlan           *filetools.AccessPlan
 	fileWritePlan            *filetools.WritePlan

@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/config"
-	"agent-platform/internal/shellreview"
+	shellplan "agent-platform/internal/shellreview/plan"
 )
 
 func TestFileToolsAuthoredScriptExecution(t *testing.T) {
@@ -37,7 +37,7 @@ func TestFileToolsAuthoredScriptExecution(t *testing.T) {
 			t.Fatalf("self-write bypassed approval: %+v %v", result, err)
 		}
 		plan := executor.ReviewBashAccess(context.Background(), args, ctx, executor.cfg.AccessPolicy)
-		shellreview.RegisterExactApproval(ctx, plan.Fingerprint)
+		shellplan.RegisterExactApproval(ctx, plan.Fingerprint)
 		result, err = executor.invokeHostBash(context.Background(), args, ctx)
 		if err != nil || result.ExitCode != 7 || result.Structured["stdout"] != "authored\n" {
 			t.Fatalf("%s: %+v %v", command, result, err)
@@ -53,7 +53,7 @@ func TestFileToolsAuthoredScriptExecution(t *testing.T) {
 		t.Fatalf("edited content inherited approval: %+v", result)
 	}
 	plan := executor.ReviewBashAccess(context.Background(), map[string]any{"command": "sh task.sh"}, ctx, executor.cfg.AccessPolicy)
-	shellreview.RegisterExactApproval(ctx, plan.Fingerprint)
+	shellplan.RegisterExactApproval(ctx, plan.Fingerprint)
 	result, _ = executor.invokeHostBash(context.Background(), map[string]any{"command": "sh task.sh"}, ctx)
 	if result.Structured["stdout"] != "edited\n" || result.ExitCode != 7 {
 		t.Fatalf("authored edit: %+v", result)

@@ -1,49 +1,16 @@
 package shellreview
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
 	"path/filepath"
 	"strings"
 
-	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
+	shellplan "agent-platform/internal/shellreview/plan"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"agent-platform/internal/shellreview/types"
 )
-
-type BashPlan struct {
-	// ReviewCommand excludes verified connector payloads, for analysis only.
-	ReviewCommand string
-	HasConnector  bool
-	ConnectorOnly bool
-	// ConnectorIDs lists the mounted connectors the command executes.
-	ConnectorIDs []string
-	// ConnectorCall is set when the whole command is one plain connector call.
-	ConnectorCall *ConnectorCall
-	// Requirements are leaf decisions; a rule approval never approves sibling requirements.
-	Requirements  []BashPlan
-	Decision      Decision
-	Reason        string
-	RuleKey       string
-	Fingerprint   string
-	CommandText   string
-	AccessLevel   string
-	Scope         string
-	ScopeKind     string
-	ContentSHA256 string
-	// UnknownDialect prevents the Bash-only safety parser from approving or
-	// rejecting text executed by another grammar. Access policy reviews it whole.
-	UnknownDialect    bool
-	LaunchFingerprint string
-	Launch            *types.LaunchBinding
-	// UsesSSHAgent marks Git network operations that may authenticate with the
-	// user's SSH agent; only then is SSH_AUTH_SOCK passed to the process.
-	UsesSSHAgent bool
-}
 
 type redirectAccessKind int
 
@@ -54,27 +21,11 @@ const (
 	redirectAccessUnknown
 )
 
-func (p BashPlan) Allowed() bool {
-	return p.Decision == DecisionAllow || p.Decision == DecisionAutoApproved
-}
-
-func (p BashPlan) RequiresApproval() bool {
-	return p.Decision == DecisionRequiresApproval
-}
-
-func (p BashPlan) AutoApproved() bool {
-	return p.Decision == DecisionAutoApproved
-}
-
-func (p BashPlan) Blocked() bool {
-	return p.Decision == DecisionBlock
-}
-
-func ReviewBashCommand(cfg config.AccessPolicyConfig, session QuerySession, command string, cwd string, variables map[string]string, contexts ...*ExecutionContext) BashPlan {
+func ReviewBashCommand(cfg config.AccessPolicyConfig, session QuerySession, command string, cwd string, variables map[string]string, contexts ...*ExecutionContext) shellplan.BashPlan {
 	return reviewBashExecution(cfg, session, command, cwd, variables, nil, contexts...)
 }
 
-func ReviewBashCommandInEnvironment(cfg config.AccessPolicyConfig, session QuerySession, command, cwd string, variables map[string]string, environment *BashEnvironment, ctx *ExecutionContext) BashPlan {
+func ReviewBashCommandInEnvironment(cfg config.AccessPolicyConfig, session QuerySession, command, cwd string, variables map[string]string, environment *BashEnvironment, ctx *ExecutionContext) shellplan.BashPlan {
 	return reviewBashExecution(cfg, session, command, cwd, variables, environment, ctx)
 }
 
@@ -136,150 +87,6 @@ func isFileDescriptorRedirectTarget(target string) bool {
 	return true
 }
 
-func reviewBashPathPlan(command string, accessLevel string, level Level, mode AccessMode, pathPlan PathPlan, outsideReason string) BashPlan {
-	if pathPlan.AutoApproved() {
-		return bashPlanFromPath(command, pathPlan, outsideReason)
-	}
-	if !pathPlan.Allowed() {
-		return bashPlanFromPath(command, pathPlan, outsideReason)
-	}
-	if mode == WriteAccess {
-		return bashWriteInWriteRootsPlan(command, accessLevel, level.Approvals.BashWriteInWriteRoots, pathPlan)
-	}
-	return BashPlan{Decision: DecisionAllow}
-}
-
-func RegisterExactApproval(execCtx *ExecutionContext, fingerprint string) {
-	if execCtx == nil || strings.TrimSpace(fingerprint) == "" {
-		return
-	}
-	if execCtx.AccessPolicyApprovals == nil {
-		execCtx.AccessPolicyApprovals = map[string]int{}
-	}
-	execCtx.AccessPolicyApprovals[fingerprint]++
-}
-
-func RegisterRuleApproval(execCtx *ExecutionContext, ruleKey string) {
-	if execCtx == nil || !RuleReusable(ruleKey) {
-		return
-	}
-	if execCtx.AccessPolicyRuleApprovals == nil {
-		execCtx.AccessPolicyRuleApprovals = map[string]bool{}
-	}
-	execCtx.AccessPolicyRuleApprovals[ruleKey] = true
-}
-
-func ConsumeApproval(execCtx *ExecutionContext, plan BashPlan) bool {
-	if plan.Blocked() {
-		return false
-	}
-	if len(plan.Requirements) > 0 && !hasExactApproval(execCtx, plan) {
-		if !HasApproval(execCtx, plan) {
-			return false
-		}
-		for _, leaf := range plan.Requirements {
-			if leaf.RequiresApproval() && !ConsumeApproval(execCtx, leaf) {
-				return false
-			}
-		}
-		return true
-	}
-	if execCtx == nil {
-		return false
-	}
-	if RuleReusable(plan.RuleKey) && execCtx.AccessPolicyRuleApprovals != nil && execCtx.AccessPolicyRuleApprovals[plan.RuleKey] {
-		return true
-	}
-	if len(execCtx.AccessPolicyApprovals) == 0 || strings.TrimSpace(plan.Fingerprint) == "" {
-		return false
-	}
-	remaining := execCtx.AccessPolicyApprovals[plan.Fingerprint]
-	if remaining <= 0 {
-		return false
-	}
-	if remaining == 1 {
-		delete(execCtx.AccessPolicyApprovals, plan.Fingerprint)
-		return true
-	}
-	execCtx.AccessPolicyApprovals[plan.Fingerprint] = remaining - 1
-	return true
-}
-
-func HasApproval(execCtx *ExecutionContext, plan BashPlan) bool {
-	if plan.Blocked() {
-		return false
-	}
-	if len(plan.Requirements) > 0 && !hasExactApproval(execCtx, plan) {
-		for _, leaf := range plan.Requirements {
-			if leaf.RequiresApproval() && !HasApproval(execCtx, leaf) {
-				return false
-			}
-		}
-		return true
-	}
-	if execCtx == nil {
-		return false
-	}
-	if RuleReusable(plan.RuleKey) && execCtx.AccessPolicyRuleApprovals != nil && execCtx.AccessPolicyRuleApprovals[plan.RuleKey] {
-		return true
-	}
-	return execCtx.AccessPolicyApprovals != nil && execCtx.AccessPolicyApprovals[plan.Fingerprint] > 0
-}
-
-func bashPlanFromPath(command string, pathPlan PathPlan, reason string) BashPlan {
-	decision := pathPlan.Decision
-	ruleKey := "bash-access:path:" + pathPlan.RuleKey
-	fingerprintInput := command + "\x00" + pathPlan.Fingerprint
-	sum := sha256.Sum256([]byte(fingerprintInput))
-	return BashPlan{
-		Decision:    decision,
-		Reason:      firstNonBlank(reason, pathPlan.Reason),
-		RuleKey:     ruleKey,
-		Fingerprint: hex.EncodeToString(sum[:]),
-		CommandText: command,
-		AccessLevel: pathPlan.AccessLevel,
-		Scope:       pathPlan.Path,
-		ScopeKind:   "exact_target",
-	}
-}
-
-func bashWriteInWriteRootsPlan(command string, accessLevel string, action string, pathPlan PathPlan) BashPlan {
-	decision := DecisionForAction(action)
-	if decision == DecisionAllow {
-		return BashPlan{Decision: DecisionAllow}
-	}
-	ruleKey := "bash-access:write-root:" + pathPlan.RuleKey
-	fingerprintInput := command + "\x00" + pathPlan.Fingerprint + "\x00write-root"
-	return bashPlan(command, accessLevel, decision, "bash write path is under an allowed write root", ruleKey, fingerprintInput)
-}
-
-func bashPlanForAction(command string, accessLevel string, action string, reason string, ruleKey string) BashPlan {
-	return bashPlan(command, accessLevel, DecisionForAction(action), reason, ruleKey, command)
-}
-
-func opaqueBashPlan(command string, accessLevel string, action string, base string, cwd string) BashPlan {
-	hash := sha256.Sum256([]byte(base + "\x00" + cwd))
-	return bashPlan(command, accessLevel, DecisionForAction(action), fmt.Sprintf("bash command %q may access files internally; approval covers this invocation, content version and cwd %q", base, cwd), "bash-access:opaque:"+hex.EncodeToString(hash[:8]), command)
-}
-
-func bashPlan(command string, accessLevel string, decision Decision, reason string, ruleKey string, fingerprintInput string) BashPlan {
-	if strings.TrimSpace(ruleKey) == "" {
-		ruleKey = "bash-access"
-	}
-	if strings.TrimSpace(fingerprintInput) == "" {
-		fingerprintInput = command + "\x00" + reason + "\x00" + ruleKey
-	}
-	sum := sha256.Sum256([]byte(fingerprintInput))
-	return BashPlan{
-		Decision:    decision,
-		Reason:      strings.TrimSpace(reason),
-		RuleKey:     ruleKey,
-		Fingerprint: hex.EncodeToString(sum[:]),
-		CommandText: command,
-		AccessLevel: accessLevel,
-	}
-}
-
 func isOpaqueCommand(base string) bool {
 	base = commandFamily(base)
 	if isInterpreter(base) {
@@ -296,13 +103,4 @@ func isOpaqueCommand(base string) bool {
 func containsUnresolvedPlaceholder(value string) bool {
 	return strings.Contains(value, bashsyntax.CommandSubstitutionPlaceholder) ||
 		strings.Contains(value, bashsyntax.TrackedVariablePlaceholder)
-}
-
-func firstNonBlank(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }

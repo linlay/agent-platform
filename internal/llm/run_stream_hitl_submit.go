@@ -8,7 +8,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
-	"agent-platform/internal/shellreview"
+	shellplan "agent-platform/internal/shellreview/plan"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"agent-platform/internal/view"
 )
@@ -228,7 +228,7 @@ func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) e
 			s.appendOriginalToolResult(invocation, ToolExecutionResult{Output: current.Reason, Error: "bash_access_blocked", ExitCode: -1})
 			return nil
 		}
-		if current.RequiresApproval() && !shellreview.HasApproval(s.execCtx, current) {
+		if current.RequiresApproval() && !shellplan.HasApproval(s.execCtx, current) {
 			invocation.approvalDecision = ""
 			if invocation.hitlDecision != nil && invocation.hitlDecision.AwaitingID != "" {
 				s.appendOriginalToolResult(invocation, ToolExecutionResult{Output: "Bash requirements changed after approval; retry for a new review. " + current.Reason, Error: "bash_access_approval_required", ExitCode: -1})
@@ -373,8 +373,8 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 			item["requirements"] = requirements
 		}
 		if request.bashAccessReview != nil {
-			item["policy"] = shellreview.BashPlanMetadata(*request.bashAccessReview)
-			for _, rule := range shellreview.ApprovalRules(*request.bashAccessReview) {
+			item["policy"] = shellplan.BashPlanMetadata(*request.bashAccessReview)
+			for _, rule := range shellplan.ApprovalRules(*request.bashAccessReview) {
 				if !accesspolicy.RuleReusable(rule) {
 					item["options"] = []any{map[string]any{"decision": "approve"}}
 					break

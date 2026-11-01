@@ -10,6 +10,7 @@ import (
 
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	shellplan "agent-platform/internal/shellreview/plan"
 	"agent-platform/internal/skillsexec"
 )
 
@@ -20,7 +21,7 @@ func TestSkillExecutionFormsAndLevels(t *testing.T) {
 				ctx, _ := skillFixture(t)
 				ctx.Session.AccessLevel = level
 				p := ReviewBashCommand(config.AccessPolicyConfig{}, ctx.Session, form, "", nil, ctx)
-				if !p.Allowed() || p.AutoApproved() || p.RuleKey != "bash-access:skill-script" || len(ApprovalRules(p)) != 0 {
+				if !p.Allowed() || p.AutoApproved() || p.RuleKey != "bash-access:skill-script" || len(shellplan.ApprovalRules(p)) != 0 {
 					t.Fatalf("%+v", p)
 				}
 			})
@@ -34,7 +35,7 @@ func TestSkillScriptRunsFromSkillAliasCwd(t *testing.T) {
 	ctx, file := skillFixture(t)
 	ctx.Session.SkillDirs = map[string]string{"selected": filepath.Dir(filepath.Dir(file))}
 	p := ReviewBashCommand(config.AccessPolicyConfig{}, ctx.Session, "sh scripts/task.sh", "@skills/selected", nil, ctx)
-	if !p.Allowed() || p.RuleKey != "bash-access:skill-script" || len(ApprovalRules(p)) != 0 {
+	if !p.Allowed() || p.RuleKey != "bash-access:skill-script" || len(shellplan.ApprovalRules(p)) != 0 {
 		t.Fatalf("%+v", p)
 	}
 }

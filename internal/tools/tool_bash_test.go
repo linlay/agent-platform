@@ -17,6 +17,7 @@ import (
 	"agent-platform/internal/config"
 	contracts "agent-platform/internal/contracts"
 	"agent-platform/internal/runenv"
+	"agent-platform/internal/shellreview"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
@@ -947,7 +948,7 @@ func TestInvokeHostBashConsumesMatchingSoftSecurityApproval(t *testing.T) {
 	executor := softSecurityExecutor()
 	args := map[string]any{"command": command}
 	preflight := executor.ReviewBashAccess(context.Background(), args, execCtx, executor.cfg.AccessPolicy)
-	security := preflight.SecurityReview(command, bashSecurityKnownVariables(execCtx))
+	security := shellreview.SecurityReview(preflight, command, bashSecurityKnownVariables(execCtx))
 	execCtx.BashSecurityApprovals = map[string]int{security.Fingerprint: 1}
 	result, err := executor.invokeHostBash(context.Background(), args, execCtx)
 	if err != nil {

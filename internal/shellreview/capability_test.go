@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/scriptstate"
+	shellplan "agent-platform/internal/shellreview/plan"
 )
 
 func TestWorkspaceEditingCapabilityIsIndependentOfAccessLevel(t *testing.T) {
@@ -137,7 +138,7 @@ func TestUnresolvedAliasProtectsNothingAndBareWordsAreNotPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := review(f, "mytool data")
-	for _, leaf := range append([]BashPlan{p}, p.Requirements...) {
+	for _, leaf := range append([]shellplan.BashPlan{p}, p.Requirements...) {
 		if strings.Contains(leaf.RuleKey, "access-write") {
 			t.Fatalf("a bare word that names an existing file is not a write target: %+v", p)
 		}

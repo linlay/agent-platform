@@ -11,23 +11,9 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-type ConnectorInvocation struct {
-	ID, Program string
-	Args        []string
-}
-
-// ConnectorCall is one plain call of a mounted connector's CLI. Prefix holds
-// the words that start the entry as written (the program, or an interpreter
-// and its script); Argv holds the arguments after it.
-type ConnectorCall struct {
-	ConnectorID string
-	Prefix      []string
-	Argv        []string
-}
-
 // DirectConnectorInvocation permits credential injection only into one verified
 // child. Shell syntax/wrappers are never executed with connector credentials.
-func DirectConnectorInvocation(session QuerySession, command, cwd string, vars map[string]string) *ConnectorInvocation {
+func DirectConnectorInvocation(session QuerySession, command, cwd string, vars map[string]string) *types.ConnectorInvocation {
 	if session.AgentHasRuntimeSandbox || len(session.ConnectorCLIEntries) == 0 {
 		return nil
 	}
@@ -57,7 +43,7 @@ func DirectConnectorInvocation(session QuerySession, command, cwd string, vars m
 	}
 	for _, entry := range session.ConnectorCLIEntries {
 		if same, err := NormalizePath(entry.Path); err == nil && same == target {
-			return &ConnectorInvocation{ID: entry.ConnectorID, Program: program, Args: append([]string(nil), x.Argv[1:]...)}
+			return &types.ConnectorInvocation{ID: entry.ConnectorID, Program: program, Args: append([]string(nil), x.Argv[1:]...)}
 		}
 	}
 	return nil
@@ -90,7 +76,7 @@ func singleCall(command string, vars map[string]string) (types.Invocation, bool)
 
 // connectorCall reports the whole command as one plain connector call. An
 // interpreter-run entry keeps only the arguments after its script.
-func connectorCall(command string, vars map[string]string, x BashExecution) *ConnectorCall {
+func connectorCall(command string, vars map[string]string, x BashExecution) *types.ConnectorCall {
 	if !x.Connector || x.Wrapped || x.Uncertain || len(x.Argv) == 0 {
 		return nil
 	}
@@ -112,5 +98,5 @@ func connectorCall(command string, vars map[string]string, x BashExecution) *Con
 			return nil
 		}
 	}
-	return &ConnectorCall{ConnectorID: x.ConnectorID, Prefix: append([]string{}, x.Argv[:split]...), Argv: append([]string{}, x.Argv[split:]...)}
+	return &types.ConnectorCall{ConnectorID: x.ConnectorID, Prefix: append([]string{}, x.Argv[:split]...), Argv: append([]string{}, x.Argv[split:]...)}
 }
