@@ -6,7 +6,7 @@ import (
 )
 
 func jqOperands(args []string) types.Effects {
-	p := options.Parse(specs["jq"], args)
+	p := options.Parse(jqSpec, args)
 	e := types.Effects{Incomplete: p.Incomplete}
 	e.Files = append(e.Files, p.Files...)
 	positional := p.Positional
@@ -25,3 +25,6 @@ func jqOperands(args []string) types.Effects {
 	}
 	return e
 }
+
+var jqSpec = types.OptionSpec{ShortFlags: "rcsnejaSCMRh", ShortArgs: map[byte]types.OptionRole{'f': types.OptionRead, 'L': types.OptionReadDir},
+	Long: options.Merge(options.Longs(types.OptionNone, "raw-output", "compact-output", "slurp", "null-input", "exit-status", "join-output", "ascii-output", "sort-keys", "color-output", "monochrome-output", "tab", "raw-input", "seq", "stream", "stream-errors", "raw-output0", "unbuffered", "args", "jsonargs"), options.Longs(types.OptionValue, "indent"), options.Longs(types.OptionRead, "from-file"), options.Longs(types.OptionTwoValues, "arg", "argjson"), options.Longs(types.OptionNameFile, "slurpfile", "rawfile"))}

@@ -4,12 +4,14 @@ import (
 	"strconv"
 	"strings"
 
+	"agent-platform/internal/shellreview/registry"
 	"agent-platform/internal/shellreview/types"
 )
 
 // Execution expands an already trusted wrapper using the invocation's cwd resolver.
 func Execution(base string, args []string, words []types.SourceWord, cwd string, vars map[string]string, resolveAgainstCwd func(string, string) string) (Expansion, bool) {
-	if base == "env" {
+	entry, _ := registry.Lookup(base)
+	if entry.ID == registry.CmdEnv {
 		expanded, ok := Env(args)
 		if !ok {
 			return Expansion{Cwd: cwd}, false
@@ -35,15 +37,15 @@ func Execution(base string, args []string, words []types.SourceWord, cwd string,
 			i++
 			break
 		}
-		switch base {
-		case "command", "builtin":
+		switch entry.ID {
+		case registry.CmdCommand, registry.CmdBuiltin:
 			if a == "-v" || a == "-V" {
 				return Expansion{Cwd: cwd}, true
 			}
 			if a == "-p" {
 				return Expansion{Cwd: cwd}, false
 			}
-		case "env":
+		case registry.CmdEnv:
 			if name, value, ok := strings.Cut(a, "="); ok && !strings.HasPrefix(name, "-") {
 				vars[name] = value
 				i++
@@ -71,7 +73,7 @@ func Execution(base string, args []string, words []types.SourceWord, cwd string,
 				i++
 				continue
 			}
-		case "nice":
+		case registry.CmdNice:
 			if a == "-n" || a == "--adjustment" {
 				if i+1 >= len(args) {
 					return Expansion{Cwd: cwd}, false
@@ -83,7 +85,7 @@ func Execution(base string, args []string, words []types.SourceWord, cwd string,
 				i++
 				continue
 			}
-		case "timeout":
+		case registry.CmdTimeout:
 			if a == "-s" || a == "--signal" || a == "-k" || a == "--kill-after" {
 				if i+1 >= len(args) {
 					return Expansion{Cwd: cwd}, false
@@ -102,7 +104,7 @@ func Execution(base string, args []string, words []types.SourceWord, cwd string,
 				}
 				return Expansion{Cwd: cwd}, false
 			}
-		case "stdbuf":
+		case registry.CmdStdbuf:
 			if a == "-i" || a == "-o" || a == "-e" {
 				if i+1 >= len(args) {
 					return Expansion{Cwd: cwd}, false

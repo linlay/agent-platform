@@ -8,6 +8,7 @@ import (
 
 	. "agent-platform/internal/accesspolicy"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/shellreview/registry"
 	"agent-platform/internal/shellreview/types"
 	"agent-platform/internal/shellreview/unwrap"
 )
@@ -39,7 +40,7 @@ func ShebangFamily(header string, session QuerySession, cwd string, vars map[str
 		return ""
 	}
 	base := CommandFamily(words[0])
-	if base == "env" {
+	if registry.IDOf(base) == registry.CmdEnv {
 		if !RecognizedProgram(session, words[0], cwd, vars, environment, false) {
 			return ""
 		}
@@ -48,7 +49,7 @@ func ShebangFamily(header string, session QuerySession, cwd string, vars map[str
 		if localVars == nil {
 			localVars = map[string]string{}
 		}
-		expanded, ok := unwrap.Execution("env", words[1:], nil, cwd, localVars, ResolveAgainstCwd)
+		expanded, ok := unwrap.Execution(registry.Name(registry.CmdEnv), words[1:], nil, cwd, localVars, ResolveAgainstCwd)
 		if !ok || len(expanded.Argv) == 0 {
 			return ""
 		}
@@ -62,11 +63,7 @@ func ShebangFamily(header string, session QuerySession, cwd string, vars map[str
 }
 
 func IsInterpreter(base string) bool {
-	switch base {
-	case "bash", "sh", "zsh", "dash", "ksh", "python", "python3", "node", "ruby", "perl", "powershell", "pwsh", "cmd":
-		return true
-	}
-	return false
+	return base == strings.ToLower(base) && registry.Is(base, registry.Interpreter)
 }
 
 func InterpreterScript(base string, args []string) string {
@@ -76,7 +73,8 @@ func InterpreterScript(base string, args []string) string {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		lower := strings.ToLower(a)
-		if base == "powershell" || base == "pwsh" {
+		id := registry.IDOf(base)
+		if id == registry.CmdPowershell || id == registry.CmdPwsh {
 			switch lower {
 			case "-file", "-f":
 				if i+1 < len(args) {
@@ -92,7 +90,7 @@ func InterpreterScript(base string, args []string) string {
 				return ""
 			}
 		}
-		if base == "cmd" {
+		if id == registry.CmdCmd {
 			if lower == "/c" && i+1 < len(args) {
 				p := args[i+1]
 				ext := strings.ToLower(filepath.Ext(p))
@@ -114,8 +112,8 @@ func InterpreterScript(base string, args []string) string {
 		if a == "-" {
 			return ""
 		}
-		switch base {
-		case "bash", "sh", "zsh", "dash", "ksh":
+		switch id {
+		case registry.CmdBash, registry.CmdSh, registry.CmdZsh, registry.CmdDash, registry.CmdKsh:
 			if a == "--noprofile" || a == "--norc" {
 				continue
 			}
@@ -126,7 +124,7 @@ func InterpreterScript(base string, args []string) string {
 			if strings.Trim(a[1:], "euxvnrfBEmPT") != "" {
 				return ""
 			}
-		case "python", "python3":
+		case registry.CmdPython, registry.CmdPython3:
 			if a == "-W" || a == "-X" {
 				i++
 				continue
@@ -134,13 +132,13 @@ func InterpreterScript(base string, args []string) string {
 			if strings.Trim(a[1:], "uBIOEsSqv") != "" {
 				return ""
 			}
-		case "node":
+		case registry.CmdNode:
 			return ""
-		case "ruby":
+		case registry.CmdRuby:
 			if a != "-w" {
 				return ""
 			}
-		case "perl":
+		case registry.CmdPerl:
 			if a != "-w" {
 				return ""
 			}

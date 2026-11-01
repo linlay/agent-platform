@@ -1,9 +1,8 @@
 package commands
 
 import (
-	"strings"
-
 	"agent-platform/internal/shellreview/types"
+	"strings"
 )
 
 func pdftotextOperands(args []string) types.Effects {
@@ -35,3 +34,5 @@ func pdftotextOperands(args []string) types.Effects {
 	}
 	return e
 }
+
+var pdftotextSpec = types.OptionSpec{ShortFlags: "", ShortArgs: map[byte]types.OptionRole{}, Long: map[string]types.OptionRole{}}

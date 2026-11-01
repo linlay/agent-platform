@@ -8,6 +8,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
 	"agent-platform/internal/shellreview/identity"
+	"agent-platform/internal/shellreview/registry"
 	"agent-platform/internal/shellreview/types"
 	"agent-platform/internal/shellreview/unwrap"
 )
@@ -40,7 +41,7 @@ func analyzeBashExecution(session QuerySession, cmd types.Invocation, cwd string
 		known := identity.RecognizedProgram(session, name, x.Cwd, vars, env, allowBuiltins)
 		if identity.IsWrapper(base) && known {
 			x.Wrapped = true
-			if base != "command" && base != "builtin" {
+			if !registry.Is(base, registry.ShellWrapper) {
 				// exec-style wrappers use PATH, not the invoking shell's builtins.
 				allowBuiltins = false
 			}

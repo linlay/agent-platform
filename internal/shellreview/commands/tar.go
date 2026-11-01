@@ -172,3 +172,5 @@ func tarOperands(args []string) types.Effects {
 	}
 	return e
 }
+
+func tarConfig([]string) []string { return []string{"TAR_OPTIONS"} }

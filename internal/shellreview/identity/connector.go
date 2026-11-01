@@ -7,6 +7,7 @@ import (
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
+	"agent-platform/internal/shellreview/registry"
 	"agent-platform/internal/shellreview/types"
 )
 
@@ -26,7 +27,7 @@ func ConnectorExecution(session QuerySession, x types.BashExecution, vars map[st
 			return ""
 		}
 	} else if target == "" {
-		if shellBuiltins[CommandFamily(x.Argv[0])] {
+		if registry.Is(CommandFamily(x.Argv[0]), registry.Builtin) {
 			return ""
 		}
 		if session.AgentHasRuntimeSandbox {

@@ -1,6 +1,7 @@
 package unwrap
 
 import (
+	"agent-platform/internal/shellreview/registry"
 	"path"
 	"strings"
 )
@@ -9,21 +10,11 @@ func CommandName(name string) string {
 	return strings.TrimSuffix(strings.ToLower(path.Base(strings.ReplaceAll(name, "\\", "/"))), ".exe")
 }
 
-// IsShellInterpreter reports POSIX-style shells whose -c operand is Bash-like
-// source that can be analyzed recursively.
-func IsShellInterpreter(base string) bool {
-	switch base {
-	case "bash", "sh", "zsh", "dash", "ksh":
-		return true
-	}
-	return false
-}
-
 // ShellScript returns the literal script of `bash -c script [$0 args...]`.
 // Login/interactive shells and unrecognized options are not analyzable: they
 // load profiles or change parsing before the script runs.
 func ShellScript(argv []string) (string, bool) {
-	if len(argv) < 3 || !IsShellInterpreter(CommandName(argv[0])) {
+	if len(argv) < 3 || !registry.Is(CommandName(argv[0]), registry.ShellInterpreter) {
 		return "", false
 	}
 	for i := 1; i < len(argv); i++ {

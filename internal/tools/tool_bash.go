@@ -379,11 +379,6 @@ func bashSecurityKnownVariables(execCtx *ExecutionContext) map[string]string {
 	)
 }
 
-var unsupportedBashCommands = map[string]bool{
-	".": true, "source": true, "eval": true, "exec": true,
-	"coproc": true, "fg": true, "bg": true, "jobs": true,
-}
-
 func validateStrictCommand(command string, cfg config.BashConfig) error {
 	if strings.ContainsAny(command, "\n;&|<>(){}") {
 		return fmt.Errorf("Unsupported syntax for bash")
@@ -393,7 +388,7 @@ func validateStrictCommand(command string, cfg config.BashConfig) error {
 		return fmt.Errorf("Cannot parse command")
 	}
 	base := fields[0]
-	if unsupportedBashCommands[strings.ToLower(base)] {
+	if bashsyntax.StrictUnsupportedCommand(base) {
 		return fmt.Errorf("Unsupported command: %s", base)
 	}
 	if !containsString(cfg.AllowedCommands, base) {

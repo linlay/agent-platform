@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"agent-platform/internal/shellreview/registry"
 	"agent-platform/internal/shellreview/types"
 	"agent-platform/internal/shellreview/unwrap"
 )
@@ -44,7 +45,7 @@ func reviewASTCommand(command string, cmd types.Invocation) ReviewResult {
 		if isDangerousASTCommand(base) {
 			return blockReview(fmt.Sprintf("Command uses unsupported shell builtin: %s", base))
 		}
-		if base == "fc" && hasFlagLetter(argv[1:], 'e') {
+		if registry.IDOf(base) == registry.CmdFc && hasFlagLetter(argv[1:], 'e') {
 			return blockReview("Command uses 'fc -e' which can execute arbitrary commands via editor")
 		}
 		if review := reviewRuntimeWrapperCommand(command, argv); review.Decision == ReviewBlock {
@@ -76,5 +77,5 @@ func hasFlagLetter(args []string, letter byte) bool {
 }
 
 func isDangerousASTCommand(base string) bool {
-	return astDangerousCommands[base] || zshDangerousCommands[base]
+	return registry.Is(base, registry.HardBlocked)
 }

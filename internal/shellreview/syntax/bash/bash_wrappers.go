@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"agent-platform/internal/shellreview/registry"
 	"agent-platform/internal/shellreview/unwrap"
 )
 
@@ -31,18 +32,19 @@ func unwrapDeterministicWrapperArgv(argv []string) ([]string, bool) {
 	if len(argv) == 0 {
 		return nil, false
 	}
-	switch normalizedCommandBase(argv[0]) {
-	case "command", "builtin":
+	entry, _ := registry.Lookup(normalizedCommandBase(argv[0]))
+	switch entry.ID {
+	case registry.CmdCommand, registry.CmdBuiltin:
 		return unwrapCommandBuiltin(argv[1:])
-	case "env":
+	case registry.CmdEnv:
 		return unwrapEnv(argv[1:])
-	case "nohup":
+	case registry.CmdNohup:
 		return argv[1:], len(argv) > 1
-	case "nice":
+	case registry.CmdNice:
 		return unwrapNice(argv[1:])
-	case "timeout":
+	case registry.CmdTimeout:
 		return unwrapTimeout(argv[1:])
-	case "stdbuf":
+	case registry.CmdStdbuf:
 		return unwrapStdbuf(argv[1:])
 	default:
 		return nil, false
@@ -162,13 +164,13 @@ func reviewRuntimeWrapperCommand(command string, argv []string) ReviewResult {
 	if len(argv) == 0 {
 		return ReviewResult{Decision: ReviewAllow}
 	}
-	switch normalizedCommandBase(argv[0]) {
-	case "xargs":
+	switch registry.IDOf(normalizedCommandBase(argv[0])) {
+	case registry.CmdXargs:
 		if inner, ok := xargsInnerArgv(argv); ok && len(inner) > 0 && isDangerousASTCommand(normalizedCommandBase(inner[0])) {
 			return blockReview(fmt.Sprintf("Command uses unsupported shell builtin: %s", normalizedCommandBase(inner[0])))
 		}
 		return approvalReview(command, "Command uses xargs with runtime-provided arguments", RuleKeyRuntimeWrapperXargs, LevelRuntimeWrapper)
-	case "find":
+	case registry.CmdFind:
 		foundExec := false
 		for idx := 1; idx < len(argv); idx++ {
 			if argv[idx] != "-exec" && argv[idx] != "-execdir" {
