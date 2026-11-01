@@ -211,6 +211,8 @@ func chatSourceFromContext(ctx context.Context) string {
 func (s *Server) routes() {
 	if s.deps.Config.WebApps.Enabled {
 		s.router.HandleFunc("/api/admin/webapps/host", s.method(http.MethodGet, s.handleWebAppHost))
+		s.router.HandleFunc("/api/admin/webapps", s.handleWebAppAdmin)
+		s.router.HandleFunc("/api/admin/webapps/", s.handleWebAppAdmin)
 	}
 	s.router.HandleFunc("/healthz", s.method(http.MethodGet, s.handleHealth))
 	s.router.HandleFunc("/monitor", s.handleMonitorPage)

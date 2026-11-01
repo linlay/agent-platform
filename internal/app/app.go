@@ -64,6 +64,7 @@ import (
 	"agent-platform/internal/tools"
 	"agent-platform/internal/viewaction"
 	"agent-platform/internal/viewquery"
+	"agent-platform/internal/webapp"
 	"agent-platform/internal/webapphost"
 	"agent-platform/internal/ws"
 
@@ -71,6 +72,7 @@ import (
 )
 
 type App struct {
+	webapps                *webapp.Service
 	mailbox                *mailbox.Service
 	nativeConnectorRelease func()
 	Config                 config.Config
@@ -481,7 +483,21 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			def, ok := registry.AgentDefinition(key)
 			return def.Workspace.ProjectDir(), ok && def.MemoryConfig.Enabled && def.Engine == catalog.AgentEngineNative && def.ProxyConfig == nil && def.Mode != "CHANNEL"
 		}).WithArchives(archiveStore)
+	var webapps *webapp.Service
+	cleanupWebapps := true
+	if cfg.WebApps.Enabled {
+		webapps, err = webapp.Open(webapp.Options{Root: cfg.Paths.WebAppsDir, DataRoot: cfg.Paths.WebAppDataDir, Config: cfg.WebApps})
+		if err != nil {
+			return nil, fmt.Errorf("initialize WebApp storage: %w", err)
+		}
+	}
+	defer func() {
+		if cleanupWebapps && webapps != nil {
+			_ = webapps.Close()
+		}
+	}()
 	srv, err = server.New(server.Dependencies{
+		WebApps:           webapps,
 		BackgroundContext: backgroundCtx,
 		Config:            cfg,
 		Chats:             chatStore,
@@ -638,8 +654,10 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	cleanupMCP = false
 	cleanupNative = false
 	cleanupMail = false
+	cleanupWebapps = false
 
 	return &App{
+		webapps:                webapps,
 		mailbox:                mailService,
 		nativeConnectorRelease: nativeRelease,
 		Config:                 cfg,
@@ -661,6 +679,11 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 func (a *App) Close() error {
 	if a == nil {
 		return nil
+	}
+	if a.webapps != nil {
+		if err := a.webapps.Close(); err != nil {
+			log.Printf("close WebApps: %v", err)
+		}
 	}
 	if a.nativeConnectorRelease != nil {
 		defer a.nativeConnectorRelease()

@@ -41,6 +41,7 @@ import (
 	"agent-platform/internal/skills"
 	terminalpkg "agent-platform/internal/terminal"
 	"agent-platform/internal/toolinteraction"
+	"agent-platform/internal/webapp"
 	"agent-platform/internal/webapphost"
 	"agent-platform/internal/ws"
 )
@@ -80,6 +81,7 @@ type QueryRuntime interface {
 }
 
 type Dependencies struct {
+	WebApps                *webapp.Service
 	WebAppHost             *webapphost.Status
 	Mailbox                *mailbox.Service
 	Sessions               *session.Builder

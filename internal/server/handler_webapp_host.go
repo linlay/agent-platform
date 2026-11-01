@@ -53,6 +53,9 @@ func (s *Server) handleWebAppHost(w http.ResponseWriter, r *http.Request) {
 	// This endpoint is a prerequisite report. HostingAvailable remains false
 	// until the installer, gateway and lifecycle are implemented and verified.
 	status := *s.deps.WebAppHost
+	if s.deps.WebApps != nil {
+		status.Stage = "installation"
+	}
 	status.Issues = append([]webapphost.Issue{}, status.Issues...)
 	status.Warnings = append([]webapphost.Issue{}, status.Warnings...)
 	writeJSON(w, http.StatusOK, api.Success(status))

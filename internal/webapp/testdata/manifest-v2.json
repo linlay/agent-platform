@@ -1,0 +1,417 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "any-static",
+      "valid": true,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "any",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        }
+      }
+    },
+    {
+      "name": "darwin-arm64-static",
+      "valid": true,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "darwin-arm64",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        }
+      }
+    },
+    {
+      "name": "darwin-x64-static",
+      "valid": true,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "darwin-x64",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        }
+      }
+    },
+    {
+      "name": "darwin-universal-static",
+      "valid": true,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "darwin-universal",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        }
+      }
+    },
+    {
+      "name": "linux-x64-static",
+      "valid": true,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "linux-x64",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        }
+      }
+    },
+    {
+      "name": "win32-arm64-static",
+      "valid": true,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "win32-arm64",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        }
+      }
+    },
+    {
+      "name": "win32-x64-static",
+      "valid": true,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "win32-x64",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        }
+      }
+    },
+    {
+      "name": "any-node",
+      "valid": true,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "any",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        },
+        "backend": {
+          "command": {
+            "type": "electron-node",
+            "entry": "backend/server.mjs"
+          },
+          "health": {
+            "type": "http",
+            "path": "/api/health"
+          }
+        }
+      }
+    },
+    {
+      "name": "linux-x64-node",
+      "valid": true,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "linux-x64",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        },
+        "backend": {
+          "command": {
+            "type": "electron-node",
+            "entry": "backend/server.mjs"
+          },
+          "health": {
+            "type": "http",
+            "path": "/api/health"
+          }
+        }
+      }
+    },
+    {
+      "name": "invalid-target-linux-arm64",
+      "valid": false,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "linux-arm64",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        }
+      }
+    },
+    {
+      "name": "invalid-target-linux-amd64",
+      "valid": false,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "linux-amd64",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        }
+      }
+    },
+    {
+      "name": "invalid-target-Linux-x64",
+      "valid": false,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "Linux-x64",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        }
+      }
+    },
+    {
+      "name": "invalid-target-linux-x64 ",
+      "valid": false,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "linux-x64 ",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        }
+      }
+    },
+    {
+      "name": "invalid-target-null",
+      "valid": false,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": null,
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        }
+      }
+    },
+    {
+      "name": "invalid-id",
+      "valid": false,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-not-a-valid-id",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "any",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        }
+      }
+    },
+    {
+      "name": "legacy-schema",
+      "valid": false,
+      "manifest": {
+        "schemaVersion": 1,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "any",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        }
+      }
+    },
+    {
+      "name": "unknown-field",
+      "valid": false,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "linux-x64",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        },
+        "launcher": "node"
+      }
+    },
+    {
+      "name": "unknown-frontend-field",
+      "valid": false,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "linux-x64",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html",
+          "spa": true
+        }
+      }
+    },
+    {
+      "name": "unsafe-frontend-path",
+      "valid": false,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "linux-x64",
+        "frontend": {
+          "root": "../private",
+          "index": "index.html"
+        }
+      }
+    },
+    {
+      "name": "reserved-backend-prefix",
+      "valid": false,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "linux-x64",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html",
+          "routeConfig": {
+            "backendPrefixes": [
+              "/__desktop"
+            ]
+          }
+        },
+        "backend": {
+          "command": {
+            "type": "electron-node",
+            "entry": "backend/server.mjs"
+          },
+          "health": {
+            "type": "http",
+            "path": "/api/health"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown-node-launcher",
+      "valid": false,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "linux-x64",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        },
+        "backend": {
+          "command": {
+            "type": "node",
+            "entry": "backend/server.mjs"
+          },
+          "health": {
+            "type": "http",
+            "path": "/api/health"
+          }
+        }
+      }
+    },
+    {
+      "name": "reserved-backend-env",
+      "valid": false,
+      "manifest": {
+        "schemaVersion": 2,
+        "id": "webapp-0123456789abcdef",
+        "key": "contract-sample",
+        "label": "Contract sample",
+        "version": "1.0.0",
+        "target": "linux-x64",
+        "frontend": {
+          "root": "frontend",
+          "index": "index.html"
+        },
+        "backend": {
+          "command": {
+            "type": "electron-node",
+            "entry": "backend/server.mjs"
+          },
+          "health": {
+            "type": "http",
+            "path": "/api/health"
+          },
+          "env": {
+            "PORT": "3000"
+          }
+        }
+      }
+    }
+  ]
+}

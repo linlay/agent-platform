@@ -620,7 +620,7 @@ singapore02 已在正式加固参数的原生 amd64 容器中验证 ABI4 核心�
 | 批次 | 范围 | 当前状态／完成门 |
 | --- | --- | --- |
 | 0 | 部署模板、HOME、文档修正及 Linux Manifest fixture | 源码及定向回归完成；完整镜像构建仍待验证，见下文 |
-| 1 | 上传、预检、安装、停止状态更新、卸载、journal 恢复及对应 owner API | 待实施；首次安装 stopped，暂拒绝更新 running 应用 |
+| 1 | 上传、预检、安装、停止状态更新、卸载、journal 恢复及对应 owner API | 代码与定向回归完成；首次安装 stopped，暂拒绝更新 running 应用，详见第 22 节 |
 | 2 | 静态网关、票据/session/CSRF、静态启停及最小 WebClient 管理入口 | 待实施；owner 可安装并打开私有静态应用 |
 | 3 | supervisor 启动受限 Node、端口、启动健康、HTTP/WS/SSE、日志及停止 | 待实施；参考应用可启动、访问和停止，隔离失败拒绝执行 |
 | 4 | 持续健康、退避、后代清理、异常与 Compose 恢复、运行中更新和回退 | 待实施；后端全生命周期闭环 |
@@ -633,3 +633,15 @@ singapore02 已在正式加固参数的原生 amd64 容器中验证 ABI4 核心�
 Desktop 从权威源码生成含 Linux 目标的 schema/validator；共享完整输入样例位于 [manifest-v2.json](../../zenmind-desktop/contracts/webapp/fixtures/manifest-v2.json)，覆盖 22 个合法/非法案例。样例的 valid 只表示 Manifest 语法，不表示包内文件或某宿主已支持；Go 安装器尚未实现，批次 1 再消费相同样例。builder 同步目标枚举、纯 JS 离线 bundle 及未交付边界，不维护第二套 schema。macOS/Windows 的平台匹配与实际 Linux ZIP 拒绝导入均有回归覆盖。
 
 本轮验证：Desktop 相关测试共 63 项通过，Main 与 renderer 类型检查、生成契约和架构检查通过；Platform 配置/探测包及 owner/Host 定向测试通过；两份 Compose 展开后的 workspace 挂载、HOME tmpfs 和加固检查通过，发布脚本语法通过。完整镜像构建在解析 Dockerfile frontend 时因 Docker Hub `auth.docker.io` token 请求超时失败，未进入镜像编译，不记为构建通过；未重新执行生产部署或原生 Linux/macOS/Windows 实机验收。
+
+## 22. 批次 1：安装事务与 owner 管理（2026-11-01）
+
+新增 `internal/webapp` 持有安装、期望状态、授权记录和独占实例锁；server 仅负责 owner/Origin 校验、严格请求解码与公开投影，app 仅显式装配和关闭。开关关闭时不创建服务或数据目录。
+
+已接入有界 ZIP 上传、无执行预检、摘要与 revision 绑定安装、停止状态更新、保留数据的卸载与显式 purge。安装代码以只读树与内容摘要保存；journal 在切换前同步，未提交中断恢复原代码和记录，已提交事务只清理。恢复或清理不确定时拒绝后续 mutation；首次安装 stopped，运行中更新、启停和长操作 operationId 随后续生命周期批次接入。正常更新保持安装收据 namespace，卸载重装生成新身份。
+
+使用 Desktop 生成的 schema 与 22 个共享完整输入 fixture，另补 Go 语义检查和 Compose 启动器/环境/原生载荷子集限制。同步入口为 `scripts/sync-webapp-contracts.py`，生产制品只嵌入经过检查的本仓库副本，不从相邻源码读取配置或安装程序。
+
+验证：macOS 上 webapp/owner API 定向 `go test -race`、架构检查、共享契约漂移检查通过；Linux amd64 主程序与 Windows amd64 存储测试交叉编译通过。另在现有 Debian 运行镜像内以 UID10001、只读根、drop ALL/no-new-privileges 和 tmpfs 数据目录执行 Linux amd64 存储测试，安装、冲突、非法 ZIP、四个更新中断点、数据保留/删除与损坏拒绝全部通过。这是存储域容器回归，不等于完整新镜像或原生 Node/Landlock 验收。
+
+同仓库另有并发 Shell 权限重构，WebApp 后续实现移至独立 `codex/webapp-compose-hosting` worktree 验证，未改动或提交该重构；合并时需回归双方最终接口。当前 hostingAvailable 仍为 false，不开放未完成的静态/Node/SDK 路径。

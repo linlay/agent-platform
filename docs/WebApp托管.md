@@ -2,9 +2,19 @@
 
 ## 当前实现范围
 
-完整设计见 [Linux Docker Compose WebApp 托管方案](../plans/webapp-node-hosting.md)。当前落地的是前置基础：部署选择、严格配置、owner/Host 边界、镜像中的 Node 构建定义，以及 Linux 隔离能力探测。安装、静态/Node 网关、应用 SDK 和进程生命周期还未实现。
+完整设计见 [Linux Docker Compose WebApp 托管方案](../plans/webapp-node-hosting.md)。当前代码已接入部署选择、严格配置、owner/Host 边界、Node 制品与隔离探测，以及 owner ZIP 上传、预检、安装、停止状态更新和卸载事务。静态/Node 网关、应用 SDK 和进程生命周期继续按后续批次实现，不能把安装管理视为完整托管交付。
 
-共享 Manifest 已补齐 Linux 目标及合法/非法输入 fixture，builder 同步离线纯 JS 包约束；Desktop 仍拒绝安装 Linux 目标包。Platform 的 Go 安装器后续接入同一 fixture，契约可读不表示当前已能安装或运行应用。小批次边界与本轮验证限制见计划第 21 节。
+共享 Manifest 已补齐 Linux 目标及合法/非法输入 fixture，builder 同步离线纯 JS 包约束；Desktop 仍拒绝安装 Linux 目标包。Go 安装器嵌入 Desktop 生成的 schema 并消费同一 fixture；`scripts/sync-webapp-contracts.py --check --desktop-root <Desktop源码根>` 检查复制漂移，不在生产环境读取相邻源码。小批次边界与验证限制见计划第 21 节。
+
+## 安装事务与数据所有权
+
+`internal/webapp` 独占安装代码、期望状态和应用授权；`app.New` 只在合法启用后创建服务，并持有运行根下的实例独占锁。Server 只校验 owner、来源和请求形状，不解析包或执行安装。前端与后端能力仍由后续网关和桥接模块负责。
+
+上传是有界 ZIP 字节流，不接受服务器路径。预检不执行代码、不创建安装记录；提交绑定上传摘要与当前安装 revision。解包拒绝穿越、反斜杠、大小写碰撞、链接、特殊文件、超量展开、秘密文件和原生载荷；Compose 子集拒绝其他平台、非 Node launcher 与执行链环境覆盖。
+
+首次安装固定 stopped。更新当前要求先 stopped，保留安装身份、授权、用户配置和持久数据；运行中更新随生命周期批次接入。只读代码在同一文件系统的 staging 与 app 之间改名，journal 在切换前持久化，安装记录、代码摘要及目录同步完成后才提交。中断的未提交事务恢复原代码与记录；已提交事务只重做清理。恢复结果不确定时停止后续 mutation，保留现场，不再叠加安装。
+
+卸载使用独立删除 journal，持久数据默认保留，只有 owner 显式 `purgeData:true` 才删除。重新安装生成新的调用收据 namespace，正常更新保持原安装身份。代码回滚不撤销应用业务数据迁移。
 
 该能力只针对 Linux Compose。Desktop 继续使用 Electron 原有宿主；macOS、Windows 本机及 Linux 裸机运行 Platform 不自动启用，也不从 PATH 查找 Node。
 
@@ -40,7 +50,7 @@ RuntimeMode 仍是 standalone/desktop。新的独立启动选项为 `--webapp-ho
 | warnings | ABI4/5 缺少 IPC、ABI4 缺少设备 ioctl 限制等非阻断提示 |
 | backendPrerequisitesReady | 当前 linux/amd64 后端运行前提是否满足 |
 | hostingAvailable | 当前固定 false，不能据此认为安装/托管已实现 |
-| stage | 当前 foundation |
+| stage | 未组装安装服务时 foundation；安装服务就绪时 installation |
 | issues | 有界诊断码，不包含环境、凭证或任意进程输出 |
 
 接口响应 no-store。平台 Host 来自固定 platform-origin，不采信 X-Forwarded-Host；未知或应用内容 Host 在平台 mux 前拒绝，不能借 `/api/admin/*`、`/healthz` 或 `/ws` 进入原 handler。loopback peer 对精确 loopback:平台端口的 GET /healthz 单独放行。来自内容域的 Origin 也不能进入平台 API/主 WS。

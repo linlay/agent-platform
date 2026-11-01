@@ -20,6 +20,22 @@
 
 普通 Agent query 准入失败时，已存在但配置无效的 Agent 返回 `422 agent_configuration_invalid`，不存在或不可用且无 invalid 管理记录的 Agent 返回 `404 agent_not_found`，均不可重试。HTTP（包括 SSE 启动前）与 WebSocket 在 `data.error` 保留应用错误码、`status`、`retryable` 和可选 `diagnostics`，按请求/连接语言返回提示。旧 `contextConfig.agents` 和 agents 标签忽略并生成一条非阻断弃用 warning，不影响主 Agent 有效性；已有 Chat 历史仍可读取。
 
+## Linux Compose WebApp owner 管理
+
+只在合法启用 Compose WebApp 宿主后注册。所有入口要求经普通 Platform JWT verifier 验证的唯一配置 owner；应用 token 和连接器 grant 均不能代替 owner。接口保持 `{code,msg,data}`，失败在 `data.error` 返回稳定 code/status/retryable，响应 no-store，不回显服务器绝对路径或凭据。
+
+| 方法 | 路径 | 输入与结果 |
+| --- | --- | --- |
+| GET | `/api/admin/webapps/host` | 运行前提报告，当前不承诺应用可访问 |
+| GET | `/api/admin/webapps` | `{items:[...]}`，仅安装与期望/观察状态的安全投影 |
+| POST | `/api/admin/webapps/uploads` | 原始 `application/zip` 字节；返回 uploadId、sha256、size、createdAt |
+| POST | `/api/admin/webapps/preflight` | `{uploadId}`；返回审阅 Manifest、大小、文件数和 expectedRevision，不执行代码 |
+| POST | `/api/admin/webapps/install` | `{uploadId,sha256,expectedRevision}`；首次 expectedRevision 为空，更新必须等于当前 revision；本批次同步返回 stopped 应用 |
+| GET | `/api/admin/webapps/{id}` | 单应用安装状态；不存在返回 404 |
+| DELETE | `/api/admin/webapps/{id}` | `{expectedRevision,purgeData}`；默认保留数据，必须先 stopped |
+
+JSON 键严格区分大小写，拒绝重复键、未知字段及尾随 JSON；上传和解包限额来自 webapps 配置。管理 Cookie 写请求要求精确 platform-origin，所有非空 Origin 必须匹配配置来源；Bearer 自动化调用可省略 Origin。摘要、revision、运行中更新及数据删除条件失败不会自动重试。公开应用域、票据、SDK、启停和 operationId 属于后续批次，当前不能调用尚未注册的接口。
+
 ## Desktop ACP 注册
 
 `PUT /api/desktop/acp-bridges` 接受 `sourcePluginId`、`bridgeId`、`baseUrl`、可选 `timeoutMs` 和 `authToken`；省略 token 时保留已有值，显式空字符串清除。`DELETE` 接受同一插件身份与 bridge ID。插件身份由 Desktop 在认证的插件 socket 上确定，不能从插件请求体透传覆盖。
