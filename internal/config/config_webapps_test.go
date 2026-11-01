@@ -172,3 +172,24 @@ func TestWebAppsQuotedScalarsDoNotChangeLegacySections(t *testing.T) {
 		t.Fatal("strict quoted types not preserved")
 	}
 }
+
+func TestWebAppsLocalOriginsDoNotRequireDomains(t *testing.T) {
+	c := webAppConfigForTest(t)
+	c.WebApps.ContentDomain = ""
+	c.WebApps.InstanceSlug = ""
+	c.WebApps.PlatformOrigin = "http://127.0.0.1:11948"
+	if err := c.validateWebApps("linux"); err != nil {
+		t.Fatal(err)
+	}
+	for _, origin := range []string{"http://localhost:11948", "http://127.0.0.1:80", "http://127.0.0.1:20200", "http://127.0.0.1:011948"} {
+		c.WebApps.PlatformOrigin = origin
+		if c.validateWebApps("linux") == nil {
+			t.Fatal("unsafe local origin", origin)
+		}
+	}
+	c.WebApps.PlatformOrigin = "https://demo.platform.example.com"
+	c.WebApps.Frontend.PortStart = c.WebApps.Backend.PortStart
+	if c.validateWebApps("linux") == nil {
+		t.Fatal("overlapping frontend/backend range")
+	}
+}

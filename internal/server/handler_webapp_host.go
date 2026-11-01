@@ -29,7 +29,7 @@ func (s *Server) handleWebAppHostBoundary(w http.ResponseWriter, r *http.Request
 		if err == nil {
 			host := strings.ToLower(origin.Hostname())
 			domain := s.deps.Config.WebApps.ContentDomain
-			if host == domain || strings.HasSuffix(host, "."+domain) {
+			if domain != "" && (host == domain || strings.HasSuffix(host, "."+domain)) || (host == "127.0.0.1" && raw != s.deps.Config.WebApps.PlatformOrigin) {
 				writeJSON(w, http.StatusForbidden, api.Failure(403, "webapp_origin_not_allowed"))
 				return true
 			}
@@ -55,6 +55,11 @@ func (s *Server) handleWebAppHost(w http.ResponseWriter, r *http.Request) {
 	status := *s.deps.WebAppHost
 	if s.deps.WebApps != nil {
 		status.Stage = "installation"
+		status.MaxArchiveMiB = s.deps.Config.WebApps.MaxArchiveMiB
+	}
+	if s.webAppGateway != nil {
+		status.Stage = "static"
+		status.StaticAvailable = true
 	}
 	status.Issues = append([]webapphost.Issue{}, status.Issues...)
 	status.Warnings = append([]webapphost.Issue{}, status.Warnings...)

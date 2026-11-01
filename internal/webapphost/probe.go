@@ -46,6 +46,8 @@ type Status struct {
 	DeviceIoctlRestricted     bool    `json:"deviceIoctlRestricted"`
 	BackendPrerequisitesReady bool    `json:"backendPrerequisitesReady"`
 	HostingAvailable          bool    `json:"hostingAvailable"`
+	StaticAvailable           bool    `json:"staticAvailable"`
+	MaxArchiveMiB             int     `json:"maxArchiveMiB,omitempty"`
 	Stage                     string  `json:"stage"`
 	Issues                    []Issue `json:"issues"`
 	Warnings                  []Issue `json:"warnings"`

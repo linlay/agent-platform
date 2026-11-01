@@ -138,6 +138,7 @@ echo "[release] saving $reference"
 docker image save "$reference" | gzip -n -9 >"$bundle_stage/$archive_name"
 
 cp "$IMAGE_ASSETS_DIR/compose.yml" "$bundle_stage/compose.yml"
+cp "$IMAGE_ASSETS_DIR/compose.webapps.yml" "$bundle_stage/compose.webapps.yml"
 cp "$IMAGE_ASSETS_DIR/load.sh" "$bundle_stage/load.sh"
 cp "$IMAGE_ASSETS_DIR/DEPLOY.md" "$bundle_stage/DEPLOY.md"
 sed "s/__VERSION__/$VERSION/" "$IMAGE_ASSETS_DIR/env.example" >"$bundle_stage/.env.example"

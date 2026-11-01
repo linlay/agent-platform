@@ -118,6 +118,8 @@ type Policy struct {
 	ConnectPorts  []int            `json:"connectPorts"`
 }
 type Entry struct {
+	StateRevision string `json:"stateRevision"`
+	Generation    string `json:"generation,omitempty"`
 	ID            string `json:"id"`
 	Key           string `json:"key"`
 	Label         string `json:"label"`

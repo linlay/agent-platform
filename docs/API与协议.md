@@ -1484,6 +1484,14 @@ Automation 保持独立的场景默认：省略或 `default` 使用 `ask_for_app
 
 `GET /api/admin/webapps/host` 仅在 Linux standalone、显式 `--webapp-host=compose` 且 `runtime.yml` 的 `webapps.enabled: true` 时注册。启用还要求 JWT issuer/audience/expiry 和唯一 allowed-subjects owner；接口不接受 WebApp/连接器执行 token。未启用不注册路由；认证后 subject 非 owner 返回 403，宿主状态未装配返回 503；响应 no-store，包裹为 `{code,msg,data}`。
 
-`data` 含 host/os/arch、nodeVersion/nodeReady、supervisorReady、landlockAbi/isolationReady、isolationProfile/ipcScoped/deviceIoctlRestricted、warnings、backendPrerequisitesReady、hostingAvailable、stage 和 issues。当前 stage 为 foundation，hostingAvailable 固定 false；它只报告运行前提，不提供应用安装、访问或 Node 启停能力。
+`data` 含 host/os/arch、nodeVersion/nodeReady、supervisorReady、landlockAbi/isolationReady、isolationProfile/ipcScoped/deviceIoctlRestricted、warnings、backendPrerequisitesReady、hostingAvailable、stage 和 issues。当前 stage 可为 foundation/installation/static；staticAvailable 表示私有静态网关已组装，hostingAvailable 在 Node 托管完成前保持 false。安装与静态启停使用独立 owner 路由。
 
 启用时，Host 分类先于平台 API/CORS/WS。未知或应用内容 Host 不回落平台路由；仅 loopback peer 的精确 loopback:平台端口 GET /healthz 保留健康检查。内容域 Origin 禁止进入平台 API/主 WS，不使用 X-Forwarded-Host 推断平台身份。完整范围及限制见 [WebApp 托管](WebApp托管.md)。
+
+### WebApp 静态生命周期与访问
+
+owner 管理详情返回安装记录、Manifest、policy、用户配置及配置摘要。start/stop/restart 绑定安装与状态修订；静态 stop 撤销并等待旧 generation 租约结束。配置/授权 PUT 绑定各自 revision，当前只允许 stopped。启动/安装状态与错误以源码 DTO 为准。
+
+`POST /api/admin/webapps/<id>/launch-ticket` 返回独立本地应用端口的 POST action、一次性 ticket 和过期时间；WebClient 用无 opener 表单打开。应用端 session 兑换、bootstrap 和配置路径归网关，不进入平台 mux。会话与票据只在内存中保存摘要；容器重启、应用停止及 owner 显式 `POST /api/admin/webapps/sessions/revoke` 后失效。SDK action 和 Node 代理在后续批次接入，不能据静态可用性推断完整 SDK 已交付。
+
+每应用使用 `http://127.0.0.1:<port>`；Compose 发布范围仅绑定宿主 loopback。独立域名/DNS/TLS/nginx 已按用户要求延期；本地模式不提供跨注册域 Cookie 隔离。详情见 [WebApp 托管](WebApp托管.md)。

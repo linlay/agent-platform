@@ -29,13 +29,16 @@ type Service struct {
 	records                 map[string]*Record
 	desired                 map[string]Desired
 	policies                map[string]Policy
+	active                  map[string]*activeApp
+	controls                map[string]*sync.Mutex
+	closing                 bool
 }
 
 func Open(options Options) (*Service, error) {
 	if options.Root == "" || options.DataRoot == "" {
 		return nil, fmt.Errorf("WebApp roots are required")
 	}
-	s := &Service{root: options.Root, dataRoot: options.DataRoot, config: options.Config, records: map[string]*Record{}, desired: map[string]Desired{}, policies: map[string]Policy{}}
+	s := &Service{root: options.Root, dataRoot: options.DataRoot, config: options.Config, records: map[string]*Record{}, desired: map[string]Desired{}, policies: map[string]Policy{}, active: map[string]*activeApp{}, controls: map[string]*sync.Mutex{}}
 	s.maxArchive = int64(options.Config.MaxArchiveMiB) << 20
 	s.maxExpanded = int64(options.Config.MaxExtractedMiB) << 20
 	s.maxFiles = options.Config.MaxFiles
@@ -96,9 +99,8 @@ func Open(options Options) (*Service, error) {
 		if err := validateRecord(record, id); err != nil {
 			return nil, err
 		}
-		digest, err := treeDigest(filepath.Join(dir, "app"), false)
-		if err != nil || digest != record.ContentSHA256 {
-			return nil, fmt.Errorf("WebApp code integrity mismatch")
+		if err := verifyInstalledCode(filepath.Join(dir, "app"), record); err != nil {
+			return nil, err
 		}
 		var desired Desired
 		if err := readJSON(filepath.Join(dir, "desired.json"), &desired); err != nil {
@@ -111,7 +113,7 @@ func Open(options Options) (*Service, error) {
 		if err := readJSON(filepath.Join(dir, "policy.json"), &policy); err != nil {
 			return nil, err
 		}
-		if policy.SchemaVersion != 1 || !opaquePattern.MatchString(policy.Revision) {
+		if policy.SchemaVersion != 1 || !opaquePattern.MatchString(policy.Revision) || validatePolicy(policy) != nil {
 			return nil, fmt.Errorf("invalid WebApp policy")
 		}
 		s.records[id] = &record
@@ -134,17 +136,8 @@ func validateRecord(r Record, id string) error {
 	}
 	return validateCompose(r.Manifest)
 }
-func (s *Service) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return nil
-	}
-	s.closed = true
-	return s.lock.Close()
-}
 func (s *Service) mutationError() error {
-	if s.closed {
+	if s.closed || s.closing {
 		return fail("webapp_host_stopped", 503)
 	}
 	if s.recoveryRequired {
@@ -155,7 +148,13 @@ func (s *Service) mutationError() error {
 func (s *Service) entry(record *Record) Entry {
 	m := record.Manifest
 	state := s.desired[m.ID].State
-	return Entry{ID: m.ID, Key: m.Key, Label: m.Label, Version: m.Version, Target: m.Target, Revision: record.Revision, DesiredState: state, ObservedState: "stopped", Backend: m.Backend != nil, InstalledAt: record.InstalledAt}
+	observed := "stopped"
+	generation := ""
+	if a := s.active[m.ID]; a != nil {
+		observed = a.state
+		generation = a.generation
+	}
+	return Entry{ID: m.ID, Key: m.Key, Label: m.Label, Version: m.Version, Target: m.Target, Revision: record.Revision, StateRevision: s.desired[m.ID].Revision, DesiredState: state, ObservedState: observed, Generation: generation, Backend: m.Backend != nil, InstalledAt: record.InstalledAt}
 }
 func (s *Service) List() []Entry {
 	s.mu.Lock()
@@ -228,7 +227,7 @@ func (s *Service) Install(ctx context.Context, req InstallRequest) (Entry, error
 	if old != nil && old.Manifest.Key != m.Key {
 		return Entry{}, fail("webapp_package_identity_conflict", 409)
 	}
-	if s.desired[m.ID].State == "running" {
+	if s.desired[m.ID].State == "running" || s.active[m.ID] != nil {
 		return Entry{}, fail("webapp_update_requires_stop", 409)
 	}
 	if old == nil {
@@ -343,7 +342,7 @@ func (s *Service) Uninstall(ctx context.Context, id, revision string, purgeData 
 	if r.Revision != revision {
 		return fail("webapp_revision_conflict", 409)
 	}
-	if s.desired[id].State == "running" {
+	if s.desired[id].State == "running" || s.active[id] != nil {
 		return fail("webapp_uninstall_requires_stop", 409)
 	}
 	if ctx.Err() != nil {

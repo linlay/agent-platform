@@ -649,6 +649,11 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		log.Printf("automation orchestrator disabled")
 	}
 	log.Printf("app dependencies initialized in %s", startupElapsed(appInitStartedAt))
+	if webapps != nil {
+		if err := webapps.RestoreStatic(backgroundCtx); err != nil {
+			return nil, fmt.Errorf("restore static WebApps: %w", err)
+		}
+	}
 	memoryWorker.Start(backgroundCtx)
 	cleanupBackground = false
 	cleanupMCP = false
@@ -679,6 +684,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 func (a *App) Close() error {
 	if a == nil {
 		return nil
+	}
+	if a.Router != nil {
+		a.Router.CloseWebApps()
 	}
 	if a.webapps != nil {
 		if err := a.webapps.Close(); err != nil {

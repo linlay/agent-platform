@@ -1,14 +1,20 @@
 # WebApp 托管
 
+## 访问范围修订（2026-11-01）
+
+用户确认先完成 `127.0.0.1` 本地端口访问，后续每应用独立域名另行实施。DNS/TLS/nginx 和公网内容域验收延期，详见计划顶部范围修订。当前新增网关仅提供每应用一个本地 origin，不在 Platform 主端口提供域名分流。
+
+本地端口 Cookie 共享主机边界，不能等同于独立域名隔离；应用使用独立 Cookie 名并绑定实例代次，后端代理剥离宿主 Cookie。仅支持单 owner 审核的可信应用。Compose override 将前端端口范围发布在宿主机 `127.0.0.1`；Node/内部 SDK 端口不发布。远程浏览器需要 SSH 转发，后续域名接入会另做配置和验证。
+
 ## 当前实现范围
 
-完整设计见 [Linux Docker Compose WebApp 托管方案](../plans/webapp-node-hosting.md)。当前代码已接入部署选择、严格配置、owner/Host 边界、Node 制品与隔离探测，以及 owner ZIP 上传、预检、安装、停止状态更新和卸载事务。静态/Node 网关、应用 SDK 和进程生命周期继续按后续批次实现，不能把安装管理视为完整托管交付。
+完整设计见 [Linux Docker Compose WebApp 托管方案](../plans/webapp-node-hosting.md)。当前代码已接入部署选择、严格配置、owner/Host 边界、Node 制品与隔离探测，以及 owner ZIP 上传、预检、安装、停止状态更新和卸载事务。静态网关、票据/会话、静态启停及最小 WebClient 管理已接入；Node 托管、应用 SDK 和异常恢复继续按后续批次实现，不能把安装管理视为完整托管交付。
 
 共享 Manifest 已补齐 Linux 目标及合法/非法输入 fixture，builder 同步离线纯 JS 包约束；Desktop 仍拒绝安装 Linux 目标包。Go 安装器嵌入 Desktop 生成的 schema 并消费同一 fixture；`scripts/sync-webapp-contracts.py --check --desktop-root <Desktop源码根>` 检查复制漂移，不在生产环境读取相邻源码。小批次边界与验证限制见计划第 21 节。
 
 ## 安装事务与数据所有权
 
-`internal/webapp` 独占安装代码、期望状态和应用授权；`app.New` 只在合法启用后创建服务，并持有运行根下的实例独占锁。Server 只校验 owner、来源和请求形状，不解析包或执行安装。前端与后端能力仍由后续网关和桥接模块负责。
+`internal/webapp` 独占安装代码、期望状态和应用授权；`app.New` 只在合法启用后创建服务，并持有运行根下的实例独占锁。Server 只校验 owner、来源和请求形状，不解析包或执行安装。`internal/webappgateway` 独立监听本地应用端口，负责私有静态文件和会话；桥接模块与后端托管由后续批次接入。
 
 上传是有界 ZIP 字节流，不接受服务器路径。预检不执行代码、不创建安装记录；提交绑定上传摘要与当前安装 revision。解包拒绝穿越、反斜杠、大小写碰撞、链接、特殊文件、超量展开、秘密文件和原生载荷；Compose 子集拒绝其他平台、非 Node launcher 与执行链环境覆盖。
 
@@ -26,7 +32,7 @@ RuntimeMode 仍是 standalone/desktop。新的独立启动选项为 `--webapp-ho
 
 - 实际 Go 平台为 Linux，RuntimeMode 为 standalone，启动参数明确选择 compose。
 - 鉴权开启，设置 issuer、audience、require-expiry，以及恰好一个非空 allowed-subjects owner。
-- platform-origin 为不含路径、查询或端口的规范 HTTPS origin；content-domain 为另一注册域名下的内容子域；instance-slug 是不超过 45 字符的 DNS label。
+- platform-origin 为规范 HTTPS origin，或本地 `http://127.0.0.1:<非特权端口>`；不含路径、查询和用户凭据。content-domain/instance-slug 保留给后续域名接入，本地模式不需要填写。
 - resource.public-base-url 如有配置，与 platform-origin 一致。
 - 配置限额合法；端口范围足以分配 max-running 个非特权端口。
 
@@ -49,8 +55,8 @@ RuntimeMode 仍是 standalone/desktop。新的独立启动选项为 `--webapp-ho
 | isolationProfile / ipcScoped / deviceIoctlRestricted | 文件/TCP 或文件/TCP/IPC 档位，以及真实可用的增强能力 |
 | warnings | ABI4/5 缺少 IPC、ABI4 缺少设备 ioctl 限制等非阻断提示 |
 | backendPrerequisitesReady | 当前 linux/amd64 后端运行前提是否满足 |
-| hostingAvailable | 当前固定 false，不能据此认为安装/托管已实现 |
-| stage | 未组装安装服务时 foundation；安装服务就绪时 installation |
+| hostingAvailable | 当前固定 false，Node 托管尚未交付；静态能力看 staticAvailable |
+| stage | foundation / installation / static；staticAvailable 独立报告静态可用性 |
 | issues | 有界诊断码，不包含环境、凭证或任意进程输出 |
 
 接口响应 no-store。平台 Host 来自固定 platform-origin，不采信 X-Forwarded-Host；未知或应用内容 Host 在平台 mux 前拒绝，不能借 `/api/admin/*`、`/healthz` 或 `/ws` 进入原 handler。loopback peer 对精确 loopback:平台端口的 GET /healthz 单独放行。来自内容域的 Origin 也不能进入平台 API/主 WS。
@@ -91,3 +97,15 @@ ABI4 的适用范围为单 owner、来源可信应用。它缺少信号/抽象 U
 - 离线发布包：/docker/.releases/agent-platform/v0.5.31-6fdf03c3，已复核 checksums.sha256。
 - 切换前已停止写入并保存运行数据、配置与旧镜像；回滚入口：/docker/.backups/zenmind-node-20261031-f3934349/rollback.sh。
 - 当前 webapps.enabled 仍为 false，hostingAvailable 的设计状态仍是 false；这次交付证明运行时和前置限制可用，不代表应用托管功能已完成。
+
+## 私有静态应用和管理界面
+
+WebClient `/webapps` 仅在普通 Platform 模式展示；Desktop 沿用自己的 WebApp 页面。ZIP 上传后先审阅，明确安装才提交；首次安装 stopped。列表和详情提供启停、打开、配置、owner 授权与卸载；数据清理默认不选中。配置和授权修改当前要求停止应用。
+
+静态 start 校验不可变代码摘要、实际 Manifest 与安装记录一致，以及用户配置；stop 先撤销当前 generation 访问，再排空文件租约。关闭 Platform 保留 desiredState；重启恢复生成新的 generation，旧会话不恢复。
+
+打开返回一次性表单 POST action，不在 URL、历史或持久存储中保存票据。应用端精确核验平台 Origin；兑换后设置每应用独立名字的 host-only HttpOnly、SameSite=Lax Cookie。本地 HTTP 不设置 Secure，限于上述 loopback 部署边界。票据一分钟过期、单次兑换；会话闲置三十分钟、最长八小时，绑定应用、generation、policy revision。停止及显式 `/sessions/revoke` 撤销访问。当前普通 Platform 没有统一登出回调，外部 SSO 登出不等同于此撤销接口；后续鉴权接入需同步处理。
+
+静态只读 `frontend.root`，不列目录、不公开 Manifest/后端文件；只对 HTML 导航做 SPA fallback。应用端口不能进入平台管理路由，Host 必须精确匹配本监听端口；请求不采信转发头。业务写入/WS 要求应用精确 Origin，SDK 保留路径暂不转发。
+
+回归已覆盖 Go race、共享契约、设置修订、停止排空与恢复、真实 loopback HTTP Host 校验、会话/票据过期及撤销。WebClient 类型、边界、国际化、定向测试及独立缓存的生产 build 通过；浏览器 fixture 验证安装后 stopped 展示、启动交互与访问范围页面，无脚本错误。整个 server 包首次回归出现已有连接数时序用例失败，单独复测该例与 WebApp 用例通过，未放宽断言。

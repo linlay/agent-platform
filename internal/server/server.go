@@ -42,6 +42,7 @@ import (
 	terminalpkg "agent-platform/internal/terminal"
 	"agent-platform/internal/toolinteraction"
 	"agent-platform/internal/webapp"
+	"agent-platform/internal/webappgateway"
 	"agent-platform/internal/webapphost"
 	"agent-platform/internal/ws"
 )
@@ -170,6 +171,7 @@ type ChannelConnectionSnapshotProvider interface {
 }
 
 type Server struct {
+	webAppGateway     *webappgateway.Gateway
 	acpRegistrations  *config.ACPRegistrationStore
 	documentPreview   *documentpreview.Service
 	router            *http.ServeMux
@@ -289,6 +291,9 @@ func New(deps Dependencies) (*Server, error) {
 		backgroundCancel:  backgroundCancel,
 	}
 	s.skillOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.SkillsCenterDir)
+	if deps.Config.WebApps.Enabled && deps.WebApps != nil {
+		s.webAppGateway = webappgateway.New(deps.WebApps, deps.Config.WebApps)
+	}
 	s.connectorOrder = catalogorder.NewFileOrderStore(deps.Config.Paths.EffectiveConnectorsCenterDir())
 	s.connectorGrants = connectorops.NewGrants(backgroundCtx)
 	s.connectorAuth = deps.ConnectorAuth
@@ -337,3 +342,10 @@ func (s *Server) SetChannelStatusProvider(provider ChannelStatusProvider) {
 // ExecuteInternalQuery reuses the normal query handling pipeline for
 // in-process callers such as the automation orchestrator, while intentionally
 // bypassing the outer HTTP auth gate enforced by ServeHTTP.
+
+// CloseWebApps releases local gateway listeners during application shutdown.
+func (s *Server) CloseWebApps() {
+	if s != nil && s.webAppGateway != nil {
+		s.webAppGateway.Close()
+	}
+}

@@ -1,0 +1,8 @@
+# Opt in with: docker compose -f compose.yml -f compose.webapps.yml up -d
+# runtime.yml: webapps.frontend.listen-address: 0.0.0.0
+# The container range must equal the configured frontend range. Never publish
+# backend ports or bind the host mapping to 0.0.0.0.
+services:
+  agent-platform:
+    ports:
+      - "127.0.0.1:20200-20327:20200-20327"

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"golang.org/x/net/publicsuffix"
@@ -34,16 +35,23 @@ func ParseWebAppHostMode(value string) (WebAppHostMode, error) {
 // WebAppsConfig is deployment policy, never application-controlled settings.
 // JSON tags match the strict runtime YAML keys; public DTOs are separate.
 type WebAppsConfig struct {
-	Enabled         bool                `json:"enabled"`
-	PlatformOrigin  string              `json:"platform-origin"`
-	ContentDomain   string              `json:"content-domain"`
-	InstanceSlug    string              `json:"instance-slug"`
-	MaxRunning      int                 `json:"max-running"`
-	MaxArchiveMiB   int                 `json:"max-archive-mib"`
-	MaxExtractedMiB int                 `json:"max-extracted-mib"`
-	MaxFiles        int                 `json:"max-files"`
-	Backend         WebAppBackendConfig `json:"backend"`
-	Logs            WebAppLogConfig     `json:"logs"`
+	Enabled         bool                 `json:"enabled"`
+	PlatformOrigin  string               `json:"platform-origin"`
+	ContentDomain   string               `json:"content-domain"`
+	InstanceSlug    string               `json:"instance-slug"`
+	MaxRunning      int                  `json:"max-running"`
+	MaxArchiveMiB   int                  `json:"max-archive-mib"`
+	MaxExtractedMiB int                  `json:"max-extracted-mib"`
+	MaxFiles        int                  `json:"max-files"`
+	Backend         WebAppBackendConfig  `json:"backend"`
+	Frontend        WebAppFrontendConfig `json:"frontend"`
+	Logs            WebAppLogConfig      `json:"logs"`
+}
+
+type WebAppFrontendConfig struct {
+	ListenAddress string `json:"listen-address"`
+	PortStart     int    `json:"port-start"`
+	PortEnd       int    `json:"port-end"`
 }
 
 type WebAppBackendConfig struct {
@@ -69,6 +77,7 @@ type WebAppLogConfig struct {
 
 func DefaultWebAppsConfig() WebAppsConfig {
 	return WebAppsConfig{
+		Frontend:   WebAppFrontendConfig{ListenAddress: "127.0.0.1", PortStart: 20200, PortEnd: 20327},
 		MaxRunning: 4, MaxArchiveMiB: 100, MaxExtractedMiB: 512, MaxFiles: 20000,
 		Backend: WebAppBackendConfig{
 			PortStart: 20000, PortEnd: 20127, MaxOldSpaceSizeMB: 256, RSSStopMB: 512,
@@ -163,6 +172,16 @@ func (c WebAppsConfig) validateLimits() error {
 			return fmt.Errorf("webapps.%s must be between 1 and %d", value.name, value.max)
 		}
 	}
+	f := c.Frontend
+	if f.ListenAddress != "127.0.0.1" && f.ListenAddress != "0.0.0.0" {
+		return fmt.Errorf("webapps.frontend.listen-address must be 127.0.0.1 or 0.0.0.0 (Compose loopback publishing)")
+	}
+	if f.PortStart < 1024 || f.PortEnd > 65535 || f.PortEnd < f.PortStart || f.PortEnd-f.PortStart+1 < c.MaxRunning {
+		return fmt.Errorf("webapps.frontend port range must contain max-running unprivileged ports")
+	}
+	if f.PortStart <= c.Backend.PortEnd && c.Backend.PortStart <= f.PortEnd {
+		return fmt.Errorf("webapps frontend and backend port ranges must not overlap")
+	}
 	b := c.Backend
 	if b.PortStart < 1024 || b.PortEnd > 65535 || b.PortEnd < b.PortStart || b.PortEnd-b.PortStart+1 < c.MaxRunning {
 		return fmt.Errorf("webapps.backend port range must be unprivileged and contain max-running ports")
@@ -209,22 +228,31 @@ func (c *Config) validateWebApps(goos string) error {
 	}
 	w := c.WebApps
 	u, err := url.Parse(w.PlatformOrigin)
-	if err != nil || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Path != "" || u.Opaque != "" || !validWebAppDomain(u.Hostname()) || u.Host != u.Hostname() {
-		return fmt.Errorf("webapps.platform-origin must be a canonical HTTPS origin with no port, path, userinfo, query or fragment")
+	localOrigin := err == nil && u.Scheme == "http" && u.Hostname() == "127.0.0.1"
+	localPort, _ := strconv.Atoi(u.Port())
+	if err != nil || (!localOrigin && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Path != "" || u.Opaque != "" || (!localOrigin && (!validWebAppDomain(u.Hostname()) || u.Host != u.Hostname())) || (localOrigin && (localPort < 1024 || localPort > 65535 || u.Host != "127.0.0.1:"+strconv.Itoa(localPort))) {
+		return fmt.Errorf("webapps.platform-origin must be a canonical HTTPS origin or http://127.0.0.1:unprivileged-port")
 	}
-	if !validWebAppDomain(w.ContentDomain) {
-		return fmt.Errorf("webapps.content-domain must be a lowercase DNS domain")
+	// Domain fields are reserved for the deferred ingress batch. Local serving
+	// does not require DNS, TLS or an instance slug.
+	if w.ContentDomain != "" || w.InstanceSlug != "" {
+		if !validWebAppDomain(w.ContentDomain) {
+			return fmt.Errorf("webapps.content-domain must be a lowercase DNS domain")
+		}
+		platformSite, pErr := publicsuffix.EffectiveTLDPlusOne(u.Hostname())
+		contentSite, cErr := publicsuffix.EffectiveTLDPlusOne(w.ContentDomain)
+		if pErr != nil || cErr != nil || platformSite == contentSite || contentSite == w.ContentDomain {
+			return fmt.Errorf("webapps.content-domain must be a subdomain on a separate registrable domain from platform-origin")
+		}
+		if !webAppDNSLabel.MatchString(w.InstanceSlug) || len(w.InstanceSlug) > 45 {
+			return fmt.Errorf("webapps.instance-slug must be a lowercase DNS label of at most 45 characters")
+		}
+		if len(w.InstanceSlug)+2+16+1+len(w.ContentDomain) > 253 {
+			return fmt.Errorf("webapps application hostname is too long")
+		}
 	}
-	platformSite, pErr := publicsuffix.EffectiveTLDPlusOne(u.Hostname())
-	contentSite, cErr := publicsuffix.EffectiveTLDPlusOne(w.ContentDomain)
-	if pErr != nil || cErr != nil || platformSite == contentSite || contentSite == w.ContentDomain {
-		return fmt.Errorf("webapps.content-domain must be a subdomain on a separate registrable domain from platform-origin")
-	}
-	if !webAppDNSLabel.MatchString(w.InstanceSlug) || len(w.InstanceSlug) > 45 {
-		return fmt.Errorf("webapps.instance-slug must be a lowercase DNS label of at most 45 characters")
-	}
-	if len(w.InstanceSlug)+2+16+1+len(w.ContentDomain) > 253 {
-		return fmt.Errorf("webapps application hostname is too long")
+	if localOrigin && localPort >= w.Frontend.PortStart && localPort <= w.Frontend.PortEnd {
+		return fmt.Errorf("platform-origin port overlaps webapp frontend range")
 	}
 	if c.Server.PublicBaseURL != "" && c.Server.PublicBaseURL != w.PlatformOrigin {
 		return fmt.Errorf("webapps.platform-origin must match resource.public-base-url when set")

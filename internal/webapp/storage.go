@@ -1,6 +1,7 @@
 package webapp
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -181,4 +182,29 @@ func renamePackage(source, target string) error {
 func isSHA256(s string) bool {
 	b, err := hex.DecodeString(s)
 	return err == nil && len(b) == 32 && s == strings.ToLower(s)
+}
+
+func verifyInstalledCode(root string, record Record) error {
+	digest, err := treeDigest(root, false)
+	if err != nil || digest != record.ContentSHA256 {
+		return fail("webapp_code_integrity_failed", 409)
+	}
+	fi, err := os.Lstat(filepath.Join(root, "webapp.json"))
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() > 256<<10 {
+		return fail("webapp_code_integrity_failed", 409)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "webapp.json"))
+	if err != nil {
+		return err
+	}
+	manifest, err := ParseManifest(raw)
+	if err != nil {
+		return err
+	}
+	a, _ := json.Marshal(manifest)
+	b, _ := json.Marshal(record.Manifest)
+	if !bytes.Equal(a, b) {
+		return fail("webapp_installation_manifest_mismatch", 409)
+	}
+	return nil
 }
