@@ -48,11 +48,11 @@ func ShebangFamily(header string, session QuerySession, cwd string, vars map[str
 		if localVars == nil {
 			localVars = map[string]string{}
 		}
-		args, dir, ok := unwrap.Execution("env", words[1:], cwd, localVars, ResolveAgainstCwd)
-		if !ok || len(args) == 0 {
+		expanded, ok := unwrap.Execution("env", words[1:], nil, cwd, localVars, ResolveAgainstCwd)
+		if !ok || len(expanded.Argv) == 0 {
 			return ""
 		}
-		words, cwd, vars = args, dir, localVars
+		words, cwd, vars = expanded.Argv, expanded.Cwd, localVars
 		base = CommandFamily(words[0])
 	}
 	if IsInterpreter(base) && RecognizedProgram(session, words[0], cwd, vars, environment, false) {

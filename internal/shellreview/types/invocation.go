@@ -19,6 +19,45 @@ type WordSpan struct {
 	Literal   bool
 }
 
+// WordOrigin records how the current argv value relates to its source word.
+type WordOrigin string
+
+const (
+	WordOriginUnknown WordOrigin = ""
+	WordOriginSyntax  WordOrigin = "syntax"
+	WordOriginSplit   WordOrigin = "env_split"
+)
+
+// SourceWord follows a value through wrapper removal. Arg is its index in the
+// original invocation's argv; the embedded span still points into that source.
+// Generated values keep their source span but can never be marked Literal.
+type SourceWord struct {
+	WordSpan
+	Arg    int
+	Origin WordOrigin
+}
+
+// SourceWords never recovers literal provenance from expanded strings. Missing
+// or misaligned spans remain unknown, including synthetic parser invocations.
+func SourceWords(inv Invocation) []SourceWord {
+	if len(inv.Argv) == 0 {
+		return nil
+	}
+	out := make([]SourceWord, len(inv.Argv))
+	for i := range out {
+		out[i].Arg = -1
+		if len(inv.Words) != len(inv.Argv) {
+			continue
+		}
+		span := inv.Words[i]
+		if span.Start < 0 || span.End <= span.Start {
+			continue
+		}
+		out[i] = SourceWord{WordSpan: span, Arg: i, Origin: WordOriginSyntax}
+	}
+	return out
+}
+
 type EnvVar struct {
 	Name  string
 	Value string

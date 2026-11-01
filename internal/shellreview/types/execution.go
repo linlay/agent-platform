@@ -9,6 +9,7 @@ type BashExecution struct {
 	Connector          bool
 	ConnectorID        string
 	Argv               []string
+	Words              []SourceWord // aligned with Argv after every trusted wrapper
 	Cwd                string
 	Program            string
 	Script             string

@@ -61,11 +61,11 @@ func unwrapCommandBuiltin(args []string) ([]string, bool) {
 }
 
 func unwrapEnv(args []string) ([]string, bool) {
-	_, command, _, _, ok := unwrap.UnwrapEnv(args)
-	if !ok || len(command) == 0 {
+	expanded, ok := unwrap.Env(args)
+	if !ok || len(expanded.Command) == 0 {
 		return nil, false
 	}
-	return command, true
+	return expanded.Command, true
 }
 
 func unwrapNice(args []string) ([]string, bool) {

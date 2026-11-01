@@ -13,7 +13,7 @@ import (
 )
 
 func analyzeBashExecution(session QuerySession, cmd types.Invocation, cwd string, variables map[string]string, env *types.BashEnvironment) (x types.BashExecution) {
-	x = types.BashExecution{Argv: cmd.Argv, Cwd: cwd, Uncertain: cmd.Uncertain}
+	x = types.BashExecution{Argv: cmd.Argv, Words: types.SourceWords(cmd), Cwd: cwd, Uncertain: cmd.Uncertain}
 	allowBuiltins := true
 	vars := CloneStringMap(variables)
 	if vars == nil {
@@ -44,12 +44,12 @@ func analyzeBashExecution(session QuerySession, cmd types.Invocation, cwd string
 				// exec-style wrappers use PATH, not the invoking shell's builtins.
 				allowBuiltins = false
 			}
-			next, nextCwd, ok := unwrap.Execution(base, x.Argv[1:], x.Cwd, vars, ResolveAgainstCwd)
+			expanded, ok := unwrap.Execution(base, x.Argv[1:], x.Words[1:], x.Cwd, vars, ResolveAgainstCwd)
 			if !ok {
 				x.Uncertain = true
 				break
 			}
-			x.Argv, x.Cwd = next, nextCwd
+			x.Argv, x.Words, x.Cwd = expanded.Argv, expanded.Words, expanded.Cwd
 			if !session.AgentHasRuntimeSandbox {
 				if normalized, err := NormalizePath(x.Cwd); err == nil {
 					x.Cwd = normalized
@@ -67,7 +67,7 @@ func analyzeBashExecution(session QuerySession, cmd types.Invocation, cwd string
 					}
 				}
 			}
-			if len(next) == 0 {
+			if len(expanded.Argv) == 0 {
 				return x
 			}
 			if depth == 7 {

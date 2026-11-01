@@ -3,29 +3,30 @@ package unwrap
 import (
 	"strconv"
 	"strings"
+
+	"agent-platform/internal/shellreview/types"
 )
 
 // Execution expands an already trusted wrapper using the invocation's cwd resolver.
-func Execution(base string, args []string, cwd string, vars map[string]string, resolveAgainstCwd func(string, string) string) ([]string, string, bool) {
+func Execution(base string, args []string, words []types.SourceWord, cwd string, vars map[string]string, resolveAgainstCwd func(string, string) string) (Expansion, bool) {
 	if base == "env" {
-		assignments, command, chdir, ignore, ok := UnwrapEnv(args)
+		expanded, ok := Env(args)
 		if !ok {
-			return nil, cwd, false
+			return Expansion{Cwd: cwd}, false
 		}
-		if len(command) == 0 {
-			// Without a command env only prints the environment, like printenv.
-			return nil, cwd, true
+		if len(expanded.Command) == 0 {
+			return Expansion{Cwd: cwd}, true
 		}
-		if ignore {
+		if expanded.Ignore {
 			vars["PATH"] = ""
 		}
-		for name, value := range assignments {
+		for name, value := range expanded.Assignments {
 			vars[name] = value
 		}
-		if chdir != "" {
-			cwd = resolveAgainstCwd(chdir, cwd)
+		if expanded.Chdir != "" {
+			cwd = resolveAgainstCwd(expanded.Chdir, cwd)
 		}
-		return command, cwd, true
+		return Expansion{Argv: expanded.Command, Words: mapWords(expanded.refs, words, len(args)), Cwd: cwd}, true
 	}
 	i := 0
 	for i < len(args) {
@@ -37,10 +38,10 @@ func Execution(base string, args []string, cwd string, vars map[string]string, r
 		switch base {
 		case "command", "builtin":
 			if a == "-v" || a == "-V" {
-				return nil, cwd, true
+				return Expansion{Cwd: cwd}, true
 			}
 			if a == "-p" {
-				return nil, cwd, false
+				return Expansion{Cwd: cwd}, false
 			}
 		case "env":
 			if name, value, ok := strings.Cut(a, "="); ok && !strings.HasPrefix(name, "-") {
@@ -55,7 +56,7 @@ func Execution(base string, args []string, cwd string, vars map[string]string, r
 			}
 			if a == "-u" || a == "--unset" || a == "-C" || a == "--chdir" {
 				if i+1 >= len(args) {
-					return nil, cwd, false
+					return Expansion{Cwd: cwd}, false
 				}
 				if a == "-C" || a == "--chdir" {
 					cwd = resolveAgainstCwd(args[i+1], cwd)
@@ -73,7 +74,7 @@ func Execution(base string, args []string, cwd string, vars map[string]string, r
 		case "nice":
 			if a == "-n" || a == "--adjustment" {
 				if i+1 >= len(args) {
-					return nil, cwd, false
+					return Expansion{Cwd: cwd}, false
 				}
 				i += 2
 				continue
@@ -85,7 +86,7 @@ func Execution(base string, args []string, cwd string, vars map[string]string, r
 		case "timeout":
 			if a == "-s" || a == "--signal" || a == "-k" || a == "--kill-after" {
 				if i+1 >= len(args) {
-					return nil, cwd, false
+					return Expansion{Cwd: cwd}, false
 				}
 				i += 2
 				continue
@@ -97,14 +98,14 @@ func Execution(base string, args []string, cwd string, vars map[string]string, r
 			if !strings.HasPrefix(a, "-") {
 				i++
 				if i < len(args) {
-					return args[i:], cwd, true
+					return forward(args, words, i, cwd), true
 				}
-				return nil, cwd, false
+				return Expansion{Cwd: cwd}, false
 			}
 		case "stdbuf":
 			if a == "-i" || a == "-o" || a == "-e" {
 				if i+1 >= len(args) {
-					return nil, cwd, false
+					return Expansion{Cwd: cwd}, false
 				}
 				i += 2
 				continue
@@ -115,12 +116,12 @@ func Execution(base string, args []string, cwd string, vars map[string]string, r
 			}
 		}
 		if strings.HasPrefix(a, "-") {
-			return nil, cwd, false
+			return Expansion{Cwd: cwd}, false
 		}
 		break
 	}
 	if i >= len(args) {
-		return nil, cwd, false
+		return Expansion{Cwd: cwd}, false
 	}
-	return args[i:], cwd, true
+	return forward(args, words, i, cwd), true
 }
