@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/scriptstate"
+	"agent-platform/internal/shellreview/identity"
 	shellplan "agent-platform/internal/shellreview/plan"
 )
 
@@ -84,7 +85,7 @@ func TestWrappersCannotHideRemoteMutationInAutoApprove(t *testing.T) {
 }
 
 func TestAuthoredScriptExemptionRequiresChatLocationAndProof(t *testing.T) {
-	if _, ok := systemExecutables["sh"]; !ok {
+	if _, ok := identity.SystemPrograms()["sh"]; !ok {
 		t.Skip("system sh unavailable")
 	}
 	f := newCapabilityFixture(t, AccessLevelAskForApproval)
@@ -155,7 +156,7 @@ func TestSSHAgentOnlyForGitNetworkOperations(t *testing.T) {
 }
 
 func TestGitReadAndWriteDependOnRepositoryState(t *testing.T) {
-	gitPath, ok := systemExecutables["git"]
+	gitPath, ok := identity.SystemPrograms()["git"]
 	if !ok || gitPath == "" {
 		t.Skip("system git unavailable")
 	}

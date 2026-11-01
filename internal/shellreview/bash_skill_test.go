@@ -10,7 +10,9 @@ import (
 
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/shellreview/identity"
 	shellplan "agent-platform/internal/shellreview/plan"
+	"agent-platform/internal/shellreview/types"
 	"agent-platform/internal/skillsexec"
 )
 
@@ -77,7 +79,7 @@ func TestSkillContainerUsesActualMappingAndDigest(t *testing.T) {
 	content, _ := os.ReadFile(file)
 	digest := fmt.Sprintf("%x", sha256.Sum256(content))
 	canonical := "/skills/selected/scripts/task.sh"
-	env := &BashEnvironment{
+	env := &types.BashEnvironment{
 		Resolve:   func(string, string, map[string]string) (string, error) { return "/usr/bin/dash", nil },
 		Directory: func(string) (string, error) { return "/workspace", nil },
 		Canonical: func(string, string) (string, error) { return canonical, nil },
@@ -100,7 +102,7 @@ func TestSkillContainerUsesActualMappingAndDigest(t *testing.T) {
 }
 
 func TestSkillNodeCJSUsesSkillProof(t *testing.T) {
-	if systemExecutables["node"] == "" {
+	if identity.SystemPrograms()["node"] == "" {
 		t.Skip("node unavailable")
 	}
 	ctx, file := skillFixture(t)

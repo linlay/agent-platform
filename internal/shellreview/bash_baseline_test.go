@@ -46,7 +46,7 @@ func TestBashReviewOptionsAndImplicitConfig(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix system-command baseline; Windows grammar has a separate gate")
 	}
-	vars := fakeSystemPrograms(t, "sort", "curl", "wget", "rg", "tar", "ls", "rm", "env")
+	vars, environment := fakeSystemPrograms(t, "sort", "curl", "wget", "rg", "tar", "ls", "rm", "env")
 	const url = "https://example.invalid/x"
 	opaque := []string{
 		"sort -S 1K --compress-program=sh data.txt",
@@ -79,7 +79,7 @@ func TestBashReviewOptionsAndImplicitConfig(t *testing.T) {
 		f := newCapabilityFixture(t, level)
 		check := func(command string, decision Decision, rule string) {
 			t.Helper()
-			p := ReviewBashCommand(config.AccessPolicyConfig{}, f.session, command, f.workspace, vars)
+			p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, f.workspace, vars, environment, nil)
 			if decision == DecisionAllow {
 				rule = "bash-access" // allowed plans do not keep a leaf rule
 			}
@@ -98,18 +98,18 @@ func TestBashReviewOptionsAndImplicitConfig(t *testing.T) {
 		}
 		// An inherited or run.env value is the same config source as an inline one.
 		env := map[string]string{"PATH": vars["PATH"], "TAR_OPTIONS": "--to-command=sh"}
-		if p := ReviewBashCommand(config.AccessPolicyConfig{}, f.session, "tar -xf a.tar", f.workspace, env); p.Decision != want[level] {
+		if p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, "tar -xf a.tar", f.workspace, env, environment, nil); p.Decision != want[level] {
 			t.Fatalf("%s: environment TAR_OPTIONS: %+v", level, p)
 		}
 	}
 
 	f := newCapabilityFixture(t, AccessLevelAskForApproval)
-	p := ReviewBashCommand(config.AccessPolicyConfig{}, f.session, "ls --made-up-flag", f.workspace, vars)
+	p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, "ls --made-up-flag", f.workspace, vars, environment, nil)
 	if RuleReusable(p.RuleKey) {
 		t.Fatalf("an unrecognized option is approved once, not for the run: %+v", p)
 	}
 	// Known effects stay beside the unknown option.
-	p = ReviewBashCommand(config.AccessPolicyConfig{}, f.session, "rm -r --made-up-flag build", f.workspace, vars)
+	p = ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, "rm -r --made-up-flag build", f.workspace, vars, environment, nil)
 	rules := map[string]bool{}
 	for _, leaf := range p.Requirements {
 		kind, _, _ := strings.Cut(strings.TrimPrefix(leaf.RuleKey, "bash-access:"), ":")
@@ -123,7 +123,7 @@ func TestBashReviewOptionsAndImplicitConfig(t *testing.T) {
 		f := newCapabilityFixture(t, level)
 		f.session.WorkspaceReadOnly = true
 		for _, command := range []string{"curl -K ./cfg " + url, "CURL_HOME=. curl " + url} {
-			if p := ReviewBashCommand(config.AccessPolicyConfig{}, f.session, command, "@workspace", vars); !p.Blocked() {
+			if p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, "@workspace", vars, environment, nil); !p.Blocked() {
 				t.Fatalf("%s editing=false: config-driven curl inside the workspace must be blocked: %s %+v", level, command, p)
 			}
 		}

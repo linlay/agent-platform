@@ -10,7 +10,9 @@ import (
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
+	"agent-platform/internal/shellreview/identity"
 	shellplan "agent-platform/internal/shellreview/plan"
+	"agent-platform/internal/shellreview/types"
 	"agent-platform/internal/skillsexec"
 )
 
@@ -33,9 +35,10 @@ func authoredFixture(t *testing.T) (*ExecutionContext, string) {
 
 // fakeSystemPrograms makes names resolve, through a private PATH, to recorded
 // system installations, so cases do not depend on what the host has installed.
-func fakeSystemPrograms(t *testing.T, names ...string) map[string]string {
+func fakeSystemPrograms(t *testing.T, names ...string) (map[string]string, *types.BashEnvironment) {
 	t.Helper()
 	dir := t.TempDir()
+	programs := identity.SystemPrograms()
 	for _, name := range names {
 		p := filepath.Join(dir, name)
 		if err := os.WriteFile(p, []byte("fake\n"), 0o755); err != nil {
@@ -45,17 +48,9 @@ func fakeSystemPrograms(t *testing.T, names ...string) map[string]string {
 		if err != nil {
 			t.Fatal(err)
 		}
-		old, had := systemExecutables[name]
-		systemExecutables[name] = c.Key
-		t.Cleanup(func() {
-			if had {
-				systemExecutables[name] = old
-			} else {
-				delete(systemExecutables, name)
-			}
-		})
+		programs[name] = c.Key
 	}
-	return map[string]string{"PATH": dir}
+	return map[string]string{"PATH": dir}, &types.BashEnvironment{SystemPrograms: programs}
 }
 
 func connectorFixture(t *testing.T) (QuerySession, map[string]string, string) {

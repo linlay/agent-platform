@@ -14,6 +14,7 @@ import (
 	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/shellreview/identity"
 	shellplan "agent-platform/internal/shellreview/plan"
 )
 
@@ -61,12 +62,12 @@ func TestBashReviewNormalizedBaseline(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix policy baseline; Windows grammar is tested separately")
 	}
-	for _, name := range ordinaryCommands {
+	for _, name := range identity.OrdinaryCommands() {
 		if _, ok := shellBaselineCommands[name]; !ok {
 			t.Fatalf("recognized command %q has no baseline example", name)
 		}
 	}
-	for _, names := range []map[string]bool{shellBuiltins, wrapperNames} {
+	for _, names := range []map[string]bool{identity.ShellBuiltins(), identity.WrapperNames()} {
 		for name := range names {
 			if _, ok := shellBaselineCommands[name]; !ok {
 				t.Fatalf("builtin/wrapper %q has no baseline example", name)
@@ -78,7 +79,7 @@ func TestBashReviewNormalizedBaseline(t *testing.T) {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	vars := fakeSystemPrograms(t, names...)
+	vars, environment := fakeSystemPrograms(t, names...)
 
 	cases := map[string]string{}
 	for name, command := range shellBaselineCommands {
@@ -109,20 +110,20 @@ func TestBashReviewNormalizedBaseline(t *testing.T) {
 		f := newCapabilityFixture(t, level)
 		ctx := &ExecutionContext{Session: f.session}
 		for _, key := range keys {
-			p := ReviewBashCommand(config.AccessPolicyConfig{}, f.session, cases[key], f.workspace, vars, ctx)
+			p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, cases[key], f.workspace, vars, environment, ctx)
 			lines = append(lines, shellBaselineLine(key, level, p, cases[key], vars))
 		}
 		for name, command := range map[string]string{"write": "touch notes.txt", "exec": "python3 task.py"} {
 			readonly := f.session
 			readonly.WorkspaceReadOnly = true
-			p := ReviewBashCommand(config.AccessPolicyConfig{}, readonly, command, f.workspace, vars, ctx)
+			p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, readonly, command, f.workspace, vars, environment, ctx)
 			lines = append(lines, shellBaselineLine("readonly/"+name, level, p, command, vars))
 		}
 		// Grants remove only their matching entry, leaving surrounding effects.
 		skill, _ := skillFixture(t)
 		skill.Session.AccessLevel = level
 		for _, command := range []string{"sh selected/scripts/task.sh", "sh selected/scripts/task.sh > /outside-shell-baseline/out"} {
-			p := ReviewBashCommand(config.AccessPolicyConfig{}, skill.Session, command, "", vars, skill)
+			p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, skill.Session, command, "", vars, environment, skill)
 			lines = append(lines, shellBaselineLine("skill/"+command, level, p, command, vars))
 		}
 		ctx.EnsureAuthoredScripts()
@@ -132,13 +133,13 @@ func TestBashReviewNormalizedBaseline(t *testing.T) {
 			t.Fatal(err)
 		}
 		ctx.AuthoredScripts.Record(ctx.ScriptOwner(), file, data, "", true)
-		p := ReviewBashCommand(config.AccessPolicyConfig{}, ctx.Session, "sh task.sh", "@chat", vars, ctx)
+		p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, ctx.Session, "sh task.sh", "@chat", vars, environment, ctx)
 		lines = append(lines, shellBaselineLine("authored/chat-script", level, p, "sh task.sh", vars))
 
 		mounted, connectorVars, _ := connectorFixture(t)
 		mounted.AccessLevel = level
 		for _, command := range []string{"wecom-cli send", "wecom-cli send > /outside-shell-baseline/out"} {
-			p := ReviewBashCommand(config.AccessPolicyConfig{}, mounted, command, "", connectorVars)
+			p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, mounted, command, "", connectorVars, environment, nil)
 			lines = append(lines, shellBaselineLine("connector/"+command, level, p, command, connectorVars))
 		}
 	}

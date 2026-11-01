@@ -12,6 +12,7 @@ import (
 	. "agent-platform/internal/contracts"
 	shellplan "agent-platform/internal/shellreview/plan"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
+	"agent-platform/internal/shellreview/types"
 )
 
 func TestMountedConnectorAllOperationsAndAccessLevels(t *testing.T) {
@@ -134,7 +135,7 @@ func TestMountedConnectorContainerUsesGuestIdentityAndHash(t *testing.T) {
 		}
 	}
 	canonical := guest
-	env := &BashEnvironment{
+	env := &types.BashEnvironment{
 		Directory: func(string) (string, error) { return "/workspace", nil },
 		Resolve: func(name, cwd string, vars map[string]string) (string, error) {
 			if name == "wecom-cli" {

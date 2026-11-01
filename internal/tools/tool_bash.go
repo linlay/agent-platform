@@ -27,6 +27,7 @@ import (
 	"agent-platform/internal/shellreview"
 	shellplan "agent-platform/internal/shellreview/plan"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
+	shelltypes "agent-platform/internal/shellreview/types"
 	"agent-platform/internal/textcodec"
 )
 
@@ -74,7 +75,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	launchOptions := hostshell.Options{GOOS: runtimeInfo.GOOS, Command: command, CWD: workingDir, Env: commandEnv}
 	direct := shellreview.DirectConnectorInvocation(session, command, workingDir, bashEnvironmentVariables(commandEnv))
 	var launch hostshell.LaunchSpec
-	reviewEnv := &shellreview.BashEnvironment{}
+	reviewEnv := &shelltypes.BashEnvironment{}
 	if direct == nil {
 		launch, err = hostshell.ResolveTool(t.cfg.Bash, launchOptions)
 		if err != nil {

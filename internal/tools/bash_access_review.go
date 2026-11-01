@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/hostshell"
 	"agent-platform/internal/shellreview"
 	shellplan "agent-platform/internal/shellreview/plan"
+	shelltypes "agent-platform/internal/shellreview/types"
 )
 
 // ReviewBashAccess preserves the runtime's execution-environment-aware review
@@ -33,7 +34,7 @@ func (r *ToolRouter) ReviewBashAccess(ctx context.Context, args map[string]any, 
 func (t *RuntimeToolExecutor) ReviewBashAccess(ctx context.Context, args map[string]any, execCtx *ExecutionContext, cfg config.AccessPolicyConfig) shellplan.BashPlan {
 	session := t.policySession(execCtx)
 	vars := bashSecurityKnownVariables(execCtx)
-	var environment *shellreview.BashEnvironment
+	var environment *shelltypes.BashEnvironment
 	if !session.AgentHasRuntimeSandbox {
 		var err error
 		execCtx, err = hostshell.FreezeContext(execCtx)
@@ -58,7 +59,7 @@ func (t *RuntimeToolExecutor) ReviewBashAccess(ctx context.Context, args map[str
 			if err != nil {
 				return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
 			}
-			environment = &shellreview.BashEnvironment{Launch: &launch.Binding}
+			environment = &shelltypes.BashEnvironment{Launch: &launch.Binding}
 		}
 	}
 	if session.AgentHasRuntimeSandbox {
@@ -88,7 +89,7 @@ func bashEnvironmentVariables(env []string) map[string]string {
 	return vars
 }
 
-func (t *RuntimeToolExecutor) sandboxBashEnvironment(ctx context.Context, execCtx *ExecutionContext) *shellreview.BashEnvironment {
+func (t *RuntimeToolExecutor) sandboxBashEnvironment(ctx context.Context, execCtx *ExecutionContext) *shelltypes.BashEnvironment {
 	type inspection struct {
 		header, hash string
 		err          error
@@ -154,11 +155,11 @@ func (t *RuntimeToolExecutor) sandboxBashEnvironment(ctx context.Context, execCt
 		lexical = path.Clean(lexical)
 		insideTemp := func(p string) bool { return p == "/tmp" || strings.HasPrefix(p, "/tmp/") }
 		if insideTemp(lexical) && !insideTemp(canonical) {
-			return shellreview.ErrBashTemporaryEscape
+			return shelltypes.ErrBashTemporaryEscape
 		}
 		return nil
 	}
-	return &shellreview.BashEnvironment{
+	return &shelltypes.BashEnvironment{
 		Directory: func(raw string) (string, error) {
 			target := guestPath(raw)
 			if canonical, exists := directories[target]; exists {

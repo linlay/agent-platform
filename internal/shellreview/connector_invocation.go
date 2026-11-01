@@ -3,8 +3,8 @@ package shellreview
 import (
 	"strings"
 
-	. "agent-platform/internal/accesspolicy"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/shellreview/identity"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"agent-platform/internal/shellreview/types"
 
@@ -22,31 +22,7 @@ func DirectConnectorInvocation(session QuerySession, command, cwd string, vars m
 		return nil
 	}
 	x := analyzeBashExecution(session, cmd, cwd, vars, nil)
-	if !x.Connector || x.Wrapped || len(x.Argv) == 0 {
-		return nil
-	}
-	var err error
-	target := x.Program
-	if x.TrustedInterpreter {
-		target = x.Script
-	}
-	if target == "" {
-		target = resolvedProgram(x.Argv[0], cwd, vars)
-	}
-	target, err = NormalizePath(ResolveAgainstCwd(target, cwd))
-	if err != nil {
-		return nil
-	}
-	program := resolvedProgram(x.Argv[0], cwd, vars)
-	if program == "" {
-		return nil
-	}
-	for _, entry := range session.ConnectorCLIEntries {
-		if same, err := NormalizePath(entry.Path); err == nil && same == target {
-			return &types.ConnectorInvocation{ID: entry.ConnectorID, Program: program, Args: append([]string(nil), x.Argv[1:]...)}
-		}
-	}
-	return nil
+	return identity.VerifiedConnectorInvocation(session, x, cwd, vars)
 }
 
 // singleCall accepts one simple command without shell operators, background,
@@ -76,27 +52,12 @@ func singleCall(command string, vars map[string]string) (types.Invocation, bool)
 
 // connectorCall reports the whole command as one plain connector call. An
 // interpreter-run entry keeps only the arguments after its script.
-func connectorCall(command string, vars map[string]string, x BashExecution) *types.ConnectorCall {
+func connectorCall(command string, vars map[string]string, x types.BashExecution) *types.ConnectorCall {
 	if !x.Connector || x.Wrapped || x.Uncertain || len(x.Argv) == 0 {
 		return nil
 	}
 	if _, ok := singleCall(command, vars); !ok {
 		return nil
 	}
-	split := 1
-	if x.TrustedInterpreter {
-		// x.Script may be canonicalized; find the script word as written.
-		script := interpreterScript(commandFamily(x.Argv[0]), x.Argv[1:])
-		split = 0
-		for i, token := range x.Argv[1:] {
-			if script != "" && token == script {
-				split = i + 2
-				break
-			}
-		}
-		if split == 0 {
-			return nil
-		}
-	}
-	return &types.ConnectorCall{ConnectorID: x.ConnectorID, Prefix: append([]string{}, x.Argv[:split]...), Argv: append([]string{}, x.Argv[split:]...)}
+	return identity.VerifiedConnectorCall(x)
 }

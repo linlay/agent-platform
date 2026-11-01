@@ -9,6 +9,7 @@ import (
 	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/shellreview/types"
 	"agent-platform/internal/temppaths"
 )
 
@@ -116,9 +117,9 @@ func TestChatAndTempScriptExecutionRespectsAccessLevel(t *testing.T) {
 			defaultSession := baseSession
 			defaultSession.AccessLevel = contracts.AccessLevelAskForApproval
 			defaultSession.AgentHasRuntimeSandbox = test.sandbox
-			var environment *BashEnvironment
+			var environment *types.BashEnvironment
 			if test.sandbox {
-				environment = &BashEnvironment{Resolve: func(name, cwd string, env map[string]string) (string, error) {
+				environment = &types.BashEnvironment{Resolve: func(name, cwd string, env map[string]string) (string, error) {
 					if strings.HasPrefix(name, "/") {
 						return name, nil
 					}

@@ -11,7 +11,9 @@ import (
 	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/shellreview/identity"
 	shellplan "agent-platform/internal/shellreview/plan"
+	"agent-platform/internal/shellreview/types"
 )
 
 func TestAuthoredExecutionFormsAndLevels(t *testing.T) {
@@ -112,7 +114,7 @@ func TestExecutionWrappersAndLookalikes(t *testing.T) {
 	if got := ReviewBashCommand(cfg, ctx.Session, "env PATH='"+filepath.Dir(p)+"' echo ok", "", nil, ctx); !got.RequiresApproval() {
 		t.Fatalf("exec wrapper treated external echo as a shell builtin: %+v", got)
 	}
-	if commandFamily(`C:\tools\PYTHON3.EXE`) != "python3" {
+	if identity.CommandFamily(`C:\tools\PYTHON3.EXE`) != "python3" {
 		t.Fatal("Windows family normalization")
 	}
 	// env -S with plain words is unwrapped; the inner foreign script still needs approval.
@@ -166,7 +168,7 @@ func TestSandboxScriptIdentityUsesExecutionEnvironment(t *testing.T) {
 	ctx.AuthoredScripts.Record(ctx.ScriptOwner(), p, data, "", true)
 	hash := fmt.Sprintf("%x", sha256.Sum256(data))
 	canonical := "/workspace/task with space.sh"
-	env := &BashEnvironment{
+	env := &types.BashEnvironment{
 		Resolve: func(name, cwd string, vars map[string]string) (string, error) {
 			if name == "sh" || name == "/usr/bin/sh" || name == "/bin/sh" {
 				return "/usr/bin/sh", nil
@@ -224,7 +226,7 @@ func TestSandboxSystemBasenameCannotHideDifferentTarget(t *testing.T) {
 	ctx, _ := authoredFixture(t)
 	ctx.Session.AgentHasRuntimeSandbox = true
 	ctx.Session.RuntimeContext.SandboxPaths.WorkspaceDir = "/workspace"
-	env := &BashEnvironment{Resolve: func(name, cwd string, vars map[string]string) (string, error) {
+	env := &types.BashEnvironment{Resolve: func(name, cwd string, vars map[string]string) (string, error) {
 		switch name {
 		case "ls", "./ls":
 			return "/usr/bin/python3.12", nil // workspace ls symlink, not system ls
@@ -298,7 +300,7 @@ func TestSandboxInterpreterRuleUsesCanonicalGuestCwd(t *testing.T) {
 	ctx.AuthoredScripts = nil
 	ctx.Session.AgentHasRuntimeSandbox = true
 	ctx.Session.RuntimeContext.SandboxPaths.WorkspaceDir = "/workspace"
-	env := &BashEnvironment{
+	env := &types.BashEnvironment{
 		Directory: func(raw string) (string, error) { return "/workspace", nil },
 		Resolve:   func(name, cwd string, vars map[string]string) (string, error) { return "/usr/bin/dash", nil },
 		Canonical: func(raw, cwd string) (string, error) { return "/workspace/task.sh", nil },

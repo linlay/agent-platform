@@ -10,6 +10,7 @@ import (
 
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/shellreview/types"
 )
 
 func TestDiagnosticCommandsAccess(t *testing.T) {
@@ -25,11 +26,11 @@ func TestDiagnosticCommandsAccess(t *testing.T) {
 			f := newCapabilityFixture(t, AccessLevelAskForApproval)
 			f.session.AgentHasRuntimeSandbox = sandbox
 			f.session.RuntimeContext.SandboxPaths.WorkspaceDir = "/workspace"
-			var env *BashEnvironment
+			var env *types.BashEnvironment
 			cwd := f.workspace
 			if sandbox {
 				cwd = "/workspace"
-				env = &BashEnvironment{Resolve: func(name, cwd string, vars map[string]string) (string, error) {
+				env = &types.BashEnvironment{Resolve: func(name, cwd string, vars map[string]string) (string, error) {
 					if strings.HasPrefix(name, "/") {
 						return name, nil
 					}

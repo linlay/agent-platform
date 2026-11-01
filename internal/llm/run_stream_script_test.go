@@ -13,6 +13,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/shellreview"
 	shellplan "agent-platform/internal/shellreview/plan"
+	shelltypes "agent-platform/internal/shellreview/types"
 )
 
 // Protocol fixtures without a filesystem model simulate a tool backend, not
@@ -21,9 +22,9 @@ func (r *recordingToolExecutor) ReviewBashAccess(_ context.Context, args map[str
 	if ctx == nil || !hasLocalFileRoots(ctx.Session) {
 		return shellplan.BashPlan{Decision: accesspolicy.DecisionAllow}
 	}
-	var environment *shellreview.BashEnvironment
+	var environment *shelltypes.BashEnvironment
 	if ctx.Session.AgentHasRuntimeSandbox {
-		environment = &shellreview.BashEnvironment{Resolve: func(name, cwd string, env map[string]string) (string, error) {
+		environment = &shelltypes.BashEnvironment{Resolve: func(name, cwd string, env map[string]string) (string, error) {
 			if strings.Contains(name, "/") {
 				return name, nil
 			}

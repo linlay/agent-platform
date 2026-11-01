@@ -25,7 +25,7 @@ func ReviewBashCommand(cfg config.AccessPolicyConfig, session QuerySession, comm
 	return reviewBashExecution(cfg, session, command, cwd, variables, nil, contexts...)
 }
 
-func ReviewBashCommandInEnvironment(cfg config.AccessPolicyConfig, session QuerySession, command, cwd string, variables map[string]string, environment *BashEnvironment, ctx *ExecutionContext) shellplan.BashPlan {
+func ReviewBashCommandInEnvironment(cfg config.AccessPolicyConfig, session QuerySession, command, cwd string, variables map[string]string, environment *types.BashEnvironment, ctx *ExecutionContext) shellplan.BashPlan {
 	return reviewBashExecution(cfg, session, command, cwd, variables, environment, ctx)
 }
 
@@ -85,19 +85,6 @@ func isFileDescriptorRedirectTarget(target string) bool {
 		}
 	}
 	return true
-}
-
-func isOpaqueCommand(base string) bool {
-	base = commandFamily(base)
-	if isInterpreter(base) {
-		return true
-	}
-	switch base {
-	case "go", "npm", "npx", "yarn", "pnpm", "node", "python", "python3", "pip", "make", "bash", "sh":
-		return true
-	default:
-		return false
-	}
 }
 
 func containsUnresolvedPlaceholder(value string) bool {

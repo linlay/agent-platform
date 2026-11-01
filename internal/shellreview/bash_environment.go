@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"io"
 	"os"
 	"strings"
@@ -14,20 +13,7 @@ import (
 	"agent-platform/internal/shellreview/types"
 )
 
-// BashEnvironment inspects the actual execution filesystem. A missing/failed
-// container resolver is opaque; it must never fall back to the host PATH.
-type BashEnvironment struct {
-	// Launch is supplied only for Host commands; containers use their own Bash.
-	Launch    *types.LaunchBinding
-	Resolve   func(name, cwd string, env map[string]string) (string, error)
-	Canonical func(path, cwd string) (string, error)
-	Directory func(path string) (string, error)
-	Inspect   func(path string) (header, sha256 string, err error)
-}
-
-var ErrBashTemporaryEscape = errors.New("container temporary path escapes /tmp through a symlink")
-
-func executionFingerprint(p shellplan.BashPlan, x BashExecution, variables map[string]string, env *BashEnvironment) shellplan.BashPlan {
+func executionFingerprint(p shellplan.BashPlan, x types.BashExecution, variables map[string]string, env *types.BashEnvironment) shellplan.BashPlan {
 	data, _ := json.Marshal(variables)
 	content := ""
 	target := x.Script

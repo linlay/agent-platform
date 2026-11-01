@@ -18,7 +18,7 @@ func TestUnsupportedShellIsAnExactHumanDecision(t *testing.T) {
 	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		f := newCapabilityFixture(t, level)
 		binding := types.LaunchBinding{Dialect: dialect.PowerShell, RuleFingerprint: "shell", ContractFingerprint: "contract", Fingerprint: "launch"}
-		env := &BashEnvironment{Launch: &binding}
+		env := &types.BashEnvironment{Launch: &binding}
 		command := `echo "\" ; Remove-Item -Recurse C:\x ; echo "\"`
 		p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, f.workspace, nil, env, nil)
 		if !p.UnknownDialect || p.RequiresApproval() != (level != AccessLevelFullAccess) {
@@ -50,7 +50,7 @@ func TestUnsupportedShellIsAnExactHumanDecision(t *testing.T) {
 func TestLaunchBindingSurvivesLeafApprovalFiltering(t *testing.T) {
 	f := newCapabilityFixture(t, AccessLevelAskForApproval)
 	binding := types.LaunchBinding{Dialect: dialect.Bash, SyntaxSupported: true, RuleFingerprint: "shell", ContractFingerprint: "contract", Fingerprint: "launch"}
-	env := &BashEnvironment{Launch: &binding}
+	env := &types.BashEnvironment{Launch: &binding}
 	command := "curl -o /outside/result -X DELETE https://example.invalid/item"
 	p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, f.workspace, nil, env, nil)
 	if len(p.Requirements) < 2 {
@@ -85,7 +85,7 @@ func TestUnknownShellRetainsConfiguredBlockAtEveryLevel(t *testing.T) {
 		cfg := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
 			level: {Approvals: config.AccessPolicyApprovalConfig{BashComplexFilesystem: "block"}},
 		}}
-		p := ReviewBashCommandInEnvironment(cfg, f.session, "echo ok", f.workspace, nil, &BashEnvironment{Launch: &binding}, nil)
+		p := ReviewBashCommandInEnvironment(cfg, f.session, "echo ok", f.workspace, nil, &types.BashEnvironment{Launch: &binding}, nil)
 		if !p.Blocked() || !strings.Contains(p.Reason, "prefix; {{command}}") {
 			t.Fatalf("%s: block or actual startup description lost: %+v", level, p)
 		}
@@ -98,7 +98,7 @@ func TestPathRuleGrantSurvivesCwdAndEnvironmentButNotShellChange(t *testing.T) {
 	}
 	f := newCapabilityFixture(t, AccessLevelAskForApproval)
 	binding := types.LaunchBinding{Dialect: dialect.Bash, SyntaxSupported: true, RuleFingerprint: "shell", ContractFingerprint: "cwd-env-one", Fingerprint: "call-one"}
-	env := &BashEnvironment{Launch: &binding}
+	env := &types.BashEnvironment{Launch: &binding}
 	command := "cat /outside/source"
 	p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, f.workspace, nil, env, nil)
 	if !p.RequiresApproval() || !strings.HasPrefix(p.RuleKey, "bash-access:path:") {
@@ -128,7 +128,7 @@ func TestUnsafeTextCannotBeApprovedInAnyDialect(t *testing.T) {
 			f := newCapabilityFixture(t, level)
 			binding := types.LaunchBinding{Dialect: grammar, SyntaxSupported: grammar == dialect.Bash, RuleFingerprint: "shell", ContractFingerprint: "contract", Fingerprint: "launch"}
 			blocked := func(command string) bool {
-				p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, f.workspace, nil, &BashEnvironment{Launch: &binding}, nil)
+				p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, f.workspace, nil, &types.BashEnvironment{Launch: &binding}, nil)
 				ctx := &ExecutionContext{}
 				shellplan.RegisterExactApproval(ctx, p.Fingerprint)
 				security := SecurityReview(p, command, nil).Decision == bashsyntax.ReviewBlock
