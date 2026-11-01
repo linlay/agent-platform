@@ -21,7 +21,7 @@ func Parse(spec types.OptionSpec, args []string) types.ParsedOptions {
 		case types.OptionReadDir:
 			p.Files = append(p.Files, types.FileAccess{Ref: ref, Path: value, Recursive: true, Kind: types.Read})
 		case types.OptionWriteDir:
-			p.Files = append(p.Files, types.FileAccess{Ref: ref, Path: value, Write: true, Kind: types.Create})
+			p.Files = append(p.Files, types.FileAccess{Ref: ref, Path: value, Write: true, Recursive: true, Kind: types.Create})
 		case types.OptionExec:
 			p.Exec = true
 		case types.OptionRemote:

@@ -225,7 +225,13 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 							}
 							for _, p := range paths {
 								pathReview(mode, p)
-								if file.Recursive || target.Placement == types.FileOrDirectory && len(parsed.Commands) > 1 {
+								if file.Write && op.ReadsTarget(target) {
+									pathReview(ReadAccess, p)
+									if file.Recursive {
+										add(reviewer.Subtree(ReadAccess, p))
+									}
+								}
+								if file.Recursive || file.Write && effects.Unknown(types.UnknownOption) || target.Placement == types.FileOrDirectory && len(parsed.Commands) > 1 {
 									add(reviewer.Subtree(mode, p))
 								}
 							}
@@ -243,6 +249,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 				}
 				if effects.Has(types.RepoWrite) {
 					pathReview(WriteAccess, repoDir)
+					add(reviewer.Subtree(WriteAccess, repoDir))
 				}
 				if effects.Has(types.Discard) {
 					add(reviewer.Destructive(x.Cwd))

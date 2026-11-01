@@ -1,12 +1,13 @@
 package shellreview
 
 import (
-	"agent-platform/internal/config"
-	"agent-platform/internal/contracts"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"agent-platform/internal/config"
+	"agent-platform/internal/contracts"
 )
 
 func TestTransferProtectsActualDestinationAndHardlinkSource(t *testing.T) {
@@ -54,6 +55,31 @@ func TestTransferProtectsActualDestinationAndHardlinkSource(t *testing.T) {
 		session.RunAccessRoots.ReadonlyRoots = []string{filepath.Join(f.workspace, "sources/protected")}
 		if p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, session, "cp sources/protected copied", f.workspace, vars, env, nil); p.Blocked() {
 			t.Fatalf("readonly copy source became a write: %+v", p)
+		}
+	}
+}
+
+func TestExplicitAndGeneratedCommandOutputsProtectReadonly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix executable fixtures")
+	}
+	vars, env := fakeSystemPrograms(t, "git", "curl", "wget", "date", "ls")
+	for _, level := range []string{contracts.AccessLevelAskForApproval, contracts.AccessLevelAutoApprove, contracts.AccessLevelFullAccess} {
+		f := newCapabilityFixture(t, level)
+		f.session.RunAccessRoots.ReadonlyRoots = []string{filepath.Join(f.workspace, "protected")}
+		for _, command := range []string{
+			"git diff --output=protected", "git diff --unknown=./protected", "git reset --hard", "git clean -fd", "git config --file=protected name value", "curl -O https://example.invalid/protected", "wget https://example.invalid/protected", "ls --unknown .",
+		} {
+			p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, f.workspace, vars, env, nil)
+			if !p.Blocked() {
+				t.Fatalf("%s at %s bypassed readonly: %+v", command, level, p)
+			}
+		}
+		for _, command := range []string{"wget --no-config -O safe https://example.invalid/x", "curl -q --output=safe https://example.invalid/x"} {
+			p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, f.workspace, vars, env, nil)
+			if p.Blocked() {
+				t.Fatalf("explicit safe output acquired unrelated subtree write: %s: %+v", command, p)
+			}
 		}
 	}
 }

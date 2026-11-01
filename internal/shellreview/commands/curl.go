@@ -1,10 +1,11 @@
 package commands
 
 import (
-	"agent-platform/internal/shellreview/options"
-	"agent-platform/internal/shellreview/types"
 	"net/url"
 	"strings"
+
+	"agent-platform/internal/shellreview/options"
+	"agent-platform/internal/shellreview/types"
 )
 
 var curlSpec = types.OptionSpec{ShortFlags: "sSfILlvkiNgGOJR46qZ#", ShortArgs: map[byte]types.OptionRole{'o': types.OptionWrite, 'T': types.OptionRead, 'd': types.OptionRemoteData, 'F': types.OptionRemoteData, 'H': types.OptionValue, 'X': types.OptionValue, 'u': types.OptionValue, 'A': types.OptionValue, 'e': types.OptionValue, 'b': types.OptionValue, 'c': types.OptionWrite, 'K': types.OptionRead, 'm': types.OptionValue, 'x': types.OptionValue, 'w': types.OptionValue, 'r': types.OptionValue, 'C': types.OptionValue, 'E': types.OptionRead, 'U': types.OptionValue, 'z': types.OptionValue, 'Y': types.OptionValue, 'y': types.OptionValue, 'D': types.OptionWrite, 'Q': types.OptionValue, 't': types.OptionValue, 'P': types.OptionValue},
@@ -63,9 +64,9 @@ func curlOperands(args []string) effectDraft {
 		// A config file can add outputs, uploads and URLs that are not reviewed here.
 		e.ExecutesCode = true
 	}
-	if p.Has("O") || p.Has("remote-name") || p.Has("remote-name-all") {
+	if (p.Has("O") || p.Has("remote-name") || p.Has("remote-name-all")) && !p.Has("output-dir") {
 		// The output file name comes from the URL and lands in cwd.
-		add(".", true, false, types.ValueRef{}, true)
+		add(".", true, true, types.ValueRef{}, true)
 	}
 	for i, raw := range p.Positional {
 		if u, err := url.Parse(raw); err == nil && strings.EqualFold(u.Scheme, "file") {

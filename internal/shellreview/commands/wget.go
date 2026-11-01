@@ -1,10 +1,11 @@
 package commands
 
 import (
-	"agent-platform/internal/shellreview/options"
-	"agent-platform/internal/shellreview/types"
 	"net/url"
 	"strings"
+
+	"agent-platform/internal/shellreview/options"
+	"agent-platform/internal/shellreview/types"
 )
 
 var wgetSpec = types.OptionSpec{ShortFlags: "qcvNrpkxbKmnEFS", ShortArgs: map[byte]types.OptionRole{'O': types.OptionWrite, 'o': types.OptionWrite, 'a': types.OptionWrite, 'P': types.OptionWriteDir, 'i': types.OptionRead, 'e': types.OptionExec, 'U': types.OptionValue, 'T': types.OptionValue, 't': types.OptionValue, 'w': types.OptionValue, 'l': types.OptionValue, 'Q': types.OptionValue, 'A': types.OptionValue, 'R': types.OptionValue, 'D': types.OptionValue, 'I': types.OptionValue, 'X': types.OptionValue},
@@ -38,14 +39,8 @@ func wgetOperands(args []string) effectDraft {
 		for vi, value := range values {
 			if file := wgetRemoteDataFile(key, value); file != "" {
 				ref := p.ValueRefs[key][vi]
-				ref.Start++
 				add(file, false, false, ref, false)
 			}
-		}
-	}
-	for _, method := range append(p.Values["X"], p.Values["request"]...) {
-		if upper := strings.ToUpper(method); upper != "GET" && upper != "HEAD" && upper != "OPTIONS" {
-			e.RemoteMutation = true
 		}
 	}
 	for _, method := range p.Values["method"] {
@@ -53,17 +48,19 @@ func wgetOperands(args []string) effectDraft {
 			e.RemoteMutation = true
 		}
 	}
-	if p.Has("T") || p.Has("upload-file") {
-		e.RemoteMutation = true
-	}
 	if p.Has("config") {
 		// A config file can add outputs, uploads and URLs that are not reviewed here.
 		e.ExecutesCode = true
 	}
-	if p.Has("O") || p.Has("remote-name") || p.Has("remote-name-all") || !p.Has("O") && !p.Has("output-document") && !p.Has("spider") {
-		// The output file name comes from the URL and lands in cwd.
-		add(".", true, (p.Has("r") || p.Has("recursive") || p.Has("m") || p.Has("mirror")), types.ValueRef{}, true)
+	if !p.Has("O") && !p.Has("output-document") && !p.Has("spider") && !p.Has("P") && !p.Has("directory-prefix") || p.Has("b") {
+		// Runtime-selected download names (and background logs) require the
+		// containing subtree. Explicit -O/P outputs are already represented above.
+		add(".", true, true, types.ValueRef{}, true)
 	}
+	if p.Has("K") {
+		e.Incomplete = true
+	}
+
 	for i, raw := range p.Positional {
 		if u, err := url.Parse(raw); err == nil && strings.EqualFold(u.Scheme, "file") {
 			add(u.Path, false, false, p.PositionalRefs[i], true)
@@ -78,9 +75,12 @@ func wgetOperands(args []string) effectDraft {
 	return e
 }
 
+// GNU Wget --post-file/--body-file take filenames directly. --post-data and
+// --body-data remain literal data even when they begin with @ (unlike curl).
+// https://www.gnu.org/software/wget/manual/html_node/HTTP-Options.html
 func wgetRemoteDataFile(key, value string) string {
-	if strings.HasPrefix(value, "@") {
-		return value[1:]
+	if key == "post-file" || key == "body-file" {
+		return value
 	}
 	return ""
 }

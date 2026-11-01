@@ -1,10 +1,11 @@
 package commands
 
 import (
+	"strings"
+
 	"agent-platform/internal/shellreview/dialect"
 	"agent-platform/internal/shellreview/registry"
 	"agent-platform/internal/shellreview/types"
-	"strings"
 )
 
 // Analyze consumes a proven identity in an explicitly supported grammar.
@@ -43,7 +44,7 @@ func Analyze(input types.CommandInput) types.Effects {
 		}
 		role := f.Role
 		if role == "" {
-			if f.Write {
+			if f.Write && kind != types.Read {
 				role = types.Destination
 			} else {
 				role = types.Source

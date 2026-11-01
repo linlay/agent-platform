@@ -1,9 +1,10 @@
 package commands
 
 import (
+	"testing"
+
 	"agent-platform/internal/shellreview/dialect"
 	"agent-platform/internal/shellreview/types"
-	"testing"
 )
 
 func nativeFacts(name string, args ...string) types.Effects {
@@ -88,5 +89,65 @@ func TestTransferFactsKeepAllRoles(t *testing.T) {
 		if !found {
 			t.Fatalf("%s lost multi-target facts: %+v", tc.name, e)
 		}
+	}
+}
+
+func TestNetworkOptionsUseTheirOwnGrammar(t *testing.T) {
+	for _, args := range [][]string{{"-T", "3", "https://x"}, {"-X", "private", "https://x"}, {"--post-data=@literal", "https://x"}} {
+		e := nativeFacts("wget", args...)
+		if args[0] != "--post-data=@literal" && e.Has(types.RemoteMutation) {
+			t.Fatalf("wget borrowed curl's mutation flags: %+v", e)
+		}
+		if args[0] == "--post-data=@literal" {
+			for _, op := range e.Ops {
+				for _, target := range op.Targets {
+					if target.Path == "literal" {
+						t.Fatal("wget literal data became a filename")
+					}
+				}
+			}
+		}
+	}
+	for _, key := range []string{"post-file", "body-file"} {
+		e := nativeFacts("wget", "--"+key+"=secret.txt", "https://x")
+		found := false
+		for _, op := range e.Ops {
+			for _, target := range op.Targets {
+				found = found || op.Kind == types.Read && target.Path == "secret.txt"
+			}
+		}
+		if !found || !e.Has(types.RemoteMutation) {
+			t.Fatalf("wget --%s lost body read or mutation: %+v", key, e)
+		}
+	}
+}
+func TestSimpleCommandUnknownOptionsAndStateMutation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"date", []string{"--unknown", "file"}}, {"whoami", []string{"--unknown"}}, {"git", []string{"status", "--unknown"}}, {"git", []string{"push", "--unknown", "--force"}},
+	} {
+		e := nativeFacts(tc.name, tc.args...)
+		if !e.Unknown(types.UnknownOption) {
+			t.Fatalf("%s silently accepted unknown options: %+v", tc.name, e)
+		}
+	}
+	for _, args := range [][]string{{"-v", "PATH", "x"}, {"%n", "PATH"}, {"%010n", "PATH"}} {
+		if e := nativeFacts("printf", args...); !e.Has(types.Exec) {
+			t.Fatalf("printf shell mutation was accepted: %+v", e)
+		}
+	}
+	if e := nativeFacts("printf", "%s", "%n"); e.Has(types.Exec) {
+		t.Fatal("printf data was parsed as a format")
+	}
+	if e := nativeFacts("printf", "%%n"); e.Has(types.Exec) {
+		t.Fatal("escaped percent became state mutation")
+	}
+	if e := nativeFacts("test", "-f", "secret"); len(e.Ops) != 1 || e.Ops[0].Targets[0].Path != "secret" || e.Ops[0].Writes() {
+		t.Fatalf("test file predicate lost read fact: %+v", e)
+	}
+	if e := nativeFacts("git", "push", "--unknown", "--force"); !e.Has(types.RemoteMutation) || !e.Has(types.Discard) {
+		t.Fatal("Git unknown option erased mutation facts")
 	}
 }

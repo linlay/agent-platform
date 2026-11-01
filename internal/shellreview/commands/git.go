@@ -3,6 +3,7 @@ package commands
 import (
 	"strings"
 
+	"agent-platform/internal/shellreview/options"
 	"agent-platform/internal/shellreview/types"
 )
 
@@ -37,12 +38,12 @@ func gitOperands(args []string) effectDraft {
 				e.Incomplete, e.ExecutesCode = true, true
 				return e
 			}
-			e.Files = append(e.Files, types.FileAccess{Path: args[i], Ref: types.ArgumentRef(i, args[i])})
 			e.RepoPath = joinDirectory(e.RepoPath, args[i])
+			e.Files = append(e.Files, types.FileAccess{Path: e.RepoPath, Ref: types.ArgumentRef(i, args[i]), Derived: true})
 			i++
 		case strings.HasPrefix(a, "-C") && len(a) > 2:
-			e.Files = append(e.Files, types.FileAccess{Path: a[2:], Ref: types.ValueRef{Index: i - 1, Start: 2, End: len(a), Known: true}})
 			e.RepoPath = joinDirectory(e.RepoPath, a[2:])
+			e.Files = append(e.Files, types.FileAccess{Path: e.RepoPath, Ref: types.ValueRef{Index: i - 1, Start: 2, End: len(a), Known: true}, Derived: true})
 		case a == "--no-pager" || a == "-P" || a == "--no-optional-locks" || a == "--literal-pathspecs" || a == "--glob-pathspecs" || a == "--noglob-pathspecs" || a == "--icase-pathspecs" || a == "--no-replace-objects" || a == "-p" || a == "--paginate":
 		default:
 			// -c/--config-env inject configuration; --git-dir/--work-tree/--exec-path
@@ -56,8 +57,24 @@ func gitOperands(args []string) effectDraft {
 	if i >= len(args) {
 		return e
 	}
+	globalFiles := len(e.Files)
 	sub := args[i]
 	rest := args[i+1:]
+	parsed := options.Parse(gitOptions(sub), rest)
+	for j := range parsed.Files {
+		parsed.Files[j].Ref.Index += i + 1
+	}
+	e.Files = append(e.Files, parsed.Files...)
+	e.Incomplete = e.Incomplete || parsed.Incomplete
+	if parsed.Incomplete {
+		for j, path := range parsed.Positional {
+			if path != "-" && !strings.Contains(path, "://") {
+				ref := parsed.PositionalRefs[j]
+				ref.Index += i + 1
+				e.Files = append(e.Files, types.FileAccess{Path: path, Write: true, Recursive: true, Ref: ref})
+			}
+		}
+	}
 	flags := map[string]bool{}
 	var positional, afterDashes []string
 	var positionalRefs, afterRefs []types.ValueRef
@@ -122,12 +139,28 @@ func gitOperands(args []string) effectDraft {
 				e.Files = append(e.Files, types.FileAccess{Path: positional[len(positional)-1], Write: true, Recursive: true, Ref: positionalRefs[len(positional)-1], Kind: types.Create})
 			} else {
 				// The destination is derived from the URL inside cwd.
-				e.Files = append(e.Files, types.FileAccess{Path: ".", Write: true})
+				e.Files = append(e.Files, types.FileAccess{Path: ".", Write: true, Recursive: true, Kind: types.Create})
 			}
 		}
 	default:
 		// Aliases, external subcommands and tools such as bisect run or difftool.
 		e.ExecutesCode = true
+	}
+	if e.Incomplete || sub == "config" && e.RepoWrite {
+		escalateWrites(&e)
+	}
+	for j := globalFiles; j < len(e.Files); j++ {
+		if e.RepoPath != "" && !strings.HasPrefix(e.Files[j].Path, "/") {
+			e.Files[j].Path = joinDirectory(e.RepoPath, e.Files[j].Path)
+			e.Files[j].Derived = true
+		}
+	}
+	if e.GitCheck != types.GitCheckNone {
+		root := e.RepoPath
+		if root == "" {
+			root = "."
+		}
+		e.Files = append(e.Files, types.FileAccess{Path: root, Recursive: true, Kind: types.Read, Derived: true})
 	}
 	return e
 }
@@ -229,4 +262,35 @@ func joinDirectory(base, next string) string {
 		return next
 	}
 	return strings.TrimRight(base, "/") + "/" + next
+}
+
+// Common flags cover the explicitly modeled subset. Unknown options remain
+// UnknownOption even when the subcommand has a known read/write classification.
+var gitOptionSpec = types.OptionSpec{
+	ShortFlags: "aAbBdDlnNpPqrsStuvzMRG", NumericShort: true,
+	ShortArgs: map[byte]types.OptionRole{'m': types.OptionValue, 'C': types.OptionValue, 'U': types.OptionValue, 'O': types.OptionRead},
+	Long: options.Merge(
+		options.Longs(types.OptionNone, "stat", "short", "porcelain", "oneline", "all", "force", "force-with-lease", "delete", "mirror", "prune", "hard", "merge", "keep", "dry-run", "staged", "worktree", "no-index", "ext-diff", "show-signature", "open-files-in-pager", "list", "contains", "merged", "no-merged", "points-at", "move", "copy", "unset-upstream", "edit-description", "get", "get-all", "get-regexp", "unset", "unset-all", "add", "replace-all", "edit", "global", "system", "cached", "name-only", "name-status", "quiet", "verbose", "help", "version", "no-ext-diff", "no-textconv", "no-renames", "check", "exit-code", "no-color"),
+		options.Longs(types.OptionOptionalValue, "color", "pretty", "format", "decorate"),
+		options.Longs(types.OptionValue, "message", "max-count", "since", "until", "author", "grep", "set-upstream-to"),
+		options.Longs(types.OptionRead, "file"), options.Longs(types.OptionWrite, "output")),
+}
+
+func gitOptions(sub string) types.OptionSpec {
+	spec := gitOptionSpec
+	spec.ShortArgs = map[byte]types.OptionRole{}
+	for key, value := range gitOptionSpec.ShortArgs {
+		spec.ShortArgs[key] = value
+	}
+	if sub == "config" || sub == "grep" {
+		spec.ShortArgs['f'] = types.OptionRead
+	} else {
+		spec.ShortFlags += "f"
+	}
+	if sub == "tag" || sub == "commit" {
+		spec.ShortArgs['F'] = types.OptionRead
+	} else if sub == "grep" {
+		spec.ShortFlags += "F"
+	}
+	return spec
 }

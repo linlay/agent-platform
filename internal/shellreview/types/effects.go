@@ -104,6 +104,10 @@ type Op struct {
 	Origin    Origin
 }
 
+func (o Op) ReadsTarget(t Target) bool {
+	return o.Kind == Read || (o.Kind == Create || o.Kind == Rename) && t.Role == Source || o.Kind == Link && t.Role == LinkTarget
+}
+
 func (o Op) WritesTarget(t Target) bool {
 	if o.Kind == Create && t.Role == Source {
 		return false
