@@ -1,4 +1,4 @@
-package accesspolicy
+package shellreview
 
 import (
 	"crypto/sha256"
@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/shellreview/types"
 )
 
@@ -33,7 +34,7 @@ func executionFingerprint(p BashPlan, x BashExecution, variables map[string]stri
 		target = x.Program
 	}
 	if target != "" {
-		target = resolveAgainstCwd(target, x.Cwd)
+		target = ResolveAgainstCwd(target, x.Cwd)
 		if env != nil && env.Inspect != nil {
 			_, content, _ = env.Inspect(target)
 		} else {

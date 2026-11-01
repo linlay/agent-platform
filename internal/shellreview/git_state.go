@@ -1,4 +1,4 @@
-package accesspolicy
+package shellreview
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	. "agent-platform/internal/accesspolicy"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/shellreview/types"
 )

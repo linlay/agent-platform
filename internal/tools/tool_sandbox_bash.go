@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/agentconfig"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
+	"agent-platform/internal/shellreview"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
@@ -38,12 +39,12 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 	if security := accessReview.SecurityReview(command, bashSecurityKnownVariables(execCtx)); security.Decision == bashsyntax.ReviewBlock {
 		return ToolExecutionResult{Output: security.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
 	}
-	approvalSource := accesspolicy.BashApprovalSource(execCtx, accessReview)
-	accessReview = accesspolicy.PendingBashPlan(execCtx, accessReview)
+	approvalSource := shellreview.BashApprovalSource(execCtx, accessReview)
+	accessReview = shellreview.PendingBashPlan(execCtx, accessReview)
 	switch accessReview.Decision {
 	case accesspolicy.DecisionAllow, accesspolicy.DecisionAutoApproved:
 	case accesspolicy.DecisionRequiresApproval:
-		if !accesspolicy.ConsumeApproval(execCtx, accessReview) {
+		if !shellreview.ConsumeApproval(execCtx, accessReview) {
 			return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_approval_required", ExitCode: -1}, nil
 		}
 	default:
@@ -59,7 +60,7 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 		if output.Structured == nil {
 			output.Structured = map[string]any{"stdout": result.Stdout, "stderr": result.Stderr, "mode": "sandbox", "cwd": result.Cwd, "exitCode": result.ExitCode}
 		}
-		output.Structured["accessPolicy"] = accesspolicy.BashPlanMetadata(accessReview)
+		output.Structured["accessPolicy"] = shellreview.BashPlanMetadata(accessReview)
 		if approvalSource != "" {
 			metadata := output.Structured["accessPolicy"].(map[string]any)
 			metadata["decision"] = "allow"

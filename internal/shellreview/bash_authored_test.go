@@ -1,34 +1,18 @@
-package accesspolicy
+package shellreview
 
 import (
 	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
+	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 )
 
-func authoredFixture(t *testing.T) (*ExecutionContext, string) {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("Unix executable fixtures")
-	}
-	dir := t.TempDir()
-	p := filepath.Join(dir, "task with space.sh")
-	data := []byte("#!/bin/sh\nprintf 'ok\\n'\n")
-	if err := os.WriteFile(p, data, 0700); err != nil {
-		t.Fatal(err)
-	}
-	ctx := &ExecutionContext{Session: QuerySession{AgentKey: "ordinary", RunID: "run-1", WorkspaceRoot: dir}}
-	ctx.EnsureAuthoredScripts()
-	ctx.AuthoredScripts.Record(ctx.ScriptOwner(), p, data, "", true)
-	return ctx, p
-}
 func TestAuthoredExecutionFormsAndLevels(t *testing.T) {
 	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		for _, authored := range []bool{true, false} {

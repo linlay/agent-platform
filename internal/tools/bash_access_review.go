@@ -13,62 +13,63 @@ import (
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hostshell"
+	"agent-platform/internal/shellreview"
 )
 
 // ReviewBashAccess preserves the runtime's execution-environment-aware review
 // through the router used by the LLM engine in production.
-func (r *ToolRouter) ReviewBashAccess(ctx context.Context, args map[string]any, execCtx *ExecutionContext, cfg config.AccessPolicyConfig) accesspolicy.BashPlan {
+func (r *ToolRouter) ReviewBashAccess(ctx context.Context, args map[string]any, execCtx *ExecutionContext, cfg config.AccessPolicyConfig) shellreview.BashPlan {
 	if reviewer, ok := r.runtime.(interface {
-		ReviewBashAccess(context.Context, map[string]any, *ExecutionContext, config.AccessPolicyConfig) accesspolicy.BashPlan
+		ReviewBashAccess(context.Context, map[string]any, *ExecutionContext, config.AccessPolicyConfig) shellreview.BashPlan
 	}); ok {
 		return reviewer.ReviewBashAccess(ctx, args, execCtx, cfg)
 	}
-	return accesspolicy.ReviewBashCommand(cfg, accessPolicySession(execCtx), stringArg(args, "command"), stringArg(args, "cwd"), bashSecurityKnownVariables(execCtx), execCtx)
+	return shellreview.ReviewBashCommand(cfg, accessPolicySession(execCtx), stringArg(args, "command"), stringArg(args, "cwd"), bashSecurityKnownVariables(execCtx), execCtx)
 }
 
 // ReviewBashAccess is shared by preflight and both executors. Container probes
 // only resolve/read targets; they never execute the requested program.
-func (t *RuntimeToolExecutor) ReviewBashAccess(ctx context.Context, args map[string]any, execCtx *ExecutionContext, cfg config.AccessPolicyConfig) accesspolicy.BashPlan {
+func (t *RuntimeToolExecutor) ReviewBashAccess(ctx context.Context, args map[string]any, execCtx *ExecutionContext, cfg config.AccessPolicyConfig) shellreview.BashPlan {
 	session := t.policySession(execCtx)
 	vars := bashSecurityKnownVariables(execCtx)
-	var environment *accesspolicy.BashEnvironment
+	var environment *shellreview.BashEnvironment
 	if !session.AgentHasRuntimeSandbox {
 		var err error
 		execCtx, err = hostshell.FreezeContext(execCtx)
 		if err != nil {
-			return accesspolicy.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+			return shellreview.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
 		}
 		actual, err := t.commandEnv(execCtx)
 		if err != nil {
-			return accesspolicy.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+			return shellreview.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
 		}
 		vars = bashEnvironmentVariables(actual)
 		cwd := stringArg(args, "cwd")
 		if strings.TrimSpace(cwd) == "" {
-			cwd = accesspolicy.DefaultBashCwd(session)
+			cwd = shellreview.DefaultBashCwd(session)
 		}
 		cwd, err = accesspolicy.ResolveSessionPath(session, cwd)
 		if err != nil {
-			return accesspolicy.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+			return shellreview.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
 		}
-		if accesspolicy.DirectConnectorInvocation(session, stringArg(args, "command"), cwd, vars) == nil {
+		if shellreview.DirectConnectorInvocation(session, stringArg(args, "command"), cwd, vars) == nil {
 			launch, err := hostshell.ResolveTool(t.cfg.Bash, hostshell.Options{GOOS: t.runtimeInfo().GOOS, Command: stringArg(args, "command"), CWD: cwd, Env: actual})
 			if err != nil {
-				return accesspolicy.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+				return shellreview.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
 			}
-			environment = &accesspolicy.BashEnvironment{Launch: &launch.Binding}
+			environment = &shellreview.BashEnvironment{Launch: &launch.Binding}
 		}
 	}
 	if session.AgentHasRuntimeSandbox {
 		invocationEnv, err := sandboxInvocationEnvArg(args)
 		if err != nil {
-			return accesspolicy.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+			return shellreview.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
 		}
 		vars = agentconfig.Merge(vars, invocationEnv, agentconfig.ContainerEnvironment(session.RuntimeContext.SandboxPaths.AgentDir, session.RuntimeContext.SandboxPaths.WorkspaceDir, session.RuntimeContext.SandboxPaths.ChatDir))
 		vars = connector.ContainerEnvironment(vars, session.ConnectorBinDirs)
 		environment = t.sandboxBashEnvironment(ctx, execCtx)
 	}
-	plan := accesspolicy.ReviewBashCommandInEnvironment(cfg, session, stringArg(args, "command"), stringArg(args, "cwd"), vars, environment, execCtx)
+	plan := shellreview.ReviewBashCommandInEnvironment(cfg, session, stringArg(args, "command"), stringArg(args, "cwd"), vars, environment, execCtx)
 	if !t.cfg.Bash.ShellFeaturesEnabled && plan.UnknownDialect && !plan.Blocked() {
 		plan.Decision, plan.Reason = accesspolicy.DecisionBlock, "Strict command validation requires a supported shell grammar"
 	}
@@ -86,7 +87,7 @@ func bashEnvironmentVariables(env []string) map[string]string {
 	return vars
 }
 
-func (t *RuntimeToolExecutor) sandboxBashEnvironment(ctx context.Context, execCtx *ExecutionContext) *accesspolicy.BashEnvironment {
+func (t *RuntimeToolExecutor) sandboxBashEnvironment(ctx context.Context, execCtx *ExecutionContext) *shellreview.BashEnvironment {
 	type inspection struct {
 		header, hash string
 		err          error
@@ -152,11 +153,11 @@ func (t *RuntimeToolExecutor) sandboxBashEnvironment(ctx context.Context, execCt
 		lexical = path.Clean(lexical)
 		insideTemp := func(p string) bool { return p == "/tmp" || strings.HasPrefix(p, "/tmp/") }
 		if insideTemp(lexical) && !insideTemp(canonical) {
-			return accesspolicy.ErrBashTemporaryEscape
+			return shellreview.ErrBashTemporaryEscape
 		}
 		return nil
 	}
-	return &accesspolicy.BashEnvironment{
+	return &shellreview.BashEnvironment{
 		Directory: func(raw string) (string, error) {
 			target := guestPath(raw)
 			if canonical, exists := directories[target]; exists {

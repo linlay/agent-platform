@@ -1,4 +1,4 @@
-package accesspolicy
+package shellreview
 
 import (
 	"crypto/sha256"
@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
@@ -76,6 +77,7 @@ func ReviewBashCommand(cfg config.AccessPolicyConfig, session QuerySession, comm
 func ReviewBashCommandInEnvironment(cfg config.AccessPolicyConfig, session QuerySession, command, cwd string, variables map[string]string, environment *BashEnvironment, ctx *ExecutionContext) BashPlan {
 	return reviewBashExecution(cfg, session, command, cwd, variables, environment, ctx)
 }
+
 func classifyRedirectAccess(redirect types.Redirect) redirectAccessKind {
 	if redirect.IsHeredoc {
 		return redirectAccessNeutral
@@ -242,7 +244,7 @@ func bashPlanFromPath(command string, pathPlan PathPlan, reason string) BashPlan
 }
 
 func bashWriteInWriteRootsPlan(command string, accessLevel string, action string, pathPlan PathPlan) BashPlan {
-	decision := decisionForAction(action)
+	decision := DecisionForAction(action)
 	if decision == DecisionAllow {
 		return BashPlan{Decision: DecisionAllow}
 	}
@@ -252,12 +254,12 @@ func bashWriteInWriteRootsPlan(command string, accessLevel string, action string
 }
 
 func bashPlanForAction(command string, accessLevel string, action string, reason string, ruleKey string) BashPlan {
-	return bashPlan(command, accessLevel, decisionForAction(action), reason, ruleKey, command)
+	return bashPlan(command, accessLevel, DecisionForAction(action), reason, ruleKey, command)
 }
 
 func opaqueBashPlan(command string, accessLevel string, action string, base string, cwd string) BashPlan {
 	hash := sha256.Sum256([]byte(base + "\x00" + cwd))
-	return bashPlan(command, accessLevel, decisionForAction(action), fmt.Sprintf("bash command %q may access files internally; approval covers this invocation, content version and cwd %q", base, cwd), "bash-access:opaque:"+hex.EncodeToString(hash[:8]), command)
+	return bashPlan(command, accessLevel, DecisionForAction(action), fmt.Sprintf("bash command %q may access files internally; approval covers this invocation, content version and cwd %q", base, cwd), "bash-access:opaque:"+hex.EncodeToString(hash[:8]), command)
 }
 
 func bashPlan(command string, accessLevel string, decision Decision, reason string, ruleKey string, fingerprintInput string) BashPlan {
@@ -289,17 +291,6 @@ func isOpaqueCommand(base string) bool {
 	default:
 		return false
 	}
-}
-
-func resolveAgainstCwd(raw string, cwd string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || filepath.IsAbs(raw) || strings.HasPrefix(raw, "~") {
-		return raw
-	}
-	if strings.TrimSpace(cwd) == "" {
-		return raw
-	}
-	return pathutil.JoinUnclean(cwd, raw)
 }
 
 func containsUnresolvedPlaceholder(value string) bool {

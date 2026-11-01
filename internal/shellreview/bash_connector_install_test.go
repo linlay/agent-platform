@@ -1,12 +1,11 @@
-//go:build !windows
-
-package accesspolicy
+package shellreview
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
+	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"

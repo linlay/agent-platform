@@ -1,4 +1,4 @@
-package accesspolicy
+package shellreview
 
 import (
 	"fmt"
@@ -7,31 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
-	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
-
-func connectorFixture(t *testing.T) (QuerySession, map[string]string, string) {
-	t.Helper()
-	root := t.TempDir()
-	bin := filepath.Join(root, "bin")
-	if err := os.Mkdir(bin, 0700); err != nil {
-		t.Fatal(err)
-	}
-	for name, data := range map[string]string{"wecom-cli": "#!/bin/sh\nprintf ok\n", "launcher.cjs": "console.log('ok')\n", "wecom-cli.cmd": "@echo off\r\necho ok\r\n", "dbx": "binary fixture\x00"} {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte(data), 0700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	entries, err := connector.SnapshotCLIEntries("wecom", root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	session := QuerySession{AgentKey: "mounted", WorkspaceRoot: t.TempDir(), ConnectorDirs: map[string]string{"wecom": root}, ConnectorBinDirs: []string{bin}, ConnectorCLIEntries: entries}
-	return session, map[string]string{"PATH": bin + string(os.PathListSeparator) + os.Getenv("PATH")}, bin
-}
 
 func TestMountedConnectorAllOperationsAndAccessLevels(t *testing.T) {
 	session, vars, bin := connectorFixture(t)

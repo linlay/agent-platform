@@ -4,10 +4,10 @@ import (
 	"crypto/rand"
 	"strings"
 
-	"agent-platform/internal/accesspolicy"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
+	"agent-platform/internal/shellreview"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
@@ -42,7 +42,7 @@ type approvalRequest struct {
 	fileAccessPlan     *filetools.AccessPlan
 	fileWritePlan      *filetools.WritePlan
 	bashSecurityReview *bashsyntax.ReviewResult
-	bashAccessReview   *accesspolicy.BashPlan
+	bashAccessReview   *shellreview.BashPlan
 }
 
 func (s *llmRunStream) approvalRequestForInvocation(invocation *preparedToolInvocation) (approvalRequest, bool) {
@@ -121,7 +121,7 @@ func (s *llmRunStream) bashSecurityApprovalRequest(invocation *preparedToolInvoc
 	}
 }
 
-func (s *llmRunStream) bashAccessApprovalRequest(invocation *preparedToolInvocation, review accesspolicy.BashPlan) approvalRequest {
+func (s *llmRunStream) bashAccessApprovalRequest(invocation *preparedToolInvocation, review shellreview.BashPlan) approvalRequest {
 	return approvalRequest{
 		kind:             approvalKindBashAccess,
 		invocation:       invocation,
@@ -294,16 +294,16 @@ func (s *llmRunStream) tryResolveBashSecurityApprovalFastPath(request approvalRe
 	return false, nil
 }
 
-func (s *llmRunStream) tryResolveBashAccessApprovalFastPath(request approvalRequest, review accesspolicy.BashPlan, mode approvalFastPathMode) (bool, error) {
+func (s *llmRunStream) tryResolveBashAccessApprovalFastPath(request approvalRequest, review shellreview.BashPlan, mode approvalFastPathMode) (bool, error) {
 	if s.isRuleWhitelisted(review.RuleKey) {
 		s.applyHITLDecision(request.invocation, request.result, "", "approve_rule_run", "", true)
-		accesspolicy.RegisterRuleApproval(s.execCtx, review.RuleKey)
+		shellreview.RegisterRuleApproval(s.execCtx, review.RuleKey)
 		if mode == approvalFastPathExecuteNow {
 			return true, s.executeOriginalBash(request.invocation)
 		}
 		return true, nil
 	}
-	if accesspolicy.HasApproval(s.execCtx, review) {
+	if shellreview.HasApproval(s.execCtx, review) {
 		if mode == approvalFastPathExecuteNow {
 			return true, s.executeOriginalBash(request.invocation)
 		}

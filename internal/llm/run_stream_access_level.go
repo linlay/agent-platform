@@ -7,6 +7,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
+	"agent-platform/internal/shellreview"
 )
 
 func (s *llmRunStream) syncAccessLevelFromRunControl() bool {
@@ -65,7 +66,7 @@ func (s *llmRunStream) invocationNeedsAccessPolicyApproval(invocation *preparedT
 	if plan := s.lookupFileWritePlan(invocation); plan != nil && s.fileWritePlanNeedsApproval(*plan) && !filetools.HasWriteApproval(s.execCtx, *plan) {
 		return true
 	}
-	if review := s.lookupBashAccessReview(invocation); review.Decision == accesspolicy.DecisionRequiresApproval && !accesspolicy.HasApproval(s.execCtx, review) {
+	if review := s.lookupBashAccessReview(invocation); review.Decision == accesspolicy.DecisionRequiresApproval && !shellreview.HasApproval(s.execCtx, review) {
 		return true
 	}
 	return false

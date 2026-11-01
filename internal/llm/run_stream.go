@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"agent-platform/internal/accesspolicy"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
@@ -15,6 +14,7 @@ import (
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
 	. "agent-platform/internal/models"
+	"agent-platform/internal/shellreview"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
@@ -197,7 +197,7 @@ type preparedToolInvocation struct {
 	toolCallCounted          bool
 	precheckedHITL           *hitl.InterceptResult
 	bashSecurityReview       *bashsyntax.ReviewResult
-	bashAccessReview         *accesspolicy.BashPlan
+	bashAccessReview         *shellreview.BashPlan
 	shownApproval            *approvalRequest // immutable requirements displayed to the user
 	fileAccessPlan           *filetools.AccessPlan
 	fileWritePlan            *filetools.WritePlan

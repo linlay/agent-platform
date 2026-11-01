@@ -1,9 +1,10 @@
-package accesspolicy
+package shellreview
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
 
+	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/shellreview/types"
 )
 

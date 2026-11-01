@@ -1,4 +1,4 @@
-package accesspolicy
+package shellreview
 
 import (
 	"errors"
@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/builtins"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hostenv"
@@ -40,8 +41,11 @@ type BashExecution struct {
 // ordinaryCommands are recognized system programs whose effects shellreview/commands
 // models from their arguments; anything else is opaque execution.
 var ordinaryCommands = strings.Fields("ls cat head tail top free df git rg dbx httpx pdftotext find echo printf sed awk gawk grep wc sort uniq tr cut cd stat file du test which mkdir rmdir touch cp mv rm ln chmod date curl wget lsof pwd true false sleep uname whoami id basename dirname readlink realpath tee printenv jq tar diff Get-ChildItem Get-Content Remove-Item")
+
 var shellBuiltins = wordSet("echo printf pwd cd test true false type read export unset declare local typeset set shift break continue return :")
+
 var wrapperNames = wordSet("env command builtin nohup nice timeout stdbuf")
+
 var systemExecutables = captureSystemExecutables()
 
 func wordSet(words string) map[string]bool {
@@ -51,9 +55,11 @@ func wordSet(words string) map[string]bool {
 	}
 	return out
 }
+
 func commandFamily(name string) string {
 	return strings.TrimSuffix(strings.ToLower(filepath.Base(strings.ReplaceAll(name, "\\", "/"))), ".exe")
 }
+
 func captureSystemExecutables() map[string]string {
 	out := map[string]string{}
 	names := append(append([]string{}, ordinaryCommands...), strings.Fields("env nohup nice timeout stdbuf bash sh zsh dash ksh python python3 node ruby perl powershell pwsh cmd go npm npx yarn pnpm pip make")...)
@@ -72,7 +78,7 @@ func resolvedProgram(name, cwd string, variables map[string]string) string {
 		// npm publishes both a POSIX shim without an extension and a Windows
 		// cmd shim. Use Windows PATHEXT resolution, never the POSIX sibling.
 		if strings.ContainsAny(name, "/\\") && !filepath.IsAbs(name) {
-			name = resolveAgainstCwd(name, cwd)
+			name = ResolveAgainstCwd(name, cwd)
 		}
 		env := []string{"PATH=" + os.Getenv("PATH")}
 		for key, value := range variables {
@@ -86,7 +92,7 @@ func resolvedProgram(name, cwd string, variables map[string]string) string {
 		return ""
 	}
 	if strings.ContainsAny(name, "/\\") || filepath.IsAbs(name) {
-		return resolveAgainstCwd(name, cwd)
+		return ResolveAgainstCwd(name, cwd)
 	}
 	path := os.Getenv("PATH")
 	if value, ok := variables["PATH"]; ok {
@@ -258,13 +264,13 @@ func analyzeBashExecution(session QuerySession, cmd types.Invocation, cwd string
 				}
 			}
 			if x.Program == "" && strings.ContainsAny(name, "/\\") {
-				x.Program = resolveAgainstCwd(name, x.Cwd)
+				x.Program = ResolveAgainstCwd(name, x.Cwd)
 			}
 		} else {
 			x.Program = resolvedProgram(name, x.Cwd, vars)
 		}
 		if x.Program == "" && strings.ContainsAny(name, "/\\") {
-			x.Program = resolveAgainstCwd(name, x.Cwd)
+			x.Program = ResolveAgainstCwd(name, x.Cwd)
 		}
 		if x.Program != "" {
 			x.Identity = x.Program
@@ -480,7 +486,7 @@ func unwrapExecution(base string, args []string, cwd string, vars map[string]str
 			vars[name] = value
 		}
 		if chdir != "" {
-			cwd = resolveAgainstCwd(chdir, cwd)
+			cwd = ResolveAgainstCwd(chdir, cwd)
 		}
 		return command, cwd, true
 	}
@@ -515,7 +521,7 @@ func unwrapExecution(base string, args []string, cwd string, vars map[string]str
 					return nil, cwd, false
 				}
 				if a == "-C" || a == "--chdir" {
-					cwd = resolveAgainstCwd(args[i+1], cwd)
+					cwd = ResolveAgainstCwd(args[i+1], cwd)
 				} else {
 					vars[args[i+1]] = ""
 				}
@@ -523,7 +529,7 @@ func unwrapExecution(base string, args []string, cwd string, vars map[string]str
 				continue
 			}
 			if strings.HasPrefix(a, "--chdir=") {
-				cwd = resolveAgainstCwd(strings.TrimPrefix(a, "--chdir="), cwd)
+				cwd = ResolveAgainstCwd(strings.TrimPrefix(a, "--chdir="), cwd)
 				i++
 				continue
 			}

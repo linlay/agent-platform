@@ -1,10 +1,11 @@
-package accesspolicy
+package shellreview
 
 import (
 	"runtime"
 	"strings"
 	"testing"
 
+	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/shellreview/dialect"

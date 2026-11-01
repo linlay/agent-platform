@@ -1,5 +1,5 @@
-// Package syntax owns grammar-independent checks on the bytes shown for review.
-package syntax
+// Package commandtext owns grammar-independent checks on the bytes shown for review.
+package commandtext
 
 import (
 	"unicode"

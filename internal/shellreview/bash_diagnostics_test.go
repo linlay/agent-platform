@@ -1,4 +1,4 @@
-package accesspolicy
+package shellreview
 
 import (
 	"os"

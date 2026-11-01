@@ -1,4 +1,4 @@
-package accesspolicy
+package shellreview
 
 import (
 	"crypto/sha256"
@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
@@ -73,7 +74,7 @@ func connectorExecution(session QuerySession, x BashExecution, vars map[string]s
 		}
 		return ""
 	}
-	canonical, err := NormalizePath(resolveAgainstCwd(target, x.Cwd))
+	canonical, err := NormalizePath(ResolveAgainstCwd(target, x.Cwd))
 	if err != nil {
 		return ""
 	}

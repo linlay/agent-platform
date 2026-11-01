@@ -10,6 +10,7 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
+	"agent-platform/internal/shellreview"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
@@ -27,23 +28,23 @@ func (s *llmRunStream) lookupBashSecurityReview(invocation *preparedToolInvocati
 	return review
 }
 
-func (s *llmRunStream) lookupBashAccessReview(invocation *preparedToolInvocation) accesspolicy.BashPlan {
+func (s *llmRunStream) lookupBashAccessReview(invocation *preparedToolInvocation) shellreview.BashPlan {
 	if invocation == nil || !isBashTool(invocation.toolName) {
-		return accesspolicy.BashPlan{Decision: accesspolicy.DecisionAllow}
+		return shellreview.BashPlan{Decision: accesspolicy.DecisionAllow}
 	}
 	if s.engine == nil {
-		return accesspolicy.BashPlan{Decision: accesspolicy.DecisionAllow}
+		return shellreview.BashPlan{Decision: accesspolicy.DecisionAllow}
 	}
 	// File versions, wrappers and runtime environment can change while queued.
-	return accesspolicy.PendingBashPlan(s.execCtx, s.rawBashAccessReview(invocation))
+	return shellreview.PendingBashPlan(s.execCtx, s.rawBashAccessReview(invocation))
 }
 
-func (s *llmRunStream) rawBashAccessReview(invocation *preparedToolInvocation) accesspolicy.BashPlan {
+func (s *llmRunStream) rawBashAccessReview(invocation *preparedToolInvocation) shellreview.BashPlan {
 	if invocation == nil || !isBashTool(invocation.toolName) || s.engine == nil {
-		return accesspolicy.BashPlan{Decision: accesspolicy.DecisionAllow}
+		return shellreview.BashPlan{Decision: accesspolicy.DecisionAllow}
 	}
 	if reviewer, ok := s.engine.tools.(interface {
-		ReviewBashAccess(context.Context, map[string]any, *ExecutionContext, config.AccessPolicyConfig) accesspolicy.BashPlan
+		ReviewBashAccess(context.Context, map[string]any, *ExecutionContext, config.AccessPolicyConfig) shellreview.BashPlan
 	}); ok {
 		reviewCtx := s.execCtx
 		if reviewCtx != nil && !hasLocalFileRoots(reviewCtx.Session) {
@@ -62,7 +63,7 @@ func (s *llmRunStream) rawBashAccessReview(invocation *preparedToolInvocation) a
 	if s.engine != nil {
 		cfg = s.engine.cfg.AccessPolicy
 	}
-	return accesspolicy.ReviewBashCommand(cfg, s.fileAccessSession(), strings.TrimSpace(mapStringArg(invocation.args, "command")), cwd, variables, s.execCtx)
+	return shellreview.ReviewBashCommand(cfg, s.fileAccessSession(), strings.TrimSpace(mapStringArg(invocation.args, "command")), cwd, variables, s.execCtx)
 }
 
 func (s *llmRunStream) lookupFileWritePlan(invocation *preparedToolInvocation) *filetools.WritePlan {
@@ -370,7 +371,7 @@ func (s *llmRunStream) executeApprovedBashSecurityInvocation(invocation *prepare
 	}
 }
 
-func (s *llmRunStream) executeApprovedBashAccessInvocation(invocation *preparedToolInvocation, review accesspolicy.BashPlan) error {
+func (s *llmRunStream) executeApprovedBashAccessInvocation(invocation *preparedToolInvocation, review shellreview.BashPlan) error {
 	switch strings.ToLower(strings.TrimSpace(invocation.approvalDecision)) {
 	case "reject":
 		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))
@@ -388,17 +389,17 @@ func (s *llmRunStream) executeApprovedBashAccessInvocation(invocation *preparedT
 	}
 }
 
-func (s *llmRunStream) grantDisplayedBashAccess(decision string, review accesspolicy.BashPlan) {
+func (s *llmRunStream) grantDisplayedBashAccess(decision string, review shellreview.BashPlan) {
 	if !review.RequiresApproval() {
 		return
 	}
 	switch strings.ToLower(strings.TrimSpace(decision)) {
 	case "approve_rule_run":
-		for _, rule := range accesspolicy.ApprovalRules(review) {
+		for _, rule := range shellreview.ApprovalRules(review) {
 			s.registerRuleWhitelist(rule)
-			accesspolicy.RegisterRuleApproval(s.execCtx, rule)
+			shellreview.RegisterRuleApproval(s.execCtx, rule)
 		}
 	case "approve":
-		accesspolicy.RegisterExactApproval(s.execCtx, review.Fingerprint)
+		shellreview.RegisterExactApproval(s.execCtx, review.Fingerprint)
 	}
 }

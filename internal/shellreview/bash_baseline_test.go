@@ -1,15 +1,13 @@
-package accesspolicy
+package shellreview
 
 import (
-	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
+	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
-	"agent-platform/internal/pathutil"
 )
 
 // These normalized cases lock the observable baseline without storing hashes
@@ -40,33 +38,6 @@ func TestBashReviewPolicyBaseline(t *testing.T) {
 			t.Fatalf("fixed-fixture fingerprint is unstable: %s", tc.command)
 		}
 	}
-}
-
-// fakeSystemPrograms makes names resolve, through a private PATH, to recorded
-// system installations, so cases do not depend on what the host has installed.
-func fakeSystemPrograms(t *testing.T, names ...string) map[string]string {
-	t.Helper()
-	dir := t.TempDir()
-	for _, name := range names {
-		p := filepath.Join(dir, name)
-		if err := os.WriteFile(p, []byte("fake\n"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		c, err := pathutil.Canonicalize(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		old, had := systemExecutables[name]
-		systemExecutables[name] = c.Key
-		t.Cleanup(func() {
-			if had {
-				systemExecutables[name] = old
-			} else {
-				delete(systemExecutables, name)
-			}
-		})
-	}
-	return map[string]string{"PATH": dir}
 }
 
 // Unrecognized options and config sources outside argv must not inherit the

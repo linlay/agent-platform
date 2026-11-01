@@ -1,8 +1,9 @@
-package accesspolicy
+package shellreview
 
 import (
 	"strings"
 
+	. "agent-platform/internal/accesspolicy"
 	. "agent-platform/internal/contracts"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"agent-platform/internal/shellreview/types"
@@ -46,7 +47,7 @@ func DirectConnectorInvocation(session QuerySession, command, cwd string, vars m
 	if target == "" {
 		target = resolvedProgram(x.Argv[0], cwd, vars)
 	}
-	target, err = NormalizePath(resolveAgainstCwd(target, cwd))
+	target, err = NormalizePath(ResolveAgainstCwd(target, cwd))
 	if err != nil {
 		return nil
 	}

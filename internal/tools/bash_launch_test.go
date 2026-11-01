@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/runenv"
+	"agent-platform/internal/shellreview"
 )
 
 func TestUnsupportedHostShellNeedsExactHumanApprovalInAutoApprove(t *testing.T) {
@@ -41,7 +41,7 @@ func TestUnsupportedHostShellNeedsExactHumanApprovalInAutoApprove(t *testing.T) 
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatal("unapproved command executed")
 	}
-	accesspolicy.RegisterExactApproval(ctx, preflight.Fingerprint)
+	shellreview.RegisterExactApproval(ctx, preflight.Fingerprint)
 	// Changing run.env between approval and invocation must invalidate the grant.
 	if _, err := scope.Mutate(runenv.MutationRequest{Operation: runenv.OperationSet, Name: "REVIEW_VALUE", Value: "changed"}); err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestUnsupportedHostShellNeedsExactHumanApprovalInAutoApprove(t *testing.T) 
 		t.Fatal("changed-environment command executed")
 	}
 	fresh := executor.ReviewBashAccess(context.Background(), args, ctx, executor.cfg.AccessPolicy)
-	accesspolicy.RegisterExactApproval(ctx, fresh.Fingerprint)
+	shellreview.RegisterExactApproval(ctx, fresh.Fingerprint)
 	result, err = executor.invokeHostBash(context.Background(), args, ctx)
 	if err != nil || result.Error != "" || result.ExitCode != 0 {
 		t.Fatalf("approved invocation: %+v %v", result, err)
@@ -85,7 +85,7 @@ func TestSoftSecurityDoesNotAcceptCommandOnlyGrant(t *testing.T) {
 	ctx := bashExecutionContext(t.TempDir())
 	command := "printf ok | xargs printf"
 	// A command-only hash from before launch binding cannot approve a launch.
-	plain := accesspolicy.ReviewBashCommand(executor.cfg.AccessPolicy, ctx.Session, command, "", nil)
+	plain := shellreview.ReviewBashCommand(executor.cfg.AccessPolicy, ctx.Session, command, "", nil)
 	security := plain.SecurityReview(command, nil)
 	ctx.BashSecurityApprovals = map[string]int{security.Fingerprint: 1}
 	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": command}, ctx)
@@ -114,7 +114,7 @@ func TestHostLaunchConsumesCombinedApproval(t *testing.T) {
 	if !p.RequiresApproval() || len(p.Requirements) < 2 {
 		t.Fatalf("expected write and opaque execution requirements: %+v", p)
 	}
-	accesspolicy.RegisterExactApproval(ctx, accesspolicy.PendingBashPlan(ctx, p).Fingerprint)
+	shellreview.RegisterExactApproval(ctx, shellreview.PendingBashPlan(ctx, p).Fingerprint)
 	result, err := executor.invokeHostBash(context.Background(), args, ctx)
 	if err != nil || result.Error != "" || result.ExitCode != 0 {
 		t.Fatalf("combined approval did not survive final launch review: %+v %v", result, err)

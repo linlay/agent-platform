@@ -11,31 +11,32 @@ import (
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/shellreview"
 )
 
 // Protocol fixtures without a filesystem model simulate a tool backend, not
 // Host Bash. Fixtures that declare roots exercise the real access policy.
-func (r *recordingToolExecutor) ReviewBashAccess(_ context.Context, args map[string]any, ctx *ExecutionContext, cfg config.AccessPolicyConfig) accesspolicy.BashPlan {
+func (r *recordingToolExecutor) ReviewBashAccess(_ context.Context, args map[string]any, ctx *ExecutionContext, cfg config.AccessPolicyConfig) shellreview.BashPlan {
 	if ctx == nil || !hasLocalFileRoots(ctx.Session) {
-		return accesspolicy.BashPlan{Decision: accesspolicy.DecisionAllow}
+		return shellreview.BashPlan{Decision: accesspolicy.DecisionAllow}
 	}
-	var environment *accesspolicy.BashEnvironment
+	var environment *shellreview.BashEnvironment
 	if ctx.Session.AgentHasRuntimeSandbox {
-		environment = &accesspolicy.BashEnvironment{Resolve: func(name, cwd string, env map[string]string) (string, error) {
+		environment = &shellreview.BashEnvironment{Resolve: func(name, cwd string, env map[string]string) (string, error) {
 			if strings.Contains(name, "/") {
 				return name, nil
 			}
 			return "/usr/bin/" + name, nil
 		}}
 	}
-	return accesspolicy.ReviewBashCommandInEnvironment(cfg, ctx.Session, mapStringArg(args, "command"), mapStringArg(args, "cwd"), ctx.StaticRuntimeEnv, environment, ctx)
+	return shellreview.ReviewBashCommandInEnvironment(cfg, ctx.Session, mapStringArg(args, "command"), mapStringArg(args, "cwd"), ctx.StaticRuntimeEnv, environment, ctx)
 }
 
-func (stubToolExecutor) ReviewBashAccess(ctx context.Context, args map[string]any, execution *ExecutionContext, cfg config.AccessPolicyConfig) accesspolicy.BashPlan {
+func (stubToolExecutor) ReviewBashAccess(ctx context.Context, args map[string]any, execution *ExecutionContext, cfg config.AccessPolicyConfig) shellreview.BashPlan {
 	return (&recordingToolExecutor{}).ReviewBashAccess(ctx, args, execution, cfg)
 }
 
-func (*streamingOutputToolExecutor) ReviewBashAccess(ctx context.Context, args map[string]any, execution *ExecutionContext, cfg config.AccessPolicyConfig) accesspolicy.BashPlan {
+func (*streamingOutputToolExecutor) ReviewBashAccess(ctx context.Context, args map[string]any, execution *ExecutionContext, cfg config.AccessPolicyConfig) shellreview.BashPlan {
 	return (&recordingToolExecutor{}).ReviewBashAccess(ctx, args, execution, cfg)
 }
 
@@ -83,7 +84,7 @@ func TestDisplayedScriptApprovalCannotGrantChangedContent(t *testing.T) {
 		t.Fatal("shown snapshot replaced with new requirements")
 	}
 	stream.grantDisplayedBashAccess("approve", *request.bashAccessReview)
-	if accesspolicy.HasApproval(ctx, stream.rawBashAccessReview(invocation)) {
+	if shellreview.HasApproval(ctx, stream.rawBashAccessReview(invocation)) {
 		t.Fatal("old exact approval authorized changed script")
 	}
 }
@@ -127,7 +128,7 @@ func TestBashApprovalDescriptionDoesNotAppendPolicyReasons(t *testing.T) {
 					"options":       buildApprovalOptions(),
 					"allowFreeText": true,
 					"ruleKey":       request.result.Rule.RuleKey,
-					"policy":        accesspolicy.BashPlanMetadata(*request.bashAccessReview),
+					"policy":        shellreview.BashPlanMetadata(*request.bashAccessReview),
 				}
 				if request.bashSecurityReview != nil {
 					want["requirements"] = []any{map[string]any{"ruleKey": request.bashSecurityReview.RuleKey, "reason": request.bashSecurityReview.Reason}}
@@ -135,7 +136,7 @@ func TestBashApprovalDescriptionDoesNotAppendPolicyReasons(t *testing.T) {
 				if item := stream.buildApprovalAskItem(invocation); !reflect.DeepEqual(item, want) {
 					t.Fatalf("approval item changed command/description or added policy notes: got %#v, want %#v", item, want)
 				}
-				if accesspolicy.HasApproval(ctx, *request.bashAccessReview) {
+				if shellreview.HasApproval(ctx, *request.bashAccessReview) {
 					t.Fatal("building the approval item must not authorize execution")
 				}
 			})

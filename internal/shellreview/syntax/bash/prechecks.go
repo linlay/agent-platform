@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"agent-platform/internal/shellreview/syntax"
+	"agent-platform/internal/commandtext"
 
 	shsyntax "mvdan.cc/sh/v3/syntax"
 )
@@ -42,12 +42,12 @@ func runPrechecks(command string) (bool, string) {
 // Nested command substitutions have their own quoting context. Heredoc bodies
 // and comments remain unquoted text; malformed syntax gets no quote exemption.
 func CheckRawText(command string) string {
-	if reason := syntax.CheckText(command); reason != "" {
+	if reason := commandtext.CheckText(command); reason != "" {
 		return reason
 	}
 	// Ordinary commands need no extra parse. Only literal hidden characters
 	// require determining which source spans are quoted data.
-	hidden := syntax.CheckHidden(command)
+	hidden := commandtext.CheckHidden(command)
 	if hidden == "" {
 		return ""
 	}
@@ -86,7 +86,7 @@ func CheckRawText(command string) string {
 		parents = append(parents, previous)
 		return true
 	})
-	return syntax.CheckHidden(string(unquoted))
+	return commandtext.CheckHidden(string(unquoted))
 }
 
 func hasBackslashEscapedWhitespace(command string) bool {
@@ -116,7 +116,7 @@ func hasBackslashEscapedWhitespace(command string) bool {
 
 func IsHardBlockReason(reason string) bool {
 	reason = strings.TrimSpace(reason)
-	if syntax.IsTextRejection(reason) {
+	if commandtext.IsTextRejection(reason) {
 		return true
 	}
 	switch reason {

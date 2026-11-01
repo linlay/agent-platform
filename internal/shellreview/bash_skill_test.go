@@ -1,4 +1,4 @@
-package accesspolicy
+package shellreview
 
 import (
 	"crypto/sha256"
@@ -13,21 +13,6 @@ import (
 	"agent-platform/internal/skillsexec"
 )
 
-func skillFixture(t *testing.T) (*ExecutionContext, string) {
-	t.Helper()
-	ctx, _ := authoredFixture(t)
-	ctx.AuthoredScripts = nil
-	root := filepath.Join(ctx.Session.WorkspaceRoot, "selected")
-	if err := os.MkdirAll(filepath.Join(root, "scripts"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	file := filepath.Join(root, "scripts", "task.sh")
-	if err := os.WriteFile(file, []byte("#!/bin/sh\necho skill\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	ctx.Session.SkillScripts = skillsexec.New(ctx.ScriptOwner(), []skillsexec.Root{{Host: root}})
-	return ctx, file
-}
 func TestSkillExecutionFormsAndLevels(t *testing.T) {
 	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		for _, form := range []string{"sh selected/scripts/task.sh", "bash selected/scripts/task.sh", "./selected/scripts/task.sh", "env sh selected/scripts/task.sh"} {
@@ -75,6 +60,7 @@ func TestSkillDoesNotGrantOtherRequirements(t *testing.T) {
 		t.Fatalf("cross-run grant: %+v", p)
 	}
 }
+
 func TestSkillContainerUsesActualMappingAndDigest(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix shell fixture")

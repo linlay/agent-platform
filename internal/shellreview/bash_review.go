@@ -1,4 +1,4 @@
-package accesspolicy
+package shellreview
 
 import (
 	"crypto/sha256"
@@ -9,10 +9,11 @@ import (
 	"sort"
 	"strings"
 
+	. "agent-platform/internal/accesspolicy"
+	"agent-platform/internal/commandtext"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/shellreview/commands"
-	shellsyntax "agent-platform/internal/shellreview/syntax"
 	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"agent-platform/internal/shellreview/types"
 	"agent-platform/internal/shellreview/unwrap"
@@ -24,7 +25,7 @@ const maxShellScriptDepth = 3
 func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, command, cwd string, variables map[string]string, environment *BashEnvironment, contexts ...*ExecutionContext) BashPlan {
 	unknownDialect := environment != nil && environment.Launch != nil && !environment.Launch.SyntaxSupported
 	if reason := rawTextRejection(command, unknownDialect); reason != "" {
-		p := bashPlan(command, sessionAccessLevel(session), DecisionBlock, reason, "bash-access:text", command)
+		p := bashPlan(command, SessionAccessLevel(session), DecisionBlock, reason, "bash-access:text", command)
 		p.UnknownDialect = unknownDialect
 		return p
 	}
@@ -44,7 +45,7 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 // unsupported grammar cannot tell quoting apart, so every character counts.
 func rawTextRejection(command string, unknownDialect bool) string {
 	if unknownDialect {
-		return shellsyntax.CheckAll(command)
+		return commandtext.CheckAll(command)
 	}
 	return bashsyntax.CheckRawText(command)
 }
@@ -52,14 +53,14 @@ func rawTextRejection(command string, unknownDialect bool) string {
 // DefaultBashCwd is the working directory used when a Bash call names none.
 // A read-only Workspace starts programs in the current Chat instead.
 func DefaultBashCwd(session QuerySession) string {
-	if sessionWorkspaceEditingDisabled(session) {
+	if SessionWorkspaceEditingDisabled(session) {
 		return "@chat"
 	}
 	return "@workspace"
 }
 
 func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, command, cwd string, variables map[string]string, environment *BashEnvironment, execCtx *ExecutionContext, depth int) BashPlan {
-	accessLevel := sessionAccessLevel(session)
+	accessLevel := SessionAccessLevel(session)
 	level := EffectiveLevel(cfg, accessLevel)
 	command = strings.TrimSpace(command)
 	if command == "" {
@@ -97,7 +98,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 		switch {
 		case p.Blocked():
 			reason = "bash path blocked: " + p.Reason + ": " + p.Path
-		case p.RequiresApproval() && p.Reason != outsideRootsReason(mode):
+		case p.RequiresApproval() && p.Reason != OutsideRootsReason(mode):
 			reason = "bash path requires approval: " + p.Reason + ": " + p.Path
 		}
 		add(reviewBashPathPlan(command, accessLevel, level, mode, p, reason))
@@ -114,7 +115,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 			add(bashPlanForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "container working directory cannot be resolved", "bash-access:complex"))
 		}
 	}
-	editingDisabled := sessionWorkspaceEditingDisabled(session)
+	editingDisabled := SessionWorkspaceEditingDisabled(session)
 	if environment != nil && environment.Launch != nil && !environment.Launch.SyntaxSupported &&
 		DirectConnectorInvocation(session, command, workingDir, variables) == nil {
 		pathReview(ReadAccess, workingDir)
@@ -123,7 +124,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 		}
 		// Missing grammar support is always an exact human decision in the two
 		// restricted levels; auto_approve must not hide unknown remote/destructive effects.
-		decision := decisionForAction(level.Approvals.BashComplexFilesystem)
+		decision := DecisionForAction(level.Approvals.BashComplexFilesystem)
 		if decision != DecisionBlock && accessLevel != AccessLevelFullAccess {
 			decision = DecisionRequiresApproval
 		}
@@ -177,7 +178,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 					pathReview(ReadAccess, x.Program)
 				}
 				if x.Script != "" {
-					pathReview(ReadAccess, resolveAgainstCwd(x.Script, x.Cwd))
+					pathReview(ReadAccess, ResolveAgainstCwd(x.Script, x.Cwd))
 				}
 			}
 			switch {
@@ -199,21 +200,21 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 					break
 				}
 				executes = true
-				if decisionForAction(level.Approvals.BashOpaqueCommand) == DecisionBlock {
+				if DecisionForAction(level.Approvals.BashOpaqueCommand) == DecisionBlock {
 					add(opaqueBashPlan(command, accessLevel, level.Approvals.BashOpaqueCommand, x.Identity, x.Cwd))
 				}
 				switch {
-				case x.Script != "" && execCtx != nil && skillExecutionMatches(session, execCtx, resolveAgainstCwd(x.Script, x.Cwd), environment):
+				case x.Script != "" && execCtx != nil && skillExecutionMatches(session, execCtx, ResolveAgainstCwd(x.Script, x.Cwd), environment):
 					add(bashPlan(command, accessLevel, DecisionAllow, "script matches this run's selected skill", "bash-access:skill-script", x.Script))
 				case authoredScriptExempt(session, execCtx, x, environment):
-					add(bashPlan(command, accessLevel, DecisionAllow, "script was written by this run in the current Chat directory", "bash-access:authored-script", resolveAgainstCwd(x.Script, x.Cwd)))
+					add(bashPlan(command, accessLevel, DecisionAllow, "script was written by this run in the current Chat directory", "bash-access:authored-script", ResolveAgainstCwd(x.Script, x.Cwd)))
 				default:
 					add(opaquePlan(x))
 				}
 				// Opaque code is separately approved, but visible arguments still
 				// cannot silently acquire outside write access in auto_approve.
 				for _, arg := range opaquePathArguments(x) {
-					target := resolveAgainstCwd(arg, x.Cwd)
+					target := ResolveAgainstCwd(arg, x.Cwd)
 					pathReview(WriteAccess, target)
 					// A program handed a tree that contains platform secrets, other Chats or
 					// readonly roots cannot be shown to stay out of them; approval must not
@@ -243,7 +244,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 					if file.Write {
 						mode = WriteAccess
 					}
-					raw := resolveAgainstCwd(file.Path, x.Cwd)
+					raw := ResolveAgainstCwd(file.Path, x.Cwd)
 					if i == 0 && commandFamily(x.Argv[0]) == "git" && len(x.Argv) > 1 && strings.HasPrefix(x.Argv[1], "-C") {
 						repoDir = raw
 					}
@@ -303,13 +304,13 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 					mode = WriteAccess
 				}
 				// The invoking shell opens redirects before a wrapper changes cwd.
-				pathReview(mode, resolveAgainstCwd(redirect.Target, candidateCwd))
+				pathReview(mode, ResolveAgainstCwd(redirect.Target, candidateCwd))
 			}
 			// Keep both success and failure branches. This deliberately over-approximates
 			// conditionals/pipelines rather than authorizing a target under the old cwd.
 			if len(x.Argv) > 0 && commandFamily(x.Argv[0]) == "cd" && len(parsed.Commands) > 1 {
 				if len(x.Argv) == 2 && !strings.HasPrefix(x.Argv[1], "-") && !containsUnresolvedPlaceholder(x.Argv[1]) && len(possibleCwds) < 8 && variables["CDPATH"] == "" {
-					possibleCwds = append(possibleCwds, resolveAgainstCwd(x.Argv[1], x.Cwd))
+					possibleCwds = append(possibleCwds, ResolveAgainstCwd(x.Argv[1], x.Cwd))
 				} else {
 					add(bashPlanForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "compound command changes cwd dynamically", "bash-access:complex"))
 				}
@@ -345,7 +346,7 @@ const workspaceReadOnlyExecutionReason = "workspace editing is disabled: program
 // the same command text in the same working directory.
 func actionPlan(command, accessLevel, action, reason, rule, cwd string) BashPlan {
 	sum := sha256.Sum256([]byte(command + "\x00" + cwd))
-	return bashPlan(command, accessLevel, decisionForAction(action), reason, rule+":"+hex.EncodeToString(sum[:8]), command+"\x00"+cwd)
+	return bashPlan(command, accessLevel, DecisionForAction(action), reason, rule+":"+hex.EncodeToString(sum[:8]), command+"\x00"+cwd)
 }
 
 // authoredScriptExempt accepts a script that this Run wrote through the managed
@@ -358,7 +359,7 @@ func authoredScriptExempt(session QuerySession, ctx *ExecutionContext, x BashExe
 	if !x.TrustedInterpreter && !isInterpreter(x.Identity) {
 		return false
 	}
-	target := resolveAgainstCwd(x.Script, x.Cwd)
+	target := ResolveAgainstCwd(x.Script, x.Cwd)
 	host, ok := executableHostPath(session, target)
 	if !ok || !PathInSessionChat(session, host) {
 		return false

@@ -1,4 +1,4 @@
-package accesspolicy
+package shellreview
 
 import (
 	"flag"
@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	. "agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 )

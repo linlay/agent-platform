@@ -11,11 +11,11 @@ import (
 	"sort"
 	"strings"
 
+	"agent-platform/internal/commandtext"
 	"agent-platform/internal/config"
 	"agent-platform/internal/hostenv"
 	"agent-platform/internal/pathutil"
 	"agent-platform/internal/shellreview/dialect"
-	shellsyntax "agent-platform/internal/shellreview/syntax"
 	"agent-platform/internal/shellreview/types"
 )
 
@@ -108,11 +108,11 @@ func ResolveTool(cfg config.BashConfig, opts Options) (LaunchSpec, error) {
 // Hidden characters in the command depend on the grammar and are judged by
 // access policy; the configured shell and template have no quoting.
 func resolveTool(cfg config.BashConfig, opts Options, systemShells map[string]string) (LaunchSpec, error) {
-	if reason := shellsyntax.CheckText(opts.Command); reason != "" {
+	if reason := commandtext.CheckText(opts.Command); reason != "" {
 		return LaunchSpec{}, fmt.Errorf("shell_text_rejected: %s", reason)
 	}
 	for _, arg := range append([]string{cfg.ShellExecutable}, cfg.ShellArgs...) {
-		if reason := shellsyntax.CheckAll(arg); reason != "" {
+		if reason := commandtext.CheckAll(arg); reason != "" {
 			return LaunchSpec{}, fmt.Errorf("shell_text_rejected: %s", reason)
 		}
 	}
@@ -130,7 +130,7 @@ func resolveTool(cfg config.BashConfig, opts Options, systemShells map[string]st
 	if err != nil {
 		return LaunchSpec{}, fmt.Errorf("shell_unavailable: %w", err)
 	}
-	if reason := shellsyntax.CheckAll(program); reason != "" {
+	if reason := commandtext.CheckAll(program); reason != "" {
 		return LaunchSpec{}, fmt.Errorf("shell_text_rejected: %s", reason)
 	}
 	content, err := toolFileFingerprint(program)
