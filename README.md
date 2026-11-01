@@ -332,6 +332,8 @@ make docker-up
 - 宿主机 runtime 根目录来自 `${AP_RUNTIME_DIR:-./runtime}`
 - `AP_RUNTIME_REGISTRIES_DIR`、`AP_RUNTIME_CHATS_DIR`、`AP_RUNTIME_MEMORY_DIR`、`AP_RUNTIME_PAN_DIR`、`AP_RUNTIME_STATE_DIR` 可单独覆盖宿主机 bind source；未配置时自然落在 `${AP_RUNTIME_DIR}` 下
 - 容器内 runtime 根目录固定为 `/opt/runtime`，应用通过 `AP_RUNTIME_DIR=/opt/runtime` 解析子目录
+- `./workspaces` 持久挂载到 `/opt/workspaces`，与 runtime 分开保存；启动前创建两个目录并确保 UID/GID 10001 可写
+- 镜像默认 HOME 为 `/home/agent`；Compose 在该路径挂载用户私有 tmpfs，重启后清空；`/opt` 保持 root 所有且不可写
 - `./configs` 只读挂载到 `/opt/configs`
 
 Container Hub 使用严格双根协议，基础挂载包括：

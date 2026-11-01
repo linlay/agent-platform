@@ -92,7 +92,6 @@ chmod -R a+rX "$smoke_configs"
 docker run -d --name "$smoke_name" --platform "$PLATFORM" \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   --tmpfs /tmp:exec,mode=1777 --tmpfs /home/agent:exec,uid=10001,gid=10001,mode=0700 \
-  -e HOME=/home/agent \
   -v "$smoke_configs:/opt/configs:ro" -v "$smoke_name:/opt/runtime" \
   "$reference" --webapp-host=compose >/dev/null
 health=starting
@@ -112,6 +111,9 @@ fi
 docker exec "$smoke_name" sh -c '
   set -e
   [ "$(id -u)" = 10001 ]
+  [ "$HOME" = /home/agent ]
+  [ -w "$HOME" ]
+  [ "$(stat -c %u:%g:%a "$HOME")" = 10001:10001:700 ]
   /opt/bin/rg --version >/dev/null
   /opt/bin/kbx --version >/dev/null
   /opt/bin/pdftotext -v >/dev/null 2>&1

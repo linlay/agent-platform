@@ -45,6 +45,9 @@ services:
         source: ${AP_RUNTIME_DIR:-./runtime}
         target: /opt/runtime
       - type: bind
+        source: ./workspaces
+        target: /opt/workspaces
+      - type: bind
         source: ${AP_RUNTIME_REGISTRIES_DIR:-${AP_RUNTIME_DIR:-./runtime}/registries}
         target: /opt/runtime/registries
       - type: bind

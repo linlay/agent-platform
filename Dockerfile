@@ -64,8 +64,9 @@ ARG TARGETARCH
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates libstdc++6 && \
     rm -rf /var/lib/apt/lists/* && \
-    mkdir -p /opt/backend /opt/bin /opt/configs /opt/runtime /opt/workspaces && \
-    chown 10001:10001 /opt/runtime /opt/workspaces
+    mkdir -p /opt/backend /opt/bin /opt/configs /opt/runtime /opt/workspaces /home/agent && \
+    chown 10001:10001 /opt/runtime /opt/workspaces /home/agent && \
+    chmod 0700 /home/agent
 
 WORKDIR /opt
 
@@ -80,7 +81,7 @@ COPY --from=webapp-build --chown=0:0 /out/libexec/ /opt/libexec/
 RUN chown root:root /opt /opt/node /opt/node/bin /opt/libexec && \
     chmod 0755 /opt /opt/node /opt/node/bin /opt/libexec
 
-ENV HOME=/opt \
+ENV HOME=/home/agent \
     SERVER_PORT=8080 \
     AP_RUNTIME_DIR=/opt/runtime
 

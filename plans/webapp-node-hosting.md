@@ -45,9 +45,9 @@
 
 ### 2.1 当前实现依据
 
-- `Dockerfile`：Go 主程序仍为 `CGO_ENABLED=0`，Debian 运行层没有 Node；当前对 `/opt` 整树 chown 给 UID 10001。
+- `Dockerfile`：Go 主程序仍为 `CGO_ENABLED=0`，独立构建阶段已锁定 Node 24 精确版本与摘要并编译探测 helper；运行层包含受管制品但不带 npm。`/opt`、Node/helper 及父目录保持 root 所有，数据目录与 `/home/agent` 对 UID 10001 授权，默认 HOME 为 `/home/agent`。
 - `scripts/release-assets/image/compose.yml`：`init: true`、UID 10001、只读根文件系统、`cap_drop: ALL`、`no-new-privileges`；仅映射 8080；runtime/workspaces 可写，configs 只读；限制整个容器的内存、CPU、pids。
-- 根目录 `compose.yml` 是另一份开发模板，加固与停止宽限期不同，不能把正式模板的保证套到开发模板上。
+- 根目录 `compose.yml` 已补齐相同的加固与 45 秒停止宽限期，显式选择 Compose 宿主；`./workspaces` 持久挂载到 `/opt/workspaces`。两份模板均用私有 tmpfs 提供 `/home/agent`，WebApp 配置仍默认关闭。
 - `internal/config/config.go`、`cmd/agent-platform/main.go`：RuntimeMode 只有 standalone/desktop。`resolvedRuntimeDescription` 基于路径的 compose/container 描述只是日志文案，不能用作功能准入。
 - 当前没有 WebApp 长驻进程服务和应用反向代理。Container Hub 是 Agent 执行环境，不承担这里的 WebApp 宿主职责。
 - `internal/accesspolicy/protected.go` 的工具路径限制不是 OS 沙箱，无法约束直接启动的 Node。
@@ -57,7 +57,7 @@
 
 Desktop 参照文件位于相邻 `zenmind-desktop`：
 
-- `src/shared/webapp-manifest.ts`：Manifest v2、`webapp-` 加 16 位小写十六进制 ID；`frontend.routeConfig.backendPrefixes`；Node 命令为 `backend.command.type: electron-node`。当前 target 未包含 Linux。
+- `src/shared/webapp-manifest.ts`：Manifest v2、`webapp-` 加 16 位小写十六进制 ID；`frontend.routeConfig.backendPrefixes`；Node 命令为 `backend.command.type: electron-node`。共享契约已包含 `linux-x64`；Desktop 安装仍拒绝 Linux 包，不新增 Linux Desktop 宿主。
 - `src/main/modules/webs/webapps/launchers.ts`：结构化 argv、环境白名单、HOST/PORT、`WEBAPP_*` 和 `DESKTOP_ACTION_BRIDGE_*` 注入。
 - 同目录 `runtime-health.ts`、`runtime-process.ts`、`gateway.ts`：健康、进程组停止、静态与后端分发。
 - 同目录 `bridge-module.ts`：绝对路径 `/__desktop/*`；普通 action fetch 当前使用 `credentials: "omit"`，云端 Cookie 鉴权需要宿主提供适配后的 bridge。
@@ -117,7 +117,7 @@ WebApp 生命周期不属于 Agent Run，不按 GENERAL/CODER/KBASE/TEAM/EXECUTO
 
 ### 4.1 显式部署选择
 
-拟新增启动选项 `--webapp-host=disabled|compose`，默认 disabled。两份 Compose 模板显式传入 `--webapp-host=compose`；它独立于现有 `--runtime-mode`，不得由业务请求、YAML 或进程环境自动猜测。
+已实现启动选项 `--webapp-host=disabled|compose`，默认 disabled。两份 Compose 模板显式传入 `--webapp-host=compose`；它独立于现有 `--runtime-mode`，不得由业务请求、YAML 或进程环境自动猜测。
 
 这是部署契约，不是防伪证明：有权修改启动命令的部署管理员仍能手工传相同参数。本项目只支持和验收 Compose 链路，不试图从容器内部证明启动者确实是 Compose。
 
@@ -139,11 +139,11 @@ Node 后端：
 
 未开启时，不创建 WebApp 目录，不开启监听/恢复任务，不注册可用的托管管理入口。非 Linux、Desktop 或缺少 Compose 启动选择时强行配置 `enabled: true`，启动时报告明确配置错误。
 
-合法部署中 Node/内核运行条件不满足时，Platform 和静态应用继续提供服务，托管状态显示 `backendAvailable: false` 及诊断；已有 Node 应用标为 `blocked`，启动返回 503。禁止降级为不受限制的 Node。
+当前实现只提供配置准入和前置诊断：`backendPrerequisitesReady` 表示后端前提，`hostingAvailable` 仍固定为 false。后续托管实现中，Node/内核运行条件不满足时，Platform 和静态应用继续提供服务，已有 Node 应用标为 `blocked`，启动返回 503。禁止降级为不受限制的 Node。
 
 ### 4.2 配置归属
 
-以下是拟新增结构，不是当前代码已支持的配置；默认值在实现时进入 `internal/config` 与模板共同维护：
+以下配置已由 `internal/config/config_webapps.go` 和 `configs/runtime.example.yml` 支持并严格校验；目前用于部署准入及探测，安装、网关和生命周期尚未实现：
 
 ```yaml
 webapps:
@@ -152,6 +152,9 @@ webapps:
   content-domain: apps.example.net
   instance-slug: demo
   max-running: 4
+  max-archive-mib: 100
+  max-extracted-mib: 512
+  max-files: 20000
   backend:
     port-start: 20000
     port-end: 20127
@@ -168,7 +171,7 @@ webapps:
     max-files: 3
 ```
 
-安装包大小、解压后大小及文件数也设置服务端上限，并与 nginx 上传上限对齐。示例首版采用压缩包 100 MiB、解压 512 MiB、最多 20,000 个文件；最终默认进入同一配置事实源。
+安装包默认限额已进入同一配置事实源：压缩包 100 MiB、解压 512 MiB、最多 20,000 个文件。后续安装器必须执行这些限额，并与 nginx 上传上限对齐；当前配置检查不代表已经实现解包限制。
 
 Node 与 supervisor 路径固定于镜像受管目录，不能由 Manifest 选择任意解释器。WebApp 持久目录从 RuntimeDir 派生，不使用 StateDir；不增加 YAML `paths`，不增加任意 WebApp 目录环境变量。nginx 的域名、证书与路由属于部署配置，凭据不进入示例或应用包。
 
@@ -191,7 +194,7 @@ Node 与 supervisor 路径固定于镜像受管目录，不能由 Manifest 选�
 | --- | --- |
 | schemaVersion、id/key/label/version | 沿用 v2 和现有 ID 规则 |
 | `target: any` | 允许静态或完全不含平台依赖的纯 JS 包 |
-| `target: linux-x64` | 新增枚举；仅当前 linux/amd64 镜像接受 |
+| `target: linux-x64` | 共享契约已包含；后续 Compose 安装器仅在 linux/amd64 接受，Desktop 仍拒绝安装 |
 | 其他 Desktop target | Platform 明确拒绝；不修改包内 target 冒充兼容 |
 | frontend | 沿用 root/index、routeConfig.backendPrefixes/navigationFallback |
 | `backend.command.type: electron-node` | 兼容为“宿主 Node 脚本”，Compose 映射到受管 Node；不设置 ELECTRON_RUN_AS_NODE |
@@ -609,3 +612,24 @@ singapore02 已在正式加固参数的原生 amd64 容器中验证 ABI4 核心�
 通过指定代理从本机复核 HTTPS 新首页 main.d5c367b5.js、healthz 200 和无认证 API 401；前后端容器无重启。发布包保存在 /docker/.releases/agent-platform/v0.5.31-6fdf03c3，回滚入口为 /docker/.backups/zenmind-node-20261031-f3934349/rollback.sh。具体部署路径与边界见 docs/WebApp托管.md。
 
 这次远端交付仍是带 Node 的前置基础版本；webapps.enabled 保持 false。应用 ZIP 安装、前后端网关、SDK、Node 生命周期及其生产业务验收尚未完成，不将基础镜像上线视为整份方案交付。
+
+## 21. 小批次推进与批次 0 收尾（2026-11-01）
+
+按下列边界独立实施、审核和提交；不将阶段一前置探测或共享契约视为应用托管交付。
+
+| 批次 | 范围 | 当前状态／完成门 |
+| --- | --- | --- |
+| 0 | 部署模板、HOME、文档修正及 Linux Manifest fixture | 源码及定向回归完成；完整镜像构建仍待验证，见下文 |
+| 1 | 上传、预检、安装、停止状态更新、卸载、journal 恢复及对应 owner API | 待实施；首次安装 stopped，暂拒绝更新 running 应用 |
+| 2 | 静态网关、票据/session/CSRF、静态启停及最小 WebClient 管理入口 | 待实施；owner 可安装并打开私有静态应用 |
+| 3 | supervisor 启动受限 Node、端口、启动健康、HTTP/WS/SSE、日志及停止 | 待实施；参考应用可启动、访问和停止，隔离失败拒绝执行 |
+| 4 | 持续健康、退避、后代清理、异常与 Compose 恢复、运行中更新和回退 | 待实施；后端全生命周期闭环 |
+| 5 | 云端 SDK transport、配置、应用授权、token 与连接器适配 | 待实施；真实调用与撤权取消、管理身份隔离通过 |
+| 6 | assistant、skill、artifact 的资源归属、流式与取消 | 待实施；承诺 action 的真实服务集成通过 |
+| 7 | DNS/TLS/nginx、升级回滚与故障演练及第 15 节完整验收 | 待实施；目标环境验收后再更新完整交付描述 |
+
+批次 0 已修正开发 Compose 的 `/opt/workspaces` 持久挂载，补充本地目录忽略和准备说明；镜像默认 HOME 改为独立 UID10001 私有目录，两份 Compose 的 HOME tmpfs 和 `/opt` root 只读边界保持一致。发布 smoke 不再用环境覆盖掩盖镜像默认 HOME，并增加 HOME 可写性和所有权/权限检查。第 2.1、4 节已与现有源码对齐，DEPLOY 的 WebApp 前置诊断归入运行方式。
+
+Desktop 从权威源码生成含 Linux 目标的 schema/validator；共享完整输入样例位于 [manifest-v2.json](../../zenmind-desktop/contracts/webapp/fixtures/manifest-v2.json)，覆盖 22 个合法/非法案例。样例的 valid 只表示 Manifest 语法，不表示包内文件或某宿主已支持；Go 安装器尚未实现，批次 1 再消费相同样例。builder 同步目标枚举、纯 JS 离线 bundle 及未交付边界，不维护第二套 schema。macOS/Windows 的平台匹配与实际 Linux ZIP 拒绝导入均有回归覆盖。
+
+本轮验证：Desktop 相关测试共 63 项通过，Main 与 renderer 类型检查、生成契约和架构检查通过；Platform 配置/探测包及 owner/Host 定向测试通过；两份 Compose 展开后的 workspace 挂载、HOME tmpfs 和加固检查通过，发布脚本语法通过。完整镜像构建在解析 Dockerfile frontend 时因 Docker Hub `auth.docker.io` token 请求超时失败，未进入镜像编译，不记为构建通过；未重新执行生产部署或原生 Linux/macOS/Windows 实机验收。

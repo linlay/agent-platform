@@ -4,6 +4,8 @@
 
 完整设计见 [Linux Docker Compose WebApp 托管方案](../plans/webapp-node-hosting.md)。当前落地的是前置基础：部署选择、严格配置、owner/Host 边界、镜像中的 Node 构建定义，以及 Linux 隔离能力探测。安装、静态/Node 网关、应用 SDK 和进程生命周期还未实现。
 
+共享 Manifest 已补齐 Linux 目标及合法/非法输入 fixture，builder 同步离线纯 JS 包约束；Desktop 仍拒绝安装 Linux 目标包。Platform 的 Go 安装器后续接入同一 fixture，契约可读不表示当前已能安装或运行应用。小批次边界与本轮验证限制见计划第 21 节。
+
 该能力只针对 Linux Compose。Desktop 继续使用 Electron 原有宿主；macOS、Windows 本机及 Linux 裸机运行 Platform 不自动启用，也不从 PATH 查找 Node。
 
 ## 开关与配置
