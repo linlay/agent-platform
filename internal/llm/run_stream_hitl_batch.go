@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"agent-platform/internal/shellreview"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -10,7 +11,6 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
 	shellplan "agent-platform/internal/shellreview/plan"
-	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
 func (s *llmRunStream) executeApprovedBashInvocation(invocation *preparedToolInvocation, result hitl.InterceptResult) error {
@@ -127,9 +127,9 @@ func (s *llmRunStream) queuedBashApprovalCandidate(invocation *preparedToolInvoc
 	if invocation == nil || !isBashTool(invocation.toolName) {
 		return queuedBashApprovalCandidate{}, false
 	}
-	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsyntax.ReviewBlock {
+	if review := s.lookupBashSecurityReview(invocation); review.Decision == shellreview.ReviewBlock {
 		return queuedBashApprovalCandidate{}, false
-	} else if review.Decision == bashsyntax.ReviewRequiresApproval {
+	} else if review.Decision == shellreview.ReviewRequiresApproval {
 		request := s.bashSecurityApprovalRequest(invocation, review)
 		if handled, _ := s.tryResolveApprovalFastPath(request, approvalFastPathSkipBatch); handled {
 			return queuedBashApprovalCandidate{}, false

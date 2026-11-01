@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"agent-platform/internal/shellreview"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,7 +20,6 @@ import (
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
 	"agent-platform/internal/plantasks"
-	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/toolargs"
 	"agent-platform/internal/toolinput"
@@ -193,8 +193,8 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 	if isBashTool(invocation.toolName) {
 		review := s.lookupBashSecurityReview(invocation)
 		switch review.Decision {
-		case bashsyntax.ReviewRequiresApproval:
-		case bashsyntax.ReviewBlock:
+		case shellreview.ReviewRequiresApproval:
+		case shellreview.ReviewBlock:
 			invocation.bashSecurityReview = &review
 			blocked := bashSecurityBlockedToolResult(review)
 			deltas, message := preparedToolResultMessage(toolID, toolCall.Function.Name, blocked, blocked.Output)
@@ -364,7 +364,7 @@ func (s *llmRunStream) canInvokeToolConcurrently(invocation *preparedToolInvocat
 		return false
 	}
 	if isBashTool(invocation.toolName) {
-		if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsyntax.ReviewBlock {
+		if review := s.lookupBashSecurityReview(invocation); review.Decision == shellreview.ReviewBlock {
 			return false
 		}
 		if result := s.lookupPrecheckedHITL(invocation); result.Intercepted {
@@ -1183,7 +1183,7 @@ func (s *llmRunStream) handleFileApprovalBeforeInvoke(invocation *preparedToolIn
 }
 
 func (s *llmRunStream) handleBashSecurityApprovalBeforeInvoke(invocation *preparedToolInvocation) (bool, error) {
-	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsyntax.ReviewRequiresApproval {
+	if review := s.lookupBashSecurityReview(invocation); review.Decision == shellreview.ReviewRequiresApproval {
 		return s.handleBuiltInApprovalRequest(s.bashSecurityApprovalRequest(invocation, review))
 	}
 	return false, nil
@@ -1205,7 +1205,7 @@ func (s *llmRunStream) handleBuiltInApprovalRequest(request approvalRequest) (bo
 }
 
 func (s *llmRunStream) handleBashSecurityBlockBeforeInvoke(invocation *preparedToolInvocation) bool {
-	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsyntax.ReviewBlock {
+	if review := s.lookupBashSecurityReview(invocation); review.Decision == shellreview.ReviewBlock {
 		s.appendOriginalToolResult(invocation, bashSecurityBlockedToolResult(review))
 		return true
 	}
@@ -1733,7 +1733,7 @@ func applyHITLMetadata(result ToolExecutionResult, invocation *preparedToolInvoc
 	return result
 }
 
-func bashSecurityBlockedToolResult(review bashsyntax.ReviewResult) ToolExecutionResult {
+func bashSecurityBlockedToolResult(review shellreview.ReviewResult) ToolExecutionResult {
 	reason := strings.TrimSpace(review.Reason)
 	if reason == "" {
 		reason = "bash command blocked by security review"

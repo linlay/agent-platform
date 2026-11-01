@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"agent-platform/internal/shellreview"
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
@@ -9,7 +10,6 @@ import (
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
 	shellplan "agent-platform/internal/shellreview/plan"
-	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"agent-platform/internal/view"
 )
 
@@ -345,7 +345,7 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 		result = fileAccessInterceptResult(*plan)
 	} else if plan := s.lookupFileWritePlan(invocation); plan != nil && s.fileWritePlanNeedsApproval(*plan) {
 		result = fileWriteInterceptResult(*plan)
-	} else if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsyntax.ReviewRequiresApproval {
+	} else if review := s.lookupBashSecurityReview(invocation); review.Decision == shellreview.ReviewRequiresApproval {
 		result = bashSecurityInterceptResult(invocation, review)
 	} else if invocation != nil && invocation.precheckedHITL != nil {
 		result = *invocation.precheckedHITL

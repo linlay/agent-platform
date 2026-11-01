@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"agent-platform/internal/shellreview"
 	"bufio"
 	"context"
 	"io"
@@ -15,7 +16,6 @@ import (
 	"agent-platform/internal/hitl"
 	. "agent-platform/internal/models"
 	shellplan "agent-platform/internal/shellreview/plan"
-	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
 type llmRunStream struct {
@@ -196,7 +196,7 @@ type preparedToolInvocation struct {
 	awaitExternalResult      bool
 	toolCallCounted          bool
 	precheckedHITL           *hitl.InterceptResult
-	bashSecurityReview       *bashsyntax.ReviewResult
+	bashSecurityReview       *shellreview.ReviewResult
 	bashAccessReview         *shellplan.BashPlan
 	shownApproval            *approvalRequest // immutable requirements displayed to the user
 	fileAccessPlan           *filetools.AccessPlan

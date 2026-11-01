@@ -86,8 +86,8 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	rawAccessReview := shellreview.ReviewBashCommandInEnvironment(t.cfg.AccessPolicy, session, command, workingDir, bashEnvironmentVariables(commandEnv), reviewEnv, execCtx)
 	securityReview := shellreview.SecurityReview(rawAccessReview, command, bashSecurityKnownVariables(execCtx))
 	switch securityReview.Decision {
-	case bashsyntax.ReviewAllow:
-	case bashsyntax.ReviewRequiresApproval:
+	case shellreview.ReviewAllow:
+	case shellreview.ReviewRequiresApproval:
 	default:
 		return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
 	}
@@ -182,7 +182,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 			return ToolExecutionResult{Output: "Connector entry changed before launch", Error: "connector_entry_changed", ExitCode: -1}, nil
 		}
 	}
-	if securityReview.Decision == bashsyntax.ReviewBlock {
+	if securityReview.Decision == shellreview.ReviewBlock {
 		return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
 	}
 	approvalSource := shellplan.BashApprovalSource(execCtx, rawFinalReview)
@@ -193,7 +193,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if accessReview.RequiresApproval() && !shellplan.ConsumeApproval(execCtx, accessReview) {
 		return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_approval_required", ExitCode: -1}, nil
 	}
-	if securityReview.Decision == bashsyntax.ReviewRequiresApproval && !securityReview.AutoApprovedAtLevel(session.AccessLevel) && !consumeBashSecurityApproval(execCtx, securityReview.Fingerprint) {
+	if securityReview.Decision == shellreview.ReviewRequiresApproval && !securityReview.AutoApprovedAtLevel(session.AccessLevel) && !consumeBashSecurityApproval(execCtx, securityReview.Fingerprint) {
 		return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_approval_required", ExitCode: -1}, nil
 	}
 	if rawFinalReview.UsesSSHAgent && direct == nil {

@@ -1,12 +1,12 @@
 package llm
 
 import (
+	"agent-platform/internal/shellreview"
 	"strings"
 
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
 	shellplan "agent-platform/internal/shellreview/plan"
-	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"agent-platform/internal/view"
 )
 
@@ -27,7 +27,7 @@ func (s *llmRunStream) hasBashSecurityApproval(fingerprint string) bool {
 	return s.execCtx.BashSecurityApprovals[fingerprint] > 0
 }
 
-func (s *llmRunStream) shouldAutoApproveBashSecurity(review bashsyntax.ReviewResult) bool {
+func (s *llmRunStream) shouldAutoApproveBashSecurity(review shellreview.ReviewResult) bool {
 	if s == nil || s.execCtx == nil || review.Level <= 0 {
 		return false
 	}
@@ -41,7 +41,7 @@ func (s *llmRunStream) isSandboxRuntime() bool {
 	return s.session.AgentHasRuntimeSandbox || (s.execCtx != nil && s.execCtx.Session.AgentHasRuntimeSandbox)
 }
 
-func bashSecurityInterceptResult(invocation *preparedToolInvocation, review bashsyntax.ReviewResult) hitl.InterceptResult {
+func bashSecurityInterceptResult(invocation *preparedToolInvocation, review shellreview.ReviewResult) hitl.InterceptResult {
 	command := ""
 	if invocation != nil {
 		command = strings.TrimSpace(mapStringArg(invocation.args, "command"))

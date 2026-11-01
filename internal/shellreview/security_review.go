@@ -1,6 +1,7 @@
-package bash
+package shellreview
 
 import (
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"strings"
 )
 
@@ -48,15 +49,15 @@ func ReviewBashSecurityWithKnownVariables(command string, variables map[string]s
 }
 
 func reviewScript(original, command string, variables map[string]string, depth int) ReviewResult {
-	result := ParseForSecurityWithKnownVariables(command, variables)
+	result := bashsyntax.ParseForSecurityWithKnownVariables(command, variables)
 	switch result.Kind {
-	case Simple:
+	case bashsyntax.Simple:
 		return reviewFromAST(original, command, result, variables, depth)
-	case TooComplex:
-		if IsHardBlockReason(result.Reason) {
+	case bashsyntax.TooComplex:
+		if bashsyntax.IsHardBlockReason(result.Reason) {
 			return blockReview(result.Reason)
 		}
-		if blocked := reviewText(command, ParseResult{}); blocked.Decision == ReviewBlock {
+		if blocked := reviewText(command, bashsyntax.ParseResult{}); blocked.Decision == ReviewBlock {
 			return blocked
 		}
 		reason := strings.TrimSpace(result.Reason)

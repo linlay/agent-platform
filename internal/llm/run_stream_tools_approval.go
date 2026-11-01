@@ -12,12 +12,11 @@ import (
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/shellreview"
 	shellplan "agent-platform/internal/shellreview/plan"
-	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
-func (s *llmRunStream) lookupBashSecurityReview(invocation *preparedToolInvocation) bashsyntax.ReviewResult {
+func (s *llmRunStream) lookupBashSecurityReview(invocation *preparedToolInvocation) shellreview.ReviewResult {
 	if invocation == nil || !isBashTool(invocation.toolName) {
-		return bashsyntax.ReviewResult{Decision: bashsyntax.ReviewAllow}
+		return shellreview.ReviewResult{Decision: shellreview.ReviewAllow}
 	}
 	if invocation.bashSecurityReview != nil {
 		return *invocation.bashSecurityReview
@@ -239,11 +238,11 @@ func fileAccessPlanInput(toolName string, args map[string]any) (filetools.Access
 	}
 }
 
-func (s *llmRunStream) reviewBashSecurity(command string) bashsyntax.ReviewResult {
+func (s *llmRunStream) reviewBashSecurity(command string) shellreview.ReviewResult {
 	if s == nil || s.execCtx == nil {
-		return bashsyntax.ReviewBashSecurity(command)
+		return shellreview.ReviewBashSecurity(command)
 	}
-	return bashsyntax.ReviewBashSecurityWithKnownVariables(command, s.knownRuntimeVariables())
+	return shellreview.ReviewBashSecurityWithKnownVariables(command, s.knownRuntimeVariables())
 }
 
 func (s *llmRunStream) knownRuntimeVariables() map[string]string {
@@ -350,7 +349,7 @@ func fileAccessDeniedToolResult(invocation *preparedToolInvocation, code string)
 	return result
 }
 
-func (s *llmRunStream) executeApprovedBashSecurityInvocation(invocation *preparedToolInvocation, review bashsyntax.ReviewResult) error {
+func (s *llmRunStream) executeApprovedBashSecurityInvocation(invocation *preparedToolInvocation, review shellreview.ReviewResult) error {
 	switch strings.ToLower(strings.TrimSpace(invocation.approvalDecision)) {
 	case "reject":
 		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))

@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	shellplan "agent-platform/internal/shellreview/plan"
-	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"agent-platform/internal/shellreview/types"
 )
 
@@ -32,17 +31,17 @@ func connectorReviewCommand(command string, words []types.WordSpan) string {
 
 // SecurityReview binds any residual shell approval to the original command,
 // never to the neutral projection used to exclude mounted CLI payloads.
-func SecurityReview(p shellplan.BashPlan, command string, variables map[string]string) bashsyntax.ReviewResult {
+func SecurityReview(p shellplan.BashPlan, command string, variables map[string]string) ReviewResult {
 	if reason := rawTextRejection(command, p.UnknownDialect); reason != "" {
-		return bashsyntax.ReviewResult{Decision: bashsyntax.ReviewBlock, Reason: reason}
+		return ReviewResult{Decision: ReviewBlock, Reason: reason}
 	}
 	if p.UnknownDialect {
 		// The whole-call access requirement carries unsupported grammar review.
-		return bashsyntax.ReviewResult{Decision: bashsyntax.ReviewAllow}
+		return ReviewResult{Decision: ReviewAllow}
 	}
-	result := bashsyntax.ReviewBashSecurityWithKnownVariables(p.ShellReviewCommand(command), variables)
+	result := ReviewBashSecurityWithKnownVariables(p.ShellReviewCommand(command), variables)
 	if result.Fingerprint != "" {
-		result.Fingerprint = bashsyntax.ApprovalFingerprint(command)
+		result.Fingerprint = ApprovalFingerprint(command)
 		if p.LaunchFingerprint != "" {
 			sum := sha256.Sum256([]byte(result.Fingerprint + "\x00" + p.LaunchFingerprint))
 			result.Fingerprint = hex.EncodeToString(sum[:])

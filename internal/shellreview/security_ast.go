@@ -1,6 +1,7 @@
-package bash
+package shellreview
 
 import (
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"fmt"
 	"strings"
 
@@ -9,7 +10,7 @@ import (
 	"agent-platform/internal/shellreview/unwrap"
 )
 
-func reviewFromAST(original, command string, result ParseResult, variables map[string]string, depth int) ReviewResult {
+func reviewFromAST(original, command string, result bashsyntax.ParseResult, variables map[string]string, depth int) ReviewResult {
 	review := ReviewResult{Decision: ReviewAllow}
 	if blocked := reviewText(command, result); blocked.Decision == ReviewBlock {
 		return blocked

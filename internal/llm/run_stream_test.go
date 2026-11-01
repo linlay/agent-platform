@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"agent-platform/internal/shellreview"
 	"bufio"
 	"context"
 	"errors"
@@ -23,7 +24,6 @@ import (
 	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/hitl"
 	"agent-platform/internal/models"
-	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	streampkg "agent-platform/internal/stream"
 	"agent-platform/internal/toolinteraction"
 	runtimetools "agent-platform/internal/tools"
@@ -2448,7 +2448,7 @@ func TestPrepareToolCall_BashDescriptionIsOptional(t *testing.T) {
 }
 
 func TestBuildApprovalAskItem_BashDescriptionFallsBackToCommand(t *testing.T) {
-	review := bashsyntax.ReviewResult{Decision: bashsyntax.ReviewAllow}
+	review := shellreview.ReviewResult{Decision: shellreview.ReviewAllow}
 	invocation := &preparedToolInvocation{
 		toolID:             "tool_1",
 		toolName:           "bash",
@@ -2866,7 +2866,7 @@ func TestBashSecuritySoftBlockEmitsApprovalWithoutChecker(t *testing.T) {
 		t.Fatalf("expected one approval item, got %#v", ask)
 	}
 	approval, _ := ask.Approvals[0].(map[string]any)
-	if approval["ruleKey"] != bashsyntax.RuleKeyRuntimeWrapperXargs {
+	if approval["ruleKey"] != shellreview.RuleKeyRuntimeWrapperXargs {
 		t.Fatalf("expected stable bash security rule key, got %#v", approval)
 	}
 	options, _ := approval["options"].([]any)
@@ -3034,7 +3034,7 @@ func TestBashSecuritySoftBlockPrefixApprovalWhitelistsRule(t *testing.T) {
 	if err := stream.awaitHITLSubmitAndExecute(); err != nil {
 		t.Fatalf("awaitHITLSubmitAndExecute returned error: %v", err)
 	}
-	if !stream.isRuleWhitelisted(bashsyntax.RuleKeyRuntimeWrapperXargs) {
+	if !stream.isRuleWhitelisted(shellreview.RuleKeyRuntimeWrapperXargs) {
 		t.Fatalf("expected bash security rule whitelist, got %#v", stream.hitlRuleWhitelist)
 	}
 
@@ -3102,7 +3102,7 @@ func TestBashSecuritySoftBlockUsesExistingFingerprintApproval(t *testing.T) {
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{
 			BashSecurityApprovals: map[string]int{
-				bashsyntax.ApprovalFingerprint(command): 1,
+				shellreview.ApprovalFingerprint(command): 1,
 			},
 		},
 		activeToolCall: &preparedToolInvocation{
@@ -5900,7 +5900,7 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 
 func TestAwaitHITLApprovalBatchAndContinueUsesStoredMatch(t *testing.T) {
 	runControl := contracts.NewRunControl(context.Background(), "run_1")
-	review := bashsyntax.ReviewBashSecurity("xargs echo")
+	review := shellreview.ReviewBashSecurity("xargs echo")
 	invocation := &preparedToolInvocation{
 		toolID:             "tool_1",
 		toolName:           "bash",
@@ -5927,7 +5927,7 @@ func TestAwaitHITLApprovalBatchAndContinueUsesStoredMatch(t *testing.T) {
 	if stream.hitlPendingBatch == nil || len(stream.hitlPendingBatch.matches) != 1 {
 		t.Fatalf("expected one stored batch match, got %#v", stream.hitlPendingBatch)
 	}
-	allow := bashsyntax.ReviewResult{Decision: bashsyntax.ReviewAllow}
+	allow := shellreview.ReviewResult{Decision: shellreview.ReviewAllow}
 	invocation.bashSecurityReview = &allow
 
 	ask := stream.pending[0].(contracts.DeltaAwaitAsk)

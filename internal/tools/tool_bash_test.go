@@ -18,7 +18,6 @@ import (
 	contracts "agent-platform/internal/contracts"
 	"agent-platform/internal/runenv"
 	"agent-platform/internal/shellreview"
-	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
 type collectingToolOutputSink struct {
@@ -965,7 +964,7 @@ func TestInvokeHostBashConsumesMatchingSoftSecurityApproval(t *testing.T) {
 func TestInvokeHostBashRejectsMismatchedSoftSecurityApproval(t *testing.T) {
 	root := t.TempDir()
 	execCtx := bashExecutionContext(root)
-	execCtx.BashSecurityApprovals = map[string]int{bashsyntax.ApprovalFingerprint("printf no | xargs printf"): 1}
+	execCtx.BashSecurityApprovals = map[string]int{shellreview.ApprovalFingerprint("printf no | xargs printf"): 1}
 	result, err := softSecurityExecutor().invokeHostBash(context.Background(), map[string]any{"command": "printf ok | xargs printf"}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
@@ -1194,7 +1193,7 @@ func TestInvokeHostBashRealOutsideRedirectionStillRequiresAccessApproval(t *test
 			WorkspaceRoot: root,
 		},
 		BashSecurityApprovals: map[string]int{
-			bashsyntax.ApprovalFingerprint(command): 1,
+			shellreview.ApprovalFingerprint(command): 1,
 		},
 	}
 

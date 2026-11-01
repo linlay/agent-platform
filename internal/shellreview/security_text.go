@@ -1,6 +1,7 @@
-package bash
+package shellreview
 
 import (
+	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 	"regexp"
 	"strings"
 
@@ -21,7 +22,7 @@ func isProcEnviron(value string) bool {
 // reviewText keeps the few source-level checks that the AST cannot express:
 // IFS changes word splitting for the executing shell and /proc/*/environ
 // exposes other processes' secrets. Heredoc bodies are data and are skipped.
-func reviewText(command string, result ParseResult) ReviewResult {
+func reviewText(command string, result bashsyntax.ParseResult) ReviewResult {
 	text := maskHeredocBodies(command, result)
 	if ifsRe.MatchString(text) {
 		return blockReview("Command contains IFS variable usage which could bypass security validation")
@@ -32,7 +33,7 @@ func reviewText(command string, result ParseResult) ReviewResult {
 	return ReviewResult{Decision: ReviewAllow}
 }
 
-func maskHeredocBodies(command string, result ParseResult) string {
+func maskHeredocBodies(command string, result bashsyntax.ParseResult) string {
 	var masked []byte
 	for _, cmd := range result.Commands {
 		for _, redirect := range cmd.Redirects {

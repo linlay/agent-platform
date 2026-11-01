@@ -9,7 +9,6 @@ import (
 	"agent-platform/internal/hitl"
 	"agent-platform/internal/shellreview"
 	shellplan "agent-platform/internal/shellreview/plan"
-	bashsyntax "agent-platform/internal/shellreview/syntax/bash"
 )
 
 // A grant belongs to one tool invocation, not to a cloneable run-wide counter.
@@ -63,7 +62,7 @@ func (s *llmRunStream) prepareHostBashAuthorization(invocation *preparedToolInvo
 	}
 	access := s.rawBashAccessReview(invocation)
 	security := shellreview.SecurityReview(access, command, s.knownRuntimeVariables())
-	if security.Decision == bashsyntax.ReviewBlock {
+	if security.Decision == shellreview.ReviewBlock {
 		result := bashSecurityBlockedToolResult(security)
 		invocation.queuedResult = &result
 		return nil
@@ -111,7 +110,7 @@ func (s *llmRunStream) prepareHostBashAuthorization(invocation *preparedToolInvo
 	// Move legacy exact grants, if any, rather than copying them to siblings.
 	reserveBashAccessApprovals(s.execCtx, access, a.access)
 	moveOneShotApproval(s.execCtx.BashSecurityApprovals, a.security, security.Fingerprint)
-	if security.Decision == bashsyntax.ReviewRequiresApproval && a.security[security.Fingerprint] == 0 {
+	if security.Decision == shellreview.ReviewRequiresApproval && a.security[security.Fingerprint] == 0 {
 		if s.isRuleWhitelisted(security.RuleKey) || s.shouldAutoApproveBashSecurity(security) {
 			a.security[security.Fingerprint] = 1
 			if s.isRuleWhitelisted(security.RuleKey) {
