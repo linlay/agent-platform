@@ -64,3 +64,29 @@ func TestStructuredDependencies(t *testing.T) {
 		}
 	}
 }
+
+func TestTransferFactsKeepAllRoles(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		kind   types.OpKind
+		source types.Role
+	}{
+		{"cp", types.Create, types.Source}, {"mv", types.Rename, types.Source}, {"ln", types.Link, types.LinkTarget},
+	} {
+		e := nativeFacts(tc.name, "a", "b")
+		found := false
+		for _, op := range e.Ops {
+			if op.Kind != tc.kind {
+				continue
+			}
+			roles := map[types.Role]bool{}
+			for _, target := range op.Targets {
+				roles[target.Role] = true
+			}
+			found = roles[tc.source] && roles[types.Destination] && roles[types.Replaced]
+		}
+		if !found {
+			t.Fatalf("%s lost multi-target facts: %+v", tc.name, e)
+		}
+	}
+}

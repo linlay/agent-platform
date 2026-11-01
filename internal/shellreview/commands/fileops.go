@@ -8,16 +8,7 @@ import (
 
 var chmodSpec = types.OptionSpec{ShortFlags: "Rfvc", Long: options.Merge(options.Longs(types.OptionNone, "silent", "quiet", "verbose", "changes", "preserve-root", "no-preserve-root"), options.Longs(types.OptionRecursive, "recursive"), options.Longs(types.OptionRead, "reference"))}
 
-var cpSpec = types.OptionSpec{ShortFlags: "afinpPRrsTvuLHlxb", ShortArgs: map[byte]types.OptionRole{'t': types.OptionWriteDir, 'S': types.OptionValue},
-	Long: options.Merge(options.Longs(types.OptionNone, "archive", "force", "interactive", "no-clobber", "recursive", "symbolic-link", "verbose", "no-target-directory", "parents", "dereference", "no-dereference", "link", "remove-destination", "strip-trailing-slashes", "one-file-system", "attributes-only"), options.Longs(types.OptionOptionalValue, "preserve", "update", "backup", "reflink", "sparse", "no-preserve"), options.Longs(types.OptionValue, "suffix"), options.Longs(types.OptionWriteDir, "target-directory"))}
-
-var lnSpec = types.OptionSpec{ShortFlags: "sfnvTbrLPi", ShortArgs: map[byte]types.OptionRole{'t': types.OptionWriteDir, 'S': types.OptionValue},
-	Long: options.Merge(options.Longs(types.OptionNone, "symbolic", "force", "no-dereference", "verbose", "relative", "logical", "physical", "interactive", "no-target-directory"), options.Longs(types.OptionOptionalValue, "backup"), options.Longs(types.OptionValue, "suffix"), options.Longs(types.OptionWriteDir, "target-directory"))}
-
 var mkdirSpec = types.OptionSpec{ShortFlags: "pv", ShortArgs: map[byte]types.OptionRole{'m': types.OptionValue}, Long: options.Merge(options.Longs(types.OptionNone, "parents", "verbose"), options.Longs(types.OptionValue, "mode", "context"))}
-
-var mvSpec = types.OptionSpec{ShortFlags: "finvuTb", ShortArgs: map[byte]types.OptionRole{'t': types.OptionWriteDir, 'S': types.OptionValue},
-	Long: options.Merge(options.Longs(types.OptionNone, "force", "interactive", "no-clobber", "verbose", "no-target-directory", "strip-trailing-slashes"), options.Longs(types.OptionOptionalValue, "update", "backup"), options.Longs(types.OptionValue, "suffix"), options.Longs(types.OptionWriteDir, "target-directory"))}
 
 var rmSpec = types.OptionSpec{ShortFlags: "fiIdvRr", Long: options.Merge(options.Longs(types.OptionNone, "force", "dir", "verbose", "one-file-system", "preserve-root"), options.Longs(types.OptionRecursive, "recursive"), options.Longs(types.OptionOptionalValue, "interactive"))}
 
@@ -64,26 +55,7 @@ func fileOperationOperands(id registry.ID, spec types.OptionSpec, args []string)
 			add(path, true, recursive, p.PositionalRefs[i], types.Delete)
 		}
 		e.Destructive = recursive
-	case registry.CmdCp, registry.CmdMv, registry.CmdLn:
-		targetGiven := p.Has("t") || p.Has("target-directory")
-		for i, path := range p.Positional {
-			isTarget := !targetGiven && i == len(p.Positional)-1 && len(p.Positional) > 1
-			switch id {
-			case registry.CmdMv:
-				add(path, true, true, p.PositionalRefs[i], types.Rename)
-			case registry.CmdCp:
-				kind := types.Read
-				if isTarget {
-					kind = types.Create
-				}
-				add(path, isTarget, recursive || p.Has("a") || p.Has("archive"), p.PositionalRefs[i], kind)
-			case registry.CmdLn:
-				// ln TARGET LINK: the link location is written; the target is only named.
-				if isTarget || len(p.Positional) == 1 {
-					add(path, true, false, p.PositionalRefs[i], types.Link)
-				}
-			}
-		}
+
 	}
 	if e.Incomplete {
 		escalateWrites(&e)

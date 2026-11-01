@@ -31,6 +31,7 @@ func Analyze(input types.CommandInput) types.Effects {
 	if !valid {
 		e.Unknowns = append(e.Unknowns, types.Unknown{Kind: types.UnknownDialect, Arg: -1, Rule: "identity:domain-source-dialect"})
 	}
+	groups := map[int]int{}
 	for _, f := range draft.Files {
 		kind := f.Kind
 		if kind == "" {
@@ -53,11 +54,20 @@ func Analyze(input types.CommandInput) types.Effects {
 		if f.Ref.Known {
 			origin = types.Argument
 		}
-		e.Ops = append(e.Ops, types.Op{Kind: kind, Targets: []types.Target{{Path: f.Path, Role: role, Word: word}}, Recursive: f.Recursive, Arg: word.Arg, Origin: origin, Rule: input.Name + ":" + string(kind)})
+		target := types.Target{Path: f.Path, Role: role, Word: word, Placement: f.Placement, Child: f.Child, RelativeToDestination: f.RelativeToDestination}
+		op := types.Op{Kind: kind, Targets: []types.Target{target}, Recursive: f.Recursive, Arg: word.Arg, Origin: origin, Rule: input.Name + ":" + string(kind)}
+		if index, ok := groups[f.Group]; f.Group != 0 && ok {
+			e.Ops[index].Targets = append(e.Ops[index].Targets, target)
+		} else {
+			if f.Group != 0 {
+				groups[f.Group] = len(e.Ops)
+			}
+			e.Ops = append(e.Ops, op)
+		}
 		// Unknown options add a write constraint; known Delete/Rename/Chmod/etc
 		// remain intact, and cannot later be mistaken for byte-output operations.
-		if f.Write && kind == types.Read {
-			e.Ops = append(e.Ops, types.Op{Kind: types.UnknownWrite, Targets: []types.Target{{Path: f.Path, Role: role, Word: word}}, Recursive: f.Recursive, Arg: word.Arg, Origin: origin, Rule: input.Name + ":unknown-option"})
+		if f.Write && !op.WritesTarget(target) {
+			e.Ops = append(e.Ops, types.Op{Kind: types.UnknownWrite, Targets: []types.Target{target}, Recursive: f.Recursive, Arg: word.Arg, Origin: origin, Rule: input.Name + ":unknown-option"})
 		}
 	}
 	if draft.Incomplete {

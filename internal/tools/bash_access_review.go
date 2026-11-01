@@ -160,6 +160,21 @@ func (t *RuntimeToolExecutor) sandboxBashEnvironment(ctx context.Context, execCt
 		return nil
 	}
 	return &shelltypes.BashEnvironment{
+		PathKind: func(raw string) (shelltypes.PathKind, error) {
+			target := shellQuoteProbe(guestPath(raw))
+			out, err := probe("if test -d "+target+"; then printf directory; elif test -e "+target+" || test -L "+target+"; then printf file; else printf unknown; fi", "/tmp", nil)
+			if err != nil {
+				return shelltypes.PathUnknown, err
+			}
+			switch strings.TrimSpace(out) {
+			case "directory":
+				return shelltypes.PathDirectory, nil
+			case "file":
+				return shelltypes.PathNonDirectory, nil
+			default:
+				return shelltypes.PathUnknown, fmt.Errorf("container destination unresolved")
+			}
+		},
 		Directory: func(raw string) (string, error) {
 			target := guestPath(raw)
 			if canonical, exists := directories[target]; exists {

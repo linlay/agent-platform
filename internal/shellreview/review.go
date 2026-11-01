@@ -202,7 +202,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 				}
 				for _, op := range effects.Ops {
 					for _, target := range op.Targets {
-						file := types.FileAccess{Path: target.Path, Write: op.Writes(), Recursive: op.Recursive}
+						file := types.FileAccess{Path: target.Path, Write: op.WritesTarget(target), Recursive: op.Recursive}
 						if reviewer.LegacyOutputExempt(identity.CommandFamily(x.Argv[0]), effects.Unknown(types.UnknownOption), file) {
 							continue
 						}
@@ -210,20 +210,24 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 						if file.Write {
 							mode = WriteAccess
 						}
-						raw := ResolveAgainstCwd(file.Path, x.Cwd)
-						if session.AgentHasRuntimeSandbox && strings.ContainsAny(raw, "*?[") {
-							add(reviewer.Block("container globs require explicit paths until guest expansion is available", "bash-access:glob", raw))
-							continue
+						if target.Placement != types.Exact && (file.Recursive || len(parsed.Commands) > 1) {
+							add(reviewer.Subtree(mode, ResolveAgainstCwd(target.Path, x.Cwd)))
 						}
-						paths, err := resources.ExpandOperandPaths(raw)
-						if err != nil {
-							add(reviewer.Block(err.Error(), "bash-access:glob", raw))
-							continue
-						}
-						for _, p := range paths {
-							pathReview(mode, p)
-							if file.Recursive {
-								add(reviewer.Subtree(mode, p))
+						for _, raw := range resources.TargetPaths(op, target, x.Cwd, session.AgentHasRuntimeSandbox, environment) {
+							if session.AgentHasRuntimeSandbox && strings.ContainsAny(raw, "*?[") {
+								add(reviewer.Block("container globs require explicit paths until guest expansion is available", "bash-access:glob", raw))
+								continue
+							}
+							paths, err := resources.ExpandOperandPaths(raw)
+							if err != nil {
+								add(reviewer.Block(err.Error(), "bash-access:glob", raw))
+								continue
+							}
+							for _, p := range paths {
+								pathReview(mode, p)
+								if file.Recursive || target.Placement == types.FileOrDirectory && len(parsed.Commands) > 1 {
+									add(reviewer.Subtree(mode, p))
+								}
 							}
 						}
 					}

@@ -37,7 +37,18 @@ type BashEnvironment struct {
 	Resolve   func(name, cwd string, env map[string]string) (string, error)
 	Canonical func(path, cwd string) (string, error)
 	Directory func(path string) (string, error)
-	Inspect   func(path string) (header, sha256 string, err error)
+	// PathKind inspects the guest filesystem only; Unknown never consults Host.
+	PathKind func(path string) (PathKind, error)
+	Inspect  func(path string) (header, sha256 string, err error)
 }
 
 var ErrBashTemporaryEscape = errors.New("container temporary path escapes /tmp through a symlink")
+
+// PathKind distinguishes transfer destination forms, not device identities.
+type PathKind string
+
+const (
+	PathUnknown      PathKind = ""
+	PathDirectory    PathKind = "directory"
+	PathNonDirectory PathKind = "file"
+)

@@ -9,7 +9,11 @@ type FileAccess struct {
 	Kind OpKind
 	Role Role
 	// Derived paths cannot acquire literal device provenance.
-	Derived bool
+	Derived               bool
+	Placement             Placement
+	Child                 string
+	RelativeToDestination bool
+	Group                 int
 }
 
 // GitCheck names the repository state an analyzed Git invocation depends on.
@@ -74,10 +78,22 @@ const (
 	LinkTarget  Role = "link_target"
 )
 
+type Placement string
+
+const (
+	Exact           Placement = ""
+	IntoDirectory   Placement = "into_directory"
+	FileOrDirectory Placement = "file_or_directory"
+	ParentDirectory Placement = "parent_directory"
+)
+
 type Target struct {
-	Path string
-	Role Role
-	Word SourceWord
+	Path                  string
+	Role                  Role
+	Word                  SourceWord
+	Placement             Placement
+	Child                 string
+	RelativeToDestination bool
 }
 type Op struct {
 	Kind      OpKind
@@ -86,6 +102,13 @@ type Op struct {
 	Arg       int
 	Rule      string
 	Origin    Origin
+}
+
+func (o Op) WritesTarget(t Target) bool {
+	if o.Kind == Create && t.Role == Source {
+		return false
+	}
+	return o.Writes()
 }
 
 func (o Op) Writes() bool {
