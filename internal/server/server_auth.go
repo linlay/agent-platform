@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"agent-platform/internal/observability"
+	"agent-platform/internal/ws"
 )
 
 func (s *Server) handleCORS(w http.ResponseWriter, r *http.Request) bool {
@@ -68,8 +69,15 @@ func (s *Server) withPrincipal(r *http.Request, w http.ResponseWriter) *http.Req
 			return nil
 		}
 		token = strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
-	} else if cookie, err := r.Cookie("access_token"); err == nil {
-		token = strings.TrimSpace(cookie.Value)
+	} else {
+		if r.URL.Path == "/api/voice/ws" {
+			token, _ = ws.BearerSubprotocol(r)
+		}
+		if token == "" {
+			if cookie, err := r.Cookie("access_token"); err == nil {
+				token = strings.TrimSpace(cookie.Value)
+			}
+		}
 	}
 	if token == "" {
 		writeAuthError(w)

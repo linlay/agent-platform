@@ -189,6 +189,11 @@ func (c *Config) applyRuntimeFile(path string) error {
 			return fmt.Errorf("%s: %w", path, err)
 		}
 	}
+	if value, exists := values["voice"]; exists {
+		if err := c.applyVoice(value); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	}
 	if raw, exists := values["conversation-export"]; exists {
 		values, ok := raw.(map[string]any)
 		if !ok {

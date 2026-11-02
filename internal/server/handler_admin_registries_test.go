@@ -205,6 +205,41 @@ func TestAdminRegistryDiagnosticsRejectsReasoningEffortMappingOnACPModel(t *test
 	}
 }
 
+func TestAdminRegistryRealtimeVoiceModelValidation(t *testing.T) {
+	s := &Server{}
+	s.deps.Config.Paths.RegistriesDir = t.TempDir()
+	providerDir := filepath.Join(s.deps.Config.Paths.RegistriesDir, "providers")
+	if err := os.MkdirAll(providerDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(providerDir, "mock.yml"), []byte("key: mock\nbaseUrl: https://speech.example\napiKey: test-key\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		typ, protocol string
+		valid         bool
+	}{
+		{"asr", "DASHSCOPE_ASR", true}, {"tts", "DASHSCOPE_REALTIME_TTS", true},
+		{"chat", "DASHSCOPE_ASR", false}, {"asr", "DASHSCOPE_REALTIME_TTS", false},
+	} {
+		root := map[string]any{"key": "voice", "provider": "mock", "modelId": "configured", "type": tc.typ, "protocol": tc.protocol}
+		diagnostics := s.adminRegistryDiagnostics("models", "voice.yml", root, "/models/voice.yml")
+		invalidProtocol := false
+		hasError := false
+		for _, diagnostic := range diagnostics {
+			hasError = hasError || diagnostic.Severity == "error"
+			invalidProtocol = invalidProtocol || diagnostic.Code == "invalid_type" || diagnostic.Code == "invalid_protocol"
+		}
+		if invalidProtocol == tc.valid || tc.valid && hasError {
+			t.Fatalf("%s/%s: %#v", tc.typ, tc.protocol, diagnostics)
+		}
+		summary := adminRegistryPublicSummary("models", root)
+		if summary["type"] != tc.typ || summary["protocol"] != tc.protocol {
+			t.Fatalf("candidate capability lost: %#v", summary)
+		}
+	}
+}
+
 func TestAdminRegistryDiagnosticsValidateOpenAICompat(t *testing.T) {
 	server := &Server{}
 	providerDiagnostics := server.adminRegistryDiagnostics("providers", "provider.yml", map[string]any{

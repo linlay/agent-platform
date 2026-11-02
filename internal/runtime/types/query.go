@@ -68,6 +68,9 @@ type QueryCommand struct {
 	SyntheticQueryBootstrapped bool
 	// Primary makes the Chat this query creates its Agent's primary Chat.
 	Primary bool `json:"-"`
+	// PrimaryIfMissing preserves a primary published after this caller reserved
+	// its new Chat ID. It reuses the ordinary primary creation path and CAS.
+	PrimaryIfMissing bool `json:"-"`
 	// Origin is who sent the input; admission defaults it to the requesting user.
 	Origin *queryinput.Origin
 	// AccessGrant audits how a chat_start Run obtained its access level.
@@ -99,6 +102,9 @@ type QueryHooks struct {
 }
 
 type QueryResult struct {
+	// Persisted reports whether Completion was accepted by the ordinary Chat store.
+	// Completion is also returned on storage failure for diagnostics.
+	Persisted    bool
 	Usage        chat.UsageData
 	FinishReason string
 	SideID       string

@@ -86,6 +86,9 @@ func TestProxyBlockingCompletionMatchesPersistedRun(t *testing.T) {
 						t.Fatalf("completion missing: result=%+v err=%v", result, err)
 					}
 					completion := result.Completion
+					if !result.Persisted {
+						t.Fatal("blocking result lost the successful persistence flag")
+					}
 					if completion.FinishReason != reason || completion.AssistantText != "proxy result" || completion.Usage.TotalTokens != 5 {
 						t.Fatalf("unexpected completion: %+v", completion)
 					}

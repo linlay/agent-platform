@@ -111,6 +111,15 @@ func speechExecCtx() *contracts.ExecutionContext {
 	return &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-1", RunID: "run-1"}}
 }
 
+func TestSpeechGenerateRejectsRealtimeModelBeforeNetwork(t *testing.T) {
+	capture := &speechCapture{handler: func(*http.Request) (int, string) { t.Fatal("realtime model used by file tool"); return 500, "" }}
+	executor, _ := speechTestExecutor(t, models.ProtocolDashScopeRealtimeTTS, config.SpeechGenerateProfileConfig{Voice: "configured"}, capture)
+	result, err := executor.invokeSpeechGenerate(context.Background(), map[string]any{"text": "hello"}, speechExecCtx())
+	if err != nil || result.Error != "speech_generate_protocol_unsupported" || len(capture.paths) != 0 {
+		t.Fatalf("%v %#v", err, result)
+	}
+}
+
 func assertNoSpeechSecret(t *testing.T, result contracts.ToolExecutionResult) {
 	t.Helper()
 	if strings.Contains(result.Output, speechTestAPIKey) {

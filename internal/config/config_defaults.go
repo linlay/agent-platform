@@ -41,6 +41,7 @@ func defaultConfig(options LoadOptions) Config {
 		Export:          ConversationExportConfig{MaxSnapshotBytes: 50 << 20},
 		DocumentPreview: documentpreview.DefaultConfig(),
 		HTTPProxy:       httpclient.Config{Mode: "auto", SystemRefreshInterval: httpclient.DefaultRefreshInterval},
+		Voice:           VoiceConfig{MaxSentenceSilenceMS: 600, DownlinkLeadMS: 300},
 		SsoIdTokenFile:  options.SsoIdTokenFile,
 		RuntimeMode:     runtimeMode,
 		WebAppHost:      webappHost,

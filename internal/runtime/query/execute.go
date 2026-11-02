@@ -97,6 +97,7 @@ func (s *Service) LocalRunExecutorParams(
 }
 
 type queryRunResult struct {
+	Persisted     bool
 	AssistantText string
 	FinishReason  string
 	Usage         chat.UsageData
@@ -126,6 +127,7 @@ func (s *Service) executePreparedLocalQuery(prepared preparedQuery, registered r
 	result := runexec.ExecuteNative(params)
 	completion := result.Completion
 	return queryRunResult{
+		Persisted:     result.Persisted,
 		AssistantText: completion.AssistantText, FinishReason: completion.FinishReason,
 		Usage: completion.Usage, Completion: &completion,
 		ErrorMessage: result.ErrorMessage, ErrorPayload: result.ErrorPayload,
