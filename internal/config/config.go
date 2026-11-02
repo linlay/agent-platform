@@ -27,6 +27,7 @@ type Config struct {
 	KBX              KBXConfig
 	DocumentPreview  documentpreview.Config
 	HTTPProxy        httpclient.Config
+	Voice            VoiceConfig
 	SsoIdTokenFile   string
 	RuntimeMode      RuntimeMode
 	WebAppHost       WebAppHostMode

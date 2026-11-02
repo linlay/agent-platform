@@ -24,6 +24,19 @@ func (s *Service) checkPrimaryChatQuery(req runtimetypes.QueryCommand, existing 
 	if s.deps.PrimaryChats == nil {
 		return &statusError{Status: 501, Code: "not_supported", Message: "primary chat is not supported"}
 	}
+	if req.PrimaryIfMissing {
+		store, ok := s.deps.Chats.(chat.PrimaryStore)
+		if !ok {
+			return &statusError{Status: 501, Code: "not_supported", Message: "primary chat is not supported"}
+		}
+		current, err := store.PrimaryChatID(agentKey)
+		if err != nil {
+			return err
+		}
+		if current != "" {
+			return &statusError{Status: 409, Code: "chat_changed", Message: "primary chat changed after reservation"}
+		}
+	}
 	err := s.deps.PrimaryChats.EnsurePrimaryReplaceable(agentKey)
 	var busy *chat.PrimaryChatBusyError
 	if errors.As(err, &busy) {

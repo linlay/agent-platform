@@ -130,7 +130,7 @@ func (s *Service) ExecuteQuery(ctx context.Context, cmd runtimetypes.QueryComman
 		observe = fullText.Observe
 	}
 	result, err := s.executePreparedLocalQuery(prepared, registered, nil, observe)
-	out := runtimetypes.QueryResult{Usage: result.Usage, FinishReason: result.FinishReason, SideID: sideQueryID(prepared), RunID: prepared.Req.RunID, ChatID: prepared.Req.ChatID, ErrorPayload: result.ErrorPayload, Completion: result.Completion, Content: result.AssistantText, ErrorMessage: result.ErrorMessage}
+	out := runtimetypes.QueryResult{Persisted: result.Persisted, Usage: result.Usage, FinishReason: result.FinishReason, SideID: sideQueryID(prepared), RunID: prepared.Req.RunID, ChatID: prepared.Req.ChatID, ErrorPayload: result.ErrorPayload, Completion: result.Completion, Content: result.AssistantText, ErrorMessage: result.ErrorMessage}
 	if fullText != nil {
 		out.FullText = fullText.Text(result.AssistantText)
 	}

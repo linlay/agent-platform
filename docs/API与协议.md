@@ -737,6 +737,16 @@ Agent 编辑选项与 ACP 模型选项中的 `contextWindow` 是 API 响应字�
 
 HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attach backlog 与 H2A 缓冲见 [真流式和H2A](真流式和H2A.md)。
 
+### 实时语音 v1
+
+`GET /api/voice/capabilities` 按 `{code,msg,data}` 返回本地 enabled/reason、version:1、websocketPath、PCM 输入/输出能力和配置的音色列表，不探测供应商。voice 默认关闭；`GET /api/voice/ws` 复用普通 JWT Bearer/cookie，浏览器可用既有 `bearer.<token>` 子协议，带 Origin 必须同源或命中部署 CORS allowlist；此入口不读取 URL token。
+
+一条 WS 绑定一个 Agent/Chat，10 秒内 hello；消息沿用 hello/listen/abort/stt/run/tts/awaiting/error 与裸 PCM，输入 16kHz mono、输出 16/24kHz，20ms 帧与偶数采样尾帧。只将整轮定稿作为一次普通 Query（planningMode:false，省略权限/编辑/model/references），成功保存且 complete 的最后正文才朗读。主 `/ws` 不收音频。协议形状与已确认边界见 [实时语音方案](../plans/realtime-voice.md)。
+
+abort 确认前本轮媒体失效；单写出口保证确认后没有旧轮音频。断线只停媒体并释放观察，不中断已受理 Run，重连不补录音/Query/播放。awaiting 只提示并等原界面 Submit，提示播放结束不开放新讲话。语音 Run 采用事实上的 voice transport，原用户的 HTTP/main WS 界面可按 subject 观察/控制，跨用户及 BTW/explain 拒绝；它不新增 Agent mode 或改变普通 HTTP/WS Run 的设备/transport 边界。HITL Submit 仍走既有授权和跨设备规则。
+
+当前后端隔离矩阵已通过；浏览器切换、设备与真实部署/性能验收仍未完成，不能作为整阶段已交付依据。
+
 ### KBASE
 
 库管理 REST `/api/admin/kbases` 与当前 Agent 的检索 status 分开，契约见 [知识库](知识库.md#http-契约)。库 GET 返回配置内容修订 baseRevision；更新在 JSON 中必传，删除在 query 中必传，过期修订返回 409。库管理 status 在首次索引前也返回 state/error/indexedAt/degraded，就绪后附加 statistics；模型通过 builtin.platform-control 的 kbase_library_query/manage 使用同一服务，管理工具的参数和审批顺序见随包 Skill 手册。

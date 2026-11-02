@@ -3,6 +3,7 @@ package server
 import (
 	"agent-platform/internal/viewaction"
 	"agent-platform/internal/viewquery"
+	"agent-platform/internal/voice"
 	"bufio"
 	"context"
 	"fmt"
@@ -83,6 +84,7 @@ type QueryRuntime interface {
 }
 
 type Dependencies struct {
+	Voice                  *voice.Service
 	WebApps                *webapp.Service
 	WebAppActions          webappgateway.Actions
 	WebAppHost             *webapphost.Status

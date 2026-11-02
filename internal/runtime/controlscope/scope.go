@@ -74,6 +74,21 @@ func (s Store) Bind(runID string, scope Scope) error {
 }
 
 func Check(owner, caller Scope) string {
+	// Media sessions have an authenticated user, but no Composer or Desktop
+	// device lane. That same user's ordinary main UI may observe and control it.
+	// Existing HTTP/WS-created Run boundaries remain unchanged below.
+	if owner.Transport == "voice" {
+		if owner == caller {
+			return ""
+		}
+		if owner.Subject != caller.Subject {
+			return "run_control_identity_mismatch"
+		}
+		if caller.Transport == "http" && caller.Lane == "" || caller.Transport == "ws" && caller.Lane == "main" {
+			return ""
+		}
+		return "run_lane_mismatch"
+	}
 	if owner.Transport != caller.Transport {
 		return "run_transport_mismatch"
 	}

@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/models"
 	"agent-platform/internal/modelusage"
 )
 
@@ -47,6 +48,9 @@ func (t *RuntimeToolExecutor) invokeSpeechGenerate(ctx context.Context, args map
 	model, provider, err := t.models.GetTTS(profile.ModelKey)
 	if err != nil {
 		return modelToolError("speech_generate_model_invalid", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
+	}
+	if !models.IsFileTTSProtocol(model.Protocol) {
+		return modelToolError("speech_generate_protocol_unsupported", "speech_generate requires a file TTS protocol", map[string]any{"modelKey": model.Key}), nil
 	}
 	if strings.TrimSpace(provider.BaseURL) == "" || !provider.HasCredential() {
 		return modelToolError("speech_generate_provider_config_invalid", "provider baseUrl and apiKey are required", map[string]any{"provider": provider.Key}), nil
