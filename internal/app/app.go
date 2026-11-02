@@ -64,6 +64,7 @@ import (
 	"agent-platform/internal/tools"
 	"agent-platform/internal/viewaction"
 	"agent-platform/internal/viewquery"
+	"agent-platform/internal/voice"
 	"agent-platform/internal/webapp"
 	"agent-platform/internal/webappbridge"
 	"agent-platform/internal/webapphost"
@@ -73,6 +74,7 @@ import (
 )
 
 type App struct {
+	voice                  *voice.Service
 	webappBridge           *webappbridge.Service
 	webapps                *webapp.Service
 	mailbox                *mailbox.Service
@@ -422,6 +424,13 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	chatResourceService := chatresource.NewService(chatStore)
 	terminalManager := terminal.NewManager()
 	conversationService := conversation.NewService(chatStore, archiveStore, archiver, runManager)
+	voiceService := voice.NewService(backgroundCtx, voice.Dependencies{Config: cfg.Voice, Models: modelRegistry, Runtime: runtimeService, Chats: chatStore, Agents: registry, Runs: runManager})
+	cleanupVoice := true
+	defer func() {
+		if cleanupVoice {
+			voiceService.Close()
+		}
+	}()
 	var mailService *mailbox.Service
 	if cfg.Mail.Enabled {
 		mailStore, err := mailbox.Open(cfg.Paths.ChatsDir)
@@ -518,6 +527,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		}
 	}()
 	srv, err = server.New(server.Dependencies{
+		Voice:             voiceService,
 		WebApps:           webapps,
 		WebAppActions:     appBridge,
 		BackgroundContext: backgroundCtx,
@@ -683,8 +693,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	cleanupMail = false
 	cleanupWebapps = false
 
+	cleanupVoice = false
 	return &App{
-		webappBridge:           appBridge,
+		voice: voiceService, webappBridge: appBridge,
 		webapps:                webapps,
 		mailbox:                mailService,
 		nativeConnectorRelease: nativeRelease,
@@ -727,6 +738,9 @@ func (a *App) Close() error {
 	// restarting the process after shutdown has begun.
 	if a.backgroundCancel != nil {
 		a.backgroundCancel()
+	}
+	if a.voice != nil {
+		a.voice.Close()
 	}
 	if a.mailbox != nil {
 		if err := a.mailbox.Close(); err != nil {

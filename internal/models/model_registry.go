@@ -80,11 +80,13 @@ const (
 	ModelTypeImage     = "image"
 	ModelTypeVL        = "vl"
 	ModelTypeTTS       = "tts"
+	ModelTypeASR       = "asr"
 
-	// Speech protocols carry their own request and response code in
-	// internal/tools; type: tts models must declare one of them.
-	ProtocolMiniMaxTTS   = "MINIMAX_TTS"
-	ProtocolDashScopeTTS = "DASHSCOPE_TTS"
+	// File speech protocols are implemented in tools, realtime protocols in voice.
+	ProtocolMiniMaxTTS           = "MINIMAX_TTS"
+	ProtocolDashScopeTTS         = "DASHSCOPE_TTS"
+	ProtocolDashScopeASR         = "DASHSCOPE_ASR"
+	ProtocolDashScopeRealtimeTTS = "DASHSCOPE_REALTIME_TTS"
 
 	PricingUnitPer10KCharacters = "per_10k_characters"
 )
@@ -199,6 +201,8 @@ func NormalizeModelType(value string) (string, bool) {
 		return ModelTypeVL, true
 	case ModelTypeTTS:
 		return ModelTypeTTS, true
+	case ModelTypeASR:
+		return ModelTypeASR, true
 	default:
 		return "", false
 	}
@@ -210,24 +214,40 @@ func InvalidModelTypeMessage(value string) string {
 	if strings.EqualFold(strings.TrimSpace(value), "image-generation") {
 		return "model type image-generation was renamed to image"
 	}
-	return "model type must be chat, embedding, reranker, image, vl, or tts"
+	return "model type must be chat, embedding, reranker, image, vl, tts, or asr"
 }
 
 func IsTTSProtocol(protocol string) bool {
 	normalized := strings.ToUpper(strings.TrimSpace(protocol))
+	if normalized == ProtocolDashScopeRealtimeTTS {
+		return true
+	}
+	return IsFileTTSProtocol(normalized)
+}
+
+func IsFileTTSProtocol(protocol string) bool {
 	for _, item := range TTSProtocols {
-		if normalized == item {
+		if strings.EqualFold(strings.TrimSpace(protocol), item) {
 			return true
 		}
 	}
 	return false
 }
 
-// ValidateModelTypeProtocol keeps speech protocols and type: tts paired.
+// ValidateModelTypeProtocol keeps file/realtime speech protocols paired with their model types.
 func ValidateModelTypeProtocol(modelType string, protocol string) error {
+	if modelType == ModelTypeASR {
+		if !strings.EqualFold(strings.TrimSpace(protocol), ProtocolDashScopeASR) {
+			return fmt.Errorf("type: asr requires protocol %s", ProtocolDashScopeASR)
+		}
+		return nil
+	}
+	if strings.EqualFold(strings.TrimSpace(protocol), ProtocolDashScopeASR) {
+		return fmt.Errorf("protocol %s is only supported for type: asr", ProtocolDashScopeASR)
+	}
 	if modelType == ModelTypeTTS {
 		if !IsTTSProtocol(protocol) {
-			return fmt.Errorf("type: tts requires protocol %s", strings.Join(TTSProtocols, " or "))
+			return fmt.Errorf("type: tts requires protocol %s or %s", strings.Join(TTSProtocols, " or "), ProtocolDashScopeRealtimeTTS)
 		}
 		return nil
 	}
@@ -796,6 +816,8 @@ func defaultEndpointPath(protocol string, baseURL string) string {
 			return "/services/aigc/multimodal-generation/generation"
 		}
 		return "/api/v1/services/aigc/multimodal-generation/generation"
+	case ProtocolDashScopeASR, ProtocolDashScopeRealtimeTTS:
+		return "/api-ws/v1/inference"
 	default:
 		return ""
 	}

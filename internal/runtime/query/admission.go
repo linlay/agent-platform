@@ -621,7 +621,15 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 		}
 	}
 	if req.Primary {
-		if err := s.deps.PrimaryChats.PublishPrimaryChat(agentKey, chatID); err != nil {
+		publish := s.deps.PrimaryChats.PublishPrimaryChat
+		if req.PrimaryIfMissing {
+			conditional, ok := s.deps.PrimaryChats.(interface{ BackfillPrimaryChat(string, string) error })
+			if !ok {
+				return preparedQuery{}, &statusError{Status: 501, Code: "not_supported", Message: "conditional primary chat is not supported"}
+			}
+			publish = conditional.BackfillPrimaryChat
+		}
+		if err := publish(agentKey, chatID); err != nil {
 			return preparedQuery{}, err
 		}
 	}

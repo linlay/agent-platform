@@ -126,7 +126,9 @@ func (e *ProxyExecutor) execute(ctx context.Context, prepared runtimetypes.Prepa
 		// Deliver the recorder's result before closing observers. Waiting for
 		// delivery first would deadlock a caller that still owns its observer.
 		if onCompletion != nil && completion.RunID != "" {
-			onCompletion(recorder.Result(completion))
+			result := recorder.Result(completion)
+			result.Persisted = persisted
+			onCompletion(result)
 		}
 		if bus != nil {
 			bus.FreezeAndWait()

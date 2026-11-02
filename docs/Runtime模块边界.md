@@ -62,13 +62,15 @@ Native LLM stream 在工具执行中收到取消后，先完成工具结果收�
 
 HTTP 默认 SSE、WebSocket 启动的 Native Run、HTTP `stream:false`、Runtime 进程内阻塞调用和旧内部 Query 接口都调用 `runexec.Execute`。同步入口不再维护另一份 `Next/Map` 循环；子 Agent、Team 调度、阶段标记、awaiting、usage 聚合和 continuation 使用同一路径。子 Session 构建由共享 Session Builder 提供，Proxy 子任务 SSE 驱动位于 `runtime/proxy`。
 
-正文、usage 和 finishReason 以执行器生成并交给持久化的 `RunCompletion` 为唯一结果来源。Native 与 Proxy 非流式响应都不再用 `queryEventCollector` 的计算结果补写它们；旧 collector 仅保留为测试兼容。`fullText` 单独观察经过 Processor 的 normalized 内部事件，保留重试丢弃信号，不从公共 EventBus 反推模型轮次。StepWriter 在最终完成记录之前 flush，以保留最后一个阶段的模型信息。
+正文、usage 和 finishReason 以执行器生成并交给持久化的 `RunCompletion` 为唯一结果来源。内部 `QueryResult.Persisted` 直接透传执行器是否成功保存完成记录；Completion 在保存失败时仍可用于诊断，语音必须同时验证 Persisted 与 complete，不新增公开完成事件。Native 与 Proxy 非流式响应都不再用 `queryEventCollector` 的计算结果补写它们；旧 collector 仅保留为测试兼容。`fullText` 单独观察经过 Processor 的 normalized 内部事件，保留重试丢弃信号，不从公共 EventBus 反推模型轮次。StepWriter 在最终完成记录之前 flush，以保留最后一个阶段的模型信息。
 
 等待方式由入口决定：SSE/WS 断线只解除订阅，Run 可继续并通过 attach 重新订阅；Native 阻塞调用保留原有执行与 RunControl context。Proxy 阻塞调用直接等待完成结果，不创建前台 observer，调用方 context 取消不终止已注册 Run；显式 interrupt、服务关闭和 Run lifetime 仍可终止执行。执行结束后先冻结并排空事件，再注销 Run、释放准入；只有成功持久化完成的 Run 才尝试启动 continuation。
 
 Runtime 的 Native 与 Proxy 阻塞调用直接取得执行结果，不再模拟 HTTP 请求或解析自身输出的 SSE。旧内部 Query 的 status/body 与 SSE 回调编码器只保留在 Server 测试文件中，测试经实际 Runtime 启动/订阅或阻塞入口执行。Proxy 的异步启动、HTTP JSON 和 automation 阻塞调用使用同一个 `ProxyExecutor`，后台持续接收上游 SSE/WS 并记账；不会等待前台 observer 才开始接收。完成落盘后直接交付阻塞结果，再按既有规则 freeze/确认订阅交付和释放 Run。Proxy 不合并进 Native 模型执行核心。此次调整不改变 JSONL、数据库 schema、assembler/mapper 渲染与缓冲规则、事件字段或序列。
 
 ## 相邻应用服务
+
+- `voice.Service` 只持有当前媒体轮、一次 Runtime 调用及最多一份等待旧 Run 释放的定稿；复用 ExecuteQueryWithHooks/AttachRun/Interrupt 和完整 Completion。语音 WS 断开不取消 Run；应用关闭才通过 Runtime 中断本服务受理的 Run 并等待自身 goroutine 退出。新 Chat 的主要聊天设置沿普通 Primary:true 路径；内部 PrimaryIfMissing 复用 BackfillPrimaryChat 的 CAS，保护 hello 后并发发布的 primary。
 
 - `conversation.Service` 承担批量 Archive/Restore、active-run gate、Archive list/search/load/delete；`chat` 仍是持久化事实源。
 - `adminsource.Service` 承担 source mutation 锁以及 Agent ZIP 的 staging、reload 校验、commit、rollback 和恢复 reload 事务。
@@ -85,7 +87,7 @@ Native admission/session、根 Run 执行/恢复及子 Agent/Team 编排由 Runt
 - `runtime/adapter` 只转换旧 `contracts.AgentEngine` / system-init / catalog 的 DTO。Core 接受 `types.QueryCommand`；旧执行器仍接受 `api.QueryRequest`，转换集中在适配包，不持有准入、恢复或生命周期。
 - 根 Proxy 仍经 `query.ProxyPort` 接入；受管 Run 的上游 SSE/WS/channel 驱动已移到 `runtime/proxy.Driver`，公共收尾及 recorder/usage 已移到 `runtime/runexec`。Server 保留通用 HTTP/SSE 响应、channel socket 适配、路由配置和控制转发；所有根 Proxy 调用均通过 Runtime prepared registration，旧未注册阻塞 SSE 入口与模拟 HTTP 结果捕获已删除。路由/控制适配仍保留，不能据此宣称 ProxyPort 已完全移除；Native 路径不进入 ProxyPort。
 
-HTTP/WS 保留外部请求解码、认证、来源/transport/device/lane 校验与错误编码。Runtime 保留 Agent/Team owner、输入能力、等待项身份和权限级别校验。Submit 仍允许跨设备及 HTTP/WS；其他控制仍校验持久化 control scope。未改变外部路由、SSE/WS 字段、JSONL/SQLite schema、模型协议或工具取消收尾策略。
+HTTP/WS 保留外部请求解码、认证、来源/transport/device/lane 校验与错误编码。Runtime 保留 Agent/Team owner、输入能力、等待项身份和权限级别校验。Submit 仍允许跨设备及 HTTP/WS；其他控制仍校验进程内 control scope。语音创建的 Run 冻结事实上的 voice transport 与主体；相同 subject 的普通 HTTP/main WS 界面可观察和控制，BTW/explain 与其他 subject 拒绝。HTTP/WS 原有 transport/device/lane 边界不放宽，Submit 继续原本的跨 transport/设备规则。未改变外部路由、SSE/WS 字段、JSONL/SQLite schema、模型协议或工具取消收尾策略。
 
 ## 集成注意事项
 

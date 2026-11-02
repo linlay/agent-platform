@@ -1,5 +1,15 @@
 # Runtime integration config. Copy to configs/runtime.yml to customize locally.
 
+# ASR → ordinary Agent Run → final answer TTS; PCM only. No upstream calls while disabled.
+voice:
+  enabled: false
+  asr-model: dashscope-paraformer-realtime-v2
+  tts-model: dashscope-cosyvoice-v3-flash
+  default-voice: longanyang
+  voices: [longanyang]
+  max-sentence-silence-ms: 600 # 200..6000; auto may end at a mid-question pause
+  downlink-lead-ms: 300 # 0..1000; send pacing, not a playback acknowledgment
+
 http-proxy:
   mode: auto # auto / pac_auto / direct / fixed; auto skips PAC/WPAD, pac_auto opts in
   system-refresh-interval: 15s
