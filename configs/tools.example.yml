@@ -221,7 +221,7 @@ speech-generate:
       sample-rate: 32000
       max-text-chars: 3000
     qwen-flash:
-      model-key: dashscope-qwen3-tts-flash
+      model-key: th-dashscope-qwen3-tts-flash
       voice: Cherry
       # Qwen TTS 单次文本上限 600 字，输出固定为 24kHz WAV。
       max-text-chars: 600
