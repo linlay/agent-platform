@@ -1,6 +1,6 @@
 # 实时语音对话方案
 
-日期：2026-10-30 初稿，2026-11-01 改为通用方案。状态：部分实施。2026-11-02 已实现 T01 模型/配置/客户端及 T02 Platform 会话/API，后端隔离矩阵通过；WebClient v1 切换在 agent-webclient 分支 `feature-20261102-voice-protocol`，尚未合并；zenmind-gateway 与 Desktop 的 `/api/voice` 仍转发旧 voice-server；真人、设备与目标环境验证尚未完成。
+日期：2026-10-30 初稿，2026-11-01 改为通用方案。状态：部分实施。2026-11-02 已实现 T01 模型/配置/客户端及 T02 Platform 会话/API，后端隔离矩阵通过；WebClient v1（agent-webclient #49）与 Desktop 宿主代理（zenmind-desktop #239）已合并；zenmind-gateway 的 `/api/voice/` 仍转发旧 voice-server；真人、设备与目标环境验证尚未完成。
 
 ## 目标与结论
 

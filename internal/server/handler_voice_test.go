@@ -54,6 +54,7 @@ type voiceTestProvider struct {
 	transcript atomic.Value
 	autoFinal  atomic.Bool
 	holdStart  atomic.Bool
+	failTTS    atomic.Bool
 }
 
 func voiceProvider(t *testing.T) (*httptest.Server, *voiceTestProvider) {
@@ -134,6 +135,12 @@ func voiceProvider(t *testing.T) (*httptest.Server, *voiceTestProvider) {
 					return
 				}
 				p.texts <- text.Payload.Input.Text
+				if p.failTTS.CompareAndSwap(true, false) {
+					if emit("task-failed", nil) != nil {
+						return
+					}
+					continue
+				}
 				size := start.Payload.Parameters.SampleRate * 2 / 50
 				pcm := bytes.Repeat([]byte{byte(p.tts.Load())}, size*2+2)
 				if c.WriteMessage(websocket.BinaryMessage, pcm[:size+1]) != nil || c.WriteMessage(websocket.BinaryMessage, pcm[size+1:]) != nil {
@@ -1009,4 +1016,36 @@ func TestVoiceCompletedRunWithLeftoverAwaitingEndsTurn(t *testing.T) {
 	if p.tts.Load() != 0 {
 		t.Fatal("left-over awaiting answer was spoken")
 	}
+}
+
+func TestVoiceAwaitingHintFailureKeepsTheTurnWaiting(t *testing.T) {
+	var calls atomic.Int32
+	f := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			frame := providerToolCallsFrame(t, []providerToolCallSpec{{ID: "voice-question", Name: "ask_user_question", Args: map[string]any{"mode": "question", "questions": []any{map[string]any{"question": "如何继续？", "type": "text"}}}}})
+			writeProviderSSE(t, w, frame, "[DONE]")
+		} else {
+			writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"根据界面提交继续完成。"},"finish_reason":"stop"}]}`, "[DONE]")
+		}
+	})
+	srv, p := enableVoiceFixture(t, f, nil)
+	p.failTTS.Store(true)
+	c, _ := dialVoice(t, srv, "", 16000)
+	speakVoice(t, c)
+	awaiting, _ := voiceUntil(t, c, "awaiting", "")
+	// voiceUntil fails on any error frame: the hint failure must not end the turn.
+	if stop, _ := voiceUntil(t, c, "tts", "stop"); stop["reason"] != "error" {
+		t.Fatal(stop)
+	}
+	body, _ := json.Marshal(map[string]any{"agentKey": "mock-agent", "runId": awaiting["runId"], "awaitingId": awaiting["awaitingId"], "params": []any{map[string]any{"id": "q1", "answer": "继续"}}})
+	rec := httptest.NewRecorder()
+	f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ordinary Submit rejected: %d %s", rec.Code, rec.Body.String())
+	}
+	start, _ := voiceUntil(t, c, "tts", "start")
+	if start["text"] != "根据界面提交继续完成。" || start["turn"] != awaiting["turn"] {
+		t.Fatal(start)
+	}
+	voiceUntil(t, c, "tts", "stop")
 }

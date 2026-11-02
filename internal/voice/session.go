@@ -604,7 +604,9 @@ func (s *session) event(e sessionEvent) error {
 		if !e.speech.hint {
 			t.phase = "done"
 		}
-		if e.err != nil {
+		// An error ends the client's turn. The awaiting hint is advisory and its
+		// Run is still waiting, so only stop(reason=error) reports it.
+		if e.err != nil && !e.speech.hint {
 			return s.fail("tts_failed", "语音播放未完成，请查看聊天界面")
 		}
 	}
