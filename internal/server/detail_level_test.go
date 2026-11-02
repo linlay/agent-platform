@@ -53,16 +53,19 @@ func TestQueryDefaultsToSummaryDetail(t *testing.T) {
 	}
 
 	var activities []string
+	var usageSnapshots int
 	var lastSeq float64
 	var complete map[string]any
 	for _, message := range decodeSSEMessages(t, rec.Body.String()) {
 		eventType, _ := message["type"].(string)
 		switch {
 		case strings.HasPrefix(eventType, "tool."), strings.HasPrefix(eventType, "reasoning."),
-			eventType == "usage.snapshot", eventType == "debug.llmChat":
+			eventType == "debug.llmChat":
 			t.Fatalf("summary leaked %s: %#v", eventType, message)
+		case eventType == "usage.snapshot":
+			usageSnapshots++
 		case eventType == "run.activity":
-			if message["seq"] != float64(0) || message["activity"] != nil || message["retry"] != nil || message["phase"] != nil {
+			if message["seq"] != float64(0) || message["activity"] != nil || message["phase"] != nil {
 				t.Fatalf("unexpected summary activity %#v", message)
 			}
 			activities = append(activities, message["message"].(string))
@@ -76,14 +79,16 @@ func TestQueryDefaultsToSummaryDetail(t *testing.T) {
 		}
 		lastSeq = seq
 	}
-	// Content clears the line with an empty message instead of "replying".
-	want := []string{""}
-	if strings.Join(activities, "|") != strings.Join(want, "|") {
-		t.Fatalf("activities=%q want %q", activities, want)
+	// Notifications include automatic progress and retain the clear when content starts.
+	if len(activities) == 0 || activities[len(activities)-1] != "" {
+		t.Fatalf("activities=%q", activities)
+	}
+	if usageSnapshots == 0 {
+		t.Fatal("summary did not receive live usage")
 	}
 	usage, _ := complete["usage"].(map[string]any)
 	run, _ := usage["run"].(map[string]any)
-	// Summary viewers read usage from the terminal event.
+	// Terminal usage remains available alongside live snapshots.
 	if run["toolCallCount"] != float64(1) || run["llmChatCompletionCount"] != float64(2) ||
 		run["promptTokens"] != float64(30) || run["completionTokens"] != float64(7) {
 		t.Fatalf("unexpected terminal usage: %#v", complete)

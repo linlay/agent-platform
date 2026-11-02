@@ -9,8 +9,8 @@ import "strings"
 //
 //   - summary (default): what a user reads and answers — input, Run and
 //     subtask lifecycle, content, plans, artifacts, sources, awaiting
-//     questions — plus model announcements and their clears. Reasoning, tool
-//     calls, usage snapshots and retries stay behind.
+//     questions — plus state notifications, usage, waits, progress and retries.
+//     Reasoning bodies and ordinary tool call details stay behind.
 //   - full: every event, progress and retry activities included, so one
 //     full stream can serve viewers of every level (a Proxy records its
 //     upstream in full and filters locally). A detailed view ignores
@@ -52,6 +52,9 @@ var summaryEventTypes = map[string]bool{
 	"request.query": true, "request.steer": true, "request.submit": true,
 	"chat.start": true,
 	"run.start":  true, "run.complete": true, "run.cancel": true, "run.error": true,
+	"run.access_level.changed": true, "run.activity": true,
+	"context.compact.start": true, "context.compact.complete": true, "context.compact.failed": true,
+	"tool.wait": true, "tool.wait.update": true, "usage.snapshot": true,
 	"task.start": true, "task.complete": true, "task.cancel": true, "task.error": true,
 	"content.start": true, "content.delta": true, "content.end": true,
 	"content.snapshot": true, "content.view": true,
@@ -69,9 +72,10 @@ func (level DetailLevel) Allows(eventType string, payload map[string]any) bool {
 	case DetailFull:
 		return true
 	default:
-		if IsProgressActivity(eventType, payload) {
-			kind := activityKind(payload)
-			return kind == ActivityKindAnnounce || kind == "idle"
+		// Wait completion closes the interactive wait card even when ordinary
+		// tool results are hidden by summary delivery.
+		if eventType == "tool.result" && payload["toolName"] == "wait" {
+			return true
 		}
 		return summaryEventTypes[eventType]
 	}
