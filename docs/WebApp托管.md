@@ -2,15 +2,15 @@
 
 ## 访问范围修订（2026-11-01）
 
-用户确认先完成 `127.0.0.1` 本地端口访问，后续每应用独立域名另行实施。DNS/TLS/nginx 和公网内容域验收延期，详见计划顶部范围修订。当前新增网关仅提供每应用一个本地 origin，不在 Platform 主端口提供域名分流。
+用户确认先完成 `127.0.0.1` 本地端口访问，后续每应用独立域名另行实施。DNS/TLS/nginx 和公网内容域验收延期，剩余工作见 [WebApp 托管剩余工作](../plans/webapp-node-hosting.md)。当前新增网关仅提供每应用一个本地 origin，不在 Platform 主端口提供域名分流。
 
 本地端口 Cookie 共享主机边界，不能等同于独立域名隔离；应用使用独立 Cookie 名并绑定实例代次，后端代理剥离宿主 Cookie。仅支持单 owner 审核的可信应用。Compose override 将前端端口范围发布在宿主机 `127.0.0.1`；Node/内部 SDK 端口不发布。远程浏览器需要 SSH 转发，后续域名接入会另做配置和验证。
 
 ## 当前实现范围
 
-完整设计见 [Linux Docker Compose WebApp 托管方案](../plans/webapp-node-hosting.md)。当前代码已接入部署选择、严格配置、owner/Host 边界、Node 制品与隔离探测，以及 owner ZIP 上传、预检、安装、停止状态更新和卸载事务。静态/Node 网关、票据/会话、启停、最小 WebClient 管理和受限 Node 监督已接入；运行中更新、失败回退和配置/授权重建已接入；SDK transport、配置和连接器适配已接入；assistant/skill/artifact 已接入既有 Runtime/Catalog/ChatResource；本轮本地托管及批次 7 候选验收已完成，详见下方验证记录；生产未切换，域名能力延期。
+原完整设计已从计划中精简，见 git 历史 `6a490a32:plans/webapp-node-hosting.md`。当前代码已接入部署选择、严格配置、owner/Host 边界、Node 制品与隔离探测，以及 owner ZIP 上传、预检、安装、停止状态更新和卸载事务。静态/Node 网关、票据/会话、启停、最小 WebClient 管理和受限 Node 监督已接入；运行中更新、失败回退和配置/授权重建已接入；SDK transport、配置和连接器适配已接入；assistant/skill/artifact 已接入既有 Runtime/Catalog/ChatResource；本轮本地托管及批次 7 候选验收已完成，详见下方验证记录；生产未切换，域名能力延期。
 
-共享 Manifest 已补齐 Linux 目标及合法/非法输入 fixture，builder 同步离线纯 JS 包约束；Desktop 仍拒绝安装 Linux 目标包。Go 安装器嵌入 Desktop 生成的 schema 并消费同一 fixture；`scripts/sync-webapp-contracts.py --check --desktop-root <Desktop源码根>` 检查复制漂移，不在生产环境读取相邻源码。小批次边界与验证限制见计划第 21 节。
+共享 Manifest 已补齐 Linux 目标及合法/非法输入 fixture，builder 同步离线纯 JS 包约束；Desktop 仍拒绝安装 Linux 目标包。Go 安装器嵌入 Desktop 生成的 schema 并消费同一 fixture；`scripts/sync-webapp-contracts.py --check --desktop-root <Desktop源码根>` 检查复制漂移，不在生产环境读取相邻源码。
 
 ## 安装事务与数据所有权
 
