@@ -154,6 +154,11 @@ func voiceProvider(t *testing.T) (*httptest.Server, *voiceTestProvider) {
 
 func enableVoiceFixture(t *testing.T, f testFixture, runtime voice.Runtime) (*httptest.Server, *voiceTestProvider) {
 	t.Helper()
+	return enableVoiceFixtureWithChats(t, f, runtime, nil)
+}
+
+func enableVoiceFixtureWithChats(t *testing.T, f testFixture, runtime voice.Runtime, chats voice.ChatReader) (*httptest.Server, *voiceTestProvider) {
+	t.Helper()
 	provider, p := voiceProvider(t)
 	root := f.cfg.Paths.RegistriesDir
 	files := map[string]string{
@@ -175,9 +180,12 @@ func enableVoiceFixture(t *testing.T, f testFixture, runtime voice.Runtime) (*ht
 	if runtime == nil {
 		runtime = f.server.deps.Runtime
 	}
-	chats, ok := f.chats.(voice.ChatReader)
-	if !ok {
-		t.Fatal("fixture has no primary reader")
+	if chats == nil {
+		reader, ok := f.chats.(voice.ChatReader)
+		if !ok {
+			t.Fatal("fixture has no primary reader")
+		}
+		chats = reader
 	}
 	cfg := config.VoiceConfig{Enabled: true, ASRModel: "voice-asr", TTSModel: "voice-tts", DefaultVoice: "configured", Voices: []string{"configured"}, MaxSentenceSilenceMS: 600, DownlinkLeadMS: 300}
 	service := voice.NewService(context.Background(), voice.Dependencies{Config: cfg, Models: f.modelRegistry, Runtime: runtime, Chats: chats, Agents: f.registry, Runs: f.runs})
@@ -490,9 +498,11 @@ func TestVoiceAwaitingHintWaitsForOrdinaryUISubmit(t *testing.T) {
 	// "submit" can answer the existing question.
 	_ = c.WriteJSON(map[string]any{"type": "listen", "state": "start", "mode": "manual"})
 	_ = c.WriteJSON(map[string]any{"type": "submit"})
-	msg, _ := readVoice(t, c)
-	if msg["type"] != "error" || msg["code"] != "invalid_request" {
-		t.Fatal(msg)
+	for _, code := range []string{"turn_busy", "invalid_request"} {
+		msg, _ := readVoice(t, c)
+		if msg["type"] != "error" || msg["code"] != code {
+			t.Fatal(msg)
+		}
 	}
 	if p.asr.Load() != 1 || calls.Load() != 1 {
 		t.Fatal("hint stop resumed listening or answered question")
@@ -952,5 +962,51 @@ func TestVoiceAutoStopsOnSentenceFinalAndKeepsAcceptedTail(t *testing.T) {
 	voiceUntil(t, c, "tts", "stop")
 	if p.pcmBytes.Load() != 642 || len(queryLines(t, f, chatID)) != 1 || p.asr.Load() != 1 || p.tts.Load() != 1 {
 		t.Fatal("auto final lost accepted audio or duplicated Query")
+	}
+}
+
+// voiceLeftoverAwaitingChats reports a pending item that outlives the Run.
+type voiceLeftoverAwaitingChats struct{ voice.ChatReader }
+
+func (c voiceLeftoverAwaitingChats) Summary(chatID string) (*chat.Summary, error) {
+	summary, err := c.ChatReader.Summary(chatID)
+	if summary == nil || err != nil {
+		return summary, err
+	}
+	copied := *summary
+	copied.PendingAwaiting = &chat.PendingAwaiting{AwaitingID: "left-over", RunID: summary.LastRunID, Mode: "question"}
+	return &copied, nil
+}
+
+func TestVoiceCompletedRunWithLeftoverAwaitingEndsTurn(t *testing.T) {
+	f := newTestFixture(t)
+	reader, ok := f.chats.(voice.ChatReader)
+	if !ok {
+		t.Fatal("fixture has no primary reader")
+	}
+	srv, p := enableVoiceFixtureWithChats(t, f, nil, voiceLeftoverAwaitingChats{reader})
+	c, _ := dialVoice(t, srv, "", 16000)
+	speakVoice(t, c)
+	voiceUntil(t, c, "run", "end")
+	msg, _ := readVoice(t, c)
+	if msg["type"] != "error" || msg["code"] != "awaiting_pending" {
+		t.Fatal(msg)
+	}
+	// The turn is closed, so the next utterance opens turn 2 instead of being dropped.
+	speakVoice(t, c)
+	for {
+		msg, _ := readVoice(t, c)
+		if msg["type"] == "error" {
+			t.Fatal(msg)
+		}
+		if msg["type"] == "stt" && msg["final"] == true {
+			if msg["turn"] != float64(2) {
+				t.Fatal(msg)
+			}
+			break
+		}
+	}
+	if p.tts.Load() != 0 {
+		t.Fatal("left-over awaiting answer was spoken")
 	}
 }

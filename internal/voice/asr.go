@@ -48,16 +48,14 @@ func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode str
 			err = ctx.Err()
 		}
 	}()
-	conn, end, err := c.socket.begin(ctx)
+	id := uuid.NewString()
+	// Audio stays buffered in the channel until task-started.
+	conn, end, err := c.socket.start(ctx, id, map[string]any{"task_group": "audio", "task": "asr", "function": "recognition", "model": c.socket.model.ModelID, "input": map[string]any{}, "parameters": map[string]any{"format": "pcm", "sample_rate": 16000, "semantic_punctuation_enabled": false, "max_sentence_silence": c.silenceMS}})
 	if err != nil {
 		return "", err
 	}
 	success := false
 	defer func() { end(success) }()
-	id := uuid.NewString()
-	if err = dashCommand(conn, id, "run-task", map[string]any{"task_group": "audio", "task": "asr", "function": "recognition", "model": c.socket.model.ModelID, "input": map[string]any{}, "parameters": map[string]any{"format": "pcm", "sample_rate": 16000, "semantic_punctuation_enabled": false, "max_sentence_silence": c.silenceMS}}); err != nil {
-		return "", err
-	}
 	type result struct {
 		event *dashScopeEvent
 		err   error
@@ -67,9 +65,8 @@ func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode str
 	readCtx, stopReader := context.WithCancel(ctx)
 	go func() {
 		defer close(readDone)
-		deadline := time.Now().Add(startupTimeout)
 		for {
-			_, event, err := dashRead(conn, id, deadline)
+			_, event, err := dashRead(conn, id, time.Now().Add(finishTimeout))
 			select {
 			case events <- result{event, err}:
 			case <-readCtx.Done():
@@ -78,7 +75,6 @@ func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode str
 			if err != nil || event != nil && event.Header.Event == "task-finished" {
 				return
 			}
-			deadline = time.Now().Add(finishTimeout)
 		}
 	}()
 	defer func() {
@@ -88,9 +84,9 @@ func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode str
 		}
 		<-readDone
 	}()
-	started, finishing := false, false
+	finishing := false
 	totalBytes := 0
-	var input <-chan []byte
+	input := audio
 	finals := map[int]string{}
 	finishedSentences := map[int]bool{}
 	transcript := func() string {
@@ -154,10 +150,8 @@ func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode str
 		case pcm, ok := <-input:
 			if !ok {
 				input = nil
-				if started {
-					if err = finish(); err != nil {
-						return "", err
-					}
+				if err = finish(); err != nil {
+					return "", err
 				}
 			} else if err = accept(pcm); err != nil {
 				return "", err
@@ -175,15 +169,8 @@ func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode str
 			}
 			switch event.Header.Event {
 			case "task-started":
-				if started {
-					return "", errors.New("duplicate voice task-started")
-				}
-				started = true
-				input = audio
+				return "", errors.New("duplicate voice task-started")
 			case "result-generated":
-				if !started {
-					return "", errors.New("voice result before task-started")
-				}
 				sentence := event.Payload.Output.Sentence
 				if sentence.Heartbeat || strings.TrimSpace(sentence.Text) == "" || finishedSentences[sentence.Begin] {
 					continue
@@ -215,7 +202,7 @@ func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode str
 					}
 				}
 			case "task-finished":
-				if !started || !finishing {
+				if !finishing {
 					return "", errors.New("premature voice task-finished")
 				}
 				for key := range finals {

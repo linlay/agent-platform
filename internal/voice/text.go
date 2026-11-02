@@ -10,6 +10,11 @@ import (
 	"github.com/yuin/goldmark/text"
 )
 
+const (
+	maxSpokenRunes = 800
+	spokenOverflow = "其余内容请查看完整聊天。"
+)
+
 // speechText removes presentation syntax only; the committed Chat stays intact.
 func speechText(body string) string {
 	source := []byte(body)
@@ -42,8 +47,8 @@ func speechText(body string) string {
 		return "回答包含需要在界面查看的内容。"
 	}
 	runes := []rune(plain)
-	if len(runes) > 2000 {
-		return string(runes[:2000]) + "其余内容请查看完整聊天。"
+	if len(runes) > maxSpokenRunes {
+		return string(runes[:maxSpokenRunes]) + spokenOverflow
 	}
 	return plain
 }

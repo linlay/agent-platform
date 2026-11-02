@@ -743,7 +743,7 @@ HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attac
 
 一条 WS 绑定一个 Agent/Chat，10 秒内 hello；消息沿用 hello/listen/abort/stt/run/tts/awaiting/error 与裸 PCM，输入 16kHz mono、输出 16/24kHz，20ms 帧与偶数采样尾帧。只将整轮定稿作为一次普通 Query（planningMode:false，省略权限/编辑/model/references），成功保存且 complete 的最后正文才朗读。主 `/ws` 不收音频。协议形状与已确认边界见 [实时语音方案](../plans/realtime-voice.md)。
 
-abort 确认前本轮媒体失效；单写出口保证确认后没有旧轮音频。断线只停媒体并释放观察，不中断已受理 Run，重连不补录音/Query/播放。awaiting 只提示并等原界面 Submit，提示播放结束不开放新讲话。语音 Run 采用事实上的 voice transport，原用户的 HTTP/main WS 界面可按 subject 观察/控制，跨用户及 BTW/explain 拒绝；它不新增 Agent mode 或改变普通 HTTP/WS Run 的设备/transport 边界。HITL Submit 仍走既有授权和跨设备规则。
+abort 确认前本轮媒体失效；单写出口保证确认后没有旧轮音频。断线只停媒体并释放观察，不中断已受理 Run，重连不补录音/Query/播放。awaiting 只提示并等原界面 Submit，提示播放结束不开放新讲话：收音中重复的 listen start 忽略，轮次已进入运行、等待或朗读时 listen start 返回 `turn_busy`；Run 完成后仍留有待处理项时返回 `awaiting_pending` 并结束本轮，不朗读。语音 Run 采用事实上的 voice transport，原用户的 HTTP/main WS 界面可按 subject 观察/控制，跨用户及 BTW/explain 拒绝；它不新增 Agent mode 或改变普通 HTTP/WS Run 的设备/transport 边界。HITL Submit 仍走既有授权和跨设备规则。
 
 当前后端隔离矩阵已通过；浏览器切换、设备与真实部署/性能验收仍未完成，不能作为整阶段已交付依据。
 
