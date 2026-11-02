@@ -741,13 +741,75 @@ HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attac
 
 ### 实时语音 v1
 
-`GET /api/voice/capabilities` 按 `{code,msg,data}` 返回本地 enabled/reason、version:1、websocketPath、PCM 输入/输出能力和配置的音色列表，不探测供应商。voice 默认关闭；`GET /api/voice/ws` 复用普通 JWT Bearer/cookie，浏览器可用既有 `bearer.<token>` 子协议，带 Origin 必须同源或命中部署 CORS allowlist；此入口不读取 URL token。
+`GET /api/voice/capabilities` 按 `{code,msg,data}` 返回本地能力，不探测供应商：
 
-一条 WS 绑定一个 Agent/Chat，10 秒内 hello；消息沿用 hello/listen/abort/stt/run/tts/awaiting/error 与裸 PCM，输入 16kHz mono、输出 16/24kHz，20ms 帧与偶数采样尾帧。只将整轮定稿作为一次普通 Query（planningMode:false，省略权限/编辑/model/references），成功保存且 complete 的最后正文才朗读。主 `/ws` 不收音频。协议形状与已确认边界见 [实时语音方案](../plans/realtime-voice.md)。
+```json
+{"enabled":true,"reason":"","version":1,"websocketPath":"/api/voice/ws",
+ "input":{"codecs":["pcm_s16le"],"sampleRate":16000,"channels":1},
+ "output":{"codecs":["pcm_s16le"],"sampleRates":[16000,24000]},
+ "voices":[{"id":"longanyang","label":"longanyang"}],"defaultVoice":"longanyang"}
+```
 
-abort 确认前本轮媒体失效；单写出口保证确认后没有旧轮音频。断线只停媒体并释放观察，不中断已受理 Run，重连不补录音/Query/播放。awaiting 只提示并等原界面 Submit，提示播放结束不开放新讲话：收音中重复的 listen start 忽略，轮次已进入运行、等待或朗读时 listen start 返回 `turn_busy`；Run 完成后仍留有待处理项时返回 `awaiting_pending` 并结束本轮，不朗读。hello 之后的 error 只结束当前轮、不关闭连接；awaiting 提示语合成失败只以 `tts stop(reason=error)` 表示，不发 error，本轮继续等待。语音 Run 采用事实上的 voice transport，原用户的 HTTP/main WS 界面可按 subject 观察/控制，跨用户及 BTW/explain 拒绝；它不新增 Agent mode 或改变普通 HTTP/WS Run 的设备/transport 边界。HITL Submit 仍走既有授权和跨设备规则。
+voice 默认关闭；未启用或模型未配置时 `enabled:false`，`reason` 给出原因。`voices` 来自 `voice.voices`，label 当前等于 id。
 
-当前后端隔离矩阵已通过，WebClient 与 Desktop 宿主已切换；zenmind-gateway 路由、设备与真实部署/性能验收仍未完成，不能作为整阶段已交付依据。
+`GET /api/voice/ws` 复用普通 JWT Bearer/cookie，浏览器可用既有 `bearer.<token>` 子协议，带 Origin 必须同源或命中部署 CORS allowlist；此入口不读取 URL token。文本帧是 JSON 控制消息（未知字段拒绝），二进制帧是裸 PCM，主 `/ws` 不收音频。
+
+客户端 → 服务端：
+
+| type | 字段 | 说明 |
+|---|---|---|
+| hello | version:1, agentKey, chatId?, voice?, audio.input{codec,sampleRate,channels,frameMs}, audio.output{codec,sampleRate,channels?,frameMs?} | 连接后 10 秒内的首帧。input 固定 pcm_s16le/16000/1/20；output 为 pcm_s16le 的 16000 或 24000。voice 省略取默认，须在 voices 内 |
+| listen | state:start/stop, mode:auto/manual | start 开启新一轮收音；auto 由服务端按句尾静音判定说完，manual 以 stop 结束 |
+| abort | reason? | 打断当前轮 |
+
+服务端 → 客户端：
+
+| type | 字段 | 说明 |
+|---|---|---|
+| hello | version, sessionId, agentKey, chatId, audio.output{codec,sampleRate,channels:1,frameMs:20} | 握手成功 |
+| stt | turn, text, final | 识别中间结果与整句定稿；定稿后停止收音并提交 Query |
+| run | turn, state:start/end, runId, chatId, finishReason? | start 与 end 之间显示思考中 |
+| awaiting | turn, runId, awaitingId, mode | Run 等待人工，随后朗读固定提示语 |
+| tts | turn, state:start/stop, text?, reason? | start 携带朗读全文，其后的二进制帧属于该轮；stop 的 reason 为 done/error，只表示音频发完，不代表客户端播完 |
+| abort | turn | 打断确认 |
+| error | code, msg | 见下方错误码 |
+
+服务端接受 listen start 时 turn 加 1，被拒绝的 listen start 不分配轮次。
+
+音频：
+
+- 上行只在收音阶段接受，按实时节奏发送；每帧 640 字节（20ms），仅最后一帧可更短且须为偶数字节，短帧后再发报 `invalid_audio`。单轮 PCM 最长 60 秒，识别文本最多 4000 字，10 秒内无识别结果按 `no_speech` 结束。
+- 下行每帧 20ms，服务端按实时节奏发送，最多领先 `voice.downlink-lead-ms`；不做 ACK 流控，客户端自行起播缓冲。
+- 半双工：一次 listen 只产生一个定稿，收到 tts stop 并本地播完后再发 listen start。收音中重复的 start 忽略；轮次已进入运行、等待或朗读时返回 `turn_busy`。
+
+打断：客户端立即本地静音、清空播放并发送 abort，此后丢弃音频和本轮消息，直到收到 abort 确认。服务端结束当前轮、丢弃等待提交的定稿，经 Runtime Interrupt 取消本会话受理的 Run，再回发 `{"type":"abort","turn":N}`；事件循环是唯一写出口，确认之后不会再有旧轮音频。关闭连接不取消 Run，取消必须发 abort。
+
+会话与 Run：一条 WS 绑定一个 Agent/Chat。hello 的 chatId 须属于该 Agent；省略时用该 Agent 的主要聊天，没有则在首轮以 primary 新建，期间主要聊天被他处设定返回 `chat_changed`。每个定稿作为一次普通 Query（planningMode:false，省略权限/编辑/model/references），成功保存且 complete 的最后正文去掉代码块、表格、链接地址等 Markdown 后才朗读（最多 800 字）。Chat 已有非本会话的活动 Run 返回 `chat_busy`；打断后的新定稿等旧 Run 终态后再提交，等待超时返回 `run_busy_timeout`。断线只停媒体并释放观察，不中断已受理 Run，重连不补录音/Query/播放。awaiting 只提示并等原界面 Submit，提示播放结束不开放新讲话；Run 完成后仍留有待处理项时返回 `awaiting_pending` 并结束本轮，不朗读。语音 Run 采用事实上的 voice transport，原用户的 HTTP/main WS 界面可按 subject 观察/控制，跨用户及 BTW/explain 拒绝；它不新增 Agent mode 或改变普通 HTTP/WS Run 的设备/transport 边界。HITL Submit 仍走既有授权和跨设备规则。
+
+错误码：
+
+- hello 前：`invalid_request`（首帧不是合法 hello，或 Agent、Chat、音色、音频格式不符）、`voice_unavailable`（模型或配置不可用），发送后关闭连接。
+- hello 后，error 结束当前轮，连接保留：`no_speech`、`asr_failed`、`recording_limit`、`transcript_limit`、`invalid_audio`、`audio_overflow`、`chat_busy`、`chat_changed`、`run_failed`、`run_busy_timeout`、`awaiting_pending`、`tts_failed`。无法观察 Run（`run_failed`）或旧 Run 收尾超时（`run_busy_timeout`）时随后关闭连接。
+- `turn_busy` 与 `invalid_request` 只拒绝该条消息，不影响进行中的轮。awaiting 提示语合成失败只以 `tts stop(reason=error)` 表示，不发 error，本轮继续等待。
+
+时序示例：
+
+```text
+→ {"type":"hello","version":1,"agentKey":"zenmi","audio":{"input":{"codec":"pcm_s16le","sampleRate":16000,"channels":1,"frameMs":20},"output":{"codec":"pcm_s16le","sampleRate":16000}}}
+← {"type":"hello","version":1,"sessionId":"vs1","agentKey":"zenmi","chatId":"c1","audio":{"output":{"codec":"pcm_s16le","sampleRate":16000,"channels":1,"frameMs":20}}}
+→ {"type":"listen","state":"start","mode":"auto"}
+→ [PCM 20ms] ...
+← {"type":"stt","turn":1,"text":"今天北京","final":false}
+← {"type":"stt","turn":1,"text":"今天北京天气怎么样？","final":true}
+← {"type":"run","turn":1,"state":"start","runId":"r1","chatId":"c1"}
+← {"type":"run","turn":1,"state":"end","runId":"r1","chatId":"c1","finishReason":"complete"}
+← {"type":"tts","turn":1,"state":"start","text":"北京今天晴，最高十八度。"}
+← [PCM 20ms] ...
+← {"type":"tts","turn":1,"state":"stop","reason":"done"}
+→ {"type":"listen","state":"start","mode":"auto"}
+```
+
+当前后端隔离矩阵已通过，WebClient 与 Desktop 宿主已切换；zenmind-gateway 路由、设备与真实部署/性能验收仍未完成，不能作为整阶段已交付依据。剩余工作见 [实时语音方案](../plans/realtime-voice.md)。
 
 ### KBASE
 

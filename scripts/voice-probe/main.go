@@ -1,6 +1,10 @@
 // voice-probe performs a small, paid DashScope TTS -> ASR connectivity check.
 // It reads the credential from a provider YAML and never writes it to artifacts.
 // This is a standalone probe, not the Platform voice implementation.
+//
+// Run from the repository root:
+//
+//	go run ./scripts/voice-probe -provider <zenmind-env>/registries/providers/dashscope.yml -out <dir>
 package main
 
 import (
