@@ -258,8 +258,13 @@ func (s *session) control(msg clientMessage) error {
 		if msg.State != "start" || (msg.Mode != "auto" && msg.Mode != "manual") {
 			return s.fail("invalid_request", "listen 参数无效")
 		}
+		if s.current != nil && s.current.phase == "listening" {
+			return nil // A repeated start while still listening is idempotent.
+		}
 		if s.current != nil && s.current.phase != "done" {
-			return nil
+			// Silently dropping it would leave the client counting a turn the
+			// server never opened.
+			return s.fail("turn_busy", "当前轮尚未结束，请等待播放结束或先打断")
 		}
 		s.invalidate()
 		s.nextTurn++
@@ -488,8 +493,12 @@ func (s *session) event(e sessionEvent) error {
 					return s.fail("run_failed", "无法核对聊天完成状态")
 				}
 				if summary != nil && summary.PendingAwaiting != nil {
-					e.turn.awaiting = true
-					e.turn.phase = "awaiting"
+					// A later Run continues this item and this session does not
+					// observe it; end the turn instead of waiting silently.
+					e.turn.phase = "done"
+					if err := s.fail("awaiting_pending", "请在聊天界面继续处理待确认项"); err != nil {
+						return err
+					}
 				} else if err := s.speak(e.turn, speechText(result.Completion.AssistantText), false); err != nil {
 					return err
 				}
@@ -595,7 +604,9 @@ func (s *session) event(e sessionEvent) error {
 		if !e.speech.hint {
 			t.phase = "done"
 		}
-		if e.err != nil {
+		// An error ends the client's turn. The awaiting hint is advisory and its
+		// Run is still waiting, so only stop(reason=error) reports it.
+		if e.err != nil && !e.speech.hint {
 			return s.fail("tts_failed", "语音播放未完成，请查看聊天界面")
 		}
 	}

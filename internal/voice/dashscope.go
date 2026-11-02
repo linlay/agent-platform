@@ -18,13 +18,20 @@ import (
 )
 
 const (
-	startupTimeout     = 5 * time.Second
-	finishTimeout      = 10 * time.Second
-	writeTimeout       = 5 * time.Second
-	maxStartupPCM      = 64000
-	maxRecordingPCM    = 1920000
-	maxTranscriptChars = 4000
+	startupTimeout = 5 * time.Second
+	// A silently dropped reused socket must fail fast enough for the fresh
+	// retry to fit inside the 2s startup audio buffer.
+	reusedStartupTimeout = time.Second
+	finishTimeout        = 10 * time.Second
+	writeTimeout         = 5 * time.Second
+	maxStartupPCM        = 64000
+	maxRecordingPCM      = 1920000
+	maxTranscriptChars   = 4000
 )
+
+// errProviderTransport marks socket write/read failures, as opposed to events
+// the provider sent on a live socket.
+var errProviderTransport = errors.New("voice provider connection")
 
 // One socket per ASR/TTS client, reused only after task-finished. A cancelled or
 // failed task closes the socket: untagged late binary frames cannot cross tasks.
@@ -91,15 +98,17 @@ func (s *dashScopeSocket) close() {
 }
 
 // begin serializes tasks, refreshes credentials on reconnect, and binds only the
-// media task to ctx. It never owns or cancels an Agent Run.
-func (s *dashScopeSocket) begin(ctx context.Context) (*websocket.Conn, func(bool), error) {
+// media task to ctx. It never owns or cancels an Agent Run. reused reports that
+// the socket was kept from an earlier finished task.
+func (s *dashScopeSocket) begin(ctx context.Context) (*websocket.Conn, func(bool), bool, error) {
 	s.taskMu.Lock()
 	if err := ctx.Err(); err != nil {
 		s.taskMu.Unlock()
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	s.mu.Lock()
 	c := s.conn
+	reused := c != nil
 	if c == nil {
 		headers := http.Header{}
 		for k, v := range s.provider.Protocol(s.model.Protocol).Headers {
@@ -112,7 +121,7 @@ func (s *dashScopeSocket) begin(ctx context.Context) (*websocket.Conn, func(bool
 		if err != nil {
 			s.mu.Unlock()
 			s.taskMu.Unlock()
-			return nil, nil, errors.New("voice provider credential unavailable")
+			return nil, nil, false, errors.New("voice provider credential unavailable")
 		}
 		headers.Set(name, value)
 		var response *http.Response
@@ -124,9 +133,9 @@ func (s *dashScopeSocket) begin(ctx context.Context) (*websocket.Conn, func(bool
 			s.mu.Unlock()
 			s.taskMu.Unlock()
 			if ctx.Err() != nil {
-				return nil, nil, ctx.Err()
+				return nil, nil, false, ctx.Err()
 			}
-			return nil, nil, errors.New("voice provider websocket connection failed")
+			return nil, nil, false, errors.New("voice provider websocket connection failed")
 		}
 		c.SetReadLimit(1 << 20)
 		s.conn = c
@@ -142,13 +151,39 @@ func (s *dashScopeSocket) begin(ctx context.Context) (*websocket.Conn, func(bool
 			s.close()
 		}
 		s.taskMu.Unlock()
-	}, nil
+	}, reused, nil
+}
+
+// start sends run-task and waits for task-started. Nothing of this task has
+// reached the provider before task-started, so a reused socket that the
+// provider or network closed while idle is replaced once by a fresh one.
+func (s *dashScopeSocket) start(ctx context.Context, id string, payload map[string]any) (*websocket.Conn, func(bool), error) {
+	for retry := true; ; retry = false {
+		conn, end, reused, err := s.begin(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		timeout := startupTimeout
+		if reused && retry {
+			timeout = reusedStartupTimeout
+		}
+		if err = dashCommand(conn, id, "run-task", payload); err == nil {
+			err = dashStarted(conn, id, timeout)
+		}
+		if err == nil {
+			return conn, end, nil
+		}
+		end(false)
+		if !retry || !reused || ctx.Err() != nil || !errors.Is(err, errProviderTransport) {
+			return nil, nil, err
+		}
+	}
 }
 
 func dashCommand(c *websocket.Conn, id, action string, payload map[string]any) error {
 	_ = c.SetWriteDeadline(time.Now().Add(writeTimeout))
 	if err := c.WriteJSON(map[string]any{"header": map[string]any{"action": action, "task_id": id, "streaming": "duplex"}, "payload": payload}); err != nil {
-		return errors.New("voice provider write failed")
+		return fmt.Errorf("%w: write failed", errProviderTransport)
 	}
 	return nil
 }
@@ -158,7 +193,7 @@ func dashRead(c *websocket.Conn, id string, deadline time.Time) ([]byte, *dashSc
 	for {
 		kind, data, err := c.ReadMessage()
 		if err != nil {
-			return nil, nil, errors.New("voice provider read failed or timed out")
+			return nil, nil, fmt.Errorf("%w: read failed or timed out", errProviderTransport)
 		}
 		if kind == websocket.BinaryMessage {
 			return data, nil, nil
@@ -180,8 +215,8 @@ func dashRead(c *websocket.Conn, id string, deadline time.Time) ([]byte, *dashSc
 	}
 }
 
-func dashStarted(c *websocket.Conn, id string) error {
-	_, event, err := dashRead(c, id, time.Now().Add(startupTimeout))
+func dashStarted(c *websocket.Conn, id string, timeout time.Duration) error {
+	_, event, err := dashRead(c, id, time.Now().Add(timeout))
 	if err != nil {
 		return err
 	}

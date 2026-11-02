@@ -3,6 +3,7 @@ package voice
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestSpeechTextOnlyRemovesPresentation(t *testing.T) {
@@ -15,7 +16,10 @@ func TestSpeechTextOnlyRemovesPresentation(t *testing.T) {
 		t.Fatal(got)
 	}
 	got = speechText(strings.Repeat("长", 2001))
-	if got != strings.Repeat("长", 2000)+"其余内容请查看完整聊天。" {
+	if got != strings.Repeat("长", maxSpokenRunes)+spokenOverflow {
 		t.Fatal("long text changed beyond the explicit prefix limit")
+	}
+	if n := utf8.RuneCountInString(got); n > maxSynthesisRunes {
+		t.Fatalf("spoken text %d runes exceeds synthesis input limit", n)
 	}
 }

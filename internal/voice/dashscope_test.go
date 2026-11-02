@@ -341,3 +341,107 @@ func TestVoiceEndpointAndAuthRejection(t *testing.T) {
 		t.Fatalf("credential leak %v", err)
 	}
 }
+
+func TestReusedSocketClosedWhileIdleReconnectsOnce(t *testing.T) {
+	var asrConns, ttsConns atomic.Int32
+	asr := fakeVoice(t, func(c *websocket.Conn) {
+		asrConns.Add(1)
+		start := readCommand(t, c, "run-task")
+		event(t, c, start.Header.ID, "task-started", nil)
+		for {
+			kind, _, err := c.ReadMessage()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if kind == websocket.TextMessage {
+				break // finish-task
+			}
+		}
+		event(t, c, start.Header.ID, "result-generated", map[string]any{"begin_time": 0, "text": "一句。", "sentence_end": true})
+		event(t, c, start.Header.ID, "task-finished", nil)
+		// Returning closes the socket after the task, like a provider idle timeout.
+	})
+	tts := fakeVoice(t, func(c *websocket.Conn) {
+		ttsConns.Add(1)
+		start := readCommand(t, c, "run-task")
+		event(t, c, start.Header.ID, "task-started", nil)
+		readCommand(t, c, "continue-task")
+		readCommand(t, c, "finish-task")
+		_ = c.WriteMessage(websocket.BinaryMessage, []byte{1, 2})
+		event(t, c, start.Header.ID, "task-finished", nil)
+	})
+	a, s := testASR(t, asr), testTTS(t, tts)
+	for i := 0; i < 2; i++ {
+		input := make(chan []byte, 1)
+		input <- make([]byte, 640)
+		close(input)
+		if text, err := a.Recognize(context.Background(), input, "manual", nil); err != nil || text != "一句。" {
+			t.Fatalf("ASR turn %d: %q %v", i, text, err)
+		}
+		if err := s.Synthesize(context.Background(), "正文", "voice", 16000, func([]byte) error { return nil }); err != nil {
+			t.Fatalf("TTS turn %d: %v", i, err)
+		}
+	}
+	if asrConns.Load() != 2 || ttsConns.Load() != 2 {
+		t.Fatalf("connections asr=%d tts=%d", asrConns.Load(), ttsConns.Load())
+	}
+}
+
+func TestReusedSocketProviderFailureIsNotRetried(t *testing.T) {
+	var connections atomic.Int32
+	p := fakeVoice(t, func(c *websocket.Conn) {
+		connections.Add(1)
+		start := readCommand(t, c, "run-task")
+		event(t, c, start.Header.ID, "task-started", nil)
+		readCommand(t, c, "continue-task")
+		readCommand(t, c, "finish-task")
+		_ = c.WriteMessage(websocket.BinaryMessage, []byte{1, 2})
+		event(t, c, start.Header.ID, "task-finished", nil)
+		again := readCommand(t, c, "run-task")
+		event(t, c, again.Header.ID, "task-failed", nil)
+		_, _, _ = c.ReadMessage()
+	})
+	c := testTTS(t, p)
+	if err := c.Synthesize(context.Background(), "正文", "voice", 16000, func([]byte) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Synthesize(context.Background(), "正文", "voice", 16000, func([]byte) error { return nil }); err == nil {
+		t.Fatal("provider task failure was hidden")
+	}
+	if connections.Load() != 1 {
+		t.Fatal("live provider failure was retried on a new connection")
+	}
+}
+
+func TestReusedSilentSocketRetriesWithinStartupBuffer(t *testing.T) {
+	var connections atomic.Int32
+	p := fakeVoice(t, func(c *websocket.Conn) {
+		n := connections.Add(1)
+		start := readCommand(t, c, "run-task")
+		event(t, c, start.Header.ID, "task-started", nil)
+		readCommand(t, c, "continue-task")
+		readCommand(t, c, "finish-task")
+		_ = c.WriteMessage(websocket.BinaryMessage, []byte{1, 2})
+		event(t, c, start.Header.ID, "task-finished", nil)
+		if n == 1 {
+			// Keep the socket open but never answer, like a dropped NAT mapping.
+			readCommand(t, c, "run-task")
+			_, _, _ = c.ReadMessage()
+		}
+	})
+	c := testTTS(t, p)
+	for i := 0; i < 2; i++ {
+		begin := time.Now()
+		if err := c.Synthesize(context.Background(), "正文", "voice", 16000, func([]byte) error { return nil }); err != nil {
+			t.Fatalf("turn %d: %v", i, err)
+		}
+		// Waiting out the fresh-socket timeout would overflow the startup buffer.
+		if elapsed := time.Since(begin); elapsed >= startupTimeout {
+			t.Fatalf("turn %d reused socket did not fail fast: %v", i, elapsed)
+		}
+	}
+	if connections.Load() != 2 {
+		t.Fatalf("connections=%d", connections.Load())
+	}
+}

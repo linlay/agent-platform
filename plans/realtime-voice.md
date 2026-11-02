@@ -1,6 +1,6 @@
 # 实时语音对话方案
 
-日期：2026-10-30 初稿，2026-11-01 改为通用方案。状态：部分实施。2026-11-02 已实现 T01 模型/配置/客户端及 T02 Platform 会话/API，后端隔离矩阵通过，WebClient v1 切换、旧链删除与 Chrome 合成音频验证完成；真人、设备与目标环境验证尚未完成。
+日期：2026-10-30 初稿，2026-11-01 改为通用方案。状态：部分实施。2026-11-02 已实现 T01 模型/配置/客户端及 T02 Platform 会话/API，后端隔离矩阵通过；WebClient v1（agent-webclient #49）与 Desktop 宿主代理（zenmind-desktop #239）已合并；zenmind-gateway 的 `/api/voice/` 仍转发旧 voice-server；真人、设备与目标环境验证尚未完成。
 
 ## 目标与结论
 
@@ -43,7 +43,7 @@ Platform 提供通用的实时语音对话能力，服务智能硬件、WebClien
 - 只有 run.complete 朗读；cancel、error 发 error 消息，由客户端本地提示音表达。
 - 同一 Chat 同时只有一个 Run：打断后的新问题可以立刻识别，但等旧 Run 终态后才提交 Query，避免 409。Chat 已有非本会话的活动 Run（例如用户正在 WebClient 输入）时返回 `chat_busy`。
 - 断线不取消 Run（与现有 SSE 语义一致），结果留在 Chat，重连不补播。Platform 重启照常取消未完成 Run。
-- 朗读前只做最小清理：去掉代码块、VIEW 块、表格、链接地址和 Markdown 符号，不做语义改写。
+- 朗读前只做最小清理：去掉代码块、VIEW 块、表格、链接地址和 Markdown 符号，不做语义改写；超过 800 字截断并提示查看聊天，使实时播放不超过 300 秒合成上限。
 
 ## 协议 v1
 
@@ -80,7 +80,7 @@ Platform 提供通用的实时语音对话能力，服务智能硬件、WebClien
 | tts | turn, state: start/stop, text?, reason? | start 携带朗读全文，随后的二进制帧属于该轮；stop 表示音频发完，不代表客户端播完 |
 | awaiting | turn, runId, awaitingId, mode | Run 等待人工，见 HITL |
 | abort | turn | 打断确认 |
-| error | code, msg | chat_busy、asr_failed、tts_failed、run_failed 等 |
+| error | code, msg | chat_busy、asr_failed、tts_failed、run_failed、turn_busy（轮次未结束时 listen start）、awaiting_pending（Run 完成后仍有待处理项）等 |
 
 `turn` 由服务端为每段讲话递增分配，用于关联与日志。
 
