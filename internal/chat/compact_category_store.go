@@ -65,6 +65,7 @@ func compactMessageAtoms(m map[string]any) []compactAtom {
 		// the actual call (including its arguments), without mutating the source.
 		identity := cloneMessageMap(call)
 		delete(identity, "_toolId")
+		delete(identity, "_toolLabel")
 		add("tool", identity)
 	}
 	return atoms

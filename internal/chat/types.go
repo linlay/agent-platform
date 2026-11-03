@@ -403,6 +403,8 @@ type StoredToolCall struct {
 	Type     string         `json:"type"`
 	Function StoredFunction `json:"function"`
 	ToolID   string         `json:"_toolId,omitempty"`
+	// Display label frozen at call time; omitted when it equals the name.
+	ToolLabel string `json:"_toolLabel,omitempty"`
 }
 
 type StoredFunction struct {

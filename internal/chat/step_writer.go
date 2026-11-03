@@ -201,6 +201,10 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		if strings.TrimSpace(taskID) != "" {
 			w.toolTaskIDs[toolID] = taskID
 		}
+		toolLabel := strings.TrimSpace(event.String("toolLabel"))
+		if toolLabel == toolName {
+			toolLabel = ""
+		}
 		w.appendStoredMessage(event, StoredMessage{
 			Role: "assistant",
 			ToolCalls: []StoredToolCall{{
@@ -210,7 +214,8 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 					Name:      toolName,
 					Arguments: event.String("arguments"),
 				},
-				ToolID: toolID,
+				ToolID:    toolID,
+				ToolLabel: toolLabel,
 			}},
 			MsgID: w.currentMsgID,
 			Ts:    &ts,
