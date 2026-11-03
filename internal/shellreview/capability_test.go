@@ -202,3 +202,27 @@ func TestGitReadAndWriteDependOnRepositoryState(t *testing.T) {
 	check("git reset --hard", false)
 	check("git -c core.pager=less log", false)
 }
+
+func TestTableProgramsFollowAccessLevels(t *testing.T) {
+	vars, environment := fakeSystemPrograms(t, "vm_stat", "ps", "sort", "head", "uname", "sw_vers", "md5", "shasum", "df", "cat")
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
+		f := newCapabilityFixture(t, level)
+		run := func(command string) shellplan.BashPlan {
+			return ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, f.session, command, "", vars, environment, nil)
+		}
+		for _, command := range []string{"vm_stat", "ps -A -o rss,command | sort -nr | head -20", "uname -m && sw_vers", "md5 notes.txt", "shasum -a 256 notes.txt", "df -h ."} {
+			if p := run(command); !p.Allowed() || p.AutoApproved() {
+				t.Fatalf("%s: read-only table program needs no approval: %s %+v", level, command, p)
+			}
+		}
+		// Table programs get the same path review and unknown-option fallback
+		// as the commands that were already modeled.
+		for command, like := range map[string]string{"md5 " + outside: "cat " + outside, "shasum -c sums.txt": "cat --unrecognized sums.txt", "df -h " + outside: "cat " + outside} {
+			got, want := run(command), run(like)
+			if got.Decision != want.Decision || got.Decision == "" {
+				t.Fatalf("%s: %s decided %q, like %s %q", level, command, got.Decision, like, want.Decision)
+			}
+		}
+	}
+}

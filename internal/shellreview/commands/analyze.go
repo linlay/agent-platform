@@ -13,7 +13,8 @@ import (
 // the Unix analyzers. Later Windows profiles must opt in with actual evidence.
 func Analyze(input types.CommandInput) types.Effects {
 	entry, exists := registry.Lookup(input.Name)
-	valid := exists && input.Name == strings.ToLower(input.Name) && input.Dialect == dialect.Bash
+	_, table := specCommands[input.Name]
+	valid := (exists || table) && input.Name == strings.ToLower(input.Name) && input.Dialect == dialect.Bash
 	switch input.Identity.Domain {
 	case types.ShellBuiltin:
 		valid = valid && input.Identity.Source == types.BuiltinProgram && entry.Flags&registry.Builtin != 0

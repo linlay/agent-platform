@@ -48,14 +48,13 @@ func operands(base string, args []string) effectDraft {
 	if base != strings.ToLower(base) {
 		return unknownOperands(args)
 	}
-	entry, ok := registry.Lookup(base)
-	if ok {
+	if entry, ok := registry.Lookup(base); ok {
 		if c, ok := analyzers[entry.ID]; ok {
 			return c.analyze(args)
 		}
-		if c, ok := specCommands[entry.ID]; ok {
-			return c.analyze(args)
-		}
+	}
+	if c, ok := specCommands[base]; ok {
+		return c.analyze(args)
 	}
 	return unknownOperands(args)
 }

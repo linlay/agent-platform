@@ -3,6 +3,8 @@ package commands
 import (
 	_ "embed"
 	"fmt"
+	"regexp"
+	"slices"
 	"strings"
 
 	"agent-platform/internal/config"
@@ -40,25 +42,50 @@ var specRoles = map[string]types.OptionRole{
 	"exec": types.OptionExec, "recursive": types.OptionRecursive,
 }
 
-func mustSpecCommands(data []byte) map[registry.ID]specCommand {
+func mustSpecCommands(data []byte) map[string]specCommand {
 	parsed, err := parseSpecCommands(data)
 	if err != nil {
 		panic("commands.yml: " + err.Error())
 	}
-	result := make(map[registry.ID]specCommand, len(parsed))
-	for name, c := range parsed {
-		entry, ok := registry.Lookup(name)
+	for name := range parsed {
+		if !programName.MatchString(name) {
+			panic(fmt.Sprintf("commands.yml: %q is not a lowercase program name", name))
+		}
+		entry, registered := registry.Lookup(name)
+		if !registered {
+			continue
+		}
 		// Builtins such as pwd qualify; wrappers, interpreters and build tools
 		// carry identity rules a table cannot express.
-		if !ok || entry.Name != name || entry.Flags&^(registry.Builtin|registry.Capture) != registry.Arguments {
-			panic(fmt.Sprintf("commands.yml: %s is not an ordinary registered command", name))
+		if entry.Flags&^(registry.Builtin|registry.Capture) != registry.Arguments {
+			panic(fmt.Sprintf("commands.yml: %s is not an ordinary command", name))
 		}
 		if _, ok := analyzers[entry.ID]; ok {
 			panic(fmt.Sprintf("commands.yml: %s also has a Go analyzer", name))
 		}
-		result[entry.ID] = c
 	}
-	return result
+	return parsed
+}
+
+var programName = regexp.MustCompile(`^[a-z0-9][a-z0-9._+-]*$`)
+
+// TablePrograms lists commands.yml names absent from the registry. Identity
+// treats them as ordinary programs, still trusted only as system installations.
+func TablePrograms() []string {
+	var names []string
+	for name := range specCommands {
+		if IsTableProgram(name) {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
+func IsTableProgram(name string) bool {
+	_, table := specCommands[name]
+	_, registered := registry.Lookup(name)
+	return table && !registered
 }
 
 func parseSpecCommands(data []byte) (map[string]specCommand, error) {

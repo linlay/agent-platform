@@ -1,0 +1,3 @@
+# Y3: df is described by commands.yml; reporting the filesystem of a visible operand no longer needs execution approval.
+command/df	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/df	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true

@@ -54,6 +54,8 @@ var shellBaselineCommands = map[string]string{
 	"python": "python task.py", "python3": "python3 task.py", "node": "node task.js",
 	"ruby": "ruby task.rb", "perl": "perl task.pl", "powershell": "powershell -File task.ps1",
 	"pwsh": "pwsh -File task.ps1", "cmd": "cmd /c task.cmd",
+	"vm_stat": "vm_stat", "ps": "ps -A -o pid", "sw_vers": "sw_vers --productVersion",
+	"md5": "md5 notes.txt", "shasum": "shasum -a 256 notes.txt",
 	"go": "go build", "npm": "npm test", "npx": "npx tool", "yarn": "yarn test",
 	"pnpm": "pnpm test", "pip": "pip install example", "make": "make test",
 }
@@ -173,7 +175,7 @@ func TestBashReviewNormalizedBaseline(t *testing.T) {
 		indices[key(line)] = i
 	}
 	seen := map[string]bool{}
-	for _, deltaName := range []string{"bash-review-unix-resource-delta.txt", "bash-review-unified-policy-delta.txt"} {
+	for _, deltaName := range []string{"bash-review-unix-resource-delta.txt", "bash-review-unified-policy-delta.txt", "bash-review-command-table-delta.txt"} {
 		delta, err := os.ReadFile(filepath.Join("testdata", deltaName))
 		if err != nil {
 			t.Fatal(err)

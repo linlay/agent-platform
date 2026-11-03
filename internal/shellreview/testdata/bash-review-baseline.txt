@@ -142,6 +142,9 @@ command/lsof	full_access	allow	security=allow/	connector=false/false	leaves=1:al
 command/make	ask_for_approval	requires_approval	security=allow/	connector=false/false	leaves=1:requires_approval/bash-access:execution:<hash>/invocation_version/reusable=true
 command/make	auto_approve	auto_approved	security=allow/	connector=false/false	leaves=1:auto_approved/bash-access:execution:<hash>/invocation_version/reusable=true
 command/make	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/md5	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/md5	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/md5	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/mkdir	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/mkdir	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/mkdir	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
@@ -184,6 +187,9 @@ command/printenv	full_access	allow	security=allow/	connector=false/false	leaves=
 command/printf	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/printf	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/printf	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/ps	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/ps	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/ps	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/pwd	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/pwd	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/pwd	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
@@ -229,6 +235,9 @@ command/set	full_access	allow	security=block/	connector=false/false	leaves=1:all
 command/sh	ask_for_approval	requires_approval	security=allow/	connector=false/false	leaves=1:requires_approval/bash-access:execution:<hash>/invocation_version/reusable=true
 command/sh	auto_approve	auto_approved	security=allow/	connector=false/false	leaves=1:auto_approved/bash-access:execution:<hash>/invocation_version/reusable=true
 command/sh	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/shasum	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/shasum	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/shasum	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/shift	ask_for_approval	requires_approval	security=allow/	connector=false/false	leaves=1:requires_approval/bash-access:execution:<hash>/invocation_version/reusable=true
 command/shift	auto_approve	auto_approved	security=allow/	connector=false/false	leaves=1:auto_approved/bash-access:execution:<hash>/invocation_version/reusable=true
 command/shift	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
@@ -244,6 +253,9 @@ command/stat	full_access	allow	security=allow/	connector=false/false	leaves=1:al
 command/stdbuf	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/stdbuf	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/stdbuf	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/sw_vers	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/sw_vers	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/sw_vers	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/tail	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/tail	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/tail	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
@@ -286,6 +298,9 @@ command/uniq	full_access	allow	security=allow/	connector=false/false	leaves=1:al
 command/unset	ask_for_approval	requires_approval	security=block/	connector=false/false	leaves=1:requires_approval/bash-access:execution:<hash>/invocation_version/reusable=true
 command/unset	auto_approve	auto_approved	security=block/	connector=false/false	leaves=1:auto_approved/bash-access:execution:<hash>/invocation_version/reusable=true
 command/unset	full_access	allow	security=block/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/vm_stat	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/vm_stat	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/vm_stat	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/wc	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/wc	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/wc	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true

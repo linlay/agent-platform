@@ -12,6 +12,11 @@
 # the next argument), read, write, read-dir, write-dir, exec, recursive.
 # Unlisted options keep the shared fallback: operands become writes and the
 # call needs complex-command approval.
+#
+# A name outside the registry becomes an ordinary program, trusted only as the
+# system installation found on PATH at startup. When platforms disagree on
+# whether a letter takes a value, list it as flag: a value then shows up as an
+# operand and is checked, instead of hiding the next argument.
 
 # --- operands are data, not files ---
 
@@ -108,6 +113,35 @@ free:
   long:
     flag: [bytes, kilo, mega, giga, human, wide, lohi, total, help, version]
     value: [seconds, count]
+
+vm_stat:
+  operands: none
+  short:
+    value: [c]
+  examples:
+    - args: [-c, "5", "1"]
+      expect: {}
+
+ps:
+  operands: none
+  short:
+    flag: [A, a, C, c, d, E, e, F, f, g, H, h, j, L, l, M, m, N, r, S, T, V, w, X, x, y, Z]
+    value: [G, k, O, o, p, q, s, t, U, u]
+  long:
+    flag: [forest, no-headers, headers, cumulative, deselect, context, info, version]
+    value: [sort, format, pid, ppid, user, group, sid, tty, cols, columns, width, lines, rows]
+    optional: [help]
+  examples:
+    - args: [-A, -o, "rss,command"]
+      expect: {}
+
+sw_vers:
+  operands: none
+  long:
+    flag: [productName, productVersion, productVersionExtra, buildVersion]
+  examples:
+    - args: [--productVersion]
+      expect: {}
 
 # --- operands are read ---
 
@@ -244,6 +278,41 @@ diff:
       expect: {read: [a, b], recursive: [a, b]}
     - args: [-X, ignore.txt, --from-file=base, x]
       expect: {read: [ignore.txt, base, x]}
+
+df:
+  operands: read
+  short:
+    flag: [a, b, c, g, h, H, i, I, k, l, m, n, P, t, T, v, Y]
+    value: [B, x]
+  long:
+    flag: [all, human-readable, si, inodes, local, no-sync, sync, portability, total, print-type, help, version]
+    value: [block-size, type, exclude-type]
+    optional: [output]
+  examples:
+    - args: [-hT, -x, tmpfs, data]
+      expect: {read: [data]}
+
+md5:
+  operands: read
+  short:
+    flag: [p, q, r, t, x]
+    value: [c, s]
+  examples:
+    - args: [-q, -s, hello, a.txt]
+      expect: {read: [a.txt]}
+
+# -c/--check reads the files named inside the list; keep it unlisted.
+shasum:
+  operands: read
+  short:
+    flag: ["0", b, h, t, U, v]
+    value: [a]
+  long:
+    flag: ["01", binary, text, UNIVERSAL, tag, help, version]
+    value: [algorithm]
+  examples:
+    - args: [-a, "256", a.txt]
+      expect: {read: [a.txt]}
 
 # --- operands are created, written or deleted ---
 

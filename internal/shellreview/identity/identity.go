@@ -9,6 +9,7 @@ import (
 	"agent-platform/internal/builtins"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
+	"agent-platform/internal/shellreview/commands"
 	"agent-platform/internal/shellreview/registry"
 	"agent-platform/internal/shellreview/types"
 )
@@ -21,7 +22,7 @@ func CommandFamily(name string) string {
 
 func captureSystemExecutables() map[string]string {
 	out := map[string]string{}
-	names := registry.Names(registry.Capture)
+	names := append(registry.Names(registry.Capture), commands.TablePrograms()...)
 	for _, name := range names {
 		if p, err := exec.LookPath(name); err == nil {
 			if c, err := pathutil.Canonicalize(p); err == nil {
@@ -82,7 +83,7 @@ func ResolveIdentity(session QuerySession, name, cwd string, vars map[string]str
 }
 
 func IsOrdinaryCommand(base string) bool {
-	return registry.Is(base, registry.Arguments|registry.Builtin)
+	return registry.Is(base, registry.Arguments|registry.Builtin) || commands.IsTableProgram(base)
 }
 func IsOpaqueCommand(base string) bool {
 	return registry.Is(CommandFamily(base), registry.Interpreter|registry.BuildTool)
@@ -93,7 +94,9 @@ func IsOpaqueCommand(base string) bool {
 func SystemPrograms() map[string]string { return maps.Clone(systemExecutables) }
 
 // OrdinaryCommands returns the current recognized-program inventory.
-func OrdinaryCommands() []string { return registry.Names(registry.Arguments) }
+func OrdinaryCommands() []string {
+	return append(registry.Names(registry.Arguments), commands.TablePrograms()...)
+}
 
 // ShellBuiltins returns a copy of the current builtin inventory.
 func ShellBuiltins() map[string]bool { return inventory(registry.Builtin) }

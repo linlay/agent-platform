@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"agent-platform/internal/shellreview/registry"
 	"agent-platform/internal/shellreview/types"
 )
 
@@ -35,16 +34,15 @@ func checkSpecExample(t *testing.T, name string, c specCommand, ex specExample) 
 }
 
 func TestSpecCommandExamples(t *testing.T) {
-	for id, c := range specCommands {
+	for name, c := range specCommands {
 		for _, ex := range c.examples {
-			checkSpecExample(t, registry.Name(id), c, ex)
+			checkSpecExample(t, name, c, ex)
 		}
 	}
 }
 
 func TestSpecCommandsTreatUnlistedOptionsAsUnknown(t *testing.T) {
-	for id, c := range specCommands {
-		name := registry.Name(id)
+	for name, c := range specCommands {
 		unlisted := [][]string{{"--shellreview-unlisted", "notes.txt"}}
 		for _, letter := range "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" {
 			if _, used := c.spec.ShortArgs[byte(letter)]; !used && !strings.ContainsRune(c.spec.ShortFlags, letter) {
@@ -63,6 +61,15 @@ func TestSpecCommandsTreatUnlistedOptionsAsUnknown(t *testing.T) {
 			if !e.Unknown(types.UnknownOption) || !written {
 				t.Errorf("%s %q: an unlisted option must stay unknown and turn operands into writes: %+v", name, args, e)
 			}
+		}
+	}
+}
+
+func TestOptionsThatReadUnseenFilesStayUnknown(t *testing.T) {
+	// shasum -c reads the files listed in sums.txt; procps ps -n reads a namelist.
+	for _, args := range [][]string{{"shasum", "-c", "sums.txt"}, {"shasum", "--check", "sums.txt"}, {"ps", "-n", "list"}} {
+		if e := nativeFacts(args[0], args[1:]...); !e.Unknown(types.UnknownOption) {
+			t.Errorf("%q must stay unknown: %+v", args, e)
 		}
 	}
 }
@@ -180,7 +187,7 @@ func TestSpecLoaderIsStrict(t *testing.T) {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	for _, name := range []string{"no-such-command", "WC", "git", "python", "env"} {
+	for _, name := range []string{"WC", "bad/name", "-x", "git", "python", "env", "xargs"} {
 		func() {
 			defer func() {
 				if recover() == nil {
@@ -189,5 +196,8 @@ func TestSpecLoaderIsStrict(t *testing.T) {
 			}()
 			mustSpecCommands([]byte(name + ":\n  operands: none\n"))
 		}()
+	}
+	if got := mustSpecCommands([]byte("no-such-command:\n  operands: none\n")); len(got) != 1 {
+		t.Fatal("an unregistered lowercase program name is a new table program")
 	}
 }

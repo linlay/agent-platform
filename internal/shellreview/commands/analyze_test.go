@@ -196,7 +196,7 @@ func TestMetadataInventoryCannotSilentlyGainAnAnalyzer(t *testing.T) {
 	// Historical identity entries without an analyzer retain opaque behavior.
 	// Deployment allowlists are a separate policy and never inferred here.
 	unmodeled := map[registry.ID]bool{
-		registry.CmdColon: true, registry.CmdBreak: true, registry.CmdContinue: true, registry.CmdDbx: true, registry.CmdDeclare: true, registry.CmdDf: true, registry.CmdExport: true,
+		registry.CmdColon: true, registry.CmdBreak: true, registry.CmdContinue: true, registry.CmdDbx: true, registry.CmdDeclare: true, registry.CmdExport: true,
 		registry.CmdGetChildItem: true, registry.CmdGetContent: true, registry.CmdHttpx: true, registry.CmdLocal: true, registry.CmdRead: true, registry.CmdRemoveItem: true,
 		registry.CmdReturn: true, registry.CmdSet: true, registry.CmdShift: true, registry.CmdType: true, registry.CmdTypeset: true, registry.CmdUnset: true,
 	}
@@ -205,7 +205,7 @@ func TestMetadataInventoryCannotSilentlyGainAnAnalyzer(t *testing.T) {
 			continue
 		}
 		_, analyzed := analyzers[entry.ID]
-		_, specified := specCommands[entry.ID]
+		_, specified := specCommands[entry.Name]
 		analyzed = analyzed || specified
 		if analyzed == unmodeled[entry.ID] {
 			t.Fatalf("metadata/analyzer inventory drift: %s analyzed=%t", entry.Name, analyzed)
