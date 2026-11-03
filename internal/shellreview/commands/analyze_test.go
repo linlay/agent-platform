@@ -205,6 +205,8 @@ func TestMetadataInventoryCannotSilentlyGainAnAnalyzer(t *testing.T) {
 			continue
 		}
 		_, analyzed := analyzers[entry.ID]
+		_, specified := specCommands[entry.ID]
+		analyzed = analyzed || specified
 		if analyzed == unmodeled[entry.ID] {
 			t.Fatalf("metadata/analyzer inventory drift: %s analyzed=%t", entry.Name, analyzed)
 		}

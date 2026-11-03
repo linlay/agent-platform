@@ -1,0 +1,28 @@
+# Commands whose options and operands are pure data. A command lives either
+# here or in a Go analyzer, never both; conditional grammar stays in Go.
+#
+# <name>:
+#   operands: none | read | create | output | delete
+#   short:    {<role>: [letters]}   quote digits: ["0", "1"]
+#   long:     {<role>: [names]}     names without the leading --
+#   numeric:  true                  accept -NUM (head -20)
+#   examples: [{args: [...], expect: {read|create|output|delete|recursive: [paths], exec: true}}]
+#
+# Roles: flag, value (-x v, --x=v), optional (only -xV and --x=V; never takes
+# the next argument), read, write, read-dir, write-dir, exec, recursive.
+# Unlisted options keep the shared fallback: operands become writes and the
+# call needs complex-command approval.
+
+wc:
+  operands: read
+  short:
+    flag: [c, l, L, m, w]
+  long:
+    flag: [lines, words, chars, bytes, max-line-length]
+    optional: [total]
+    read: [files0-from]
+  examples:
+    - args: [--total, names.txt]
+      expect: {read: [names.txt]}
+    - args: [--files0-from, list.txt]
+      expect: {read: [list.txt]}

@@ -68,7 +68,6 @@ var analyzers = map[registry.ID]command{
 	registry.CmdTee:       {analyze: func(args []string) effectDraft { return fileOperationOperands(registry.CmdTee, teeSpec, args) }},
 	registry.CmdTouch:     {analyze: func(args []string) effectDraft { return fileOperationOperands(registry.CmdTouch, touchSpec, args) }},
 	registry.CmdUniq:      {analyze: func(args []string) effectDraft { return fileOperands(registry.CmdUniq, uniqSpec, args) }},
-	registry.CmdWc:        {analyze: func(args []string) effectDraft { return fileOperands(registry.CmdWc, wcSpec, args) }},
 	registry.CmdWget:      {analyze: wgetOperands, config: wgetConfig},
 }
 
@@ -79,6 +78,9 @@ func operands(base string, args []string) effectDraft {
 	entry, ok := registry.Lookup(base)
 	if ok {
 		if c, ok := analyzers[entry.ID]; ok {
+			return c.analyze(args)
+		}
+		if c, ok := specCommands[entry.ID]; ok {
 			return c.analyze(args)
 		}
 	}

@@ -43,8 +43,6 @@ var tailSpec = types.OptionSpec{ShortFlags: "qvfFz", ShortArgs: map[byte]types.O
 var uniqSpec = types.OptionSpec{ShortFlags: "cduizD", ShortArgs: map[byte]types.OptionRole{'f': types.OptionValue, 's': types.OptionValue, 'w': types.OptionValue},
 	Long: options.Merge(options.Longs(types.OptionNone, "count", "repeated", "unique", "ignore-case", "zero-terminated"), options.Longs(types.OptionOptionalValue, "all-repeated", "group"), options.Longs(types.OptionValue, "skip-fields", "skip-chars", "check-chars"))}
 
-var wcSpec = types.OptionSpec{ShortFlags: "clLmw", Long: options.Merge(options.Longs(types.OptionNone, "lines", "words", "chars", "bytes", "max-line-length"), options.Longs(types.OptionRead, "files0-from"), options.Longs(types.OptionOptionalValue, "total"))}
-
 func fileOperands(id registry.ID, spec types.OptionSpec, args []string) effectDraft {
 	p := options.Parse(spec, args)
 	e := effectDraft{Incomplete: p.Incomplete, ExecutesCode: p.Exec}
@@ -56,8 +54,8 @@ func fileOperands(id registry.ID, spec types.OptionSpec, args []string) effectDr
 	}
 	recursive := p.Recursive || p.Has("r") || p.Has("R")
 	switch id {
-	case registry.CmdCat, registry.CmdHead, registry.CmdTail, registry.CmdWc, registry.CmdFile, registry.CmdStat, registry.CmdReadlink, registry.CmdRealpath, registry.CmdCut, registry.CmdSort, registry.CmdDu, registry.CmdLs:
-		if id == registry.CmdSort || id == registry.CmdCat || id == registry.CmdHead || id == registry.CmdTail || id == registry.CmdWc || id == registry.CmdCut {
+	case registry.CmdCat, registry.CmdHead, registry.CmdTail, registry.CmdFile, registry.CmdStat, registry.CmdReadlink, registry.CmdRealpath, registry.CmdCut, registry.CmdSort, registry.CmdDu, registry.CmdLs:
+		if id == registry.CmdSort || id == registry.CmdCat || id == registry.CmdHead || id == registry.CmdTail || id == registry.CmdCut {
 			recursive = false
 		}
 		if id == registry.CmdDu {
