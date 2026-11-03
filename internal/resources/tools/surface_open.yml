@@ -4,7 +4,7 @@ i18n:
     label: "Open Webpage"
   zh-CN:
     label: "打开网页"
-description: "Open an HTTP(S) webpage. Ordinary Chats must choose with surface_browser first. Read the web-control skill before use."
+description: "Open an HTTP(S) webpage in this task's browser; read the returned provider. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object

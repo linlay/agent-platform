@@ -699,10 +699,11 @@ func (r *ToolRouter) invokeWithPolicy(ctx context.Context, toolName string, exec
 	if toolName == "wait" {
 		timeout, retryCount = 0, 0
 	}
-	// Web control applies this timeout to each Desktop request itself, so a Run
-	// can stay suspended while the user connects the browser it needs.
+	// Web control applies the per-call timeout to each attempt itself, so a Run
+	// can stay suspended while the user connects the browser it needs. The
+	// router still keeps an overall ceiling instead of leaving the call untimed.
 	if isWebControlTool(toolName) {
-		timeout = 0
+		timeout = webControlCallLimit(timeout)
 	}
 	var lastErr error
 	for attempt := 0; attempt <= retryCount; attempt++ {

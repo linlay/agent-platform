@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
@@ -345,5 +346,19 @@ func TestSurfaceOpenFollowsAWorkPanelRun(t *testing.T) {
 	second := invoker.requests[1]
 	if second.Type != "desktop.workpanel.openWeb" || second.Payload["url"] != "https://example.com/" {
 		t.Fatalf("WorkPanel open request = %#v", second)
+	}
+	if result.Structured["provider"] != "workpanel" || !strings.Contains(result.Output, `"provider":"workpanel"`) {
+		t.Fatalf("the WorkPanel fallback must state where the page opened: %#v", result.Structured)
+	}
+}
+
+func TestWebControlRouterCeilingCoversConnectionWait(t *testing.T) {
+	perCall := 30 * time.Second
+	limit := webControlCallLimit(perCall)
+	if minimum := 2*perCall + webControlConnectionWaitLimit + time.Duration(webControlConnectionPollMs)*time.Millisecond + webControlConnectionPollSlack; limit <= minimum {
+		t.Fatalf("router ceiling %s would cut the bounded connection wait (%s)", limit, minimum)
+	}
+	if limit > 10*time.Minute {
+		t.Fatalf("router ceiling %s is not a meaningful bound", limit)
 	}
 }

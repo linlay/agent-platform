@@ -2,7 +2,7 @@
   "id": "builtin.web-control",
   "name": "Web Control",
   "icon": "assets/icon.svg",
-  "version": "0.5.2",
+  "version": "0.5.1",
   "type": "native",
   "authMode": "none",
   "description": "Open webpages in the WorkPanel or connected Chrome, preview files, and operate authorized pages with semantic observations and page tools",

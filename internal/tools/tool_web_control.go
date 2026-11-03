@@ -68,10 +68,20 @@ const (
 	webControlConnectionWaitLimit = 5 * time.Minute
 	webControlConnectionPollMs    = 20000
 	webControlConnectionPollSlack = 10 * time.Second
+	webControlCallLimitMargin     = 5 * time.Second
 )
 
-// The router does not time web-control calls; each Desktop request is bounded
-// here so that waiting for a browser connection is not cut short.
+// webControlCallLimit is the router's ceiling for one whole web-control call:
+// at most two timed attempts around one bounded connection wait (the last poll
+// may start just before the wait limit). Each attempt keeps its own per-call
+// timeout; this ceiling only stops a future path that forgets to bound itself.
+func webControlCallLimit(perCall time.Duration) time.Duration {
+	return 2*perCall + webControlConnectionWaitLimit +
+		time.Duration(webControlConnectionPollMs)*time.Millisecond + webControlConnectionPollSlack + webControlCallLimitMargin
+}
+
+// The router only applies webControlCallLimit; each attempt is bounded here so
+// that waiting for a browser connection is not cut short.
 func (t *RuntimeToolExecutor) invokeWebControl(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	result, err := t.invokeWebControlTimed(ctx, toolName, args, execCtx)
 	if err != nil || result.ExitCode == 0 || result.Error != "browser_connection_required" {
@@ -818,7 +828,14 @@ func (t *RuntimeToolExecutor) webControlSurfaceOpen(ctx context.Context, args ma
 		return result, err
 	}
 	// The Run is bound to the WorkPanel: open the same address there instead of asking for Chrome.
-	return t.webControlPanelOpen(ctx, map[string]any{"url": target}, execCtx)
+	opened, err := t.webControlPanelOpen(ctx, map[string]any{"url": target}, execCtx)
+	if err != nil || opened.ExitCode != 0 || opened.Structured == nil {
+		return opened, err
+	}
+	// State where the page opened; the model must not assume Chrome from the tool it called.
+	structured := CloneMap(opened.Structured)
+	structured["provider"] = "workpanel"
+	return webControlRestructured(opened, structured), nil
 }
 
 // webControlHostErrorCode reads the error code Desktop reported for a page request.

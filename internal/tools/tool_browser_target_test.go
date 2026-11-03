@@ -66,20 +66,27 @@ func TestSurfaceBrowserPreservesHostScopeAndStartedTaskRejectionsWithoutFallback
 	}
 }
 
-func TestBrowserIntentSkillRequiresClarificationAndRetainsApplicationScope(t *testing.T) {
+func TestBrowserIntentSkillDefaultsToWorkPanelAndRetainsApplicationScope(t *testing.T) {
 	data, err := resources.ConnectorFS.ReadFile("connectors/builtin.web-control/skills/web-control/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	manual := string(data)
 	for _, instruction := range []string{
-		"before calling any webpage or AWCP tool", "use `ask_user_question` once", "Do not ask the user to toggle a browser control",
+		"run in the right WorkPanel unless this Run selects Chrome", "`browser:\"chrome\"` before any webpage or AWCP tool",
+		"the first page request binds the Run to the WorkPanel", "use `ask_user_question` once", "Do not ask the user to toggle a browser control",
 		"WorkPanel needs no Chrome extension or connection approval", "Website/WebApp Copilot already has a captured application grant",
-		"Do not silently use the saved default", "browser_target_locked", "never replay it in the other environment",
-		"browser_selection_required", "A URL alone does not choose a browser",
+		"A URL alone does not choose Chrome, and neither does a configured default or an old Chat selection",
+		"browser_target_locked", "never replay it in the other environment",
 	} {
 		if !strings.Contains(manual, instruction) {
 			t.Errorf("missing browser intent contract: %q", instruction)
+		}
+	}
+	// An unselected Run is no longer rejected, so the skill must not tell the model it is mandatory.
+	for _, stale := range []string{"`surface_browser` is mandatory", "Without it, any page or AWCP request returns"} {
+		if strings.Contains(manual, stale) {
+			t.Errorf("skill still requires a browser choice for every Run: %q", stale)
 		}
 	}
 }
