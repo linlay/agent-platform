@@ -67,6 +67,7 @@ func isWebControlTool(name string) bool {
 const (
 	webControlConnectionWaitLimit = 5 * time.Minute
 	webControlConnectionPollMs    = 20000
+	webControlConnectionPollGap   = time.Second
 	webControlConnectionPollSlack = 10 * time.Second
 	webControlCallLimitMargin     = 5 * time.Second
 )
@@ -109,6 +110,7 @@ func (t *RuntimeToolExecutor) invokeWebControlTimed(ctx context.Context, toolNam
 func (t *RuntimeToolExecutor) awaitWebControlConnection(ctx context.Context, execCtx *ExecutionContext) bool {
 	deadline := time.Now().Add(webControlConnectionWaitLimit)
 	for ctx.Err() == nil && time.Now().Before(deadline) {
+		pollStarted := time.Now()
 		pollCtx, cancel := context.WithTimeout(ctx, time.Duration(webControlConnectionPollMs)*time.Millisecond+webControlConnectionPollSlack)
 		result, err := t.webControlSurfaceCall(pollCtx, "Browser.awaitConnection", "", map[string]any{"timeoutMs": webControlConnectionPollMs}, execCtx)
 		cancel()
@@ -121,7 +123,18 @@ func (t *RuntimeToolExecutor) awaitWebControlConnection(ctx context.Context, exe
 		case "connected":
 			return true
 		case "pending":
-			continue
+			// Desktop may return pending immediately. Bound the request rate without
+			// adding a fixed delay after a normal long poll or delaying cancellation.
+			pause := min(time.Until(pollStarted.Add(webControlConnectionPollGap)), time.Until(deadline))
+			if pause > 0 {
+				timer := time.NewTimer(pause)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return false
+				case <-timer.C:
+				}
+			}
 		default:
 			return false
 		}
