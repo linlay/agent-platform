@@ -249,7 +249,7 @@ func TestAttachPreservesAnnouncementStateAcrossAutomaticActivities(t *testing.T)
 					summary = append(summary, event.String("message"))
 				}
 			}
-			if !reflect.DeepEqual(summary, []string{want, "Thinking…"}) || !reflect.DeepEqual(full, []string{want, "Thinking…"}) {
+			if !reflect.DeepEqual(summary, []string{want}) || !reflect.DeepEqual(full, []string{want, "Thinking…"}) {
 				t.Fatalf("summary=%q full=%q, want state %q", summary, full, want)
 			}
 		})

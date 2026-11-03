@@ -84,6 +84,7 @@ func (e *ProxyExecutor) launch(prepared runtimetypes.PreparedQuery, registered r
 		chatUsage = *prepared.Summary.Usage
 	}
 	recorder := NewProxyEventRecorder(prepared.Req, registered.StartedAtMillis, prepared.AgentDef, e.Chats, writer, registered.Control, e.Notifications, chatUsage, e.Models, e.Billing)
+	recorder.detail = prepared.Session.Detail
 	recorder.runtimeEvent = prepared.Session.RuntimeEvent
 	if recorder.runtimeEvent != nil && prepared.Req.Mail != nil {
 		payload := map[string]any{"runId": prepared.Req.RunID}

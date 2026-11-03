@@ -38,8 +38,14 @@ func ActivityMessage(locale string, activity map[string]any) string {
 	zh := ResolveLocale(locale) == LocaleZhCN
 	kind, _ := activity["kind"].(string)
 	switch kind {
-	case "reasoning":
+	case "thinking", "reasoning":
 		reasoningID, _ := activity["reasoningId"].(string)
+		if kind == "thinking" {
+			reasoningID, _ = activity["labelId"].(string)
+			if reasoningID == "" {
+				return activityTexts["thinking"].in(locale)
+			}
+		}
 		label := ReasoningLabelForID(locale, reasoningID)
 		if zh {
 			return "正在" + label

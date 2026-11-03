@@ -105,6 +105,7 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 		ChatID:    prepared.Req.ChatID,
 		ChatName:  prepared.Summary.ChatName,
 		AgentKey:  prepared.Req.AgentKey,
+		Detail:    prepared.Session.Detail,
 
 		Message:            prepared.Req.Message,
 		Hidden:             prepared.Req.Hidden,

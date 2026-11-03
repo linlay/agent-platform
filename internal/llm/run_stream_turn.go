@@ -248,7 +248,6 @@ func (s *llmRunStream) prepareNextTurn() error {
 		attempt:             1,
 		maxAttempts:         s.modelMaxAttempts(),
 	}
-	s.pending = append(s.pending, s.modelCallActivity())
 	return nil
 }
 

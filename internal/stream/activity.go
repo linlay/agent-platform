@@ -19,6 +19,19 @@ import (
 // announcing tool: what the Run does next, in the model's own words.
 const ActivityKindAnnounce = "announce"
 
+// NewStartupActivity is the one summary-only placeholder published at Run start.
+// The random Run ID selects a stable phrase across observers and reconnects.
+func NewStartupActivity(runID, chatID string) StreamEvent {
+	return newActivityEvent(runID, chatID, "", map[string]any{
+		"kind": "thinking", "initial": true, "labelId": runID,
+	})
+}
+
+// IsStartupActivity also recognizes an activity localized by an upstream broker.
+func IsStartupActivity(eventType string, payload map[string]any) bool {
+	return IsProgressActivity(eventType, payload) && activityKind(payload) == "thinking" && payload["initial"] == true
+}
+
 func newActivityEvent(runID, chatID, taskID string, activity map[string]any) StreamEvent {
 	payload := map[string]any{
 		"runId":    runID,
@@ -26,6 +39,9 @@ func newActivityEvent(runID, chatID, taskID string, activity map[string]any) Str
 		"kind":     anyString(activity["kind"]),
 		"message":  i18n.ActivityMessage(i18n.DefaultLocale, activity),
 		"activity": clonePayload(activity),
+	}
+	if activity["initial"] == true {
+		payload["initial"] = true
 	}
 	if taskID = strings.TrimSpace(taskID); taskID != "" {
 		payload["taskId"] = taskID
@@ -77,7 +93,7 @@ func activityKind(payload map[string]any) string {
 }
 
 // ActivityTracker derives progress activities from published events for full
-// streams. Delivery filtering keeps only announcements and clears for summary.
+// streams. Summary delivery keeps startup, announcements and clears.
 type ActivityTracker struct {
 	runID  string
 	chatID string

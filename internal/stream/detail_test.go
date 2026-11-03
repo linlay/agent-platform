@@ -18,8 +18,8 @@ func TestParseDetailLevel(t *testing.T) {
 func TestDetailLevelActivities(t *testing.T) {
 	progress := newActivityEvent("run", "chat", "", map[string]any{"kind": "thinking"}).Payload
 	retry := newRetryActivityEvent("run", "chat", "", map[string]any{"attempt": 2}).Payload
-	if !DetailSummary.Allows("run.activity", progress) || !DetailSummary.Allows("run.activity", retry) {
-		t.Fatal("summary must deliver automatic progress and retries")
+	if DetailSummary.Allows("run.activity", progress) || !DetailSummary.Allows("run.activity", retry) {
+		t.Fatal("summary must hide automatic progress and deliver retries")
 	}
 	// full is a superset: one full stream serves viewers of either level.
 	if !DetailFull.Allows("run.activity", progress) || !DetailFull.Allows("run.activity", retry) {
@@ -27,8 +27,11 @@ func TestDetailLevelActivities(t *testing.T) {
 	}
 }
 
-func TestSummaryDetailDeliversAllActivities(t *testing.T) {
+func TestSummaryDetailDeliversOnlyAnnouncementsClearsAndRetries(t *testing.T) {
 	for eventType := range summaryEventTypes {
+		if eventType == "run.activity" {
+			continue
+		}
 		if !DetailSummary.Allows(eventType, map[string]any{}) {
 			t.Fatalf("summary dropped %s", eventType)
 		}
@@ -42,6 +45,7 @@ func TestSummaryDetailDeliversAllActivities(t *testing.T) {
 		newActivityEvent("run", "chat", "", map[string]any{"kind": ActivityKindAnnounce, "text": "Next."}).Payload,
 		newActivityEvent("run", "chat", "member", map[string]any{"kind": ActivityKindAnnounce, "text": "Next."}).Payload,
 		newActivityEvent("run", "chat", "", map[string]any{"kind": "idle"}).Payload,
+		newRetryActivityEvent("run", "chat", "", map[string]any{"attempt": 2}).Payload,
 	} {
 		if !DetailSummary.Allows("run.activity", payload) {
 			t.Fatalf("summary dropped %#v", payload)
@@ -55,13 +59,17 @@ func TestSummaryDetailDeliversAllActivities(t *testing.T) {
 		newActivityEvent("run", "chat", "", map[string]any{"kind": "awaiting"}).Payload,
 		newActivityEvent("run", "chat", "", map[string]any{"kind": "compacting"}).Payload,
 		{"kind": "future_activity"},
-		newRetryActivityEvent("run", "chat", "", map[string]any{"attempt": 2}).Payload,
 	} {
-		if !DetailSummary.Allows("run.activity", payload) {
-			t.Fatalf("summary dropped activity %#v", payload)
+		if DetailSummary.Allows("run.activity", payload) {
+			t.Fatalf("summary leaked activity %#v", payload)
 		}
 	}
 	// Proxy activities may already be rendered and have only a top-level kind.
+	for _, kind := range []string{"thinking", "reasoning", "tool_run", "subtask", "awaiting", "compacting", "future_activity", ""} {
+		if DetailSummary.Allows("run.activity", map[string]any{"kind": kind}) {
+			t.Fatalf("summary leaked rendered %s", kind)
+		}
+	}
 	for _, kind := range []string{ActivityKindAnnounce, "idle"} {
 		if !DetailSummary.Allows("run.activity", map[string]any{"kind": kind}) {
 			t.Fatalf("summary dropped rendered %s", kind)

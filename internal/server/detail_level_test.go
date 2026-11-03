@@ -68,6 +68,9 @@ func TestQueryDefaultsToSummaryDetail(t *testing.T) {
 			if message["seq"] != float64(0) || message["activity"] != nil || message["phase"] != nil {
 				t.Fatalf("unexpected summary activity %#v", message)
 			}
+			if message["kind"] != "idle" && !(message["kind"] == "thinking" && message["initial"] == true && len(activities) == 0) {
+				t.Fatalf("summary leaked automatic activity %#v", message)
+			}
 			activities = append(activities, message["message"].(string))
 			continue
 		case eventType == "run.complete":
@@ -79,8 +82,8 @@ func TestQueryDefaultsToSummaryDetail(t *testing.T) {
 		}
 		lastSeq = seq
 	}
-	// Notifications include automatic progress and retain the clear when content starts.
-	if len(activities) == 0 || activities[len(activities)-1] != "" {
+	// Automatic progress is hidden; content still clears the activity line.
+	if len(activities) != 2 || activities[0] == "" || activities[len(activities)-1] != "" {
 		t.Fatalf("activities=%q", activities)
 	}
 	if usageSnapshots == 0 {
@@ -198,6 +201,9 @@ func TestConfiguredAgentDetailAcrossHTTPAndWS(t *testing.T) {
 		sawTool := false
 		runID := ""
 		for _, event := range decodeSSEMessages(t, rec.Body.String()) {
+			if tc.full && event["type"] == "run.activity" && event["kind"] == "thinking" {
+				t.Fatalf("full received simulated thinking: %#v", event)
+			}
 			if event["type"] == "tool.start" {
 				sawTool = true
 			}

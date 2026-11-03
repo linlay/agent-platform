@@ -178,3 +178,37 @@ func TestProxyLiveEventDerivesUnsequencedActivity(t *testing.T) {
 		t.Fatalf("unexpected derived activity %#v", second.Payload)
 	}
 }
+
+func TestProxyStartupActivityOnlyForSummary(t *testing.T) {
+	for _, detail := range []stream.DetailLevel{stream.DetailSummary, stream.DetailFull} {
+		req := runtimetypes.QueryCommand{RunID: "run", ChatID: "chat", Detail: detail}
+		recorder := &ProxyEventRecorder{activities: stream.NewActivityTracker(req.RunID, req.ChatID), detail: detail}
+		bus := stream.NewRunEventBus(100, 0, nil)
+		observer, err := bus.Subscribe(0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var seq int64
+		_, err = PublishProxyLiveEvent(bus, recorder, req, &seq, stream.EventData{
+			Seq: 1, Type: "run.start", Timestamp: 1_700_000_000_000, Payload: map[string]any{"runId": req.RunID, "chatId": req.ChatID},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first := <-observer.Events; first.Type != "run.start" {
+			t.Fatal(first)
+		}
+		if detail == stream.DetailSummary {
+			select {
+			case event := <-observer.Events:
+				if !stream.IsStartupActivity(event.Type, event.Payload) || event.Seq != 0 || seq != 1 {
+					t.Fatalf("invalid startup: %#v seq=%d", event, seq)
+				}
+			default:
+				t.Fatal("missing summary startup")
+			}
+		} else if len(observer.Events) != 0 {
+			t.Fatal("full received a simulated activity")
+		}
+	}
+}

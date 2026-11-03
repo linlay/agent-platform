@@ -382,14 +382,15 @@ func TestLLMChatTraceWritesInterruptInfo(t *testing.T) {
 	}
 	defer stream.Close()
 
-	if _, err := stream.Next(); err != nil {
-		t.Fatalf("stream first delta: %v", err)
-	}
-	if _, err := stream.Next(); err != nil {
-		t.Fatalf("stream activity delta: %v", err)
-	}
-	if _, err := stream.Next(); err != nil {
-		t.Fatalf("stream partial delta: %v", err)
+	// Interrupt after actual content, independent of optional progress deltas.
+	for {
+		delta, err := stream.Next()
+		if err != nil {
+			t.Fatalf("stream before partial content: %v", err)
+		}
+		if content, ok := delta.(contracts.DeltaContent); ok && content.Text != "" {
+			break
+		}
 	}
 	control.Interrupt(contracts.InterruptInfo{
 		Source:    contracts.InterruptSourceHTTPAPI,

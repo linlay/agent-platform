@@ -20,12 +20,6 @@ func (s *llmRunStream) modelMaxAttempts() int {
 	return maxAttempts
 }
 
-// modelCallActivity marks a model request being sent: the Run is thinking
-// until reasoning, content or a tool call shows what it does.
-func (s *llmRunStream) modelCallActivity() DeltaRunActivity {
-	return DeltaRunActivity{TaskID: s.modelActivityTaskID(), ChatID: s.session.ChatID, Kind: ActivityThinking}
-}
-
 func (s *llmRunStream) modelActivityTaskID() string {
 	if s == nil {
 		return ""

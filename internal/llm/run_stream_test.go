@@ -741,7 +741,7 @@ func TestModelRetryRetriesProviderTimeoutBeforeVisibleOutput(t *testing.T) {
 	if protocol.openCount != 2 {
 		t.Fatalf("expected 2 provider attempts, got %d", protocol.openCount)
 	}
-	if !reflect.DeepEqual(statuses, []string{"thinking", "retrying"}) {
+	if !reflect.DeepEqual(statuses, []string{"retrying"}) {
 		t.Fatalf("unexpected activity statuses %#v", statuses)
 	}
 	if content != "ok" {
@@ -884,7 +884,7 @@ func TestModelRetryEmitsFailedWhenAttemptsExhausted(t *testing.T) {
 	if protocol.openCount != 4 {
 		t.Fatalf("expected 4 provider attempts, got %d", protocol.openCount)
 	}
-	want := []string{"thinking", "retrying", "retrying", "retrying"}
+	want := []string{"retrying", "retrying", "retrying"}
 	if !reflect.DeepEqual(statuses, want) {
 		t.Fatalf("statuses=%#v want %#v", statuses, want)
 	}

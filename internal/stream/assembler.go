@@ -14,6 +14,7 @@ type StreamRequest struct {
 	ChatID    string
 	ChatName  string
 	AgentKey  string
+	Detail    DetailLevel
 
 	Message         string
 	Hidden          *bool
@@ -149,6 +150,9 @@ func (a *StreamEventAssembler) BootstrapEmissions() []EventEmission {
 		runStartEvent.Timestamp = a.request.StartedAtMillis
 	}
 	events = append(events, runStartEvent)
+	if a.request.Detail == DetailSummary && !a.request.ContinueRun {
+		events = append(events, NewStartupActivity(a.request.RunID, a.request.ChatID))
+	}
 	return a.emit(events)
 }
 

@@ -129,13 +129,13 @@ func (b *RunEventBus) Publish(event EventData) {
 		if !IsProgressActivity(event.Type, event.Payload) {
 			break
 		}
-		// Keep the last announcement or clear independently of automatic
+		// Keep the last startup, announcement or clear independently of automatic
 		// progress, so summary attach can restore its exact display state.
 		if b.activities == nil {
 			b.activities = map[string]EventData{}
 		}
 		b.activities[event.String("taskId")] = event
-		if IsAnnounceActivity(event.Type, event.Payload) || activityKind(event.Payload) == "idle" {
+		if IsStartupActivity(event.Type, event.Payload) || IsAnnounceActivity(event.Type, event.Payload) || activityKind(event.Payload) == "idle" {
 			if b.announcementStates == nil {
 				b.announcementStates = map[string]EventData{}
 			}
