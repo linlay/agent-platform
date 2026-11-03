@@ -16,7 +16,7 @@ const (
 	OptionTwoValues                       // option consumes two non-resource values
 	OptionNameFile                        // option consumes a name and a file that is read
 	OptionRecursive                       // flag makes operands recursive
-	OptionOptionalValue                   // --long[=value]; never consumes the next argument
+	OptionOptionalValue                   // --long[=value] or -xVALUE; never consumes the next argument
 )
 
 // OptionSpec is the grammar used to separate options, their values and file

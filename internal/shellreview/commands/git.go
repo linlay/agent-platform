@@ -277,6 +277,22 @@ var gitOptionSpec = types.OptionSpec{
 		options.Longs(types.OptionRead, "file"), options.Longs(types.OptionWrite, "output")),
 }
 
+// Subcommands parsed by Git's revision and diff option machinery.
+var gitHistoryCommands = map[string]bool{"log": true, "show": true, "whatchanged": true, "rev-list": true, "shortlog": true, "diff": true}
+
+// History options only select commits or format output. Value-taking entries
+// match Git's arity so a value never hides a following --output. --textconv,
+// --submodule and -L stay unknown.
+var gitHistoryLong = options.Merge(gitOptionSpec.Long,
+	options.Longs(types.OptionNone, "numstat", "shortstat", "summary", "compact-summary", "raw", "patch", "no-patch", "cc",
+		"no-merges", "merges", "first-parent", "reverse", "graph", "topo-order", "date-order", "author-date-order", "left-right", "boundary", "parents", "children", "source", "follow", "full-diff", "walk-reflogs",
+		"abbrev-commit", "no-abbrev-commit", "no-decorate", "count", "numbered", "email",
+		"regexp-ignore-case", "extended-regexp", "fixed-strings", "basic-regexp", "perl-regexp", "all-match", "invert-grep",
+		"ignore-all-space", "ignore-space-change", "ignore-space-at-eol", "ignore-cr-at-eol", "ignore-blank-lines", "function-context",
+		"minimal", "patience", "histogram", "find-copies-harder", "no-relative", "no-prefix", "full-index", "binary", "text"),
+	options.Longs(types.OptionOptionalValue, "stat", "dirstat", "unified", "find-renames", "find-copies", "relative", "abbrev", "word-diff", "color-words", "branches", "tags", "remotes"),
+	options.Longs(types.OptionValue, "date", "after", "before", "skip", "diff-filter", "diff-algorithm"))
+
 func gitOptions(sub string) types.OptionSpec {
 	spec := gitOptionSpec
 	spec.ShortArgs = map[byte]types.OptionRole{}
@@ -292,6 +308,19 @@ func gitOptions(sub string) types.OptionSpec {
 		spec.ShortArgs['F'] = types.OptionRead
 	} else if sub == "grep" {
 		spec.ShortFlags += "F"
+	}
+	if gitHistoryCommands[sub] {
+		// -m is a flag here; -U/-C/-M/-B accept only an attached value.
+		spec.Long = gitHistoryLong
+		spec.ShortFlags += "cmeEFgiwW"
+		delete(spec.ShortArgs, 'm')
+		for _, c := range []byte("UCMB") {
+			spec.ShortArgs[c] = types.OptionOptionalValue
+		}
+		spec.ShortArgs['S'], spec.ShortArgs['G'] = types.OptionValue, types.OptionValue
+		if sub != "shortlog" && sub != "diff" {
+			spec.ShortArgs['n'] = types.OptionValue
+		}
 	}
 	return spec
 }

@@ -183,6 +183,7 @@ func TestGitReadAndWriteDependOnRepositoryState(t *testing.T) {
 	}
 	check("git status", true)
 	check("git diff --stat", true)
+	check(`git log --since=2026-01-01 --pretty=tformat: --numstat --no-merges | grep -E '^[0-9]+' | awk '{add[$3]+=$1} END {for (f in add) print add[f], f}' | sort -rn | head -30`, true)
 	check("git add -A", true)
 	run("config", "core.fsmonitor", "./monitor.sh")
 	check("git status", false)

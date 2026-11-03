@@ -99,6 +99,10 @@ func Parse(spec types.OptionSpec, args []string) types.ParsedOptions {
 				value := letters[j+1:]
 				ref := types.ValueRef{Index: i, Start: j + 2, End: len(a), Known: true}
 				if value == "" {
+					if role == types.OptionOptionalValue {
+						apply(string(c), role, "", types.ValueRef{})
+						break
+					}
 					if i+1 >= len(args) {
 						p.Incomplete = true
 						break

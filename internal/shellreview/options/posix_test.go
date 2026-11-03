@@ -10,7 +10,7 @@ import (
 func TestOptionValuesKeepTheirResourceRoles(t *testing.T) {
 	spec := types.OptionSpec{
 		ShortFlags: "q",
-		ShortArgs:  map[byte]types.OptionRole{'o': types.OptionWrite, 'f': types.OptionRead},
+		ShortArgs:  map[byte]types.OptionRole{'o': types.OptionWrite, 'f': types.OptionRead, 'U': types.OptionOptionalValue},
 		Long: map[string]types.OptionRole{
 			"output": types.OptionWrite, "file": types.OptionRead,
 			"color": types.OptionOptionalValue, "rawfile": types.OptionNameFile,
@@ -28,6 +28,8 @@ func TestOptionValuesKeepTheirResourceRoles(t *testing.T) {
 		{"separate_long", []string{"--output", "out.txt", "in.txt"}, []types.FileAccess{{Path: "out.txt", Write: true}}, []string{"in.txt"}, false},
 		{"attached_long", []string{"--output=out.txt"}, []types.FileAccess{{Path: "out.txt", Write: true}}, nil, false},
 		{"optional_does_not_consume", []string{"--color", "in.txt"}, nil, []string{"in.txt"}, false},
+		{"short_optional_attached", []string{"-U3", "in.txt"}, nil, []string{"in.txt"}, false},
+		{"short_optional_does_not_consume", []string{"-U", "--output=out.txt"}, []types.FileAccess{{Path: "out.txt", Write: true}}, nil, false},
 		{"name_and_file", []string{"--rawfile", "key", "data.txt"}, []types.FileAccess{{Path: "data.txt"}}, nil, false},
 		{"after_double_dash", []string{"--", "--output", "-f"}, nil, []string{"--output", "-f"}, false},
 		{"numeric_short", []string{"-20", "in.txt"}, nil, []string{"in.txt"}, false},

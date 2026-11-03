@@ -153,6 +153,45 @@ func TestSimpleCommandUnknownOptionsAndStateMutation(t *testing.T) {
 	}
 }
 
+func TestGitHistoryOptionsFollowGitGrammar(t *testing.T) {
+	for _, args := range [][]string{
+		{"log", "--since=2026-01-01", "--pretty=tformat:", "--numstat", "--no-merges"},
+		{"log", "--shortstat", "--no-merges", "HEAD"},
+		{"log", "--author=x", "--date", "short", "--reverse", "-n", "5", "HEAD"},
+		{"log", "-Sneedle", "-G", "re", "-m", "-c", "-p", "HEAD"},
+		{"diff", "--numstat", "-U0", "-C50%", "-M", "HEAD~1"},
+		{"show", "--stat=120", "--format=%H", "HEAD"},
+		{"shortlog", "-sne", "HEAD"},
+		{"rev-list", "--count", "--first-parent", "HEAD"},
+	} {
+		e := nativeFacts("git", args...)
+		if len(e.Unknowns) > 0 {
+			t.Fatalf("%v: read-only history options left unknown: %+v", args, e)
+		}
+		for _, op := range e.Ops {
+			if op.Writes() {
+				t.Fatalf("%v: history query gained a write: %+v", args, e)
+			}
+		}
+	}
+	for _, args := range [][]string{{"log", "-m", "--output=out"}, {"log", "-C", "--output=out"}, {"diff", "-U", "--output=out"}} {
+		found := false
+		for _, op := range nativeFacts("git", args...).Ops {
+			for _, target := range op.Targets {
+				found = found || op.Kind == types.Output && target.Path == "out"
+			}
+		}
+		if !found {
+			t.Fatalf("%v: option value hid --output", args)
+		}
+	}
+	for _, args := range [][]string{{"log", "--textconv", "HEAD"}, {"log", "-L", "1,2:file", "HEAD"}, {"diff", "--submodule=diff"}} {
+		if e := nativeFacts("git", args...); !e.Unknown(types.UnknownOption) {
+			t.Fatalf("%v: unmodeled option was accepted: %+v", args, e)
+		}
+	}
+}
+
 func TestMetadataInventoryCannotSilentlyGainAnAnalyzer(t *testing.T) {
 	// Historical identity entries without an analyzer retain opaque behavior.
 	// Deployment allowlists are a separate policy and never inferred here.
