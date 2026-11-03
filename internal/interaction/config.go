@@ -29,7 +29,7 @@ type Config struct {
 // DefaultsForEngine also applies the engine: an ACP bridge owns Workspace
 // editing, so the editing entry is never offered by default there.
 func DefaultsForEngine(mode string, acp bool) Config {
-	c := Config{DefaultDetail: "summary", Model: true, AccessLevel: true, Connectors: true, Attachment: Attachment{LocalFiles: true, ChatRecords: true, Skills: true, Kbases: true}}
+	c := Config{DefaultDetail: "simple", Model: true, AccessLevel: true, Connectors: true, Attachment: Attachment{LocalFiles: true, ChatRecords: true, Skills: true, Kbases: true}}
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case "KBASE":
 		c.Model, c.AccessLevel, c.Connectors, c.Attachment.ChatRecords = false, false, false, false
@@ -78,8 +78,8 @@ func ParseForEngine(mode string, acp bool, raw any) (Config, error) {
 	for key, value := range node {
 		if key == "defaultDetail" {
 			level, ok := value.(string)
-			if !ok || (level != "summary" && level != "full") {
-				return c, fmt.Errorf("interactionConfig.defaultDetail must be summary or full")
+			if !ok || (level != "simple" && level != "detailed") {
+				return c, fmt.Errorf("interactionConfig.defaultDetail must be simple or detailed")
 			}
 			c.DefaultDetail = level
 			continue

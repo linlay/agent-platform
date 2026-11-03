@@ -67,9 +67,9 @@ planning-mode:
 
 general:
   # Default delivery/display level for existing and new Agents; agent.yml may override.
-  # summary (announcements only) or full.
+  # simple (startup hint and announcements) or detailed (real process events).
   interaction-config:
-    default-detail: summary
+    default-detail: simple
   preset-tools:
     - action_announce
     - ask_user_question
@@ -90,7 +90,7 @@ general:
 coder:
   # Default delivery/display level for existing and new Agents; agent.yml may override.
   interaction-config:
-    default-detail: full
+    default-detail: detailed
   preset-tools:
     - action_announce
     - regex
@@ -120,7 +120,7 @@ coder:
 kbase:
   # Default delivery/display level for existing and new Agents; agent.yml may override.
   interaction-config:
-    default-detail: summary
+    default-detail: simple
   # workspace-agents is accepted here and under general/team with the same meaning.
   preset-tools:
     - action_announce
@@ -151,7 +151,7 @@ acp-bridges:
 team:
   # Default delivery/display level for existing and new Agents; agent.yml may override.
   interaction-config:
-    default-detail: full
+    default-detail: detailed
   preset-tools:
     - action_announce
     - ask_user_question
@@ -168,7 +168,7 @@ team:
 executor:
   # Default delivery/display level for existing and new Agents; agent.yml may override.
   interaction-config:
-    default-detail: summary
+    default-detail: simple
   preset-tools:
     - result_submit
   preset-connectors: []
@@ -185,7 +185,7 @@ executor:
 # Other public modes use the same display-default contract.
 proxy:
   interaction-config:
-    default-detail: summary
+    default-detail: simple
 channel:
   interaction-config:
-    default-detail: summary
+    default-detail: simple

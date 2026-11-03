@@ -7,20 +7,20 @@ import "strings"
 // with no active Run is read at another level. Persistence always keeps
 // every event; the level only filters delivery.
 //
-//   - summary (default): what a user reads and answers — input, Run and
+//   - simple (default): what a user reads and answers — input, Run and
 //     subtask lifecycle, content, plans, artifacts, sources, awaiting
 //     questions — plus state notifications, usage, waits, announcements and retries.
-//     One startup placeholder is summary-only. Automatic progress, reasoning
+//     One startup placeholder is simple-only. Automatic progress, reasoning
 //     bodies and ordinary tool call details stay behind.
-//   - full: real process events, progress and retry activities included, so one
-//     full stream can serve viewers of every level (a Proxy records its
-//     upstream in full and filters locally). A detailed view ignores
+//   - detailed: real process events, progress and retry activities included, so one
+//     detailed stream can serve viewers of every level (a Proxy records its
+//     upstream in detailed and filters locally). A detailed view ignores
 //     progress activities; the detail events already show them.
 type DetailLevel string
 
 const (
-	DetailSummary DetailLevel = "summary"
-	DetailFull    DetailLevel = "full"
+	DetailSimple   DetailLevel = "simple"
+	DetailDetailed DetailLevel = "detailed"
 )
 
 // ParseDetailLevel validates an explicit override. Empty inherits the Agent default.
@@ -28,17 +28,17 @@ func ParseDetailLevel(raw string) (DetailLevel, bool) {
 	switch strings.TrimSpace(raw) {
 	case "":
 		return "", true
-	case string(DetailSummary):
-		return DetailSummary, true
-	case string(DetailFull):
-		return DetailFull, true
+	case string(DetailSimple):
+		return DetailSimple, true
+	case string(DetailDetailed):
+		return DetailDetailed, true
 	default:
 		return "", false
 	}
 }
 
 // ResolveDetailLevel is the level a Run is delivered at: the request's
-// explicit level, else the Agent default, else summary.
+// explicit level, else the Agent default, else simple.
 func ResolveDetailLevel(requested DetailLevel, agentDefault string) DetailLevel {
 	if level, ok := ParseDetailLevel(string(requested)); ok && level != "" {
 		return level
@@ -46,10 +46,10 @@ func ResolveDetailLevel(requested DetailLevel, agentDefault string) DetailLevel 
 	if level, ok := ParseDetailLevel(agentDefault); ok && level != "" {
 		return level
 	}
-	return DetailSummary
+	return DetailSimple
 }
 
-var summaryEventTypes = map[string]bool{
+var simpleEventTypes = map[string]bool{
 	"request.query": true, "request.steer": true, "request.submit": true,
 	"chat.start": true,
 	"run.start":  true, "run.complete": true, "run.cancel": true, "run.error": true,
@@ -67,13 +67,13 @@ var summaryEventTypes = map[string]bool{
 }
 
 // Allows reports whether a viewer at this level receives the event. Unlisted
-// event types never reach summary, so new types default to hidden there.
+// event types never reach simple, so new types default to hidden there.
 func (level DetailLevel) Allows(eventType string, payload map[string]any) bool {
 	if IsStartupActivity(eventType, payload) {
-		return level != DetailFull
+		return level != DetailDetailed
 	}
 	switch level {
-	case DetailFull:
+	case DetailDetailed:
 		return true
 	default:
 		if IsProgressActivity(eventType, payload) {
@@ -81,11 +81,11 @@ func (level DetailLevel) Allows(eventType string, payload map[string]any) bool {
 			return kind == ActivityKindAnnounce || kind == "idle"
 		}
 		// Wait completion closes the interactive wait card even when ordinary
-		// tool results are hidden by summary delivery.
+		// tool results are hidden by simple delivery.
 		if eventType == "tool.result" && payload["toolName"] == "wait" {
 			return true
 		}
-		return summaryEventTypes[eventType]
+		return simpleEventTypes[eventType]
 	}
 }
 
@@ -101,7 +101,7 @@ func (level DetailLevel) FilterEvents(events []EventData) []EventData {
 }
 
 // WithDisplay annotates run.start at the delivery boundary. Shared/persisted
-// events remain untouched; a broker may request full while displaying default.
+// events remain untouched; a broker may request detailed while displaying default.
 func WithDisplay(event EventData, defaultDetail, effectiveDetail DetailLevel) EventData {
 	if event.Type != "run.start" {
 		return event

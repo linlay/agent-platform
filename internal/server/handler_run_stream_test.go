@@ -20,7 +20,7 @@ func TestHandleAttachDefaultsMissingLastSeqToZero(t *testing.T) {
 		ChatID:   "chat_1",
 		AgentKey: "agent_1",
 		RunOwner: contracts.AgentRunOwner("agent_1"),
-		Detail:   stream.DetailFull,
+		Detail:   stream.DetailDetailed,
 	}
 	_, _, _ = runs.Register(context.Background(), session)
 	eventBus, ok := runs.EventBus(session.RunID)

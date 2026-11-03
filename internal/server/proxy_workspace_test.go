@@ -65,7 +65,7 @@ func TestProxyQueryDoesNotForwardHostWorkspaceAsCWD(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","accessLevel":"ask_for_approval","params":{"channel":"desktop"}}`)
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", body))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -124,7 +124,7 @@ func TestProxyQueryPassesThroughUnknownModelOptions(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","model":{"key":"upstream-only","modelId":"upstream/model","reasoningEffort":"FASTEST","serviceTier":"burst"}}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", body)
 	req.Header.Set("Content-Type", "application/json")
 	fixture.server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -177,7 +177,7 @@ func TestProxyQueryRejectsInvalidUpstreamTimestampBeforeStreamStarts(t *testing.
 	} {
 		t.Run(name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(body)))
+			fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", bytes.NewBufferString(body)))
 			if rec.Code != http.StatusUnprocessableEntity {
 				t.Fatalf("expected 422, got %d: %s", rec.Code, rec.Body.String())
 			}
@@ -219,7 +219,7 @@ func TestProxyQueryEmitsLocalRunErrorForInvalidTimestampAfterStreamStarts(t *tes
 	})
 
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me"}`)))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me"}`)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected started SSE response to remain 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -290,7 +290,7 @@ func TestProxyQueryStreamingPersistsCapturedRunStartAndLifecyclePushTimes(t *tes
 		runID  = "run_proxy_direct_lifecycle"
 	)
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", bytes.NewBufferString(`{
 		"chatId":"`+chatID+`",
 		"runId":"`+runID+`",
 		"agentKey":"mock-agent",
@@ -442,7 +442,7 @@ func TestProxyQueryNonStreamAggregatesSSEUpstream(t *testing.T) {
 	rec := httptest.NewRecorder()
 	chatID := "chat-proxy-nonstream"
 	body := bytes.NewBufferString(`{"chatId":"` + chatID + `","agentKey":"mock-agent","message":"proxy me","stream":false,"includeUsage":true,"params":{"channel":"desktop"}}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", body)
 	req.Header.Set("Content-Type", "application/json")
 	fixture.server.ServeHTTP(rec, req)
 
@@ -477,7 +477,7 @@ func TestProxyQueryNonStreamAggregatesSSEUpstream(t *testing.T) {
 	}
 
 	chatRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=full&chatId="+chatID, nil))
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?detail=detailed&chatId="+chatID, nil))
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)
@@ -524,7 +524,7 @@ func TestProxyQueryRejectsRequestCWDParam(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","params":{"cwd":"/tmp/other","channel":"desktop"}}`)
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", body))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -606,7 +606,7 @@ func TestProxyQueryDefaultsToWebSocketWithoutForwardingHostCWD(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","params":{"channel":"desktop"}}`)
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", body))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -695,7 +695,7 @@ func TestChannelImportQueryUsesPlatformWSFrameAndRemoteAgentKey(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","references":[{"type":"selection","id":"selected-text","text":"selected source"}]}`)
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", body))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -952,7 +952,7 @@ func TestACPCoderForwardsProviderlessModel(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","model":{"key":"gpt-5-codex"}}`)
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", body))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -1091,7 +1091,7 @@ func TestACPCoderForwardsPlanningMode(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"plan","planningMode":true}`)
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", body))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -1134,7 +1134,7 @@ func TestACPCoderRejectsUnknownProxyID(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy"}`)
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", body))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", body))
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "ACP bridge") {
 		t.Fatalf("expected ACP bridge config error, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -1286,7 +1286,7 @@ func submitACPWorkspaceQuery(t *testing.T, handler http.Handler, transport strin
 	t.Helper()
 	if transport == "http" {
 		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewReader(marshalPayload(payload))))
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", bytes.NewReader(marshalPayload(payload))))
 		if rec.Code != wantStatus {
 			t.Fatalf("query status = %d, want %d: %s", rec.Code, wantStatus, rec.Body.String())
 		}

@@ -84,9 +84,9 @@ func QueryPayload(req runtimetypes.QueryCommand, proxy *catalog.ProxyConfig, ref
 }
 
 // UpstreamDetail is the detail level every Proxy upstream query requests.
-const UpstreamDetail = "full"
+const UpstreamDetail = "detailed"
 
-// QueryURL is the upstream SSE query endpoint at the full detail level.
+// QueryURL is the upstream SSE query endpoint at the detailed detail level.
 func QueryURL(baseURL string) string {
 	return strings.TrimRight(baseURL, "/") + "/api/query?detail=" + UpstreamDetail
 }

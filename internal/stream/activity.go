@@ -19,7 +19,7 @@ import (
 // announcing tool: what the Run does next, in the model's own words.
 const ActivityKindAnnounce = "announce"
 
-// NewStartupActivity is the one summary-only placeholder published at Run start.
+// NewStartupActivity is the one simple-only placeholder published at Run start.
 // The random Run ID selects a stable phrase across observers and reconnects.
 func NewStartupActivity(runID, chatID string) StreamEvent {
 	return newActivityEvent(runID, chatID, "", map[string]any{
@@ -92,8 +92,8 @@ func activityKind(payload map[string]any) string {
 	return anyString(payload["kind"])
 }
 
-// ActivityTracker derives progress activities from published events for full
-// streams. Summary delivery keeps startup, announcements and clears.
+// ActivityTracker derives progress activities from published events for detailed
+// streams. Simple delivery keeps startup, announcements and clears.
 type ActivityTracker struct {
 	runID  string
 	chatID string

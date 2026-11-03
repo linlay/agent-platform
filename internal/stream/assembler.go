@@ -150,7 +150,7 @@ func (a *StreamEventAssembler) BootstrapEmissions() []EventEmission {
 		runStartEvent.Timestamp = a.request.StartedAtMillis
 	}
 	events = append(events, runStartEvent)
-	if a.request.Detail == DetailSummary && !a.request.ContinueRun {
+	if a.request.Detail == DetailSimple && !a.request.ContinueRun {
 		events = append(events, NewStartupActivity(a.request.RunID, a.request.ChatID))
 	}
 	return a.emit(events)

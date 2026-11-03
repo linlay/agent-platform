@@ -181,14 +181,14 @@ func TestActivitiesCarryKindNotToolID(t *testing.T) {
 	}
 }
 
-func TestAnnouncementDoesNotSuppressFullStreamProgress(t *testing.T) {
+func TestAnnouncementDoesNotSuppressDetailedStreamProgress(t *testing.T) {
 	tracker := NewActivityTracker("run", "chat")
 	announce := newActivityEvent("run", "chat", "", map[string]any{"kind": ActivityKindAnnounce, "text": "Check the config."})
 	tracker.Track(announce.Type, announce.Payload)
 	for _, kind := range []string{"thinking", "tool_run", "compacting"} {
 		event := newActivityEvent("run", "chat", "", map[string]any{"kind": kind})
 		if keep, _ := tracker.Track(event.Type, event.Payload); !keep {
-			t.Fatalf("full progress %s suppressed", kind)
+			t.Fatalf("detailed progress %s suppressed", kind)
 		}
 	}
 	for _, eventType := range []string{"reasoning.start", "awaiting.ask", "content.start"} {
@@ -221,8 +221,8 @@ func TestEventBusResendsAnnouncementBeforeCurrentActivity(t *testing.T) {
 	if !reflect.DeepEqual(messages, []string{""}) {
 		t.Fatalf("attach resent %#v", messages)
 	}
-	if !DetailSummary.Allows("run.activity", newActivityEvent("run", "chat", "", map[string]any{"kind": ActivityKindAnnounce, "text": "x"}).Payload) {
-		t.Fatal("summary must receive a root announcement")
+	if !DetailSimple.Allows("run.activity", newActivityEvent("run", "chat", "", map[string]any{"kind": ActivityKindAnnounce, "text": "x"}).Payload) {
+		t.Fatal("simple must receive a root announcement")
 	}
 }
 
@@ -241,16 +241,16 @@ func TestAttachPreservesAnnouncementStateAcrossAutomaticActivities(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			var summary, full []string
+			var simple, detailed []string
 			for len(observer.Events) > 0 {
 				event := <-observer.Events
-				full = append(full, event.String("message"))
-				if DetailSummary.Allows(event.Type, event.Payload) {
-					summary = append(summary, event.String("message"))
+				detailed = append(detailed, event.String("message"))
+				if DetailSimple.Allows(event.Type, event.Payload) {
+					simple = append(simple, event.String("message"))
 				}
 			}
-			if !reflect.DeepEqual(summary, []string{want}) || !reflect.DeepEqual(full, []string{want, "Thinking…"}) {
-				t.Fatalf("summary=%q full=%q, want state %q", summary, full, want)
+			if !reflect.DeepEqual(simple, []string{want}) || !reflect.DeepEqual(detailed, []string{want, "Thinking…"}) {
+				t.Fatalf("simple=%q detailed=%q, want state %q", simple, detailed, want)
 			}
 		})
 	}

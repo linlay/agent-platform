@@ -4,13 +4,13 @@ import "testing"
 
 func TestModeDefaultDetailSettings(t *testing.T) {
 	c := Config{}
-	if err := c.applyAgentSettingsFile(configFixture(t, "agent-settings.yml", "coder:\n  interaction-config:\n    default-detail: full\ngeneral:\n  interaction-config:\n    default-detail: summary\nproxy:\n  interaction-config:\n    default-detail: full\n")); err != nil {
+	if err := c.applyAgentSettingsFile(configFixture(t, "agent-settings.yml", "coder:\n  interaction-config:\n    default-detail: detailed\ngeneral:\n  interaction-config:\n    default-detail: simple\nproxy:\n  interaction-config:\n    default-detail: detailed\n")); err != nil {
 		t.Fatal(err)
 	}
-	if c.ModeDefaultDetails["coder"] != "full" || c.ModeDefaultDetails["general"] != "summary" || c.ModeDefaultDetails["proxy"] != "full" {
+	if c.ModeDefaultDetails["coder"] != "detailed" || c.ModeDefaultDetails["general"] != "simple" || c.ModeDefaultDetails["proxy"] != "detailed" {
 		t.Fatal(c.ModeDefaultDetails)
 	}
-	for _, bad := range []string{"null", "true", "verbose", "none", "''", "[]"} {
+	for _, bad := range []string{"null", "true", "verbose", "none", "summary", "full", "''", "[]"} {
 		if err := c.applyAgentSettingsFile(configFixture(t, "agent-settings.yml", "coder:\n  interaction-config:\n    default-detail: "+bad+"\n")); err == nil {
 			t.Fatalf("accepted %s", bad)
 		}
@@ -18,7 +18,7 @@ func TestModeDefaultDetailSettings(t *testing.T) {
 	if err := c.applyAgentSettingsFile(ProjectFile("configs/agent-settings.example.yml")); err != nil {
 		t.Fatal(err)
 	}
-	if c.ModeDefaultDetails["coder"] != "full" || c.ModeDefaultDetails["team"] != "full" {
+	if c.ModeDefaultDetails["coder"] != "detailed" || c.ModeDefaultDetails["team"] != "detailed" {
 		t.Fatal(c.ModeDefaultDetails)
 	}
 }
@@ -32,7 +32,7 @@ func TestRemovedAnnounceHoldSettingIsRejected(t *testing.T) {
 
 func TestRetiredPlanExecuteSectionsAreIgnored(t *testing.T) {
 	c := Config{}
-	if err := c.applyAgentSettingsFile(configFixture(t, "agent-settings.yml", "plan-execute:\n  interaction-config:\n    default-detail: full\n")); err != nil {
+	if err := c.applyAgentSettingsFile(configFixture(t, "agent-settings.yml", "plan-execute:\n  interaction-config:\n    default-detail: detailed\n")); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := c.ModeDefaultDetails["plan-execute"]; ok {

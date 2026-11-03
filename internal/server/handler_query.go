@@ -267,7 +267,7 @@ func (s *Server) writeRuntimeQueryResponse(w http.ResponseWriter, ctx context.Co
 func requestDetailLevel(w http.ResponseWriter, r *http.Request) (stream.DetailLevel, bool) {
 	level, ok := stream.ParseDetailLevel(r.URL.Query().Get("detail"))
 	if !ok {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "detail must be summary or full", map[string]any{"code": "invalid_detail"}))
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "detail must be simple or detailed", map[string]any{"code": "invalid_detail"}))
 	}
 	return level, ok
 }

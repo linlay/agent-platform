@@ -42,7 +42,7 @@ type ProxyEventRecorder struct {
 	planningSnapshots map[string]bool
 	markdownGuards    map[string]*stream.MarkdownDestinationGuard
 	markdownText      map[string]*strings.Builder
-	// activities derives progress from the upstream's full stream. Summary
+	// activities derives progress from the upstream's detailed stream. Simple
 	// delivery keeps startup, announcements and clears.
 	activities *stream.ActivityTracker
 	detail     stream.DetailLevel
@@ -205,7 +205,7 @@ func PublishProxyLiveEvent(eventBus *stream.RunEventBus, recorder *ProxyEventRec
 	}
 	assignProxyEventSeq(&event, seq)
 	publishProxyEventData(eventBus, recorder, event)
-	if event.Type == "run.start" && event.String("taskId") == "" && recorder != nil && recorder.detail == stream.DetailSummary {
+	if event.Type == "run.start" && event.String("taskId") == "" && recorder != nil && recorder.detail == stream.DetailSimple {
 		publishProxyEventData(eventBus, recorder, stream.NewStartupActivity(req.RunID, req.ChatID).Data())
 	}
 	// Like native ones, derived activities take no public sequence.

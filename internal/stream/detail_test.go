@@ -3,12 +3,12 @@ package stream
 import "testing"
 
 func TestParseDetailLevel(t *testing.T) {
-	for raw, want := range map[string]DetailLevel{"": "", "summary": DetailSummary, "full": DetailFull, " full ": DetailFull} {
+	for raw, want := range map[string]DetailLevel{"": "", "simple": DetailSimple, "detailed": DetailDetailed, " detailed ": DetailDetailed} {
 		if got, ok := ParseDetailLevel(raw); !ok || got != want {
 			t.Fatalf("ParseDetailLevel(%q)=%q,%v want %q", raw, got, ok, want)
 		}
 	}
-	for _, raw := range []string{"FULL", "detail", "debug", "none"} {
+	for _, raw := range []string{"DETAILED", "summary", "full", "detail", "debug", "none"} {
 		if _, ok := ParseDetailLevel(raw); ok {
 			t.Fatalf("ParseDetailLevel(%q) accepted", raw)
 		}
@@ -18,27 +18,27 @@ func TestParseDetailLevel(t *testing.T) {
 func TestDetailLevelActivities(t *testing.T) {
 	progress := newActivityEvent("run", "chat", "", map[string]any{"kind": "thinking"}).Payload
 	retry := newRetryActivityEvent("run", "chat", "", map[string]any{"attempt": 2}).Payload
-	if DetailSummary.Allows("run.activity", progress) || !DetailSummary.Allows("run.activity", retry) {
-		t.Fatal("summary must hide automatic progress and deliver retries")
+	if DetailSimple.Allows("run.activity", progress) || !DetailSimple.Allows("run.activity", retry) {
+		t.Fatal("simple must hide automatic progress and deliver retries")
 	}
-	// full is a superset: one full stream serves viewers of either level.
-	if !DetailFull.Allows("run.activity", progress) || !DetailFull.Allows("run.activity", retry) {
-		t.Fatal("full must receive every activity")
+	// detailed is a superset: one detailed stream serves viewers of either level.
+	if !DetailDetailed.Allows("run.activity", progress) || !DetailDetailed.Allows("run.activity", retry) {
+		t.Fatal("detailed must receive every activity")
 	}
 }
 
-func TestSummaryDetailDeliversOnlyAnnouncementsClearsAndRetries(t *testing.T) {
-	for eventType := range summaryEventTypes {
+func TestSimpleDetailDeliversOnlyAnnouncementsClearsAndRetries(t *testing.T) {
+	for eventType := range simpleEventTypes {
 		if eventType == "run.activity" {
 			continue
 		}
-		if !DetailSummary.Allows(eventType, map[string]any{}) {
-			t.Fatalf("summary dropped %s", eventType)
+		if !DetailSimple.Allows(eventType, map[string]any{}) {
+			t.Fatalf("simple dropped %s", eventType)
 		}
 	}
 	for _, eventType := range []string{"tool.start", "reasoning.start", "some.future.event"} {
-		if DetailSummary.Allows(eventType, map[string]any{}) {
-			t.Fatalf("summary leaked %s", eventType)
+		if DetailSimple.Allows(eventType, map[string]any{}) {
+			t.Fatalf("simple leaked %s", eventType)
 		}
 	}
 	for _, payload := range []map[string]any{
@@ -47,8 +47,8 @@ func TestSummaryDetailDeliversOnlyAnnouncementsClearsAndRetries(t *testing.T) {
 		newActivityEvent("run", "chat", "", map[string]any{"kind": "idle"}).Payload,
 		newRetryActivityEvent("run", "chat", "", map[string]any{"attempt": 2}).Payload,
 	} {
-		if !DetailSummary.Allows("run.activity", payload) {
-			t.Fatalf("summary dropped %#v", payload)
+		if !DetailSimple.Allows("run.activity", payload) {
+			t.Fatalf("simple dropped %#v", payload)
 		}
 	}
 	for _, payload := range []map[string]any{
@@ -60,24 +60,24 @@ func TestSummaryDetailDeliversOnlyAnnouncementsClearsAndRetries(t *testing.T) {
 		newActivityEvent("run", "chat", "", map[string]any{"kind": "compacting"}).Payload,
 		{"kind": "future_activity"},
 	} {
-		if DetailSummary.Allows("run.activity", payload) {
-			t.Fatalf("summary leaked activity %#v", payload)
+		if DetailSimple.Allows("run.activity", payload) {
+			t.Fatalf("simple leaked activity %#v", payload)
 		}
 	}
 	// Proxy activities may already be rendered and have only a top-level kind.
 	for _, kind := range []string{"thinking", "reasoning", "tool_run", "subtask", "awaiting", "compacting", "future_activity", ""} {
-		if DetailSummary.Allows("run.activity", map[string]any{"kind": kind}) {
-			t.Fatalf("summary leaked rendered %s", kind)
+		if DetailSimple.Allows("run.activity", map[string]any{"kind": kind}) {
+			t.Fatalf("simple leaked rendered %s", kind)
 		}
 	}
 	for _, kind := range []string{ActivityKindAnnounce, "idle"} {
-		if !DetailSummary.Allows("run.activity", map[string]any{"kind": kind}) {
-			t.Fatalf("summary dropped rendered %s", kind)
+		if !DetailSimple.Allows("run.activity", map[string]any{"kind": kind}) {
+			t.Fatalf("simple dropped rendered %s", kind)
 		}
 	}
 }
 
-func TestSummaryDetailKeepsNotificationsWithoutToolDetails(t *testing.T) {
+func TestSimpleDetailKeepsNotificationsWithoutToolDetails(t *testing.T) {
 	for _, eventType := range []string{
 		"request.query", "request.steer", "request.submit", "chat.start",
 		"run.start", "run.complete", "run.cancel", "run.error",
@@ -89,19 +89,19 @@ func TestSummaryDetailKeepsNotificationsWithoutToolDetails(t *testing.T) {
 		"run.access_level.changed", "context.compact.start", "context.compact.complete", "context.compact.failed",
 		"tool.wait", "tool.wait.update", "usage.snapshot",
 	} {
-		if !DetailSummary.Allows(eventType, map[string]any{}) {
-			t.Fatalf("summary dropped %s", eventType)
+		if !DetailSimple.Allows(eventType, map[string]any{}) {
+			t.Fatalf("simple dropped %s", eventType)
 		}
 	}
 	for _, eventType := range []string{
 		"reasoning.start", "reasoning.delta", "reasoning.snapshot", "tool.start", "tool.args", "tool.result",
 		"tool.output", "debug.llmChat", "memory.write", "some.future.event",
 	} {
-		if DetailSummary.Allows(eventType, map[string]any{}) {
-			t.Fatalf("summary leaked %s", eventType)
+		if DetailSimple.Allows(eventType, map[string]any{}) {
+			t.Fatalf("simple leaked %s", eventType)
 		}
-		if !DetailFull.Allows(eventType, map[string]any{}) {
-			t.Fatalf("full dropped %s", eventType)
+		if !DetailDetailed.Allows(eventType, map[string]any{}) {
+			t.Fatalf("detailed dropped %s", eventType)
 		}
 	}
 }
@@ -113,23 +113,23 @@ func TestDetailLevelFilterEvents(t *testing.T) {
 		{Seq: 3, Type: "content.snapshot", Payload: map[string]any{}},
 		{Seq: 4, Type: "tool.snapshot", Payload: map[string]any{}},
 	}
-	summary := DetailSummary.FilterEvents(events)
-	if len(summary) != 2 || summary[0].Seq != 1 || summary[1].Seq != 3 {
-		t.Fatalf("summary=%#v", summary)
+	simple := DetailSimple.FilterEvents(events)
+	if len(simple) != 2 || simple[0].Seq != 1 || simple[1].Seq != 3 {
+		t.Fatalf("simple=%#v", simple)
 	}
-	if full := DetailFull.FilterEvents(events); len(full) != 4 {
-		t.Fatalf("full=%#v", full)
+	if detailed := DetailDetailed.FilterEvents(events); len(detailed) != 4 {
+		t.Fatalf("detailed=%#v", detailed)
 	}
 }
 
 func TestDeliveryDisplayDoesNotMutatePersistedEvent(t *testing.T) {
 	original := EventData{Type: "run.start", Payload: map[string]any{"runId": "run"}}
-	delivered := WithDisplay(original, DetailSummary, DetailFull)
+	delivered := WithDisplay(original, DetailSimple, DetailDetailed)
 	if original.Payload["display"] != nil {
 		t.Fatal("shared event mutated")
 	}
 	display := delivered.Payload["display"].(map[string]any)
-	if display["defaultDetail"] != DetailSummary || display["effectiveDetail"] != DetailFull {
+	if display["defaultDetail"] != DetailSimple || display["effectiveDetail"] != DetailDetailed {
 		t.Fatal(display)
 	}
 }
@@ -140,10 +140,10 @@ func TestResolveDetailLevel(t *testing.T) {
 		agentDefault string
 		want         DetailLevel
 	}{
-		{"", "", DetailSummary},
-		{"", "summary", DetailSummary},
-		{"", "verbose", DetailSummary},
-		{DetailFull, "summary", DetailFull},
+		{"", "", DetailSimple},
+		{"", "simple", DetailSimple},
+		{"", "verbose", DetailSimple},
+		{DetailDetailed, "simple", DetailDetailed},
 	} {
 		if got := ResolveDetailLevel(tc.requested, tc.agentDefault); got != tc.want {
 			t.Fatalf("ResolveDetailLevel(%q, %q) = %q, want %q", tc.requested, tc.agentDefault, got, tc.want)
@@ -152,14 +152,14 @@ func TestResolveDetailLevel(t *testing.T) {
 }
 
 // A wait notification without its closing result would leave the interactive card stale.
-func TestSummaryDeliversWaitCompletionWithoutOrdinaryToolResults(t *testing.T) {
+func TestSimpleDeliversWaitCompletionWithoutOrdinaryToolResults(t *testing.T) {
 	events := []EventData{
 		{Seq: 1, Type: "tool.wait", Payload: map[string]any{"toolName": "wait"}},
 		{Seq: 2, Type: "tool.wait.update", Payload: map[string]any{"toolName": "wait"}},
 		{Seq: 3, Type: "tool.result", Payload: map[string]any{"toolName": "wait"}},
 		{Seq: 4, Type: "tool.result", Payload: map[string]any{"toolName": "bash"}},
 	}
-	delivered := DetailSummary.FilterEvents(events)
+	delivered := DetailSimple.FilterEvents(events)
 	if len(delivered) != 3 || delivered[2].Seq != 3 {
 		t.Fatalf("wait lifecycle: %#v", delivered)
 	}

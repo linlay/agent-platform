@@ -15,11 +15,13 @@ func TestRequestFrameDetail(t *testing.T) {
 		invalid bool
 	}{
 		{RequestFrame{Type: "/api/query"}, "", false},
-		{RequestFrame{Type: "/api/attach", Detail: "full"}, stream.DetailFull, true},
-		{RequestFrame{Type: "/api/chat", Detail: "summary"}, stream.DetailSummary, false},
+		{RequestFrame{Type: "/api/attach", Detail: "detailed"}, stream.DetailDetailed, true},
+		{RequestFrame{Type: "/api/chat", Detail: "simple"}, stream.DetailSimple, false},
 		{RequestFrame{Type: "/api/query", Detail: "verbose"}, "", true},
 		{RequestFrame{Type: "/api/query", Detail: "none"}, "", true},
-		{RequestFrame{Type: "/api/chats", Detail: "full"}, stream.DetailFull, true},
+		{RequestFrame{Type: "/api/query", Detail: "summary"}, "", true},
+		{RequestFrame{Type: "/api/query", Detail: "full"}, "", true},
+		{RequestFrame{Type: "/api/chats", Detail: "detailed"}, stream.DetailDetailed, true},
 	} {
 		if got := tc.frame.DetailLevel(); !tc.invalid && got != tc.level {
 			t.Fatalf("%#v level=%q want %q", tc.frame, got, tc.level)
@@ -30,14 +32,14 @@ func TestRequestFrameDetail(t *testing.T) {
 	}
 }
 
-func TestSummaryStreamDeliversStateNotifications(t *testing.T) {
+func TestSimpleStreamDeliversStateNotifications(t *testing.T) {
 	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 32, MaxObservesPerConn: 2}, AuthSession{})
 	if _, err := conn.ReserveStream("notification-request", "notification-run"); err != nil {
 		t.Fatal(err)
 	}
 	types := []string{"run.access_level.changed", "context.compact.start", "context.compact.complete", "context.compact.failed", "tool.wait", "tool.wait.update", "tool.result", "usage.snapshot", "run.activity", "run.complete"}
 	events := make(chan stream.EventData, len(types)+1)
-	conn.StartStreamForward("notification-request", &stream.Observer{Events: events}, stream.DetailSummary, stream.DetailSummary)
+	conn.StartStreamForward("notification-request", &stream.Observer{Events: events}, stream.DetailSimple, stream.DetailSimple)
 	events <- stream.EventData{Seq: 1, Type: "reasoning.delta", Timestamp: time.Now().UnixMilli(), Payload: map[string]any{"runId": "notification-run", "delta": "hidden"}}
 	for i, kind := range types {
 		payload := map[string]any{"runId": "notification-run"}

@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-func TestStartupActivityOnlyInSummaryBootstrap(t *testing.T) {
-	for _, level := range []DetailLevel{DetailSummary, DetailFull} {
+func TestStartupActivityOnlyInSimpleBootstrap(t *testing.T) {
+	for _, level := range []DetailLevel{DetailSimple, DetailDetailed} {
 		a := NewAssembler(StreamRequest{RunID: "random-run-42", ChatID: "chat", Detail: level})
 		emissions := a.BootstrapEmissions()
 		count := 0
@@ -26,13 +26,13 @@ func TestStartupActivityOnlyInSummaryBootstrap(t *testing.T) {
 				if locale == i18n.LocaleZhCN {
 					want = "正在" + label
 				}
-				if rendered["message"] != want || !DetailSummary.Allows(e.Type, rendered) || DetailFull.Allows(e.Type, rendered) {
+				if rendered["message"] != want || !DetailSimple.Allows(e.Type, rendered) || DetailDetailed.Allows(e.Type, rendered) {
 					t.Fatalf("localized startup: %#v", rendered)
 				}
 			}
 		}
 		want := 0
-		if level == DetailSummary {
+		if level == DetailSimple {
 			want = 1
 		}
 		if count != want {
@@ -41,7 +41,7 @@ func TestStartupActivityOnlyInSummaryBootstrap(t *testing.T) {
 	}
 }
 
-func TestSummaryAttachRestoresStartupUntilAnnouncementOrClear(t *testing.T) {
+func TestSimpleAttachRestoresStartupUntilAnnouncementOrClear(t *testing.T) {
 	for _, replacement := range []string{"", ActivityKindAnnounce, "idle"} {
 		bus := NewRunEventBus(100, 0, nil)
 		initial := NewStartupActivity("run", "chat").Data()
@@ -52,7 +52,7 @@ func TestSummaryAttachRestoresStartupUntilAnnouncementOrClear(t *testing.T) {
 			bus.Publish(event)
 			want = event.String("message")
 		}
-		// Hidden automatic activities must not erase summary's startup/announcement.
+		// Hidden automatic activities must not erase simple's startup/announcement.
 		bus.Publish(newActivityEvent("run", "chat", "", map[string]any{"kind": "tool_run", "toolName": "bash"}).Data())
 		observer, err := bus.Subscribe(0)
 		if err != nil {
@@ -61,7 +61,7 @@ func TestSummaryAttachRestoresStartupUntilAnnouncementOrClear(t *testing.T) {
 		var received []EventData
 		for len(observer.Events) > 0 {
 			e := <-observer.Events
-			if DetailSummary.Allows(e.Type, e.Payload) {
+			if DetailSimple.Allows(e.Type, e.Payload) {
 				received = append(received, e)
 			}
 		}
@@ -80,7 +80,7 @@ func TestSummaryAttachRestoresStartupUntilAnnouncementOrClear(t *testing.T) {
 }
 
 func TestStartupActivityNotRegeneratedForContinuedRun(t *testing.T) {
-	a := NewAssembler(StreamRequest{RunID: "run", ChatID: "chat", Detail: DetailSummary, ContinueRun: true})
+	a := NewAssembler(StreamRequest{RunID: "run", ChatID: "chat", Detail: DetailSimple, ContinueRun: true})
 	for _, emission := range a.BootstrapEmissions() {
 		if IsStartupActivity(emission.Event.Type, emission.Event.Payload) {
 			t.Fatal("continued run regenerated startup")

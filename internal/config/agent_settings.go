@@ -200,8 +200,8 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 		}
 		if value, exists := node["default-detail"]; exists {
 			level, ok := value.(string)
-			if !ok || (level != "summary" && level != "full") {
-				return fmt.Errorf("%s.%s.interaction-config.default-detail must be summary or full", path, mode)
+			if !ok || (level != "simple" && level != "detailed") {
+				return fmt.Errorf("%s.%s.interaction-config.default-detail must be simple or detailed", path, mode)
 			}
 			c.ModeDefaultDetails[mode] = level
 		}

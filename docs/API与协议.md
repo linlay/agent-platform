@@ -580,18 +580,18 @@ TEAM 总控的普通工具与 reasoning 沿普通 Agent 事件链路；内部 `a
 
 #### 细节等级与 run.activity
 
-`/api/query` 与 `/api/chat` 接受细节等级 `detail`：HTTP 用 URL 参数（`?detail=full`），WS 用请求帧顶层字段（与 `type`、`id` 并列，见[帧类型](#帧类型)），不放进 query 请求体，因此不进入 JSONL 原始 query。显式取值为 `summary` 或 `full`（旧 `none` 不再支持），其他值返回 400 `invalid_detail`；WS 其他路由携带 `detail` 同样拒绝。
+`/api/query` 与 `/api/chat` 接受细节等级 `detail`：HTTP 用 URL 参数（`?detail=detailed`），WS 用请求帧顶层字段（与 `type`、`id` 并列，见[帧类型](#帧类型)），不放进 query 请求体，因此不进入 JSONL 原始 query。显式取值为 `simple` 或 `detailed`（旧 `summary`、`full`、`none` 均拒绝），其他值返回 400 `invalid_detail`；WS 其他路由携带 `detail` 同样拒绝。
 
-档位属于 Run：`/api/query` 受理时冻结（请求显式值 > 实际准入 Agent 的 `interactionConfig.defaultDetail` > summary，Agent 默认值来自 Agent 显式配置 > agent-settings.yml 对应 mode 配置），整个 Run 期间所有观察者收到同一档事件。没有调用方连接的 Run（`chat_start`、Automation、`/api/execute`）取 Agent 默认值；批准计划后启动的执行 Run 沿用规划 Run 的档位；TEAM 子任务与 steer 不改变档位。档位只在进程内保存，不落盘（Platform 重启本就取消未完成 Run）。
+档位属于 Run：`/api/query` 受理时冻结（请求显式值 > 实际准入 Agent 的 `interactionConfig.defaultDetail` > simple，Agent 默认值来自 Agent 显式配置 > agent-settings.yml 对应 mode 配置），整个 Run 期间所有观察者收到同一档事件。没有调用方连接的 Run（`chat_start`、Automation、`/api/execute`）取 Agent 默认值；批准计划后启动的执行 Run 沿用规划 Run 的档位；TEAM 子任务与 steer 不改变档位。档位只在进程内保存，不落盘（Platform 重启本就取消未完成 Run）。
 
 - `/api/attach` 不接受 `detail`：HTTP 带该参数（含空值）返回 400 `detail_not_allowed`，WS attach 帧带 `detail` 返回协议错误；续接一律按 Run 冻结的档位。
 - `/api/chat`：Chat 有进行中的 Run 时，整个响应（含之前已结束 Run 的历史事件）按该 Run 的档位过滤，请求的 `detail` 忽略；没有进行中的 Run 时按请求档位读取，省略时按 Chat owner Agent 默认值。`activeRun.detail` 返回 Run 的档位。
 
-`/api/chat` 返回 `display: {defaultDetail,effectiveDetail}`，前者为 Agent 有效默认值，后者为实际下发档位。流式 `run.start` 在下发时附加相同 display（不修改共享事件或落盘）；HTTP SSE 另提供 `X-Agent-Default-Detail` 和 `X-Event-Detail` 响应头。Agent 不存在时兜底 summary，不阻止历史读取。页面按 `effectiveDetail`（实际下发档位）展示。Desktop broker 不改写 `detail`：窗口请求省略时跟随 Agent，只有需要读取工具事件的 Desktop 主进程 Run（图片工作台）在自己的 query 上显式请求 full。
+`/api/chat` 返回 `display: {defaultDetail,effectiveDetail}`，前者为 Agent 有效默认值，后者为实际下发档位。流式 `run.start` 在下发时附加相同 display（不修改共享事件或落盘）；HTTP SSE 另提供 `X-Agent-Default-Detail` 和 `X-Event-Detail` 响应头。Agent 不存在时兜底 simple，不阻止历史读取。页面按 `effectiveDetail`（实际下发档位）展示。Desktop broker 不改写 `detail`：窗口请求省略时跟随 Agent，只有需要读取工具事件的 Desktop 主进程 Run（图片工作台）在自己的 query 上显式请求 detailed。
 
 落盘始终完整，细节等级只决定下发哪些事件：
 
-| 事件 | summary | full |
+| 事件 | simple（精简过程） | detailed（详细过程） |
 |---|---|---|
 | `request.query/steer/submit`、`chat.start` | ✓ | ✓ |
 | `run.start/complete/cancel/error` | ✓ | ✓ |
@@ -607,16 +607,16 @@ TEAM 总控的普通工具与 reasoning 沿普通 Agent 事件链路；内部 `a
 | `tool.wait`、`tool.wait.update`、wait 的 `tool.result` | ✓ | ✓ |
 | `reasoning.*`、其他 `tool.*`、`debug.llmChat`、`memory.*` 及其他类型 | — | ✓ |
 
-summary（精简）保留通知与状态同步：权限变更、上下文压缩、工具等待及其完成、实时用量、公示及清除和重试活动均下发，不能因展示精简而丢失通知。自动思考、普通工具调用等进度活动，以及思考正文和普通工具参数、结果等过程详情由白名单过滤。提问和审批本身仍通过 `awaiting.ask/answer` 正常展示。full（详细）展示真实过程，不生成或接收启动占位；客户端的详细视图忽略进度活动，因为细节事件本身已经展示了进度。summary 与 full 均实时下发 `usage.snapshot`，终态仍可读取 `run.complete/cancel/error` 的 `usage.run` 与 `usage.chat`：其中 `toolCallCount`、`llmChatCompletionCount` 固定输出（含 0），另有 `promptTokens`、`completionTokens`、`completionTokensDetails.reasoningTokens`、`estimatedCost` 等。`/api/chat` 只按等级过滤 `events`，`runs[].usage` 与顶层 `usage` 不受影响。Proxy 上游查询固定请求 `full`，由本地按查看者等级过滤；gateway 与 Desktop 透传客户端的 `detail`，省略时跟随 Agent。
+simple（精简）保留通知与状态同步：权限变更、上下文压缩、工具等待及其完成、实时用量、公示及清除和重试活动均下发，不能因展示精简而丢失通知。自动思考、普通工具调用等进度活动，以及思考正文和普通工具参数、结果等过程详情由白名单过滤。提问和审批本身仍通过 `awaiting.ask/answer` 正常展示。detailed（详细）展示真实过程，不生成或接收启动占位；客户端的详细视图忽略进度活动，因为细节事件本身已经展示了进度。simple 与 detailed 均实时下发 `usage.snapshot`，终态仍可读取 `run.complete/cancel/error` 的 `usage.run` 与 `usage.chat`：其中 `toolCallCount`、`llmChatCompletionCount` 固定输出（含 0），另有 `promptTokens`、`completionTokens`、`completionTokensDetails.reasoningTokens`、`estimatedCost` 等。`/api/chat` 只按等级过滤 `events`，`runs[].usage` 与顶层 `usage` 不受影响。Proxy 上游查询固定请求 `detailed`，由本地按查看者等级过滤；gateway 与 Desktop 透传客户端的 `detail`，省略时跟随 Agent。
 
 `run.activity` 用一句话说明 Run（或带 `taskId` 的子任务）现在在做什么。字段只有 `runId`、`chatId`、可选 `taskId`、`message`，启动占位另带 `initial: true`，进度活动另带 `kind`（`thinking`、`reasoning`、`tool_run`、`announce`、`subtask`、`awaiting`、`compacting`、`idle`），重试时另带 `retry`；`message` 按查看者语言渲染（HTTP 用请求语言、WS 用连接当前语言）。同一 `(runId, taskId)` 新的一条替换旧的一条；`message` 为空（`kind:"idle"`）表示该 scope 当前没有活动（用户正在看正文或计划），客户端隐藏活动行；`task.complete/cancel/error` 清除该子任务的活动，Run 终止事件清除全部。
 
-- 启动占位：summary 的新 Run 在 `run.start` 后立即发出一条 `kind: thinking`、`initial: true` 的 `run.activity`，从既有思考 label 池按随机 Run ID 选取文案，重连及不同观察者保持同一选择，并在输出边界按查看者语言渲染。不定时轮换，不在工具循环后重复生成；续接同一 Run 不重新生成。full 不生成也不下发此占位，WebClient 不再本地合成 thinking。
-- 真实进度活动（full 接收，summary 只接收公示及清除）：不再在每轮模型请求开始时生成通用“正在思考”；`reasoning.start` 时为“正在”加该段的 `reasoningLabel`（英文为 `reasoningLabel…`），不读取推理正文；`content.start` 与 `planning.start` 发出 `message` 为空的活动以清空活动行，正文本身就是进度；每个模型回合在参数完整后（`tool.end` 时、审批之前）至多发一条工具活动，覆盖审批等待和整批执行，`tool.start` 与执行开始不再单独发：本回合有公示工具（`action_announce`）时为公示，否则为第一个工具的“工具 label：说明”，说明取工具定义 `activityArgs` 中第一个非空参数，没有则为“正在调用「工具 label」”；`task.start` 在父级显示“正在委派子任务「taskName」”；`awaiting.ask` 按 mode 显示“等待你审批 / 回答 / 填写表单 / 确认计划”，`awaiting.answer` 后恢复等待前的那条活动；`context.compact.start` 为“正在整理上下文”。相同文案仍下发，由客户端决定是否刷新展示；`clientVisible:false` 工具不产生活动，公示除外：公示是模型写给用户的话，不是工具本身的展示。
-- 公示（`kind:"announce"`）：`message` 是模型用用户语言写的一句话（下一步要做什么），原样展示、不翻译。summary 下持续显示到下一条公示、开始输出正文或计划（`idle`）或 Run 终止；不再设置保持秒数，旧 `announce-hold-seconds` 配置拒绝加载。full 的其他进度正常生成和下发，不被公示压住。
-- attach 时服务端分别保存每个 scope 的最后一条启动占位、公示或清除，以及当前完整进度；先补发公示状态，再补发不同的当前活动。summary 收到最近的启动占位、公示或清除；full 不接收启动占位，仍接收真实进度活动。清除状态在后续自动进度出现后仍保留，重连不恢复已清除的旧公示。
-- 进度活动不占公共序号：`seq` 为 0，不进入 attach 回放日志、不落盘；attach 时服务端为每个仍在活动的 scope 补发当前那一条（同样 `seq` 为 0）。因此 full 的公共 `seq` 保持连续（忽略 `seq` 为 0 的事件）；summary 因过滤会出现跳号，客户端不能把跳号当作丢事件。
-- 重试活动（summary 与 full 均接收）：模型请求可恢复重试时发出，`retry` 含 `runSeq`（模型轮次）、`attempt`（含首次请求）、`maxAttempts`、`reason`、`error`（公共结构化错误）、`timeoutSeconds`、`elapsedMs`，普通重试另带 `delayMs` 与 `retryAt`（epoch ms），客户端显示序号为 `attempt-1` / `maxAttempts-1`；等待前先发出，等待支持取消。两档均收到重试通知，重试耗尽后均收到终止 `run.error`。
+- 启动占位：simple 的新 Run 在 `run.start` 后立即发出一条 `kind: thinking`、`initial: true` 的 `run.activity`，从既有思考 label 池按随机 Run ID 选取文案，重连及不同观察者保持同一选择，并在输出边界按查看者语言渲染。不定时轮换，不在工具循环后重复生成；续接同一 Run 不重新生成。detailed 不生成也不下发此占位，WebClient 不再本地合成 thinking。
+- 真实进度活动（detailed 接收，simple 只接收公示及清除）：不再在每轮模型请求开始时生成通用“正在思考”；`reasoning.start` 时为“正在”加该段的 `reasoningLabel`（英文为 `reasoningLabel…`），不读取推理正文；`content.start` 与 `planning.start` 发出 `message` 为空的活动以清空活动行，正文本身就是进度；每个模型回合在参数完整后（`tool.end` 时、审批之前）至多发一条工具活动，覆盖审批等待和整批执行，`tool.start` 与执行开始不再单独发：本回合有公示工具（`action_announce`）时为公示，否则为第一个工具的“工具 label：说明”，说明取工具定义 `activityArgs` 中第一个非空参数，没有则为“正在调用「工具 label」”；`task.start` 在父级显示“正在委派子任务「taskName」”；`awaiting.ask` 按 mode 显示“等待你审批 / 回答 / 填写表单 / 确认计划”，`awaiting.answer` 后恢复等待前的那条活动；`context.compact.start` 为“正在整理上下文”。相同文案仍下发，由客户端决定是否刷新展示；`clientVisible:false` 工具不产生活动，公示除外：公示是模型写给用户的话，不是工具本身的展示。
+- 公示（`kind:"announce"`）：`message` 是模型用用户语言写的一句话（下一步要做什么），原样展示、不翻译。simple 下持续显示到下一条公示、开始输出正文或计划（`idle`）或 Run 终止；不再设置保持秒数，旧 `announce-hold-seconds` 配置拒绝加载。detailed 的其他进度正常生成和下发，不被公示压住。
+- attach 时服务端分别保存每个 scope 的最后一条启动占位、公示或清除，以及当前完整进度；先补发公示状态，再补发不同的当前活动。simple 收到最近的启动占位、公示或清除；detailed 不接收启动占位，仍接收真实进度活动。清除状态在后续自动进度出现后仍保留，重连不恢复已清除的旧公示。
+- 进度活动不占公共序号：`seq` 为 0，不进入 attach 回放日志、不落盘；attach 时服务端为每个仍在活动的 scope 补发当前那一条（同样 `seq` 为 0）。因此 detailed 的公共 `seq` 保持连续（忽略 `seq` 为 0 的事件）；simple 因过滤会出现跳号，客户端不能把跳号当作丢事件。
+- 重试活动（simple 与 detailed 均接收）：模型请求可恢复重试时发出，`retry` 含 `runSeq`（模型轮次）、`attempt`（含首次请求）、`maxAttempts`、`reason`、`error`（公共结构化错误）、`timeoutSeconds`、`elapsedMs`，普通重试另带 `delayMs` 与 `retryAt`（epoch ms），客户端显示序号为 `attempt-1` / `maxAttempts-1`；等待前先发出，等待支持取消。两档均收到重试通知，重试耗尽后均收到终止 `run.error`。
 
 `run.activity` 不表示 run 失败；`run.error` 仍是终止事件，发出后不应再出现 content / reasoning / tool 等业务事件，后面只允许传输层 `[DONE]`。
 
@@ -1002,10 +1002,10 @@ WebSocket 存活配置与 SSE heartbeat 完全独立。服务端默认每 30 秒
 }
 ```
 
-`/api/query`、`/api/chat` 的请求帧可在顶层携带 `detail`（显式 `summary` 或 `full`，省略跟随 Agent），它是下发选项而非 payload；attach 帧不接受，规则见[细节等级](#细节等级与-runactivity)：
+`/api/query`、`/api/chat` 的请求帧可在顶层携带 `detail`（显式 `simple` 或 `detailed`，省略跟随 Agent），它是下发选项而非 payload；attach 帧不接受，规则见[细节等级](#细节等级与-runactivity)：
 
 ```json
-{"frame":"request","type":"/api/query","id":"req-2","detail":"full","payload":{"message":"hello"}}
+{"frame":"request","type":"/api/query","id":"req-2","detail":"detailed","payload":{"message":"hello"}}
 ```
 
 Desktop Action 反向请求直接使用具体 Action 名作为 `type`，可信上下文位于帧顶层，payload 只包含该 Action 参数：
@@ -1092,7 +1092,7 @@ Desktop Action 的执行器错误由 Desktop Broker 转换为统一 error frame�
 
 `resource.pushed` 仅表示文件已成功上传网关；没有网关配置/路由或上传失败不发送，代理不再把 `artifact.publish` 转换成它。`artifact.publish` 仍保留为原有批次 Run stream 事件。
 
-邮件更新 `mail.updated`、会话改名 `chat.renamed` 与自动化执行记录的 `automation.execution.created/updated/completed` 均属于业务 Push，Desktop 与 WebClient 必须按契约转发和消费，不受 Run 的 summary/full 档位影响。
+邮件更新 `mail.updated`、会话改名 `chat.renamed` 与自动化执行记录的 `automation.execution.created/updated/completed` 均属于业务 Push，Desktop 与 WebClient 必须按契约转发和消费，不受 Run 的 simple/detailed 档位影响。
 
 除 Main 专属 `artifact.published` 外，上述全局 Push 广播排除 `desktop-btw` 和 `desktop-explain` 连接。BTW lane 只接收握手、heartbeat、本连接请求的 response/error 与 Run stream；Desktop Primary 可以按全局唯一 runId 使用 `run.finished` 收敛 BTW RunChannel。
 

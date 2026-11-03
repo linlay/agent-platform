@@ -65,7 +65,7 @@ func TestFollowupQueryRunsPreviouslyReferencedNodeSkillWithoutApproval(t *testin
 		t.Helper()
 		ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 		defer cancel()
-		req := httptest.NewRequest(http.MethodPost, "/api/query?detail=full", strings.NewReader(body)).WithContext(ctx)
+		req := httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", strings.NewReader(body)).WithContext(ctx)
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, req)

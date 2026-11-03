@@ -130,7 +130,7 @@ func (b *RunEventBus) Publish(event EventData) {
 			break
 		}
 		// Keep the last startup, announcement or clear independently of automatic
-		// progress, so summary attach can restore its exact display state.
+		// progress, so simple attach can restore its exact display state.
 		if b.activities == nil {
 			b.activities = map[string]EventData{}
 		}
@@ -265,7 +265,7 @@ func (b *RunEventBus) Subscribe(afterSeq int64) (*Observer, error) {
 	}
 	// The current activity of each scope may predate afterSeq; resend it so
 	// a reattached viewer shows what the Run is doing now. The scope's last
-	// announcement or clear goes first: summary ends on that state, while full
+	// announcement or clear goes first: simple ends on that state, while detailed
 	// ends on the current activity. Clears must survive later automatic progress
 	// so attach cannot resurrect a previous phase's announcement.
 	for scope, activity := range b.activities {
