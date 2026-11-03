@@ -9,6 +9,7 @@ description: |
   Read a single file from the host filesystem. Use this before editing or inspecting file contents; this tool is read-only and does not require approval. PNG/JPEG/WebP/GIF images return base64 image payloads, known binary/device files are rejected, and repeating the same read of an unchanged file in the same run may return kind=unchanged.
   Text is returned in pages of whole lines that fit the model output budget. The result reports totalLines, startLine, endLine and hasMore; when hasMore is true, call again with offset=nextOffset to continue. A single line larger than the budget is cut and reported as longLineTruncated.
   Pages of the same file version accumulate: file_edit requires the lines it changes to have been read, and file_write over an existing file requires every line to have been read.
+  To link a file in a reply, give it an explicit root: [app.ts:42](@workspace/src/app.ts:42) for a Workspace file, with an optional :<line>, or the @chat/... url of a Chat file. A link with a bare relative path such as src/app.ts or report.md opens nothing. Paths are literal: never percent-encode them, and wrap a destination that contains a space or parenthesis in angle brackets, for example [guide](<@workspace/docs/user guide.md>).
 inputSchema:
   type: object
   properties:

@@ -600,19 +600,19 @@ TEAM 总控的普通工具与 reasoning 沿普通 Agent 事件链路；内部 `a
 | `planning.*`、`plan.create/update`、`artifact.publish`、`source.publish` | ✓ | ✓ |
 | `awaiting.ask/answer` | ✓ | ✓ |
 | 公示与清除 `run.activity`（`kind` 为 `announce` 或 `idle`） | ✓ | ✓ |
-| 其他进度 `run.activity` | ✓ | ✓ |
+| 其他进度 `run.activity`（含 thinking、reasoning、普通工具调用） | — | ✓ |
 | 重试 `run.activity`（带 `retry`） | ✓ | ✓ |
 | `run.access_level.changed`、`context.compact.*`、`usage.snapshot` | ✓ | ✓ |
 | `tool.wait`、`tool.wait.update`、wait 的 `tool.result` | ✓ | ✓ |
 | `reasoning.*`、其他 `tool.*`、`debug.llmChat`、`memory.*` 及其他类型 | — | ✓ |
 
-summary（精简）保留通知与状态同步：权限变更、上下文压缩、工具等待及其完成、实时用量和全部进度/重试活动均下发，不能因展示精简而丢失通知。思考正文和普通工具参数、结果等过程详情继续由白名单过滤。提问和审批本身仍通过 `awaiting.ask/answer` 正常展示。full（详细）是全集；客户端的详细视图忽略进度活动，因为细节事件本身已经展示了进度。summary 与 full 均实时下发 `usage.snapshot`，终态仍可读取 `run.complete/cancel/error` 的 `usage.run` 与 `usage.chat`：其中 `toolCallCount`、`llmChatCompletionCount` 固定输出（含 0），另有 `promptTokens`、`completionTokens`、`completionTokensDetails.reasoningTokens`、`estimatedCost` 等。`/api/chat` 只按等级过滤 `events`，`runs[].usage` 与顶层 `usage` 不受影响。Proxy 上游查询固定请求 `full`，由本地按查看者等级过滤；gateway 与 Desktop 透传客户端的 `detail`，省略时跟随 Agent。
+summary（精简）保留通知与状态同步：权限变更、上下文压缩、工具等待及其完成、实时用量、公示及清除和重试活动均下发，不能因展示精简而丢失通知。自动思考、普通工具调用等进度活动，以及思考正文和普通工具参数、结果等过程详情由白名单过滤。提问和审批本身仍通过 `awaiting.ask/answer` 正常展示。full（详细）是全集；客户端的详细视图忽略进度活动，因为细节事件本身已经展示了进度。summary 与 full 均实时下发 `usage.snapshot`，终态仍可读取 `run.complete/cancel/error` 的 `usage.run` 与 `usage.chat`：其中 `toolCallCount`、`llmChatCompletionCount` 固定输出（含 0），另有 `promptTokens`、`completionTokens`、`completionTokensDetails.reasoningTokens`、`estimatedCost` 等。`/api/chat` 只按等级过滤 `events`，`runs[].usage` 与顶层 `usage` 不受影响。Proxy 上游查询固定请求 `full`，由本地按查看者等级过滤；gateway 与 Desktop 透传客户端的 `detail`，省略时跟随 Agent。
 
 `run.activity` 用一句话说明 Run（或带 `taskId` 的子任务）现在在做什么。字段只有 `runId`、`chatId`、可选 `taskId`、`message`，进度活动另带 `kind`（`thinking`、`reasoning`、`tool_run`、`announce`、`subtask`、`awaiting`、`compacting`、`idle`），重试时另带 `retry`；`message` 按查看者语言渲染（HTTP 用请求语言、WS 用连接当前语言）。同一 `(runId, taskId)` 新的一条替换旧的一条；`message` 为空（`kind:"idle"`）表示该 scope 当前没有活动（用户正在看正文或计划），客户端隐藏活动行；`task.complete/cancel/error` 清除该子任务的活动，Run 终止事件清除全部。
 
-- 进度活动（summary 与 full 均接收全部通知）：模型请求开始时为“正在思考”；`reasoning.start` 时为“正在”加该段的 `reasoningLabel`（英文为 `reasoningLabel…`），不读取推理正文；`content.start` 与 `planning.start` 发出 `message` 为空的活动以清空活动行，正文本身就是进度；每个模型回合在参数完整后（`tool.end` 时、审批之前）至多发一条工具活动，覆盖审批等待和整批执行，`tool.start` 与执行开始不再单独发：本回合有公示工具（`action_announce`）时为公示，否则为第一个工具的“工具 label：说明”，说明取工具定义 `activityArgs` 中第一个非空参数，没有则为“正在调用「工具 label」”；`task.start` 在父级显示“正在委派子任务「taskName」”；`awaiting.ask` 按 mode 显示“等待你审批 / 回答 / 填写表单 / 确认计划”，`awaiting.answer` 后恢复等待前的那条活动；`context.compact.start` 为“正在整理上下文”。相同文案仍下发，由客户端决定是否刷新展示；`clientVisible:false` 工具不产生活动，公示除外：公示是模型写给用户的话，不是工具本身的展示。
+- 进度活动（full 接收全部，summary 只接收公示及清除）：模型请求开始时为“正在思考”；`reasoning.start` 时为“正在”加该段的 `reasoningLabel`（英文为 `reasoningLabel…`），不读取推理正文；`content.start` 与 `planning.start` 发出 `message` 为空的活动以清空活动行，正文本身就是进度；每个模型回合在参数完整后（`tool.end` 时、审批之前）至多发一条工具活动，覆盖审批等待和整批执行，`tool.start` 与执行开始不再单独发：本回合有公示工具（`action_announce`）时为公示，否则为第一个工具的“工具 label：说明”，说明取工具定义 `activityArgs` 中第一个非空参数，没有则为“正在调用「工具 label」”；`task.start` 在父级显示“正在委派子任务「taskName」”；`awaiting.ask` 按 mode 显示“等待你审批 / 回答 / 填写表单 / 确认计划”，`awaiting.answer` 后恢复等待前的那条活动；`context.compact.start` 为“正在整理上下文”。相同文案仍下发，由客户端决定是否刷新展示；`clientVisible:false` 工具不产生活动，公示除外：公示是模型写给用户的话，不是工具本身的展示。
 - 公示（`kind:"announce"`）：`message` 是模型用用户语言写的一句话（下一步要做什么），原样展示、不翻译。summary 下持续显示到下一条公示、开始输出正文或计划（`idle`）或 Run 终止；不再设置保持秒数，旧 `announce-hold-seconds` 配置拒绝加载。full 的其他进度正常生成和下发，不被公示压住。
-- attach 时服务端分别保存每个 scope 的最后一条公示或清除，以及当前完整进度；先补发公示状态，再补发不同的当前活动。两档均收到公示或清除与当前活动，客户端决定其展示。清除状态在后续自动进度出现后仍保留，重连不恢复已清除的旧公示。
+- attach 时服务端分别保存每个 scope 的最后一条公示或清除，以及当前完整进度；先补发公示状态，再补发不同的当前活动。summary 只收到公示或清除，full 还收到不同的当前活动。清除状态在后续自动进度出现后仍保留，重连不恢复已清除的旧公示。
 - 进度活动不占公共序号：`seq` 为 0，不进入 attach 回放日志、不落盘；attach 时服务端为每个仍在活动的 scope 补发当前那一条（同样 `seq` 为 0）。因此 full 的公共 `seq` 保持连续（忽略 `seq` 为 0 的事件）；summary 因过滤会出现跳号，客户端不能把跳号当作丢事件。
 - 重试活动（summary 与 full 均接收）：模型请求可恢复重试时发出，`retry` 含 `runSeq`（模型轮次）、`attempt`（含首次请求）、`maxAttempts`、`reason`、`error`（公共结构化错误）、`timeoutSeconds`、`elapsedMs`，普通重试另带 `delayMs` 与 `retryAt`（epoch ms），客户端显示序号为 `attempt-1` / `maxAttempts-1`；等待前先发出，等待支持取消。两档均收到重试通知，重试耗尽后均收到终止 `run.error`。
 
@@ -821,7 +821,7 @@ KBASE status API 接受有 libraryId 绑定的 Native Agent；未绑定或未知
 
 `artifact_publish` 仅在整个批次文件物化且 `<chatId>/.tools/artifacts.json` 原子写入成功后发布 `artifact.publish`。事件包含合法 epoch-millisecond `timestamp`、`chatId`、`runId`、`toolId`、`artifactCount`、`artifacts`，子任务有明确归属时额外包含 `taskId`；每个 `artifacts[]` 项至少包含 `artifactId/name/mimeType/sizeBytes/sha256/url`。发布器从物化后的真实文件计算 SHA、大小和统一文档 MIME；manifest 未声明或旧逻辑会声明为 `application/octet-stream` 的安全 UTF-8 文本，在新产物写入时即规范化，不批量迁移历史 manifest。JSONL 的对应 `react-tool.artifacts.items[]` 只是该次调用的审计记录；`GET /api/chat` 的 `data.artifact = { items: [...] }` 只从 manifest 恢复，每个 item 返回 `publishedAt`（Unix epoch 毫秒），表示该条产物记录的发布时间；已有 manifest 中的时间直接返回，无需迁移。
 
-`image_generate.images[].path` 与 `artifact_publish.artifacts[].path` 是工具间传递的内部文件系统字段，可以是当前 Host 的绝对路径，但不得进入 Markdown 或用户可见正文。`image_generate.images[].url` 指向 Chat 根目录中的生成文件；发布时复制到 `artifacts/<runId>/<filename>`，成功后的 `publishedArtifacts[].url` 必须指向该发布副本（形如 `@chat/artifacts/<runId>/<filename>`，字面路径不编码），并优先于生成源 URL。工具若没有返回合法 `url`，模型必须明确报告物化/发布失败，不能伪造图片或下载链接。
+`image_generate.images[].path` 与 `artifact_publish.artifacts[].path` 是工具间传递的内部文件系统字段，可以是当前 Host 的绝对路径，但不得进入 Markdown 或用户可见正文。`image_generate.images[].url` 指向 Chat 根目录中的生成文件；发布时复制到 `artifacts/<runId>/<filename>`，成功后的 `publishedArtifacts[].url` 必须指向该发布副本（形如 `@chat/artifacts/<runId>/<filename>`，字面路径不编码；放入 Markdown 时原样复制，含空格或括号时用 `<...>` 包裹），并优先于生成源 URL。工具若没有返回合法 `url`，模型必须明确报告物化/发布失败，不能伪造图片或下载链接。
 
 路径分类契约如下：
 

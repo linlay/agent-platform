@@ -17,7 +17,9 @@ description: |
   ![description](@chat/image.png). The returned url is @chat/<filename>, a
   literal path in the current Chat; it never contains chatId or the internal
   /api/resource transport endpoint. Never construct or encode a resource URL,
-  and never output the returned path, file://, /chat, or chat_dir. If an image
+  and never output the returned path, file://, /chat, or chat_dir. When the
+  url contains a space or parenthesis, wrap the Markdown destination in angle
+  brackets, for example ![poster](<@chat/poster 1.png>). If an image
   has no valid url, do
   not fabricate image Markdown; tell the user that image materialization
   failed.

@@ -14,7 +14,9 @@ description: |
   audio.url into a Markdown link, for example [audio](@chat/speech.mp3). The
   returned url is @chat/<filename>, a literal path in the current Chat; it
   never contains chatId or the internal /api/resource transport endpoint.
-  Never construct or encode a resource URL. Optional voice controls are
+  Never construct or encode a resource URL. When the url contains a space or
+  parenthesis, wrap the Markdown destination in angle brackets, for example
+  [audio](<@chat/voice 1.mp3>). Optional voice controls are
   supported only when the configured model's protocol supports them; an
   unsupported control fails with speech_generate_param_unsupported, so omit
   controls the user did not ask for. If the result has no valid url, do not
