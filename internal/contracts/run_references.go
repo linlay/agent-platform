@@ -33,6 +33,23 @@ func NewRunReferences(scripts *skillsexec.Scope) *RunReferences {
 	return &RunReferences{scripts: scripts}
 }
 
+// Inherit adds freshly prepared skill grants from earlier Runs in this Chat.
+// They create no current reference/use obligation, consume no reference slots,
+// and do not make previously selected skill sources readonly in this Run.
+func (s *RunReferences) Inherit(grant ReferenceGrant) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.roots.ReadRoots = uniqueStrings(append(s.roots.ReadRoots, grant.Roots.ReadRoots...))
+	for _, id := range queryinput.ResourceIDs(grant.References, "skill") {
+		if s.scripts != nil {
+			s.scripts.Merge(grant.Scripts[id])
+		}
+	}
+}
+
 func (s *RunReferences) Commit(grant ReferenceGrant) error {
 	if s == nil {
 		return fmt.Errorf("Run reference state unavailable")

@@ -7,9 +7,31 @@ import (
 	"strings"
 	"testing"
 
+	"agent-platform/internal/accesspolicy"
+	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
+	shellplan "agent-platform/internal/shellreview/plan"
 )
+
+type unknownShellApprovalExecutor struct{ stubToolExecutor }
+
+func (unknownShellApprovalExecutor) ReviewBashAccess(context.Context, map[string]any, *contracts.ExecutionContext, config.AccessPolicyConfig) shellplan.BashPlan {
+	// At full_access an unknown call may be directly allowed, but that is not
+	// authorization for an agent to approve another run's human-only question.
+	return shellplan.BashPlan{Decision: accesspolicy.DecisionAllow, UnknownDialect: true}
+}
+
+func TestDelegatedApprovalCannotRelaxUnknownShellHumanReview(t *testing.T) {
+	for _, level := range []string{"ask_for_approval", "auto_approve", "full_access"} {
+		session := contracts.QuerySession{RunID: "child", AccessLevel: "ask_for_approval"}
+		s := &llmRunStream{ctx: context.Background(), session: session, engine: &LLMAgentEngine{tools: unknownShellApprovalExecutor{}}, execCtx: &contracts.ExecutionContext{Session: session}}
+		delegate := s.mailApprovalDelegator(&preparedToolInvocation{toolID: "shell-call", toolName: "bash", args: map[string]any{"command": "opaque command"}})
+		if err := delegate(context.Background(), level, queryinput.SubmitRequest{Param: queryinput.SubmitParam{"decision": "approve"}}); err == nil {
+			t.Fatalf("parent %s automatically approved unknown shell grammar", level)
+		}
+	}
+}
 
 func TestMailEnvelopeIsModelOnly(t *testing.T) {
 	raw := map[string]any{"role": "user", "content": "original input"}
@@ -49,15 +71,15 @@ func TestPublicSubmitCannotForgeDelegation(t *testing.T) {
 
 func TestDelegatedToolApprovalReevaluatesLiveLevel(t *testing.T) {
 	for _, allow := range []bool{false, true} {
-		for _, level := range []string{"default", "auto_approve", "full_access"} {
+		for _, level := range []string{"ask_for_approval", "auto_approve", "full_access"} {
 			t.Run(level+"/auto="+fmt.Sprint(allow), func(t *testing.T) {
 				executor := &exactApprovalExecutor{allowAutoApprove: allow}
-				session := contracts.QuerySession{RunID: "child", ChatID: "child-chat", AgentKey: "worker", AccessLevel: "default"}
-				s := &llmRunStream{ctx: context.Background(), session: session, engine: &LLMAgentEngine{tools: executor}, execCtx: &contracts.ExecutionContext{Session: session, AccessLevel: "default"}}
+				session := contracts.QuerySession{RunID: "child", ChatID: "child-chat", AgentKey: "worker", AccessLevel: "ask_for_approval"}
+				s := &llmRunStream{ctx: context.Background(), session: session, engine: &LLMAgentEngine{tools: executor}, execCtx: &contracts.ExecutionContext{Session: session, AccessLevel: "ask_for_approval"}}
 				call := &preparedToolInvocation{toolID: "frozen-call", toolName: "catalog_manage", args: map[string]any{"action": "apply"}}
 				delegation := s.mailApprovalDelegator(call)
 				err := delegation(context.Background(), level, queryinput.SubmitRequest{Param: queryinput.SubmitParam{"decision": "approve", "data": map[string]any{}}})
-				wantApproval := allow && level != "default"
+				wantApproval := allow && level != "ask_for_approval"
 				if (err == nil) != wantApproval {
 					t.Fatalf("allowed=%v level=%s: %v", allow, level, err)
 				}

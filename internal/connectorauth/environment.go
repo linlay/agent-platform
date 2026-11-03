@@ -54,9 +54,10 @@ func ResolveEnvironment(ctx context.Context, d connector.CredentialEnvironment, 
 
 // ResolveEnvironmentWithRevision also returns the token revision read together
 // with the values, so a caller can bind a request to the account it executes.
-// Other modes return an empty revision.
+// OneID always supplies AP_ID_TOKEN and resolves any custom variables from the
+// same identity snapshot. Other modes return an empty revision.
 func ResolveEnvironmentWithRevision(ctx context.Context, d connector.CredentialEnvironment, ssoIdTokenFile string) (map[string]string, string, error) {
-	if len(d.Env) == 0 {
+	if len(d.Env) == 0 && d.Mode != connector.AuthOneID {
 		return nil, "", nil
 	}
 	values := map[string]string{}
@@ -87,8 +88,8 @@ func ResolveEnvironmentWithRevision(ctx context.Context, d connector.CredentialE
 	case connector.AuthOneID:
 		var err error
 		values, err = agentconfig.ReadIdentityEnvironment(ssoIdTokenFile)
-		if err != nil {
-			return nil, "", fmt.Errorf("Desktop SSO is unavailable")
+		if err != nil || values[agentconfig.EnvIDToken] == "" {
+			return nil, "", fmt.Errorf("Desktop SSO ID token is unavailable")
 		}
 	default:
 		return nil, "", fmt.Errorf("connector %s authMode %s does not supply credential templates", d.ID, d.Mode)
@@ -100,6 +101,9 @@ func ResolveEnvironmentWithRevision(ctx context.Context, d connector.CredentialE
 			return nil, "", fmt.Errorf("connector %s requires valid credentials: %w", d.ID, ErrTokenRejected)
 		}
 		env[name] = value
+	}
+	if d.Mode == connector.AuthOneID {
+		env[agentconfig.EnvIDToken] = values[agentconfig.EnvIDToken]
 	}
 	return env, revision, nil
 }

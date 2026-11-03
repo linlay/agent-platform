@@ -178,6 +178,12 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	// The source Run's query was admitted through chat_start, so its recorded
 	// references stay exempt from the frozen interaction policy here as well.
 	sourceStatus, sourceFound := s.deps.Runs.RunStatus(sourceRunID)
+	level, source, _ := s.continuationAccess(originalQuery, sourceRunID, agentDef, newExecutionRun)
+	if admission.AccessLevel != "" {
+		level, source = admission.AccessLevel, admission.AccessSource
+	}
+	req.AccessLevel = level
+	req.AccessGrant = map[string]any{"accessLevel": level, "source": source, "agentKey": agentKey, "agentRevision": agentDef.RuntimeRevision}
 	if sourceFound {
 		// Whoever watched the source Run keeps its delivery level.
 		req.Detail = sourceStatus.Detail
@@ -321,7 +327,9 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 		PrepareSystemInit: s.deps.Sessions.PrepareSystemInitCache,
 		Notifications:     s.deps.Notifications,
 		OnContinuation: func(c contracts.DeltaRunContinuation) (string, error) {
-			c.ContinuationState = &awaitingContinuationAdmission{Summary: summary, AgentKey: agentKey, TeamSnapshot: teamSnapshot, AgentDef: agentDef, Frozen: true}
+			if c.ContinuationState == nil {
+				c.ContinuationState = &awaitingContinuationAdmission{Summary: summary, AgentKey: agentKey, TeamSnapshot: teamSnapshot, AgentDef: agentDef, Frozen: true}
+			}
 			return s.startRunContinuation(c)
 		},
 		OnUnreadChanged: func(summary chat.Summary) {
@@ -716,8 +724,10 @@ func cloneMessageMapsForSyntheticBootstrap(messages []map[string]any) []map[stri
 }
 
 type awaitingContinuationAdmission struct {
-	Frozen  bool
-	Summary chat.Summary
+	Frozen       bool
+	AccessLevel  string
+	AccessSource string
+	Summary      chat.Summary
 
 	AgentKey     string
 	TeamSnapshot *catalog.TeamSnapshot

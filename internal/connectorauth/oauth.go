@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	_ "embed"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"golang.org/x/oauth2"
 )
+
+//go:embed oauth_callback.html
+var oauthCallbackHTML string
 
 // oauthSettings is connector.json oauth for authMode mcp, camelCase like the
 // rest of the manifest. Authorization and token endpoints are always discovered.
@@ -284,7 +288,9 @@ func (m *Manager) loginOAuth(ctx context.Context, pkg connector.Package, s *logi
 		}
 		if received.CompareAndSwap(false, true) {
 			result <- code
-			io.WriteString(w, "Authorization received. You may return to Agent Platform.")
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+			io.WriteString(w, oauthCallbackHTML)
 		} else {
 			http.Error(w, "Callback already received", 409)
 		}

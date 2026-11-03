@@ -37,7 +37,7 @@ func TestHostBashApprovalConcurrentMockIntegration(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 			defer cancel()
-			session := QuerySession{RunID: "mock_" + mode, ChatID: "mock_acceptance", WorkspaceRoot: filepath.Dir(binary), AccessLevel: AccessLevelDefault}
+			session := QuerySession{RunID: "mock_" + mode, ChatID: "mock_acceptance", WorkspaceRoot: filepath.Dir(binary), AccessLevel: AccessLevelAskForApproval}
 			if mode == "auto_approve" {
 				session.AccessLevel = AccessLevelAutoApprove
 			}

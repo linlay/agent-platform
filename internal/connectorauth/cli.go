@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/builtins"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/hostenv"
@@ -248,7 +249,7 @@ func (m *Manager) cliEnvironmentWith(pkg connector.Package, installBin string) (
 	for key, value := range values {
 		env = hostenv.Set(env, key, value)
 	}
-	return env, nil
+	return agentconfig.WithIdentityEnvironment(env, nil), nil
 }
 
 // lifecycleEnvironment is the environment of status, login and logout. A token

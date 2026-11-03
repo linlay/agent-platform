@@ -23,6 +23,7 @@
 2. 每组一个 commit，便于单独回退。
 3. 二级改测试时，只改"测试的进入方式"，不放宽断言；删掉的测试必须是只验证死代码的。
 4. 文档同步：`AGENTS.md`、`docs/README.md`、`docs/MCP与工具交互.md`（见 2.3）。
+5. 本文的 `bashast`、`bashsec`、`shellanalysis` 路径已在主线迁到 `internal/shellreview/{syntax/bash,commands,unwrap}` 与根包 `security_*.go`；分支 `chore/dead-code-cleanup` 对 `bashast/parser.go`、`bashsec/bash_security.go`、`shellanalysis/{command.go,git.go,operands_test.go}` 的改动合并时按新路径重做，不恢复旧包。
 
 ---
 

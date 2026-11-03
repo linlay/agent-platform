@@ -12,56 +12,116 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/hostshell"
+	"agent-platform/internal/shellreview"
+	shellplan "agent-platform/internal/shellreview/plan"
+	shelltypes "agent-platform/internal/shellreview/types"
 )
 
 // ReviewBashAccess preserves the runtime's execution-environment-aware review
 // through the router used by the LLM engine in production.
-func (r *ToolRouter) ReviewBashAccess(ctx context.Context, args map[string]any, execCtx *ExecutionContext, cfg config.AccessPolicyConfig) accesspolicy.BashPlan {
+func (r *ToolRouter) ReviewBashAccess(ctx context.Context, args map[string]any, execCtx *ExecutionContext, cfg config.AccessPolicyConfig) shellplan.BashPlan {
 	if reviewer, ok := r.runtime.(interface {
-		ReviewBashAccess(context.Context, map[string]any, *ExecutionContext, config.AccessPolicyConfig) accesspolicy.BashPlan
+		ReviewBashAccess(context.Context, map[string]any, *ExecutionContext, config.AccessPolicyConfig) shellplan.BashPlan
 	}); ok {
 		return reviewer.ReviewBashAccess(ctx, args, execCtx, cfg)
 	}
-	return accesspolicy.ReviewBashCommand(cfg, accessPolicySession(execCtx), stringArg(args, "command"), stringArg(args, "cwd"), bashSecurityKnownVariables(execCtx), execCtx)
+	return shellreview.ReviewBashCommand(cfg, accessPolicySession(execCtx), stringArg(args, "command"), stringArg(args, "cwd"), bashSecurityKnownVariables(execCtx), execCtx)
 }
 
 // ReviewBashAccess is shared by preflight and both executors. Container probes
 // only resolve/read targets; they never execute the requested program.
-func (t *RuntimeToolExecutor) ReviewBashAccess(ctx context.Context, args map[string]any, execCtx *ExecutionContext, cfg config.AccessPolicyConfig) accesspolicy.BashPlan {
+func (t *RuntimeToolExecutor) ReviewBashAccess(ctx context.Context, args map[string]any, execCtx *ExecutionContext, cfg config.AccessPolicyConfig) shellplan.BashPlan {
 	session := t.policySession(execCtx)
 	vars := bashSecurityKnownVariables(execCtx)
-	var environment *accesspolicy.BashEnvironment
+	var environment *shelltypes.BashEnvironment
 	if !session.AgentHasRuntimeSandbox {
+		var err error
+		execCtx, err = hostshell.FreezeContext(execCtx)
+		if err != nil {
+			return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+		}
 		actual, err := t.commandEnv(execCtx)
 		if err != nil {
-			return accesspolicy.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+			return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
 		}
 		vars = bashEnvironmentVariables(actual)
+		cwd := stringArg(args, "cwd")
+		if strings.TrimSpace(cwd) == "" {
+			cwd = shellreview.DefaultBashCwd(session)
+		}
+		cwd, err = accesspolicy.ResolveSessionPath(session, cwd)
+		if err != nil {
+			return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+		}
+		if shellreview.DirectConnectorInvocation(session, stringArg(args, "command"), cwd, vars) == nil {
+			launch, err := hostshell.ResolveTool(t.cfg.Bash, hostshell.Options{GOOS: t.runtimeInfo().GOOS, Command: stringArg(args, "command"), CWD: cwd, Env: actual})
+			if err != nil {
+				return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+			}
+			environment = &shelltypes.BashEnvironment{Launch: &launch.Binding}
+		}
 	}
 	if session.AgentHasRuntimeSandbox {
+		if t.sandbox == nil {
+			return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: "container executor unavailable"}
+		}
+		original := execCtx
+		frozen, err := hostshell.FreezeContext(execCtx)
+		if err != nil {
+			return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+		}
+		execCtx = frozen
+		defer func() {
+			if original != nil && frozen != nil {
+				original.SandboxSession = frozen.SandboxSession
+			}
+		}()
+		vars = bashSecurityKnownVariables(execCtx)
 		invocationEnv, err := sandboxInvocationEnvArg(args)
 		if err != nil {
-			return accesspolicy.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+			return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+		}
+		if err := agentconfig.ValidateUserEnvironment(invocationEnv); err != nil {
+			return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
 		}
 		vars = agentconfig.Merge(vars, invocationEnv, agentconfig.ContainerEnvironment(session.RuntimeContext.SandboxPaths.AgentDir, session.RuntimeContext.SandboxPaths.WorkspaceDir, session.RuntimeContext.SandboxPaths.ChatDir))
 		vars = connector.ContainerEnvironment(vars, session.ConnectorBinDirs)
 		environment = t.sandboxBashEnvironment(ctx, execCtx)
+		cwd, err := resolveSandboxCwd(execCtx, stringArg(args, "cwd"))
+		if err != nil {
+			return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+		}
+		binding := unverifiedSandboxLaunch(stringArg(args, "command"), cwd, vars)
+		if provider, ok := t.sandbox.(interface {
+			ReviewShellLaunch(*ExecutionContext, string, string, map[string]string) (shelltypes.LaunchBinding, error)
+		}); ok {
+			binding, err = provider.ReviewShellLaunch(execCtx, stringArg(args, "command"), cwd, invocationEnv)
+			if err != nil {
+				return shellplan.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
+			}
+		}
+		environment.Launch = &binding
 	}
-	return accesspolicy.ReviewBashCommandInEnvironment(cfg, session, stringArg(args, "command"), stringArg(args, "cwd"), vars, environment, execCtx)
+	plan := shellreview.ReviewBashCommandInEnvironment(cfg, session, stringArg(args, "command"), stringArg(args, "cwd"), vars, environment, execCtx)
+	if !t.cfg.Bash.ShellFeaturesEnabled && plan.UnknownDialect && !plan.Blocked() {
+		plan.Decision, plan.Reason = accesspolicy.DecisionBlock, "Strict command validation requires a supported shell grammar"
+	}
+	return plan
 }
 
 func bashEnvironmentVariables(env []string) map[string]string {
 	vars := map[string]string{}
 	for _, entry := range env {
 		key, value, ok := strings.Cut(entry, "=")
-		if ok && !strings.EqualFold(key, agentconfig.EnvAccessToken) {
+		if ok && !strings.EqualFold(key, agentconfig.EnvIDToken) {
 			vars[key] = value
 		}
 	}
 	return vars
 }
 
-func (t *RuntimeToolExecutor) sandboxBashEnvironment(ctx context.Context, execCtx *ExecutionContext) *accesspolicy.BashEnvironment {
+func (t *RuntimeToolExecutor) sandboxBashEnvironment(ctx context.Context, execCtx *ExecutionContext) *shelltypes.BashEnvironment {
 	type inspection struct {
 		header, hash string
 		err          error
@@ -127,11 +187,42 @@ func (t *RuntimeToolExecutor) sandboxBashEnvironment(ctx context.Context, execCt
 		lexical = path.Clean(lexical)
 		insideTemp := func(p string) bool { return p == "/tmp" || strings.HasPrefix(p, "/tmp/") }
 		if insideTemp(lexical) && !insideTemp(canonical) {
-			return accesspolicy.ErrBashTemporaryEscape
+			return shelltypes.ErrBashTemporaryEscape
 		}
 		return nil
 	}
-	return &accesspolicy.BashEnvironment{
+	return &shelltypes.BashEnvironment{
+		InspectConfig: func(raw string) (shelltypes.FileInspection, error) {
+			target := guestPath(raw)
+			out, err := probe(sandboxConfigProbeCommand(target), "/tmp", nil)
+			if err != nil {
+				return shelltypes.FileInspection{}, err
+			}
+			return parseConfigProbe(out, target)
+		},
+		AccountHome: func() (string, error) {
+			out, err := probe(immutableDependencyTools("getent")+accountHomeProbeBody, "/tmp", nil)
+			if err != nil {
+				return "", err
+			}
+			return parseAccountHomeProbe(out)
+		},
+		InspectNullDevice: func() (string, error) { return probe(sandboxNullDeviceProbeCommand, "/tmp", nil) },
+		PathKind: func(raw string) (shelltypes.PathKind, error) {
+			target := shellQuoteProbe(guestPath(raw))
+			out, err := probe("if test -d "+target+"; then printf directory; elif test -e "+target+" || test -L "+target+"; then printf file; else printf unknown; fi", "/tmp", nil)
+			if err != nil {
+				return shelltypes.PathUnknown, err
+			}
+			switch strings.TrimSpace(out) {
+			case "directory":
+				return shelltypes.PathDirectory, nil
+			case "file":
+				return shelltypes.PathNonDirectory, nil
+			default:
+				return shelltypes.PathUnknown, fmt.Errorf("container destination unresolved")
+			}
+		},
 		Directory: func(raw string) (string, error) {
 			target := guestPath(raw)
 			if canonical, exists := directories[target]; exists {
@@ -206,3 +297,9 @@ func (t *RuntimeToolExecutor) sandboxBashEnvironment(ctx context.Context, execCt
 }
 
 func shellQuoteProbe(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
+
+// This profile is valid only for images with an immutable, real GNU-compatible
+// /usr/bin/stat. The invoking guest uid must be unable to replace the file or
+// any parent. Root/writable/symlinked installations fail before starting stat;
+// no alternative path is guessed or searched through the Agent PATH.
+const sandboxNullDeviceProbeCommand = "test -x /usr/bin/stat && test ! -L /usr/bin/stat && test ! -w /usr/bin/stat && test ! -L /usr/bin && test ! -w /usr/bin && test ! -L /usr && test ! -w /usr && test ! -w / && /usr/bin/stat -c '%f|%t|%T' -- /dev/null"

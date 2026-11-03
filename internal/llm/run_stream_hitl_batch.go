@@ -6,10 +6,10 @@ import (
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
-	"agent-platform/internal/bashsec"
 	"agent-platform/internal/chat"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
+	shellplan "agent-platform/internal/shellreview/plan"
 )
 
 func (s *llmRunStream) executeApprovedBashInvocation(invocation *preparedToolInvocation, result hitl.InterceptResult) error {
@@ -91,8 +91,8 @@ func (s *llmRunStream) queuedApprovalCandidate(invocation *preparedToolInvocatio
 	if invocation == nil {
 		return queuedBashApprovalCandidate{}, false
 	}
-	if s.usesHostBashAuthorization(invocation) {
-		request := s.prepareHostBashAuthorization(invocation)
+	if s.usesBashAuthorization(invocation) {
+		request := s.prepareBashAuthorization(invocation)
 		if request == nil || !approvalRequestCanJoinBatch(*request) {
 			return queuedBashApprovalCandidate{}, false
 		}
@@ -126,16 +126,7 @@ func (s *llmRunStream) queuedBashApprovalCandidate(invocation *preparedToolInvoc
 	if invocation == nil || !isBashTool(invocation.toolName) {
 		return queuedBashApprovalCandidate{}, false
 	}
-	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewBlock {
-		return queuedBashApprovalCandidate{}, false
-	} else if review.Decision == bashsec.ReviewRequiresApproval {
-		request := s.bashSecurityApprovalRequest(invocation, review)
-		if handled, _ := s.tryResolveApprovalFastPath(request, approvalFastPathSkipBatch); handled {
-			return queuedBashApprovalCandidate{}, false
-		}
-		invocation.shownApproval = &request
-		return queuedBashApprovalCandidate{invocation: invocation, match: request.result}, true
-	}
+
 	if review := s.lookupBashAccessReview(invocation); review.RequiresApproval() {
 		request := s.bashAccessApprovalRequest(invocation, review)
 		if handled, _ := s.tryResolveApprovalFastPath(request, approvalFastPathSkipBatch); handled {
@@ -578,10 +569,7 @@ func (s *llmRunStream) applyHITLDecision(invocation *preparedToolInvocation, res
 	if request := invocation.shownApproval; request != nil && request.bashArguments != "" {
 		rules := []string{request.result.Rule.RuleKey}
 		if request.bashAccessReview != nil {
-			rules = append(rules, accesspolicy.ApprovalRules(*request.bashAccessReview)...)
-		}
-		if request.bashSecurityReview != nil {
-			rules = append(rules, request.bashSecurityReview.RuleKey)
+			rules = append(rules, shellplan.ApprovalRules(*request.bashAccessReview)...)
 		}
 		seen := map[string]bool{}
 		for _, rule := range rules {

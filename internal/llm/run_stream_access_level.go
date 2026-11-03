@@ -7,6 +7,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
+	shellplan "agent-platform/internal/shellreview/plan"
 )
 
 func (s *llmRunStream) syncAccessLevelFromRunControl() bool {
@@ -16,7 +17,7 @@ func (s *llmRunStream) syncAccessLevelFromRunControl() bool {
 	accessLevel, version := s.runControl.AccessLevelSnapshot()
 	normalized, ok := NormalizeAccessLevel(accessLevel)
 	if !ok {
-		normalized = AccessLevelDefault
+		normalized = AccessLevelAskForApproval
 	}
 	if version == s.accessLevelVersion && strings.EqualFold(strings.TrimSpace(s.session.AccessLevel), normalized) {
 		return false
@@ -42,14 +43,13 @@ func invalidateAccessPolicyPlans(invocation *preparedToolInvocation) {
 	if invocation == nil {
 		return
 	}
-	invocation.bashAccessReview = nil
 	invocation.fileAccessPlan = nil
 	invocation.fileWritePlan = nil
 }
 
 func isAccessPolicyApprovalMatch(result hitl.InterceptResult) bool {
 	ruleKey := strings.ToLower(strings.TrimSpace(result.Rule.RuleKey))
-	return strings.HasPrefix(ruleKey, "file-") || strings.HasPrefix(ruleKey, "bash-access")
+	return strings.HasPrefix(ruleKey, "file-") || strings.HasPrefix(ruleKey, "bash-access") || strings.HasPrefix(ruleKey, "bashsec:") || strings.HasPrefix(ruleKey, "bashast:")
 }
 
 func (s *llmRunStream) invocationNeedsAccessPolicyApproval(invocation *preparedToolInvocation) bool {
@@ -65,7 +65,7 @@ func (s *llmRunStream) invocationNeedsAccessPolicyApproval(invocation *preparedT
 	if plan := s.lookupFileWritePlan(invocation); plan != nil && s.fileWritePlanNeedsApproval(*plan) && !filetools.HasWriteApproval(s.execCtx, *plan) {
 		return true
 	}
-	if review := s.lookupBashAccessReview(invocation); review.Decision == accesspolicy.DecisionRequiresApproval && !accesspolicy.HasApproval(s.execCtx, review) {
+	if review := s.lookupBashAccessReview(invocation); review.Decision == accesspolicy.DecisionRequiresApproval && !shellplan.HasApproval(s.execCtx, review) {
 		return true
 	}
 	return false

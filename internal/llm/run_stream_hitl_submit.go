@@ -1,15 +1,15 @@
 package llm
 
 import (
-	"agent-platform/internal/view"
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/apperrors"
-	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
+	shellplan "agent-platform/internal/shellreview/plan"
+	"agent-platform/internal/view"
 )
 
 func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
@@ -197,7 +197,7 @@ func (s *llmRunStream) tryResolvePendingAccessLevelApproval(invocation *prepared
 
 func (s *llmRunStream) currentAccessLevel() string {
 	if s == nil {
-		return AccessLevelDefault
+		return AccessLevelAskForApproval
 	}
 	accessLevel := ""
 	if s.execCtx != nil {
@@ -211,14 +211,14 @@ func (s *llmRunStream) currentAccessLevel() string {
 	}
 	normalized, ok := NormalizeAccessLevel(accessLevel)
 	if !ok {
-		return AccessLevelDefault
+		return AccessLevelAskForApproval
 	}
 	return normalized
 }
 
 func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) error {
-	if s.usesHostBashAuthorization(invocation) {
-		return s.invokeAuthorizedHostBash(invocation)
+	if s.usesBashAuthorization(invocation) {
+		return s.invokeAuthorizedBash(invocation)
 	}
 	s.refreshAccessLevelForInvocation(invocation)
 	if isBashTool(invocation.toolName) {
@@ -227,7 +227,7 @@ func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) e
 			s.appendOriginalToolResult(invocation, ToolExecutionResult{Output: current.Reason, Error: "bash_access_blocked", ExitCode: -1})
 			return nil
 		}
-		if current.RequiresApproval() && !accesspolicy.HasApproval(s.execCtx, current) {
+		if current.RequiresApproval() && !shellplan.HasApproval(s.execCtx, current) {
 			invocation.approvalDecision = ""
 			if invocation.hitlDecision != nil && invocation.hitlDecision.AwaitingID != "" {
 				s.appendOriginalToolResult(invocation, ToolExecutionResult{Output: "Bash requirements changed after approval; retry for a new review. " + current.Reason, Error: "bash_access_approval_required", ExitCode: -1})
@@ -344,8 +344,6 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 		result = fileAccessInterceptResult(*plan)
 	} else if plan := s.lookupFileWritePlan(invocation); plan != nil && s.fileWritePlanNeedsApproval(*plan) {
 		result = fileWriteInterceptResult(*plan)
-	} else if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
-		result = bashSecurityInterceptResult(invocation, review)
 	} else if invocation != nil && invocation.precheckedHITL != nil {
 		result = *invocation.precheckedHITL
 	} else {
@@ -365,15 +363,16 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 	if invocation.shownApproval != nil {
 		request := invocation.shownApproval
 		var requirements []any
-		if request.bashSecurityReview != nil {
-			requirements = append(requirements, map[string]any{"ruleKey": request.bashSecurityReview.RuleKey, "reason": request.bashSecurityReview.Reason})
+		if p := request.bashAccessReview; p != nil && p.Syntax {
+			requirements = append(requirements, map[string]any{"ruleKey": request.result.Rule.RuleKey, "reason": p.Reason})
 		}
+
 		if len(requirements) > 0 {
 			item["requirements"] = requirements
 		}
 		if request.bashAccessReview != nil {
-			item["policy"] = accesspolicy.BashPlanMetadata(*request.bashAccessReview)
-			for _, rule := range accesspolicy.ApprovalRules(*request.bashAccessReview) {
+			item["policy"] = shellplan.BashPlanMetadata(*request.bashAccessReview)
+			for _, rule := range shellplan.ApprovalRules(*request.bashAccessReview) {
 				if !accesspolicy.RuleReusable(rule) {
 					item["options"] = []any{map[string]any{"decision": "approve"}}
 					break

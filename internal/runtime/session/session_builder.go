@@ -213,6 +213,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		ToolNames:                 toolNames,
 		ToolSetFrozen:             true,
 		ProtectedPaths:            accesspolicy.PlatformProtectedPaths(s.deps.Config),
+		ControlReadonlyRoots:      accesspolicy.PlatformControlReadonlyRoots(s.deps.Config),
 		PathAppend:                ResolveSkillPathAppend(agentDef, agentDef.EffectiveSkills(), s.deps.Config.Bash.PathAppendRoots),
 		Mode:                      agentDef.Mode,
 		ModeCapabilities:          ResolvedModeCapabilities(agentDef),
@@ -264,7 +265,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		AgentHasRuntimeSandbox:   HasRuntimeSandbox(agentDef.Runtime),
 		WorkspaceRoot:            resolvedWorkspaceRoot,
 		ChatRoot:                 strings.TrimSpace(runtimeContext.LocalPaths.ChatDir),
-		AccessLevel:              NormalizedAccessLevel(req.AccessLevel),
+		AccessLevel:              ResolveQueryAccessLevel(req, agentDef),
 		InteractionConfig:        func() *interaction.Config { c := agentDef.Interaction(); return &c }(),
 		StaticRuntimeEnv:         runtimeEnvOverrides,
 	}
@@ -352,6 +353,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		}
 		req.References = grant.References
 	}
+	s.inheritChatSkills(ctx, session, req, agentDef, options)
 	session.RuntimeContext.References = req.References
 	bScripts := !options.DisableSkillScriptGrants
 	s.BindReferencePreparer(&session, agentDef, bScripts)
@@ -486,7 +488,7 @@ func ProjectPromptFiles(files []catalog.AgentProjectPromptFile) []agentbuiltin.P
 func NormalizedAccessLevel(value string) string {
 	normalized, ok := contracts.NormalizeAccessLevel(value)
 	if !ok {
-		return contracts.AccessLevelDefault
+		return contracts.AccessLevelAskForApproval
 	}
 	return normalized
 }

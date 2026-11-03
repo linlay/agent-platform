@@ -1,5 +1,15 @@
 # Runtime integration config. Copy to configs/runtime.yml to customize locally.
 
+# ASR → ordinary Agent Run → final answer TTS; PCM only. No upstream calls while disabled.
+voice:
+  enabled: false
+  asr-model: dashscope-paraformer-realtime-v2
+  tts-model: dashscope-cosyvoice-v3-flash
+  default-voice: longanyang
+  voices: [longanyang]
+  max-sentence-silence-ms: 600 # 200..6000; auto may end at a mid-question pause
+  downlink-lead-ms: 300 # 0..1000; send pacing, not a playback acknowledgment
+
 http-proxy:
   mode: auto # auto / pac_auto / direct / fixed; auto skips PAC/WPAD, pac_auto opts in
   system-refresh-interval: 15s
@@ -21,6 +31,38 @@ auth:
   # audience: app-api          # token 的 aud 必须包含该值
   # allowed-subjects: []       # 非空时只接受列表内的 sub，其他用户的有效 token 也拒绝
   # require-expiry: false      # true 时拒绝没有 exp 的 token
+
+# Linux Compose only: local static/Node hosting and owner-scoped SDK.
+# Read docs/WebApp托管.md for activation, isolation limits and verified scope.
+# Disabled by default; enable only after configuring the owner and origin. Compose selects --webapp-host=compose;
+# enabled also requires issuer/audience/expiry and exactly one allowed subject.
+webapps:
+  enabled: false
+  # platform-origin: https://demo.platform.example.com
+  # Application domains / DNS / TLS are deferred; no domain fields required.
+  frontend:
+    # Use 0.0.0.0 only with compose.webapps.yml, which publishes host loopback.
+    listen-address: 127.0.0.1
+    port-start: 20200
+    port-end: 20327
+  max-running: 4
+  max-archive-mib: 100
+  max-extracted-mib: 512
+  max-files: 20000
+  backend:
+    port-start: 20000
+    port-end: 20127
+    max-old-space-size-mb: 256
+    rss-stop-mb: 512
+    health-interval-seconds: 10
+    unhealthy-threshold: 3
+    restart:
+      max-attempts: 5
+      window-seconds: 600
+      stable-reset-seconds: 300
+  logs:
+    max-size-mb: 10
+    max-files: 3
 
 resource:
   ticket-ttl-seconds: 86400
@@ -141,6 +183,10 @@ document-preview:
 conversation-export:
   max-snapshot-mib: 50
 
-# Maximum causal mailbox distance; terminal replies may exceed this limit.
+# Mailbox is opt-in; restart to apply. Disabled leaves mail.db untouched.
 mail:
+  enabled: false
+  # Maximum causal mailbox distance; terminal replies may exceed this limit.
   max-hops: 4
+  # Clear terminal mail bodies after this many days; retain receipts and relations.
+  retention-days: 30

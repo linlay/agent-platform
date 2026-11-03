@@ -12,6 +12,8 @@ import (
 // secrets: the effective StateDir (connector credentials and the default
 // identity file), a separately configured identity file, and the document
 // preview records, whose share links open the previewed documents.
+// The WebApp directory holds code, install and authorization records and is
+// protected whether or not the WebApp host is enabled.
 //
 // Under Desktop the runtime root also holds Desktop's own secrets partition
 // (<runtime root>/.desktop/secrets, the saved website passwords). Agents use
@@ -31,5 +33,20 @@ func PlatformProtectedPaths(cfg config.Config) []string {
 	if cfg.RuntimeMode == config.RuntimeModeDesktop && strings.TrimSpace(state) != "" {
 		paths = append(paths, filepath.Join(filepath.Dir(state), ".desktop", "secrets"))
 	}
+	if strings.TrimSpace(cfg.WebAppsCodeDir()) != "" {
+		paths = append(paths, cfg.WebAppsCodeDir())
+	}
 	return paths
+}
+
+// PlatformControlReadonlyRoots are readable under the ordinary policy, but
+// only dedicated management transactions may mutate their source definitions.
+func PlatformControlReadonlyRoots(cfg config.Config) []string {
+	var roots []string
+	for _, path := range []string{cfg.Paths.AgentsDir, cfg.Paths.EffectiveRUAgentsDir(), cfg.Paths.AutomationsDir} {
+		if strings.TrimSpace(path) != "" {
+			roots = append(roots, path)
+		}
+	}
+	return roots
 }

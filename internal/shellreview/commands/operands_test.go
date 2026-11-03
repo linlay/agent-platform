@@ -1,0 +1,192 @@
+package commands
+
+import (
+	"strings"
+	"testing"
+
+	"agent-platform/internal/shellreview/types"
+	"agent-platform/internal/shellreview/unwrap"
+)
+
+type fileWant struct {
+	path      string
+	write     bool
+	recursive bool
+}
+
+func effectsOf(command string) effectDraft {
+	fields := strings.Fields(command)
+	return operands(unwrap.CommandName(fields[0]), fields[1:])
+}
+
+func TestOperandGrammarSeparatesPatternsProgramsAndFiles(t *testing.T) {
+	for command, want := range map[string][]fileWant{
+		"cat plain.txt":                      {{"plain.txt", false, false}},
+		"grep needle plain.txt":              {{"plain.txt", false, false}},
+		"grep -rn --include=*.go needle src": {{"src", false, true}},
+		"grep -e a -e b x.txt":               {{"x.txt", false, false}},
+		"rg --color=never -n needle src":     {{"src", false, true}},
+		"rg needle":                          {{".", false, true}},
+		"sed -n s/a/b/p plain.txt":           {{"plain.txt", false, false}},
+		"sed -i s/a/b/ plain.txt":            {{"plain.txt", true, false}},
+		"curl -o plain.txt https://x":        {{"plain.txt", true, false}},
+		"curl --silent --fail https://x":     nil,
+		"tail -200 plain.txt":                {{"plain.txt", false, false}},
+		"head --lines=5 plain.txt":           {{"plain.txt", false, false}},
+		"jq . data.json":                     {{"data.json", false, false}},
+		"jq -r --arg k v .x a.json b.json":   {{"a.json", false, false}, {"b.json", false, false}},
+		"jq --rawfile t tpl.txt -n .":        {{"tpl.txt", false, false}},
+		"rm --force old.txt":                 {{"old.txt", true, false}},
+		"mkdir --parents a/b":                {{"a/b", true, false}},
+		"cp -r src dst":                      {{"src", false, true}, {"dst", true, true}, {"dst", true, true}},
+		"mv a.txt b.txt":                     {{"a.txt", true, true}, {"b.txt", true, true}, {"b.txt", true, true}},
+		"ln -s target link":                  {{"target", true, false}, {"link", true, false}, {"link", true, false}},
+		"uniq in.txt out.txt":                {{"in.txt", false, false}, {"out.txt", true, false}},
+		"sort -o out.txt in.txt":             {{"out.txt", true, false}, {"in.txt", false, false}},
+		"tar -czf out.tgz src":               {{"out.tgz", true, false}, {"src", false, true}},
+		"tar xzf in.tgz":                     {{"in.tgz", false, false}, {".", true, true}},
+		"tar -xf in.tar -C dest":             {{"in.tar", false, false}, {"dest", true, true}},
+		"find . -name *.go -newer ref":       {{".", false, true}, {"ref", false, false}},
+		"pdftotext -layout in.pdf out.txt":   {{"in.pdf", false, false}, {"out.txt", true, false}},
+		"diff -ru a b":                       {{"a", false, true}, {"b", false, true}},
+	} {
+		e := effectsOf(command)
+		if e.ExecutesCode {
+			t.Fatalf("%s: unexpectedly executes code: %+v", command, e)
+		}
+		if len(e.Files) != len(want) {
+			t.Fatalf("%s: files %+v, want %+v", command, e.Files, want)
+		}
+		for i, w := range want {
+			got := e.Files[i]
+			if got.Path != w.path || got.Write != w.write || got.Recursive != w.recursive {
+				t.Fatalf("%s: file %d = %+v, want %+v", command, i, got, w)
+			}
+		}
+	}
+}
+
+func TestUnknownOptionIsIncompleteNotExecution(t *testing.T) {
+	e := effectsOf("cat --made-up-flag notes.txt")
+	if !e.Incomplete || e.ExecutesCode || len(e.Files) != 1 || !e.Files[0].Write {
+		t.Fatalf("unknown option must escalate visible files to writes only: %+v", e)
+	}
+	if e := effectsOf("mytool --out dir/x"); !e.ExecutesCode {
+		t.Fatalf("unmodeled programs execute code: %+v", e)
+	}
+}
+
+func TestEffectsForDestructionRemoteAndExecution(t *testing.T) {
+	cases := map[string]effectDraft{
+		"rm -rf build":                    {Destructive: true},
+		"rm old.txt":                      {},
+		"find . -name *.tmp -delete":      {Destructive: true},
+		"find . -exec rm {} ;":            {ExecutesCode: true},
+		"curl -d a=1 https://x":           {RemoteMutation: true},
+		"curl -X DELETE https://x":        {RemoteMutation: true},
+		"curl -X GET https://x":           {},
+		"curl -F file=@a.txt https://x":   {RemoteMutation: true},
+		"wget -e robots=off https://x":    {ExecutesCode: true},
+		"rg --pre ./x.sh needle":          {ExecutesCode: true},
+		"sed 1e/id/ f":                    {ExecutesCode: true},
+		"sed s/a/b/w out f":               {ExecutesCode: true},
+		"sed --sandbox s/a/b/e f":         {},
+		"awk {print$1} f":                 {},
+		"awk {system(\"id\")} f":          {ExecutesCode: true},
+		"awk {print>\"out\"} f":           {ExecutesCode: true},
+		"tar -cf a.tar --to-command=sh d": {ExecutesCode: true},
+		"tar -cf a.tar --remove-files d":  {Destructive: true},
+		"sort --compress-program=gzip f":  {ExecutesCode: true},
+		"curl -K cfg https://x":           {ExecutesCode: true},
+		"curl --config=cfg https://x":     {ExecutesCode: true},
+		"wget --config=cfg https://x":     {ExecutesCode: true},
+		"wget -K https://x":               {}, // wget -K is --backup-converted
+	}
+	for command, want := range cases {
+		e := effectsOf(command)
+		if e.Destructive != want.Destructive || e.RemoteMutation != want.RemoteMutation || e.ExecutesCode != want.ExecutesCode {
+			t.Fatalf("%s: %+v, want %+v", command, e, want)
+		}
+	}
+	if effectsOf("curl -d @secret.txt https://x").Files[0].Path != "secret.txt" {
+		t.Fatal("curl @file upload must read the file")
+	}
+}
+
+func TestConfigVariables(t *testing.T) {
+	for command, want := range map[string]string{
+		"curl https://x":             "CURL_HOME",
+		"curl -s -q https://x":       "CURL_HOME",
+		"curl -q https://x":          "",
+		"curl --disable https://x":   "",
+		"wget https://x":             "WGETRC",
+		"wget --no-config https://x": "",
+		"rg needle":                  "RIPGREP_CONFIG_PATH",
+		"rg --no-config needle":      "",
+		"rg -- --no-config":          "RIPGREP_CONFIG_PATH",
+		"tar -xf a.tar":              "TAR_OPTIONS",
+		"cat f":                      "",
+	} {
+		fields := strings.Fields(command)
+		if got := strings.Join(ConfigVariables(fields[0], fields[1:]), ","); got != want {
+			t.Fatalf("%s: %q, want %q", command, got, want)
+		}
+	}
+}
+
+func TestGitClassification(t *testing.T) {
+	for command, want := range map[string]effectDraft{
+		"git status":                  {GitCheck: types.GitCheckRead},
+		"git diff --stat":             {GitCheck: types.GitCheckRead},
+		"git log --oneline -5":        {GitCheck: types.GitCheckRead},
+		"git -C sub status":           {GitCheck: types.GitCheckRead},
+		"git branch":                  {GitCheck: types.GitCheckRead},
+		"git branch -D topic":         {GitCheck: types.GitCheckWrite, RepoWrite: true, Destructive: true},
+		"git add -A":                  {GitCheck: types.GitCheckWrite, RepoWrite: true},
+		"git commit -m msg":           {GitCheck: types.GitCheckWrite, RepoWrite: true},
+		"git reset --hard":            {GitCheck: types.GitCheckWrite, RepoWrite: true, Destructive: true},
+		"git reset HEAD~1":            {GitCheck: types.GitCheckWrite, RepoWrite: true},
+		"git clean -fd":               {GitCheck: types.GitCheckWrite, RepoWrite: true, Destructive: true},
+		"git clean -n":                {GitCheck: types.GitCheckWrite, RepoWrite: true},
+		"git checkout -- .":           {GitCheck: types.GitCheckWrite, RepoWrite: true, Destructive: true},
+		"git checkout -b topic":       {GitCheck: types.GitCheckWrite, RepoWrite: true},
+		"git restore f.go":            {GitCheck: types.GitCheckWrite, RepoWrite: true, Destructive: true},
+		"git restore --staged f.go":   {GitCheck: types.GitCheckWrite, RepoWrite: true},
+		"git stash drop":              {GitCheck: types.GitCheckWrite, RepoWrite: true, Destructive: true},
+		"git push":                    {GitCheck: types.GitCheckNetwork, RemoteMutation: true, SSHAgent: true},
+		"git push --force":            {GitCheck: types.GitCheckNetwork, RemoteMutation: true, Destructive: true, SSHAgent: true},
+		"git fetch":                   {GitCheck: types.GitCheckNetwork, RepoWrite: true, SSHAgent: true},
+		"git -c alias.x=!id x":        {ExecutesCode: true, GitCheck: types.GitCheckNetwork},
+		"git -c core.pager=id log":    {ExecutesCode: true, GitCheck: types.GitCheckRead},
+		"git log --show-signature":    {ExecutesCode: true, GitCheck: types.GitCheckRead},
+		"git bisect run make":         {ExecutesCode: true, GitCheck: types.GitCheckNetwork},
+		"git config core.hooksPath x": {ExecutesCode: true, GitCheck: types.GitCheckWrite, RepoWrite: true},
+	} {
+		e := effectsOf(command)
+		if e.GitCheck != want.GitCheck || e.RepoWrite != want.RepoWrite || e.Destructive != want.Destructive || e.RemoteMutation != want.RemoteMutation || e.ExecutesCode != want.ExecutesCode || e.SSHAgent != want.SSHAgent {
+			t.Fatalf("%s: %+v, want %+v", command, e, want)
+		}
+	}
+}
+
+func TestSedScriptSafeSubset(t *testing.T) {
+	for script, safe := range map[string]bool{
+		"s/a/b/g":                 true,
+		"1,20p":                   true,
+		"/^#/d;s|x|y|":            true,
+		"$!N;P;D":                 true,
+		"/start/,/end/{s/a/b/;p}": true,
+		"y/abc/xyz/":              true,
+		"a\\\nappended":           true,
+		"1e date":                 false,
+		"s/a/b/e":                 false,
+		"w out.txt":               false,
+		"r /etc/passwd":           false,
+		"s/a/b/w out":             false,
+		"{p":                      false,
+	} {
+		if got := sedScriptSafe(script); got != safe {
+			t.Fatalf("%q: safe=%v want %v", script, got, safe)
+		}
+	}
+}

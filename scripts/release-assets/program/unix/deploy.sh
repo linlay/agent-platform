@@ -9,6 +9,10 @@ cd "$SCRIPT_DIR"
 program_apply_deploy_flags "$@"
 echo "[program-deploy] validating bundle"
 program_validate_bundle
+if [[ -n "$DEPLOY_RUNTIME_RECOVERY_SOURCE" ]]; then
+  program_recover_runtime
+  exit 0
+fi
 echo "[program-deploy] bundle validated"
 echo "[program-deploy] backend binary: $BACKEND_BIN"
 echo "[program-deploy] initializing config under $CONFIG_DIR"

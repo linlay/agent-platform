@@ -9,10 +9,10 @@ import (
 	"reflect"
 	"testing"
 
-	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	"agent-platform/internal/connector"
 	"agent-platform/internal/connectorauth"
+	"agent-platform/internal/shellreview"
 )
 
 func TestMountedWindowsNPMConnectorUsesFrozenNodeArgv(t *testing.T) {
@@ -57,7 +57,7 @@ func TestMountedWindowsNPMConnectorUsesFrozenNodeArgv(t *testing.T) {
 	if !p.ConnectorOnly || !p.Allowed() {
 		t.Fatalf("Windows npm entry did not match: %+v", p)
 	}
-	direct := accesspolicy.DirectConnectorInvocation(executor.policySession(ctx), command, ctx.Session.WorkspaceRoot, vars)
+	direct := shellreview.DirectConnectorInvocation(executor.policySession(ctx), command, ctx.Session.WorkspaceRoot, vars)
 	if direct == nil || !stringsEqualPath(direct.Program, shim) {
 		t.Fatalf("POSIX sibling selected instead of npm cmd shim: %+v", direct)
 	}

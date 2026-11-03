@@ -25,7 +25,7 @@ func TestChatSteerNativeModesAndLaterCaller(t *testing.T) {
 				t.Fatal("original caller remains active")
 			}
 			_, target, _ := runs.Register(context.Background(), contracts.QuerySession{Mode: mode, RunID: "target", ChatID: "target-chat", AgentKey: "target-agent", RunOwner: contracts.AgentRunOwner("target-agent"), RunOrigin: origin, AccessLevel: "full_access"})
-			_, later, _ := runs.Register(context.Background(), contracts.QuerySession{RunID: "later", ChatID: "later-chat", AgentKey: "caller", RunOwner: contracts.AgentRunOwner("caller"), AccessLevel: "default"})
+			_, later, _ := runs.Register(context.Background(), contracts.QuerySession{RunID: "later", ChatID: "later-chat", AgentKey: "caller", RunOwner: contracts.AgentRunOwner("caller"), AccessLevel: "ask_for_approval"})
 			service := NewService(Dependencies{Runs: runs})
 			handler := runops.NewToolHandler(service, runs)
 			exec := &contracts.ExecutionContext{Session: contracts.QuerySession{RunID: "later", ChatID: "later-chat", AgentKey: "caller", Subject: "alice", RunOwner: contracts.AgentRunOwner("caller")}, RunControl: later}

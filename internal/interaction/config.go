@@ -78,8 +78,8 @@ func ParseForEngine(mode string, acp bool, raw any) (Config, error) {
 	for key, value := range node {
 		if key == "defaultDetail" {
 			level, ok := value.(string)
-			if !ok || (level != "summary" && level != "full" && level != "none") {
-				return c, fmt.Errorf("interactionConfig.defaultDetail must be summary, full or none")
+			if !ok || (level != "summary" && level != "full") {
+				return c, fmt.Errorf("interactionConfig.defaultDetail must be summary or full")
 			}
 			c.DefaultDetail = level
 			continue
@@ -124,12 +124,11 @@ func ParseForEngine(mode string, acp bool, raw any) (Config, error) {
 	return applyBackendAttachmentCapabilities(c, mode, acp), nil
 }
 
-func (c Config) Validate(model bool, accessLevel string, skills bool) error {
+// Validate checks request options that need no target Agent. The accessLevel
+// selector is checked by Runtime against the Agent's effective default.
+func (c Config) Validate(model bool, skills bool) error {
 	if model && !c.Model {
 		return fmt.Errorf("interactionConfig.model is disabled")
-	}
-	if !c.AccessLevel && accessLevel != "" && accessLevel != "default" {
-		return fmt.Errorf("interactionConfig.accessLevel is disabled")
 	}
 	if skills && !c.Attachment.Skills {
 		return fmt.Errorf("interactionConfig.attachment.skills is disabled")

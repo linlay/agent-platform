@@ -72,7 +72,7 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	if rawPath == "" {
 		return PathPlan{}, fmt.Errorf("path is required")
 	}
-	accessLevel := sessionAccessLevel(session)
+	accessLevel := SessionAccessLevel(session)
 	level := EffectiveLevel(cfg, accessLevel)
 	workspaceRoot := SessionWorkspaceRoot(session)
 	candidate, err := ResolveSessionPath(session, rawPath)
@@ -145,6 +145,17 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	}
 
 	if mode == WriteAccess {
+		for _, rawRoot := range session.ControlReadonlyRoots {
+			root, err := pathutil.Canonicalize(rawRoot)
+			if err != nil {
+				return PathPlan{}, err
+			}
+			// Ancestor moves, deletions and recursive changes are checked by
+			// BuildSubtreePlan; a plain write into an ancestor stays ordinary.
+			if pathutil.WithinRoot(realCandidate, root) {
+				return buildPathPlan(mode, rawPath, realCandidate, root, accessLevel, DecisionBlock, "platform control source requires a dedicated management operation"), nil
+			}
+		}
 		readonlyRoots := append([]string(nil), level.ReadonlyRoots...)
 		readonlyRoots = append(readonlyRoots, session.ReferenceAccessRoots().ReadonlyRoots...)
 		if readonlyRoot, readonly := firstAllowedRoot(session, workspaceRoot, readonlyRoots, realCandidate); readonly {
@@ -162,12 +173,12 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	if mode == ReadAccess {
 		roots = append(roots, session.ReferenceAccessRoots().ReadRoots...)
 	}
-	if mode == WriteAccess && sessionWorkspaceEditingDisabled(session) && PathInSessionWorkspace(session, realCandidate.Host) {
+	if mode == WriteAccess && SessionWorkspaceEditingDisabled(session) && PathInSessionWorkspace(session, realCandidate.Host) {
 		return buildPathPlan(mode, rawPath, realCandidate, realCandidate, accessLevel, DecisionBlock, WorkspaceEditingDisabledReason), nil
 	}
 	if mode == WriteAccess && IsExecutableConfigPath(realCandidate) {
-		decision := decisionForAction(level.Approvals.ExecutableConfig)
-		if decision == DecisionAllow && sessionWorkspaceEditingDisabled(session) && PathInSessionWorkspace(session, realCandidate.Host) {
+		decision := DecisionForAction(level.Approvals.ExecutableConfig)
+		if decision == DecisionAllow && SessionWorkspaceEditingDisabled(session) && PathInSessionWorkspace(session, realCandidate.Host) {
 			decision = DecisionBlock
 		}
 		if decision != DecisionAllow {
@@ -177,7 +188,7 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	if mode == WriteAccess && PathInSessionWorkspace(session, realCandidate.Host) {
 		// Workspace mutation is a resolved session capability (editing), not an
 		// access-level root: approvals and full_access cannot enable it.
-		if sessionWorkspaceEditingDisabled(session) {
+		if SessionWorkspaceEditingDisabled(session) {
 			return buildPathPlan(mode, rawPath, realCandidate, realCandidate, accessLevel, DecisionBlock, WorkspaceEditingDisabledReason), nil
 		}
 		workspace, err := pathutil.Canonicalize(workspaceRoot)
@@ -193,13 +204,13 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	// An implicit grant never expands to a parent merely because a target does
 	// not exist. Directory grants require that exact directory to be displayed.
 	root = realCandidate
-	return buildPathPlan(mode, rawPath, realCandidate, root, accessLevel, decisionForAction(action), outsideRootsReason(mode)), nil
+	return buildPathPlan(mode, rawPath, realCandidate, root, accessLevel, DecisionForAction(action), OutsideRootsReason(mode)), nil
 }
 
 func EffectiveLevel(cfg config.AccessPolicyConfig, accessLevel string) Level {
 	normalized, ok := NormalizeAccessLevel(accessLevel)
 	if !ok {
-		normalized = AccessLevelDefault
+		normalized = AccessLevelAskForApproval
 	}
 	raw := resolveLevelConfig(cfg, normalized, map[string]bool{})
 	if normalized != AccessLevelFullAccess {
@@ -491,7 +502,7 @@ func defaultLevelConfig(name string) config.AccessPolicyLevelConfig {
 	if level, ok := levels[name]; ok {
 		return level
 	}
-	return levels[AccessLevelDefault]
+	return levels[AccessLevelAskForApproval]
 }
 
 func mergeLevelConfig(parent config.AccessPolicyLevelConfig, child config.AccessPolicyLevelConfig) config.AccessPolicyLevelConfig {
@@ -562,7 +573,8 @@ func buildPathPlan(mode AccessMode, rawPath string, path pathutil.Canonical, roo
 	}
 }
 
-func decisionForAction(action string) Decision {
+// DecisionForAction maps a configured approval action to the shared decision.
+func DecisionForAction(action string) Decision {
 	switch strings.ToLower(strings.TrimSpace(action)) {
 	case "allow":
 		return DecisionAllow
@@ -575,7 +587,8 @@ func decisionForAction(action string) Decision {
 	}
 }
 
-func outsideRootsReason(mode AccessMode) string {
+// OutsideRootsReason describes the root boundary for the requested access mode.
+func OutsideRootsReason(mode AccessMode) string {
 	if mode == WriteAccess {
 		return "write path is outside allowed roots"
 	}
@@ -709,7 +722,8 @@ func cleanAbs(path string) string {
 
 const WorkspaceEditingDisabledReason = "workspace editing is disabled for this run (Workspace mutation requires editingMode=true)"
 
-func sessionWorkspaceEditingDisabled(session QuerySession) bool {
+// SessionWorkspaceEditingDisabled reports the resolved Workspace editing limit.
+func SessionWorkspaceEditingDisabled(session QuerySession) bool {
 	return session.WorkspaceReadOnly
 }
 
@@ -738,10 +752,11 @@ func IsExecutableConfigPath(path pathutil.Canonical) bool {
 	return false
 }
 
-func sessionAccessLevel(session QuerySession) string {
+// SessionAccessLevel normalizes a session's access level using the policy default.
+func SessionAccessLevel(session QuerySession) string {
 	accessLevel, ok := NormalizeAccessLevel(session.AccessLevel)
 	if !ok {
-		return AccessLevelDefault
+		return AccessLevelAskForApproval
 	}
 	return accessLevel
 }

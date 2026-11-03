@@ -68,7 +68,7 @@ func TestChatStartModelOverridesReachProviderAndDoNotPersist(t *testing.T) {
 	}
 }
 
-func TestChatStartModelRejectionsDoNotConsumeApproval(t *testing.T) {
+func TestChatStartModelRejectionsStartNothing(t *testing.T) {
 	for _, tc := range []struct{ name, key, effort string }{
 		{"unknown model", "missing", ""}, {"non-chat model", "embed", ""}, {"invalid effort", "", "invalid"},
 	} {
@@ -80,38 +80,9 @@ func TestChatStartModelRejectionsDoNotConsumeApproval(t *testing.T) {
 			if err := fixture.modelRegistry.ReloadModels(); err != nil {
 				t.Fatal(err)
 			}
-			consumed := false
-			req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", ModelKey: tc.key, ReasoningEffort: tc.effort, AccessLevel: "full_access", Origin: contracts.RunOrigin{RunID: "parent"}, Review: &contracts.RunStartReview{Consume: func(string) bool { consumed = true; return true }}}
+			req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", ModelKey: tc.key, ReasoningEffort: tc.effort, Origin: contracts.RunOrigin{RunID: "parent"}}
 			_, err := fixture.server.StartRun(context.Background(), req)
 			requireNoChatStarted(t, fixture, err, "invalid_request")
-			if consumed {
-				t.Fatal("invalid model options consumed approval")
-			}
-		})
-	}
-}
-
-func TestChatStartModelOptionsBindApproval(t *testing.T) {
-	for _, field := range []string{"modelKey", "reasoningEffort"} {
-		t.Run(field, func(t *testing.T) {
-			fixture, _ := chatStartFixture(t, "default")
-			req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", AccessLevel: "full_access", Origin: contracts.RunOrigin{RunID: "parent"}}
-			plan, err := fixture.server.PrepareRunStart(context.Background(), req)
-			if err != nil {
-				t.Fatal(err)
-			}
-			consumed := false
-			req.Review = &contracts.RunStartReview{ParentAccessLevel: plan.ParentAccessLevel, ParentAccessVersion: plan.ParentAccessVersion, ApprovalDigest: plan.ApprovalDigest, Consume: func(string) bool { consumed = true; return true }}
-			if field == "modelKey" {
-				req.ModelKey = "mock-model"
-			} else {
-				req.ReasoningEffort = "HIGH"
-			}
-			_, err = fixture.server.StartRun(context.Background(), req)
-			requireNoChatStarted(t, fixture, err, "run_start_review_stale")
-			if consumed {
-				t.Fatal("changed model options consumed approval")
-			}
 		})
 	}
 }

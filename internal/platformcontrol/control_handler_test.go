@@ -22,7 +22,9 @@ func controlExecution() *contracts.ExecutionContext {
 		s.NativeConnectorTools[a.Tool], _ = connector.NativeToolConnector(a.Tool)
 		s.ToolNames = append(s.ToolNames, a.Tool)
 	}
-	return &contracts.ExecutionContext{Session: s, CurrentToolID: "call", AccessLevel: "full_access"}
+	control := contracts.NewRunControl(context.Background(), s.RunID)
+	control.SetInitialAccessLevel("full_access")
+	return &contracts.ExecutionContext{Session: s, CurrentToolID: "call", AccessLevel: "full_access", RunControl: control}
 }
 func TestControlAdmissionAndExactApproval(t *testing.T) {
 	cfg := config.Config{Paths: config.PathsConfig{AgentsDir: filepath.Join(t.TempDir(), "agents"), SkillsCenterDir: filepath.Join(t.TempDir(), "skills")}}

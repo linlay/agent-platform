@@ -65,16 +65,11 @@ planning-mode:
     - ask_user_question
     - ask_user_form
 
-# An announcement (action_announce) stays the progress line of its scope for at
-# least this many seconds; other progress activities wait. Output starting, a
-# newer announcement or the Run ending replaces it sooner. 0 disables the hold.
-announce-hold-seconds: 60
-
 general:
   # Default delivery/display level for existing and new Agents; agent.yml may override.
-  # summary, full or none (summary with announcements as the only progress lines).
+  # summary (announcements only) or full.
   interaction-config:
-    default-detail: none
+    default-detail: summary
   preset-tools:
     - action_announce
     - ask_user_question

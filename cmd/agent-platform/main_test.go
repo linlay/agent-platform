@@ -89,3 +89,14 @@ func TestMainImportsTzdataForWindowsAutomationZones(t *testing.T) {
 		t.Fatalf("agent-platform must embed time/tzdata so Windows automation zoneId values such as Asia/Shanghai load without external zoneinfo")
 	}
 }
+
+func TestParseConfigOptionsWebAppHost(t *testing.T) {
+	options, err := parseConfigOptions([]string{"--webapp-host=compose"})
+	if err != nil || options.WebAppHost != "compose" || options.RuntimeMode != "standalone" {
+		t.Fatalf("options=%+v err=%v", options, err)
+	}
+	options, err = parseConfigOptions(nil)
+	if err != nil || options.WebAppHost != "disabled" {
+		t.Fatalf("default options=%+v err=%v", options, err)
+	}
+}

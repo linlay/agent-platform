@@ -18,7 +18,7 @@ Review.mount(u=>{
   return;
  }
  const types={agent:t('智能体','agent'),team:t('团队','team'),skill:t('技能','skill'),connector:t('连接器','connector'),provider:t('服务商','provider'),model:t('模型','model'),knowledge_library:t('知识库','knowledge library')};
- const labels={name:t('名称','Name'),description:t('说明','Description'),model:t('模型','Model'),modelConfig:t('模型设置','Model settings'),mode:t('类型','Type'),engine:t('运行引擎','Engine'),prompt:t('指令','Instructions'),systemPrompt:t('系统指令','System instructions'),instructions:t('指令','Instructions'),toolConfig:t('工具','Tools'),connectorConfig:t('连接器','Connectors'),skillConfig:t('技能','Skills'),hostAccess:t('本机访问','Host access'),accessLevel:t('运行权限','Permissions'),runtimeConfig:t('运行设置','Runtime settings'),enabled:t('启用状态','Enabled'),members:t('团队成员','Team members'),provider:t('服务商','Provider'),baseUrl:t('服务地址','Service URL')};
+ const labels={name:t('名称','Name'),description:t('说明','Description'),model:t('模型','Model'),modelConfig:t('模型设置','Model settings'),mode:t('类型','Type'),engine:t('运行引擎','Engine'),prompt:t('指令','Instructions'),systemPrompt:t('系统指令','System instructions'),instructions:t('指令','Instructions'),toolConfig:t('工具','Tools'),connectorConfig:t('连接器','Connectors'),skillConfig:t('技能','Skills'),hostAccess:t('本机访问','Host access'),accessLevel:t('运行权限','Permissions'),accessConfig:t('默认权限配置','Default permission configuration'),runtimeConfig:t('运行设置','Runtime settings'),enabled:t('启用状态','Enabled'),members:t('团队成员','Team members'),provider:t('服务商','Provider'),baseUrl:t('服务地址','Service URL')};
  const critical=key=>/tool|connector|skill|access|permission|runtime|kbase|library|collections/i.test(key);
  const simple=value=>{
   let s=String(value).trim();
@@ -61,6 +61,10 @@ Review.mount(u=>{
   u.field(t('绑定知识库','Bound knowledge library'),f.knowledgeBinding.libraryId,{critical:true});
   u.field(t('知识库配置修订','Library configuration revision'),f.knowledgeBinding.baseRevision,{critical:true});
   Review.librarySources(u,f.knowledgeBinding.sourcePermissions);
+ }
+ if(f.accessConfigChange?.changed){
+  u.compare(t('默认运行权限','Default run permission'),f.accessConfigChange.beforeEffectiveDefault,f.accessConfigChange.afterEffectiveDefault,v=>simple(v),{critical:true});
+  u.notice(t('权限配置的新增、修改和删除必须由人类确认；子 Agent 使用自己的默认档位。','Adding, changing or removing permission configuration requires human confirmation. Child Agents use their own default levels.'));
  }
  if(f.isProject)u.field(t('项目类型','Project type'),t('项目智能体','Project agent'));
  if(f.path&&!['agent.yml','team.yml'].includes(f.path))u.field(t('文件','File'),f.path);

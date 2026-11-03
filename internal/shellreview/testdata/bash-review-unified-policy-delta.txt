@@ -1,0 +1,20 @@
+# C12b: syntax requirements now live in the same plan as resource requirements.
+# All 387 effective decisions equal the previous access + security conjunction.
+command/read	ask_for_approval	block	security=block/	connector=false/false	leaves=2:block/bash-security:block//reusable=true,requires_approval/bash-access:execution:<hash>/invocation_version/reusable=true
+command/read	auto_approve	block	security=block/	connector=false/false	leaves=2:auto_approved/bash-access:execution:<hash>/invocation_version/reusable=true,block/bash-security:block//reusable=true
+command/read	full_access	block	security=block/	connector=false/false	leaves=2:allow/bash-access//reusable=true,block/bash-security:block//reusable=true
+command/set	ask_for_approval	block	security=block/	connector=false/false	leaves=2:block/bash-security:block//reusable=true,requires_approval/bash-access:execution:<hash>/invocation_version/reusable=true
+command/set	auto_approve	block	security=block/	connector=false/false	leaves=2:auto_approved/bash-access:execution:<hash>/invocation_version/reusable=true,block/bash-security:block//reusable=true
+command/set	full_access	block	security=block/	connector=false/false	leaves=2:allow/bash-access//reusable=true,block/bash-security:block//reusable=true
+command/unset	ask_for_approval	block	security=block/	connector=false/false	leaves=2:block/bash-security:block//reusable=true,requires_approval/bash-access:execution:<hash>/invocation_version/reusable=true
+command/unset	auto_approve	block	security=block/	connector=false/false	leaves=2:auto_approved/bash-access:execution:<hash>/invocation_version/reusable=true,block/bash-security:block//reusable=true
+command/unset	full_access	block	security=block/	connector=false/false	leaves=2:allow/bash-access//reusable=true,block/bash-security:block//reusable=true
+effect/find-exec	ask_for_approval	requires_approval	security=requires_approval/bashsec:runtime_wrapper:find_exec	connector=false/false	leaves=2:requires_approval/bash-access:execution:<hash>/invocation_version/reusable=true,requires_approval/bashsec:runtime_wrapper:find_exec//reusable=true
+effect/find-exec	auto_approve	auto_approved	security=requires_approval/bashsec:runtime_wrapper:find_exec	connector=false/false	leaves=2:auto_approved/bash-access:execution:<hash>/invocation_version/reusable=true,auto_approved/bashsec:runtime_wrapper:find_exec//reusable=true
+effect/find-exec	full_access	auto_approved	security=requires_approval/bashsec:runtime_wrapper:find_exec	connector=false/false	leaves=2:allow/bash-access//reusable=true,auto_approved/bashsec:runtime_wrapper:find_exec//reusable=true
+effect/shell-state	ask_for_approval	block	security=block/	connector=false/false	leaves=2:block/bash-security:block//reusable=true,requires_approval/bash-access:execution:<hash>/invocation_version/reusable=true
+effect/shell-state	auto_approve	block	security=block/	connector=false/false	leaves=2:auto_approved/bash-access:execution:<hash>/invocation_version/reusable=true,block/bash-security:block//reusable=true
+effect/shell-state	full_access	block	security=block/	connector=false/false	leaves=2:allow/bash-access//reusable=true,block/bash-security:block//reusable=true
+effect/xargs	ask_for_approval	requires_approval	security=requires_approval/bashsec:runtime_wrapper:xargs	connector=false/false	leaves=2:requires_approval/bash-access:execution:<hash>/invocation_version/reusable=true,requires_approval/bashsec:runtime_wrapper:xargs//reusable=true
+effect/xargs	auto_approve	auto_approved	security=requires_approval/bashsec:runtime_wrapper:xargs	connector=false/false	leaves=2:auto_approved/bash-access:execution:<hash>/invocation_version/reusable=true,auto_approved/bashsec:runtime_wrapper:xargs//reusable=true
+effect/xargs	full_access	auto_approved	security=requires_approval/bashsec:runtime_wrapper:xargs	connector=false/false	leaves=2:allow/bash-access//reusable=true,auto_approved/bashsec:runtime_wrapper:xargs//reusable=true

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"agent-platform/internal/documentmeta"
 	"bytes"
 	"net/http"
 	"net/http/httptest"
@@ -87,7 +88,7 @@ func TestServeResourcePathKeepsUTF8PrefixSplitAtSampleBoundaryAsMarkdown(t *test
 			if recorder.Code != http.StatusOK {
 				t.Fatalf("HEAD status=%d body=%s", recorder.Code, recorder.Body.String())
 			}
-			if got := recorder.Header().Get("X-Document-Kind"); got != documentKindMarkdown {
+			if got := recorder.Header().Get("X-Document-Kind"); got != documentmeta.KindMarkdown {
 				t.Fatalf("document kind=%q", got)
 			}
 			if got := recorder.Header().Get("Content-Type"); got != "text/markdown; charset=utf-8" {
@@ -116,7 +117,7 @@ func TestServeResourcePathClassifiesByCanonicalSemanticName(t *testing.T) {
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("%s status=%d body=%s", method, recorder.Code, recorder.Body.String())
 		}
-		if got := recorder.Header().Get("X-Document-Kind"); got != documentKindMarkdown {
+		if got := recorder.Header().Get("X-Document-Kind"); got != documentmeta.KindMarkdown {
 			t.Fatalf("%s document kind=%q", method, got)
 		}
 		if got := recorder.Header().Get("Content-Type"); got != "text/markdown; charset=utf-8" {

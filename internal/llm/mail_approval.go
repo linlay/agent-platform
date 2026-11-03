@@ -3,7 +3,6 @@ package llm
 import (
 	"context"
 
-	"agent-platform/internal/bashsec"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
 )
@@ -40,7 +39,6 @@ func (s *llmRunStream) mailApprovalDelegator(calls ...*preparedToolInvocation) f
 			control.SetInitialAccessLevel(level)
 			exec.RunControl = control
 			exec.ToolApprovals = nil
-			exec.BashSecurityApprovals = nil
 			review := &llmRunStream{engine: engine, ctx: ctx, session: exec.Session, execCtx: &exec, runControl: control}
 			inv := call
 			inv.args = contracts.CloneMap(call.args)
@@ -63,13 +61,12 @@ func (s *llmRunStream) mailApprovalDelegator(calls ...*preparedToolInvocation) f
 			}
 			if isBashTool(inv.toolName) {
 				plan := review.rawBashAccessReview(&inv)
-				if plan.Blocked() || plan.RequiresApproval() {
+				// Unsupported grammar is an explicit human decision. A parent's
+				// higher level cannot turn the child's unknown call into a model grant.
+				if plan.UnknownDialect || plan.Blocked() || plan.RequiresApproval() {
 					return deny()
 				}
-				security := plan.SecurityReview(mapStringArg(inv.args, "command"), review.knownRuntimeVariables())
-				if security.Decision == bashsec.ReviewBlock || (security.Decision == bashsec.ReviewRequiresApproval && !review.shouldAutoApproveBashSecurity(security)) {
-					return deny()
-				}
+
 				// A view form review always waits for a person.
 				if review.checkBashHITL(&inv).Intercepted {
 					return deny()

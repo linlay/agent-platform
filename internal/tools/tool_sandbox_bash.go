@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -9,14 +10,15 @@ import (
 
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/agentconfig"
-	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/hostshell"
 	"agent-platform/internal/pathutil"
+	shellplan "agent-platform/internal/shellreview/plan"
 )
 
 func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
-	command := strings.TrimSpace(stringArg(args, "command"))
-	if command == "" {
+	command := stringArg(args, "command")
+	if strings.Trim(command, " \t\r\n") == "" {
 		return ToolExecutionResult{Output: "Missing argument: command", Error: "missing_command", ExitCode: -1}, nil
 	}
 	invocationEnv, err := sandboxInvocationEnvArg(args)
@@ -34,32 +36,61 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 		}
 		return ToolExecutionResult{Output: err.Error(), Error: code, ExitCode: -1}, nil
 	}
-	accessReview := t.ReviewBashAccess(ctx, args, execCtx, t.cfg.AccessPolicy)
-	if security := accessReview.SecurityReview(command, bashSecurityKnownVariables(execCtx)); security.Decision == bashsec.ReviewBlock {
-		return ToolExecutionResult{Output: security.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
+	original := execCtx
+	frozen, freezeErr := hostshell.FreezeContext(execCtx)
+	if freezeErr != nil {
+		return ToolExecutionResult{Output: freezeErr.Error(), Error: "run_env_snapshot_failed", ExitCode: -1}, nil
 	}
-	approvalSource := accesspolicy.BashApprovalSource(execCtx, accessReview)
-	accessReview = accesspolicy.PendingBashPlan(execCtx, accessReview)
+	execCtx = frozen
+	defer func() {
+		if original != nil && frozen != nil {
+			original.SandboxSession = frozen.SandboxSession
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return ToolExecutionResult{Output: err.Error(), Error: "sandbox_execute_failed", ExitCode: -1}, nil
+	}
+	rawAccessReview := t.ReviewBashAccess(ctx, args, execCtx, t.cfg.AccessPolicy)
+	accessReview := rawAccessReview
+	if err := ctx.Err(); err != nil {
+		return ToolExecutionResult{Output: err.Error(), Error: "sandbox_execute_failed", ExitCode: -1}, nil
+	}
+	approvalSource := shellplan.BashApprovalSource(execCtx, accessReview)
+	accessReview = shellplan.PendingBashPlan(execCtx, accessReview)
 	switch accessReview.Decision {
 	case accesspolicy.DecisionAllow, accesspolicy.DecisionAutoApproved:
 	case accesspolicy.DecisionRequiresApproval:
-		if !accesspolicy.ConsumeApproval(execCtx, accessReview) {
-			return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_approval_required", ExitCode: -1}, nil
+		if !shellplan.HasApproval(execCtx, rawAccessReview) {
+			return ToolExecutionResult{Output: accessReview.Reason, Error: accessReview.ErrorCode(), ExitCode: -1}, nil
 		}
 	default:
-		return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_blocked", ExitCode: -1}, nil
+		return ToolExecutionResult{Output: accessReview.Reason, Error: accessReview.ErrorCode(), ExitCode: -1}, nil
+	}
+	reservation, ok := shellplan.ReserveApproval(execCtx, rawAccessReview)
+	if !ok {
+		return ToolExecutionResult{Output: accessReview.Reason, Error: accessReview.ErrorCode(), ExitCode: -1}, nil
+	}
+	if err := ctx.Err(); err != nil {
+		reservation.Restore()
+		return ToolExecutionResult{Output: err.Error(), Error: "sandbox_execute_failed", ExitCode: -1}, nil
 	}
 	timeout := t.resolveBashTimeoutSeconds(args, execCtx)
 	result, err := t.sandbox.Execute(ctx, execCtx, command, cwd, timeout, invocationEnv)
 	if err != nil {
+		if errors.Is(err, ErrSandboxCommandNotStarted) {
+			reservation.Restore()
+		} else {
+			reservation.Commit()
+		}
 		return ToolExecutionResult{Output: err.Error(), Error: "sandbox_execute_failed", ExitCode: -1}, nil
 	}
+	reservation.Commit()
 	output := bashResult(result.Stdout, result.Stderr, "sandbox", result.Cwd, result.ExitCode, "")
 	if approvalSource != "" || accessReview.HasConnector || accessReview.AutoApproved() || accessReview.RuleKey == "bash-access:authored-script" || accessReview.RuleKey == "bash-access:temp-script" || accessReview.RuleKey == "bash-access:skill-script" {
 		if output.Structured == nil {
 			output.Structured = map[string]any{"stdout": result.Stdout, "stderr": result.Stderr, "mode": "sandbox", "cwd": result.Cwd, "exitCode": result.ExitCode}
 		}
-		output.Structured["accessPolicy"] = accesspolicy.BashPlanMetadata(accessReview)
+		output.Structured["accessPolicy"] = shellplan.BashPlanMetadata(accessReview)
 		if approvalSource != "" {
 			metadata := output.Structured["accessPolicy"].(map[string]any)
 			metadata["decision"] = "allow"

@@ -8,7 +8,7 @@ All mail addresses are Chats. A letter is durable work; a notify is interim info
 
 - message: required non-empty task text. agentKey defaults to the current Agent. Another task uses newChat:true; supplements use the existing chatId. chatId and newChat are exclusive. Omitting both addresses the target Agent primary Chat, creating it only if missing.
 - chatId must belong to the target Agent and same user, and be created by this Agent, referenced in the user's latest direct input, or be the target's primary Chat. Self, archived and deleted Chats are refused. This eligibility grants no history read or Run control.
-- chatName, modelKey, reasoningEffort and accessLevel are allowed only with newChat:true. For the current Agent, omitted model/effort inherit the caller; for another Agent, its defaults apply. Existing Chats use target defaults. Permissions freeze at acceptance; a higher accessLevel requires a one-time human review consumed before the mail is accepted. Later sender termination does not cancel delivery.
+- chatName, modelKey, reasoningEffort and accessLevel are allowed only with newChat:true. For the current Agent, omitted model/effort inherit the caller; for another Agent, its defaults apply. Existing Chats use target defaults. Permissions freeze at acceptance; an explicit accessLevel above the calling Run current level is rejected. Omission uses the target Agent default, even when higher than the sender level. Later sender termination does not cancel delivery.
 - references: selected skill/kbase/chat locators `{type,id}`; no extra tools or permissions. files: paths in the current Chat, copied to receiver mail/<mailId> with frozen digests. Body @chat paths refer to the sender, so use files to deliver them. Final replies automatically include artifact_publish files from the answering Run.
 - Returns mailId, chatId, delivery and optional runId. Same runId+toolId with the same arguments reuses the receipt; changing arguments conflicts. Accepted is not consumed. Track with chat_get_status {mailId}; delivery=inserted grants no control of the recipient Run.
 - Idle Chat starts a Run; running Chat receives a steer; planning, compaction and deferred waits queue. Question/approval/form waits are not answered by mail.
@@ -28,3 +28,8 @@ All mail addresses are Chats. A letter is durable work; a notify is interim info
 Questions: `params:[{"answer":"skip"}]`; multiple selections use answers. Approvals: `params:[{"decision":"approve"}]`, approve_rule_run or reject. Forms/review pages: `param:{"decision":"approve","data":{...}}`, reject or dismiss. Use exactly the original awaiting shape.
 
 Approval capability follows awaiting_source, not presentation mode: a tool review rendered as a form remains a tool approval. Only approve if evaluating the frozen child operation under your current live permission would need no human review. Hard blocks, readonly roots, destructive policies and mandatory human reviews remain in force. approval_requires_human means ask the user to handle the child Chat; never lower or alter the operation to bypass it. Rejections and ordinary question/form answers need no delegation approval. Human and Agent submissions race; already_resolved means stop, do not resubmit. chat_submit may answer even at the hop limit.
+
+
+## 邮件清理与删除
+
+平台生成的回信、通知、请示按收件 Agent 的默认权限创建，后续不因默认配置变化而重算。终态邮件默认 30 天后清除正文、请示快照与附件元数据，保留幂等和会话关系；挂起邮件不按保留期清理。删除工作会话不撤回已保存的回信及收件侧附件副本；收件会话删除后不能再向它投递。已发布到聊天历史的附件副本按该 Chat 生命周期保留。

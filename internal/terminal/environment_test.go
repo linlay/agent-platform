@@ -1,6 +1,22 @@
 package terminal
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestTerminalNeverReceivesIdentity(t *testing.T) {
+	t.Setenv("AP_ID_TOKEN", "inherited-token")
+	for _, managed := range []bool{false, true} {
+		env := processEnvironment(startPTYRequest{Managed: managed, Env: []string{"ap_id_token=override", "AP_ID_TOKEN=duplicate", "AP_CHAT_DIR=chat", "KEEP=public"}})
+		for _, entry := range env {
+			key, _, _ := strings.Cut(entry, "=")
+			if strings.EqualFold(key, "AP_ID_TOKEN") || strings.EqualFold(key, "AP_CHAT_DIR") {
+				t.Fatal("terminal received chat identity")
+			}
+		}
+	}
+}
 
 func TestMergeEnvironmentUsesOverridesWithoutDuplicates(t *testing.T) {
 	got := mergeEnvironment(

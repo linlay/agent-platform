@@ -2,11 +2,26 @@ package shellenv
 
 import "strings"
 
+// StartupOverride identifies environment values that can execute extra code or
+// open unmodeled trace files when a native process/interpreter starts. Shell command assignments remain
+// legal, but cannot borrow a normal program's precise effects or script proof.
+func StartupOverride(name string) bool {
+	n := strings.ToUpper(name)
+	if strings.HasPrefix(n, "LD_") || strings.HasPrefix(n, "DYLD_") || strings.HasPrefix(n, "BASH_FUNC_") || strings.HasPrefix(n, "GIT_TRACE") {
+		return true
+	}
+	switch n {
+	case "GIT_EXEC_PATH", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "GIT_EXTERNAL_DIFF", "GIT_PAGER", "BASH_ENV", "ENV", "NODE_OPTIONS", "NODE_PATH", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONINSPECT", "RUBYOPT", "RUBYLIB", "PERL5OPT", "PERL5LIB", "PERLLIB", "LUA_INIT", "LUA_PATH", "LUA_CPATH", "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS":
+		return true
+	}
+	return false
+}
+
 // UnsafeOverride is shared by Agent, Skill, invocation and run.env validation.
 // None of these channels may silently alter the program or shell being reviewed.
 func UnsafeOverride(name string) bool {
 	n := strings.ToUpper(strings.TrimSpace(name))
-	if Reserved(n) {
+	if n == EnvIDToken || Reserved(n) {
 		return true
 	}
 	if strings.HasPrefix(n, "LD_") || strings.HasPrefix(n, "DYLD_") || strings.HasPrefix(n, "GIT_CONFIG_") {

@@ -55,7 +55,12 @@ func NewExecutionStore(dir, dbFileName string) (*ExecutionStore, error) {
 }
 
 func (s *ExecutionStore) Status() ExecutionHistoryStatus {
-	if s == nil || s.db == nil {
+	if s == nil {
+		return ExecutionHistoryStatus{State: ExecutionHistoryUnavailable, Message: ErrExecutionHistoryUnavailable.Error()}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
 		return ExecutionHistoryStatus{State: ExecutionHistoryUnavailable, Message: ErrExecutionHistoryUnavailable.Error()}
 	}
 	return ExecutionHistoryStatus{Available: true, State: ExecutionHistoryReady}
@@ -615,7 +620,7 @@ func incompatibleExecutionSchemaError(dbPath, reason string) error {
 }
 
 func (s *ExecutionStore) Upsert(item Execution) error {
-	if s == nil || s.db == nil {
+	if s == nil {
 		return ErrExecutionHistoryUnavailable
 	}
 	item = normalizeExecution(item)
@@ -624,6 +629,9 @@ func (s *ExecutionStore) Upsert(item Execution) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.db == nil {
+		return ErrExecutionHistoryUnavailable
+	}
 	_, err := s.db.Exec(`INSERT INTO AUTOMATION_EXECUTIONS (
 			ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, ZONE_ID_,
 			QUERY_CONTENT_, CHAT_ID_, RUN_ID_, STATUS_, FINISH_REASON_, RESULT_CONTENT_, ERROR_,
@@ -717,13 +725,16 @@ const executionBriefSelect = `SELECT ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOUR
 	FROM AUTOMATION_EXECUTIONS`
 
 func (s *ExecutionStore) ListByAutomation(automationID string, limit, offset int) ([]Execution, int, error) {
-	if s == nil || s.db == nil {
+	if s == nil {
 		return nil, 0, ErrExecutionHistoryUnavailable
 	}
 	automationID = strings.TrimSpace(automationID)
 	limit, offset = normalizeExecutionPage(limit, offset)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil, 0, ErrExecutionHistoryUnavailable
+	}
 	var total int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM AUTOMATION_EXECUTIONS WHERE AUTOMATION_ID_=?`, automationID).Scan(&total); err != nil {
 		return nil, 0, err
@@ -741,11 +752,14 @@ func (s *ExecutionStore) ListByAutomation(automationID string, limit, offset int
 }
 
 func (s *ExecutionStore) LastExecution(automationID string) (*Execution, error) {
-	if s == nil || s.db == nil {
+	if s == nil {
 		return nil, ErrExecutionHistoryUnavailable
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil, ErrExecutionHistoryUnavailable
+	}
 	row := s.db.QueryRow(executionBriefSelect+` WHERE AUTOMATION_ID_=? ORDER BY STARTED_AT_ DESC, ID_ DESC LIMIT 1`, strings.TrimSpace(automationID))
 	item, err := scanExecutionBrief(row)
 	if err == sql.ErrNoRows {
@@ -758,11 +772,14 @@ func (s *ExecutionStore) LastExecution(automationID string) (*Execution, error) 
 }
 
 func (s *ExecutionStore) GetExecution(executionID string) (*Execution, error) {
-	if s == nil || s.db == nil {
+	if s == nil {
 		return nil, ErrExecutionHistoryUnavailable
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil, ErrExecutionHistoryUnavailable
+	}
 	row := s.db.QueryRow(`SELECT ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, ZONE_ID_,
 		QUERY_CONTENT_, CHAT_ID_, RUN_ID_, STATUS_, FINISH_REASON_, RESULT_CONTENT_, ERROR_,
 		STARTED_AT_, RUN_STARTED_AT_, COMPLETED_AT_, DURATION_MS_
@@ -778,11 +795,14 @@ func (s *ExecutionStore) GetExecution(executionID string) (*Execution, error) {
 }
 
 func (s *ExecutionStore) ListRunning() ([]Execution, error) {
-	if s == nil || s.db == nil {
+	if s == nil {
 		return nil, ErrExecutionHistoryUnavailable
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil, ErrExecutionHistoryUnavailable
+	}
 	rows, err := s.db.Query(executionBriefSelect + ` WHERE STATUS_='running' ORDER BY STARTED_AT_ ASC, ID_ ASC`)
 	if err != nil {
 		return nil, err
@@ -792,11 +812,14 @@ func (s *ExecutionStore) ListRunning() ([]Execution, error) {
 }
 
 func (s *ExecutionStore) Close() error {
-	if s == nil || s.db == nil {
+	if s == nil {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
 	err := s.db.Close()
 	s.db = nil
 	return err

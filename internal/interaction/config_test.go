@@ -85,7 +85,7 @@ func TestEntryVisibilityDefaultsAndOverrides(t *testing.T) {
 		t.Fatalf("explicit override = %+v err=%v", c, err)
 	}
 	// The entries are display-only: they never reject a request.
-	if err := c.Validate(false, "default", false); err != nil {
+	if err := c.Validate(false, false); err != nil {
 		t.Fatalf("entry visibility must not gate requests: %v", err)
 	}
 }

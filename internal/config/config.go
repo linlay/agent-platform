@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -16,9 +17,6 @@ type ConversationExportConfig struct {
 
 type Config struct {
 	ModeDefaultDetails map[string]string
-	// AnnounceHoldSeconds is how long an announcement of next steps at least
-	// stays a scope's progress line; 0 disables the hold.
-	AnnounceHoldSeconds int
 
 	Export           ConversationExportConfig
 	PresetTools      []string
@@ -29,8 +27,11 @@ type Config struct {
 	KBX              KBXConfig
 	DocumentPreview  documentpreview.Config
 	HTTPProxy        httpclient.Config
+	Voice            VoiceConfig
 	SsoIdTokenFile   string
 	RuntimeMode      RuntimeMode
+	WebAppHost       WebAppHostMode
+	WebApps          WebAppsConfig
 	Server           ServerConfig
 	Paths            PathsConfig
 	Agents           CatalogConfig
@@ -78,12 +79,17 @@ type LoadOptions struct {
 	Port           string
 	SsoIdTokenFile string
 	RuntimeMode    string
+	WebAppHost     string
 	// IgnoreRemovedWorkingDirectoryForAudit is reserved for the read-only
 	// workspace/chat migration audit. Normal startup must leave it false.
 	IgnoreRemovedWorkingDirectoryForAudit bool
 }
 
-type MailConfig struct{ MaxHops int }
+type MailConfig struct {
+	Enabled       bool
+	MaxHops       int
+	RetentionDays int
+}
 
 type RuntimeMode string
 
@@ -136,6 +142,8 @@ type PathsConfig struct {
 	RUPreviewsDir            string
 	PanDir                   string
 	SkillsCenterDir          string
+	WebAppsDir               string
+	WebAppDataDir            string
 }
 
 // MCPToolsConfig selects how mounted MCP tools reach the model. With ToolMode
@@ -722,6 +730,11 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 		return Config{}, err
 	}
 	options.RuntimeMode = string(runtimeMode)
+	webappHost, err := ParseWebAppHostMode(options.WebAppHost)
+	if err != nil {
+		return Config{}, err
+	}
+	options.WebAppHost = string(webappHost)
 	cfg := defaultConfig(options)
 	if err := cfg.applyStructuredConfig(options.ConfigDir, options.IgnoreRemovedWorkingDirectoryForAudit); err != nil {
 		return Config{}, err
@@ -755,6 +768,9 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 		return Config{}, err
 	}
 	if err := validateRUAgentsDir(cfg.Paths); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.validateWebApps(runtime.GOOS); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
@@ -861,15 +877,6 @@ type PlanningModeConfig struct {
 
 // DefaultPlanningModeConfig keeps planning free of local mutation and keeps
 // confirmed-plan execution from asking the user again.
-// DefaultAnnounceHoldSeconds is agent-settings.yml announce-hold-seconds when
-// omitted.
-const DefaultAnnounceHoldSeconds = 60
-
-// AnnounceHold returns the configured hold as a duration.
-func (c Config) AnnounceHold() time.Duration {
-	return time.Duration(c.AnnounceHoldSeconds) * time.Second
-}
-
 func DefaultPlanningModeConfig() PlanningModeConfig {
 	return PlanningModeConfig{
 		ExcludeTools: []string{

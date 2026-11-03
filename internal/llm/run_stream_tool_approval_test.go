@@ -30,7 +30,7 @@ func (e *exactApprovalExecutor) PrepareToolApproval(_ context.Context, _ string,
 	return &ToolApproval{AllowAutoApprove: e.allowAutoApprove, Title: "catalog change", Fingerprint: ToolApprovalFingerprint(c, "catalog_manage", "apply", "candidate"), View: ref, Form: map[string]any{"before": "old", "after": "new"}}, nil
 }
 func TestExactToolReviewCannotAutoApprove(t *testing.T) {
-	for _, level := range []string{AccessLevelFullAccess, AccessLevelAutoApprove, AccessLevelDefault} {
+	for _, level := range []string{AccessLevelFullAccess, AccessLevelAutoApprove, AccessLevelAskForApproval} {
 		t.Run(level, func(t *testing.T) {
 			executor := &exactApprovalExecutor{}
 			ctx := context.Background()
@@ -121,7 +121,7 @@ func TestReviewInputDiagnosticReachesModel(t *testing.T) {
 }
 
 func TestExactToolApprovalWithoutFormStillRequiresApproval(t *testing.T) {
-	for _, level := range []string{AccessLevelFullAccess, AccessLevelAutoApprove, AccessLevelDefault} {
+	for _, level := range []string{AccessLevelFullAccess, AccessLevelAutoApprove, AccessLevelAskForApproval} {
 		executor := &exactApprovalExecutor{plainApproval: true}
 		ctx := context.Background()
 		session := QuerySession{RunID: "run", ChatID: "chat", AgentKey: "caller", AccessLevel: level}
@@ -135,19 +135,19 @@ func TestExactToolApprovalWithoutFormStillRequiresApproval(t *testing.T) {
 }
 
 func TestToolReviewOptInAutoApproval(t *testing.T) {
-	for _, level := range []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		t.Run(level, func(t *testing.T) {
 			executor := &exactApprovalExecutor{allowAutoApprove: true}
 			ctx := context.Background()
 			// Session stays default: policy must use the current execution access level.
-			session := QuerySession{RunID: "run", ChatID: "chat", AgentKey: "caller", AccessLevel: AccessLevelDefault}
+			session := QuerySession{RunID: "run", ChatID: "chat", AgentKey: "caller", AccessLevel: AccessLevelAskForApproval}
 			s := &llmRunStream{ctx: ctx, session: session, engine: &LLMAgentEngine{tools: executor}, runControl: NewRunControl(ctx, "run"), execCtx: &ExecutionContext{Session: session, AccessLevel: level}}
 			call := &preparedToolInvocation{toolID: "call", toolName: "catalog_manage", args: map[string]any{"action": "apply"}}
 			handled, err := s.handleToolApprovalBeforeInvoke(call)
 			if err != nil || !handled {
 				t.Fatalf("handled=%v error=%v", handled, err)
 			}
-			if level == AccessLevelDefault {
+			if level == AccessLevelAskForApproval {
 				if s.hitlPendingCall != call || len(executor.invocations) != 0 {
 					t.Fatal("default skipped review")
 				}

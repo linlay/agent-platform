@@ -30,6 +30,9 @@ type YAMLTreeOptions struct {
 	// PreserveDecodedScalarPaths skips environment interpolation after escape
 	// decoding for exact-value fields such as automation query.message.
 	PreserveDecodedScalarPaths []string
+	// PreserveQuotedScalarPrefixes keeps quoted values as strings in selected
+	// strict configuration sections without changing legacy scalar coercion.
+	PreserveQuotedScalarPrefixes []string
 }
 
 // yamlDoubleQuotedScalar keeps the original quoted token until the complete
@@ -412,12 +415,24 @@ func normalizeYAMLTreeScalarAtPath(value any, options YAMLTreeOptions, path stri
 		return parseLegacyYAMLScalar(string(typed), !options.DisableEnvInterpolation)
 	case yamlSingleQuotedScalar:
 		raw := string(typed)
+		if preserveQuotedYAMLScalar(path, options.PreserveQuotedScalarPrefixes) {
+			return strings.ReplaceAll(raw[1:len(raw)-1], "''", "'")
+		}
 		if options.DecodeSingleQuotedEscapes {
 			return strings.ReplaceAll(raw[1:len(raw)-1], "''", "'")
 		}
 		return parseLegacyYAMLScalar(raw, !options.DisableEnvInterpolation)
 	case yamlDoubleQuotedScalar:
 		raw := string(typed)
+		if preserveQuotedYAMLScalar(path, options.PreserveQuotedScalarPrefixes) {
+			if decoded, err := strconv.Unquote(raw); err == nil {
+				if options.DisableEnvInterpolation {
+					return decoded
+				}
+				return interpolateEnvValue(decoded)
+			}
+			return raw[1 : len(raw)-1]
+		}
 		if options.DecodeDoubleQuotedEscapes {
 			if decoded, err := strconv.Unquote(raw); err == nil {
 				if options.DisableEnvInterpolation || preserveDecodedYAMLScalar(path, options.PreserveDecodedScalarPaths) {
@@ -590,4 +605,13 @@ func splitYAMLFlowKeyValue(raw string) (string, string, bool) {
 func looksLikeYAMLMapEntry(text string) bool {
 	key, _, hasValue := splitYAMLKeyValue(text)
 	return key != "" && (hasValue || strings.HasSuffix(strings.TrimSpace(text), ":"))
+}
+
+func preserveQuotedYAMLScalar(path string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if path == prefix || strings.HasPrefix(path, prefix+".") {
+			return true
+		}
+	}
+	return false
 }

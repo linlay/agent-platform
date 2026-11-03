@@ -48,7 +48,7 @@ func (b *Builder) PrepareRunReferences(ctx context.Context, session contracts.Qu
 		def = WithoutAttachmentPolicy(def)
 		policy = *def.InteractionConfig
 	}
-	remote := IsProxyRoutedAgent(def) || def.Engine == catalog.AgentEngineACP || catalog.AgentIsChannelMode(def.Mode)
+	remote := remoteReferenceBackend(def)
 	for _, ref := range refs {
 		if remote && (ref.Type == "chat" || ref.Type == "kbase" || ref.Type == "skill") {
 			return grant, fmt.Errorf("%s references are unsupported by this execution backend", ref.Type)
@@ -112,6 +112,10 @@ func (b *Builder) PrepareRunReferences(ctx context.Context, session contracts.Qu
 		}
 	}
 	return grant, nil
+}
+
+func remoteReferenceBackend(def catalog.AgentDefinition) bool {
+	return IsProxyRoutedAgent(def) || def.Engine == catalog.AgentEngineACP || catalog.AgentIsChannelMode(def.Mode)
 }
 
 // WithoutAttachmentPolicy returns a copy whose reference entries are all open,

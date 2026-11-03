@@ -19,6 +19,7 @@ func TestSourcesAndContent(t *testing.T) {
 		{filepath.Join(p.Connectors, "demo", "oauth.json"), `{"config":{"ClientID":"public-client","ClientSecret":"client-secret"},"token":{"access_token":"access-secret"},"status":"ready"}`, "ready", []string{"client-secret", "access-secret"}},
 		{filepath.Join(p.Connectors, "demo", "credentials.json"), `{"CUSTOM_KEY":"arbitrary-secret"}`, "CUSTOM_KEY", []string{"arbitrary-secret"}},
 		{p.SsoIdTokenFile, "opaque-identity", Hidden, []string{"opaque-identity"}},
+		{filepath.Join(root, "secrets", "sso-credentials.json"), `{"refreshToken":"private-refresh","idToken":"private-id"}`, Hidden, []string{"private-refresh", "private-id"}},
 	} {
 		t.Run(filepath.Base(tc.file), func(t *testing.T) {
 			got := p.Text(tc.file, tc.input, false)

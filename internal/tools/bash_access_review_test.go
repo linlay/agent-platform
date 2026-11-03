@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"agent-platform/internal/accesspolicy"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	shellplan "agent-platform/internal/shellreview/plan"
 )
 
 type scriptProbeSandbox struct {
@@ -73,7 +73,7 @@ func TestSandboxTemporarySymlinkEscapeCannotBeApproved(t *testing.T) {
 	ctx := fileToolExecutionContext(dir)
 	ctx.Session.AgentHasRuntimeSandbox = true
 	ctx.Session.RuntimeContext.SandboxPaths.WorkspaceDir = "/workspace"
-	for _, level := range []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess} {
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		ctx.Session.AccessLevel = level
 		ctx.AccessLevel = level
 		for _, command := range []string{"python3 /tmp/escape.py", "/tmp/escape"} {
@@ -110,7 +110,7 @@ func TestSandboxExecutorVerifiesMappedContentBeforeAuthoredAllow(t *testing.T) {
 	if !preflight.RequiresApproval() {
 		t.Fatalf("preflight: %+v", preflight)
 	}
-	accesspolicy.RegisterExactApproval(ctx, preflight.Fingerprint)
+	shellplan.RegisterExactApproval(ctx, preflight.Fingerprint)
 	result, err := executor.invokeSandboxBash(context.Background(), args, ctx)
 	if err != nil || result.Error != "" || result.Output != "container-ok\n" || client.executions != 1 || client.probes == 0 {
 		t.Fatalf("execute: %+v %v", result, err)

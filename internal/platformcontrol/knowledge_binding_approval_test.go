@@ -42,7 +42,7 @@ func bindingCandidate(mode, id, name, workspace string) string {
 }
 
 func TestCatalogLibraryBindingUsesOrdinaryApprovalForEveryMode(t *testing.T) {
-	for _, level := range []string{"default", "auto_approve", "full_access"} {
+	for _, level := range []string{"ask_for_approval", "auto_approve", "full_access"} {
 		for _, tc := range []struct {
 			name, beforeMode, afterMode string
 			before, after               string

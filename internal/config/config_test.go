@@ -37,7 +37,7 @@ func TestConversationExportConfiguredLimit(t *testing.T) {
 func TestDefaultReadonlyRootsMatchToolsExample(t *testing.T) {
 	want := []string{"@agent", "@skills"}
 	cfg := Config{AccessPolicy: defaultAccessPolicyConfig()}
-	if got := cfg.AccessPolicy.Levels["default"].ReadonlyRoots; !reflect.DeepEqual(got, want) {
+	if got := cfg.AccessPolicy.Levels["ask_for_approval"].ReadonlyRoots; !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected default readonly roots: %v", got)
 	}
 	tree, err := LoadYAMLTree(filepath.Join("..", "..", "configs", "tools.example.yml"))
@@ -45,7 +45,7 @@ func TestDefaultReadonlyRootsMatchToolsExample(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.applyAccessPolicyValues(tree.(map[string]any)["access-policy"].(map[string]any))
-	if got := cfg.AccessPolicy.Levels["default"].ReadonlyRoots; !reflect.DeepEqual(got, want) {
+	if got := cfg.AccessPolicy.Levels["ask_for_approval"].ReadonlyRoots; !reflect.DeepEqual(got, want) {
 		t.Fatalf("example readonly roots differ from defaults: %v", got)
 	}
 }
@@ -169,7 +169,7 @@ func TestLoadDefaults(t *testing.T) {
 				if cfg.RuntimeMode != RuntimeModeStandalone {
 					t.Fatalf("unexpected default runtime mode: %q", cfg.RuntimeMode)
 				}
-				defaultLevel := cfg.AccessPolicy.Levels["default"]
+				defaultLevel := cfg.AccessPolicy.Levels["ask_for_approval"]
 				if got := strings.Join(defaultLevel.ReadRoots, ","); got != "@workspace,@chat,@agent,@skills,@temp" {
 					t.Fatalf("unexpected default access-policy read roots: %#v", defaultLevel.ReadRoots)
 				}
@@ -1423,7 +1423,7 @@ func TestAccessPolicyConfigYAMLOverrides(t *testing.T) {
 		content := "" +
 			"access-policy:\n" +
 			"  levels:\n" +
-			"    default:\n" +
+			"    ask_for_approval:\n" +
 			"      read-roots:\n" +
 			"        - \"@workspace\"\n" +
 			"        - \"@chat\"\n" +
@@ -1439,7 +1439,7 @@ func TestAccessPolicyConfigYAMLOverrides(t *testing.T) {
 			if err != nil {
 				t.Fatalf("load config: %v", err)
 			}
-			level := cfg.AccessPolicy.Levels["default"]
+			level := cfg.AccessPolicy.Levels["ask_for_approval"]
 			if strings.Join(level.ReadRoots, ",") != "@workspace,@chat,@temp" {
 				t.Fatalf("unexpected read roots: %#v", level.ReadRoots)
 			}
@@ -1456,15 +1456,15 @@ func TestAccessPolicyConfigYAMLOverrides(t *testing.T) {
 func TestAccessPolicyNormalizePreservesRootInheritanceIntent(t *testing.T) {
 	cfg := normalizeAccessPolicyConfig(AccessPolicyConfig{
 		Levels: map[string]AccessPolicyLevelConfig{
-			"default": {
+			"ask_for_approval": {
 				ReadRoots:  []string{"@workspace", "@chat"},
 				WriteRoots: []string{"@workspace", "@chat"},
 			},
 			"auto_approve": {
-				Inherit: "default",
+				Inherit: "ask_for_approval",
 			},
 			"empty": {
-				Inherit:    "default",
+				Inherit:    "ask_for_approval",
 				ReadRoots:  []string{},
 				WriteRoots: []string{},
 			},
@@ -1645,7 +1645,7 @@ func TestToolsConfigYAMLOverrides(t *testing.T) {
 		content := "" +
 			"access-policy:\n" +
 			"  levels:\n" +
-			"    default:\n" +
+			"    ask_for_approval:\n" +
 			"      read-roots:\n" +
 			"        - \"@workspace\"\n" +
 			"      write-roots:\n" +
@@ -1674,7 +1674,7 @@ func TestToolsConfigYAMLOverrides(t *testing.T) {
 						if err != nil {
 							t.Fatalf("load config: %v", err)
 						}
-						level := cfg.AccessPolicy.Levels["default"]
+						level := cfg.AccessPolicy.Levels["ask_for_approval"]
 						if strings.Join(level.ReadRoots, ",") != "@workspace,@temp" {
 							t.Fatalf("unexpected read roots: %#v", level.ReadRoots)
 						}
@@ -2253,11 +2253,11 @@ func withProjectFileContents(t *testing.T, relativePath string, content *string,
 
 func TestNewApprovalKeysUseLevelDefaultsAndInheritance(t *testing.T) {
 	cfg := normalizeAccessPolicyConfig(AccessPolicyConfig{Levels: map[string]AccessPolicyLevelConfig{
-		"default":      {Approvals: AccessPolicyApprovalConfig{ReadOutsideRoots: "hitl"}},
-		"full_access":  {ReadRoots: []string{"@root"}, WriteRoots: []string{"@root"}},
-		"auto_approve": {Inherit: "default"},
+		"ask_for_approval": {Approvals: AccessPolicyApprovalConfig{ReadOutsideRoots: "hitl"}},
+		"full_access":      {ReadRoots: []string{"@root"}, WriteRoots: []string{"@root"}},
+		"auto_approve":     {Inherit: "ask_for_approval"},
 	}})
-	if got := cfg.Levels["default"].Approvals; got.Destructive != "hitl" || got.ExecutableConfig != "hitl" || got.RemoteMutation != "hitl" {
+	if got := cfg.Levels["ask_for_approval"].Approvals; got.Destructive != "hitl" || got.ExecutableConfig != "hitl" || got.RemoteMutation != "hitl" {
 		t.Fatalf("default level: %#v", got)
 	}
 	if got := cfg.Levels["full_access"].Approvals; got.Destructive != "allow" || got.RemoteMutation != "allow" || got.ExecutableConfig != "allow" {
@@ -2266,7 +2266,7 @@ func TestNewApprovalKeysUseLevelDefaultsAndInheritance(t *testing.T) {
 	if got := cfg.Levels["auto_approve"].Approvals; got.Destructive != "" {
 		t.Fatalf("inheriting levels resolve new keys from their parent: %#v", got)
 	}
-	for _, root := range DefaultAccessPolicyConfig().Levels["default"].WriteRoots {
+	for _, root := range DefaultAccessPolicyConfig().Levels["ask_for_approval"].WriteRoots {
 		if root == "@workspace" {
 			t.Fatal("workspace writes are governed by editing, not write-roots")
 		}

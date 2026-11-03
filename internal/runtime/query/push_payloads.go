@@ -31,11 +31,15 @@ func normalizedRunFinishedReason(finishReason string) string {
 	}
 }
 
-func runStartedPushPayload(runID, chatID, agentKey string, startedAt int64) map[string]any {
-	return map[string]any{
+func runStartedPushPayload(runID, chatID, agentKey string, startedAt int64, executeRequestID ...string) map[string]any {
+	payload := map[string]any{
 		"runId":     runID,
 		"chatId":    chatID,
 		"agentKey":  agentKey,
 		"startedAt": startedAt,
 	}
+	if len(executeRequestID) == 1 && executeRequestID[0] != "" {
+		payload["requestId"] = executeRequestID[0]
+	}
+	return payload
 }

@@ -354,7 +354,7 @@ func (m *Manager) StatusComponent(_ context.Context, id, component string) (Sess
 	result := Session{ConnectorID: id, AuthBrowser: pkg.AuthorizationBrowser(), Status: "unauthorized"}
 	if pkg.AuthMode == connector.AuthOneID {
 		identity, err := agentconfig.ReadIdentityEnvironment(m.ssoIdTokenFile)
-		if err == nil && identity[agentconfig.EnvAccessToken] != "" {
+		if err == nil && identity[agentconfig.EnvIDToken] != "" {
 			result.Status = "authorized"
 		} else {
 			result.Message = "Desktop SSO is unavailable; sign in through Desktop"

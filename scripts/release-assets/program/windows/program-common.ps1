@@ -42,6 +42,9 @@ $Script:DeployRuntimeResourceSource = ''
 $Script:DeployRuntimeResourcePreviousSource = ''
 $Script:DeployRuntimeResourceMode = ''
 $Script:DeployDesktopDeviceId = ''
+$Script:DeployRuntimeRecoverySource = ''
+$Script:DeployRuntimeRecoveryAction = ''
+$Script:DeployRuntimeRecoveryConfigDir = ''
 $Script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 function Fail-Program([string]$Message) {
@@ -119,6 +122,9 @@ function Set-ProgramDeployOption([string]$Name, [string]$Value) {
       Assert-ProgramPreviewOrigin $Value
       $Script:DeployDocumentPreviewPublicBaseUrl = $Value
     }
+    '--runtime-recovery-config-dir' { $Script:DeployRuntimeRecoveryConfigDir = $Value }
+    '--runtime-recovery-source' { $Script:DeployRuntimeRecoverySource = $Value }
+    '--runtime-recovery-action' { $Script:DeployRuntimeRecoveryAction = $Value }
     '--ap-runtime-dir' { $Script:DeployAPRuntimeDir = $Value }
     '--container-hub-base-url' { $Script:DeployContainerHubBaseUrl = $Value }
     '--ai-vision-general-model-key' { $Script:DeployAIVisionGeneralModelKey = $Value }
@@ -172,6 +178,9 @@ function Set-ProgramDeployArgs([string[]]$Arguments) {
       '--output-dir',
       '--document-preview-api-base-url',
       '--document-preview-public-base-url',
+      '--runtime-recovery-config-dir',
+      '--runtime-recovery-source',
+      '--runtime-recovery-action',
       '--ap-runtime-dir',
       '--container-hub-base-url',
       '--ai-vision-general-model-key',
@@ -203,6 +212,12 @@ function Set-ProgramDeployArgs([string[]]$Arguments) {
     Set-ProgramDeployOption $name $Arguments[$i]
   }
 
+  if (-not [string]::IsNullOrWhiteSpace($Script:DeployRuntimeRecoverySource) -or -not [string]::IsNullOrWhiteSpace($Script:DeployRuntimeRecoveryAction)) {
+    Assert-ProgramArgValue '--runtime-recovery-source' $Script:DeployRuntimeRecoverySource
+    Assert-ProgramArgValue '--ap-runtime-dir' $Script:DeployAPRuntimeDir
+    if (@('check', 'restore') -notcontains $Script:DeployRuntimeRecoveryAction) { Fail-Program 'recovery action must be check or restore' }
+    return
+  }
   if ((Test-Path -LiteralPath (Join-Path $Script:BundleRoot 'configs/runtime.example.yml')) -and
       ($Script:DeployDesktopConfigReset -or -not (Test-Path -LiteralPath (Join-Path $Script:ConfigRoot 'configs/runtime.yml')))) {
     Assert-ProgramArgValue '--document-preview-api-base-url' $Script:DeployDocumentPreviewAPIBaseUrl
@@ -746,4 +761,20 @@ function Convert-ProgramSsoProviderConfig {
       [IO.File]::Replace($temporary, $file.FullName, $null)
     } finally { if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force } }
   }
+}
+
+function Invoke-ProgramRuntimeRecovery {
+  # Protect before copying credentials; new children inherit this private ACL.
+  if ($Script:DeployRuntimeRecoveryAction -eq 'restore' -and (Test-Path -LiteralPath $Script:DeployAPRuntimeDir -PathType Container)) { Protect-ProgramConfigTree $Script:DeployAPRuntimeDir }
+  $arguments = @('runtime-recovery', '--source-config-dir', $Script:DeployRuntimeRecoveryConfigDir,
+    '--source', $Script:DeployRuntimeRecoverySource, '--ap-runtime-dir', $Script:DeployAPRuntimeDir,
+    '--action', $Script:DeployRuntimeRecoveryAction)
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $nativeOutput = @(& $Script:BackendBin @arguments 2>&1)
+    $nativeExitCode = $LASTEXITCODE
+  } finally { $ErrorActionPreference = $previousErrorActionPreference }
+  foreach ($item in $nativeOutput) { Write-Output ([string]$item) }
+  if ($nativeExitCode -ne 0) { Fail-Program "runtime-recovery failed with exit code $nativeExitCode" }
 }

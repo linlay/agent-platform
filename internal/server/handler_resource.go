@@ -17,10 +17,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/documentmeta"
 	"agent-platform/internal/rootpaths"
 	"agent-platform/internal/temppaths"
 )
@@ -188,18 +188,7 @@ func (s *Server) serveResourcePath(w http.ResponseWriter, r *http.Request, path 
 	if semanticName == "" {
 		semanticName = info.Name()
 	}
-	const sampleBytes = 512
-	buffer := make([]byte, sampleBytes+utf8.UTFMax-1)
-	n, _ := file.ReadAt(buffer, 0)
-	sampleComplete := n <= sampleBytes
-	sampleEnd := min(n, sampleBytes)
-	sample := buffer[:sampleEnd]
-	var lookahead []byte
-	if n > sampleEnd {
-		lookahead = buffer[sampleEnd:n]
-	}
-	detectedMIME := detectDocumentSampleMIME(semanticName, sample, lookahead, sampleComplete)
-	metadata := resolveDocumentMetadata(semanticName, detectedMIME, sample, lookahead, sampleComplete)
+	metadata, _ := documentmeta.ResolveReader(semanticName, file)
 	w.Header().Set("Content-Type", metadata.MIMEType)
 	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
 	w.Header().Set("X-Content-Type-Options", "nosniff")

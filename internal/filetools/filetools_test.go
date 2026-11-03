@@ -351,7 +351,7 @@ func TestBuildEditPlanWithAccessWithoutDescription(t *testing.T) {
 func accessPolicyForRoot(root string) config.AccessPolicyConfig {
 	return config.AccessPolicyConfig{
 		Levels: map[string]config.AccessPolicyLevelConfig{
-			contracts.AccessLevelDefault: {
+			contracts.AccessLevelAskForApproval: {
 				ReadRoots:  []string{root},
 				WriteRoots: []string{root},
 			},
@@ -362,7 +362,7 @@ func accessPolicyForRoot(root string) config.AccessPolicyConfig {
 func mustAccessPlan(t *testing.T, cfg config.AccessPolicyConfig, mode AccessMode, rawPath string) AccessPlan {
 	t.Helper()
 	root := ""
-	if level, ok := cfg.Levels[contracts.AccessLevelDefault]; ok && len(level.ReadRoots) > 0 {
+	if level, ok := cfg.Levels[contracts.AccessLevelAskForApproval]; ok && len(level.ReadRoots) > 0 {
 		root = level.ReadRoots[0]
 	}
 	plan, err := BuildAccessPlanFromPolicy(cfg, contracts.QuerySession{WorkspaceRoot: root}, mode, rawPath)

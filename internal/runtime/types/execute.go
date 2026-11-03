@@ -24,6 +24,11 @@ type ExecuteCommand struct {
 	// the request is valid and before the Run starts.
 	StoreFiles func(chatID string) (map[string]string, error)
 
+	// OnPrepared reserves the generated identity in a trusted caller's ownership
+	// ledger before registration or model execution. A failure aborts admission.
+	// This hook is internal; transports never decode it from request JSON.
+	OnPrepared func(RunRef) error `json:"-"`
+
 	Locale          string
 	ResourceBaseURL string
 	ChatSource      string
@@ -36,4 +41,17 @@ type ExecuteResult struct {
 	Status string         `json:"status"`
 	Output map[string]any `json:"output,omitempty"`
 	Reason string         `json:"reason,omitempty"`
+}
+
+// A valid empty object is still a required success output; omitempty would lose it.
+func (r ExecuteResult) MarshalJSON() ([]byte, error) {
+	if r.Status == "success" {
+		return json.Marshal(struct {
+			ChatID string         `json:"chatId"`
+			Status string         `json:"status"`
+			Output map[string]any `json:"output"`
+		}{r.ChatID, r.Status, r.Output})
+	}
+	type result ExecuteResult
+	return json.Marshal(result(r))
 }

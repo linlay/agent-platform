@@ -105,6 +105,8 @@ type QueryLineSystem struct {
 // Lines written before this layout have no top-level requestId and keep the
 // resolved request inside Query; see requestPayloadFromLine.
 type QueryLine struct {
+	// LegacyAccessLevel marks a persisted concrete default from before the split.
+	LegacyAccessLevel bool `json:"-"`
 	*queryinput.MailInput
 	ChatID    string `json:"chatId"`
 	RunID     string `json:"runId"`
@@ -401,6 +403,8 @@ type StoredToolCall struct {
 	Type     string         `json:"type"`
 	Function StoredFunction `json:"function"`
 	ToolID   string         `json:"_toolId,omitempty"`
+	// Display label frozen at call time; omitted when it equals the name.
+	ToolLabel string `json:"_toolLabel,omitempty"`
 }
 
 type StoredFunction struct {

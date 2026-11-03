@@ -34,6 +34,17 @@ func TestAutomationBooleanTypeErrorBeforeReview(t *testing.T) {
 	}
 }
 
+func TestAutomationPermissionErrorPreservesCodeAndDoesNotStart(t *testing.T) {
+	h := NewToolHandler(config.Config{}, nil, nil).ConfigureAutomation(&automation.Service{Registry: automation.NewRegistry(t.TempDir()), DefaultZoneID: "UTC"})
+	e := controlExecution()
+	e.RunControl.UpdateAccessLevel("auto_approve")
+	args := map[string]any{"action": "create", "args": map[string]any{"name": "task", "agentKey": "worker", "cron": "0 9 * * *", "enabled": false, "query": map[string]any{"message": "task", "accessLevel": "full_access"}}}
+	result, err := h.Invoke(context.Background(), "automation_manage", args, e)
+	if err != nil || result.Error != "automation_access_level_exceeded" || result.Structured["executionState"] != "not_started" {
+		t.Fatalf("unexpected rejection: %+v %v", result, err)
+	}
+}
+
 func TestAutomationRemainingRunsNullAdmissionOnlyOnUpdate(t *testing.T) {
 	h := &ToolHandler{}
 	e := controlExecution()

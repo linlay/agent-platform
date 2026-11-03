@@ -113,25 +113,31 @@ func (s *Server) handleChatArtifact(w http.ResponseWriter, r *http.Request) {
 		var item chatresource.Artifact
 		var e error
 		if req.SourceRef != "" {
-			f, item, e = s.chatResources.OpenArtifactByRef(req.ChatID, req.SourceRef)
+			f, item, e = s.chatResources.OpenArtifactByRef(r.Context(), req.ChatID, req.SourceRef)
 		} else {
-			f, item, e = s.chatResources.OpenArtifact(req.ChatID, req.ArtifactID, req.RunID)
+			f, item, e = s.chatResources.OpenArtifact(r.Context(), req.ChatID, req.ArtifactID, req.RunID)
 		}
 		if e != nil {
 			fail(e)
 			return
 		}
-		defer f.Close()
-		stopRequest := context.AfterFunc(r.Context(), func() { f.Close() })
-		defer stopRequest()
-		info, e := f.Stat()
-		if e != nil {
+		if e = serveChatResource(w, r, f, item.Name, item.MIMEType); e != nil {
 			fail(e)
-			return
 		}
-		w.Header().Set("Content-Type", item.MIMEType)
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": item.Name}))
-		http.ServeContent(w, r, item.Name, info.ModTime(), f)
 	}
+}
+
+func serveChatResource(w http.ResponseWriter, r *http.Request, f *os.File, name, mimeType string) error {
+	defer f.Close()
+	stop := context.AfterFunc(r.Context(), func() { f.Close() })
+	defer stop()
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", mimeType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+	http.ServeContent(w, r, name, info.ModTime(), f)
+	return nil
 }

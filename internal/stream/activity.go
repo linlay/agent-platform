@@ -2,12 +2,11 @@ package stream
 
 import (
 	"strings"
-	"time"
 
 	"agent-platform/internal/i18n"
 )
 
-// run.activity tells a summary viewer, in one sentence, what the Run (or one
+// run.activity tells a viewer, in one sentence, what the Run (or one
 // of its subtasks, by taskId) is doing now. A newer activity replaces the
 // older one of the same scope; an empty message clears it while the user
 // reads visible output (content or a plan), and a Run terminal event clears
@@ -77,37 +76,28 @@ func activityKind(payload map[string]any) string {
 	return anyString(payload["kind"])
 }
 
-// ActivityTracker derives progress activities from published events and
-// leaves repeated activity presentation to clients. An announcement holds
-// its scope: for at least the hold after it, other
-// activities of that scope are dropped, until visible output starts (idle),
-// a newer announcement replaces it, or the Run ends. The hold only expires
-// when the next activity arrives, so a long step keeps its announcement.
+// ActivityTracker derives progress activities from published events for full
+// streams. Delivery filtering keeps only announcements and clears for summary.
 type ActivityTracker struct {
 	runID  string
 	chatID string
-	hold   int64
 	last   map[string]map[string]any
-	// heldUntil is the event time, in milliseconds, before which a scope's
-	// announcement holds.
-	heldUntil map[string]int64
 	// beforeAwait keeps what a scope was doing when it started waiting for
 	// the user; an approved tool continues without a new start event.
 	beforeAwait map[string]map[string]any
 }
 
-// NewActivityTracker creates a tracker; a hold of zero or less disables it.
-func NewActivityTracker(runID, chatID string, hold time.Duration) *ActivityTracker {
+// NewActivityTracker creates a tracker without delaying or suppressing activities.
+func NewActivityTracker(runID, chatID string) *ActivityTracker {
 	return &ActivityTracker{
-		runID: runID, chatID: chatID, hold: hold.Milliseconds(),
-		last: map[string]map[string]any{}, heldUntil: map[string]int64{}, beforeAwait: map[string]map[string]any{},
+		runID: runID, chatID: chatID,
+		last: map[string]map[string]any{}, beforeAwait: map[string]map[string]any{},
 	}
 }
 
-// Track reports whether event, published at the given epoch milliseconds,
-// should still be published and returns the activities it implies, to be
+// Track keeps the original event and returns the activities it implies, to be
 // published right after it.
-func (t *ActivityTracker) Track(eventType string, at int64, payload map[string]any) (bool, []StreamEvent) {
+func (t *ActivityTracker) Track(eventType string, payload map[string]any) (bool, []StreamEvent) {
 	if t == nil {
 		return true, nil
 	}
@@ -119,9 +109,6 @@ func (t *ActivityTracker) Track(eventType string, at int64, payload map[string]a
 			delete(t.last, taskID)
 			return true, nil
 		}
-		if !t.admit(taskID, activityKind(payload), at) {
-			return false, nil
-		}
 		if activity, ok := payload["activity"].(map[string]any); ok {
 			t.last[taskID] = activity
 			return true, nil
@@ -132,13 +119,11 @@ func (t *ActivityTracker) Track(eventType string, at int64, payload map[string]a
 	case "run.complete", "run.cancel", "run.error":
 		if taskID == "" {
 			t.last = map[string]map[string]any{}
-			t.heldUntil = map[string]int64{}
 			t.beforeAwait = map[string]map[string]any{}
 		}
 		return true, nil
 	case "task.complete", "task.cancel", "task.error":
 		delete(t.last, taskID)
-		delete(t.heldUntil, taskID)
 		delete(t.beforeAwait, taskID)
 		return true, nil
 	case "awaiting.ask":
@@ -147,11 +132,9 @@ func (t *ActivityTracker) Track(eventType string, at int64, payload map[string]a
 		}
 	}
 	var activity map[string]any
-	restored := false
 	if eventType == "awaiting.answer" {
 		activity = t.beforeAwait[taskID]
 		delete(t.beforeAwait, taskID)
-		restored = true
 	} else {
 		activity = derivedActivity(eventType, payload)
 	}
@@ -161,13 +144,6 @@ func (t *ActivityTracker) Track(eventType string, at int64, payload map[string]a
 	if eventType == "task.start" {
 		// Delegation is what the parent is doing; the subtask reports its own.
 		taskID = ""
-	}
-	// Restoring what a scope did before a wait is no new announcement.
-	if !restored && !t.admit(taskID, anyString(activity["kind"]), at) {
-		return true, nil
-	}
-	if restored && t.held(taskID, at) && anyString(activity["kind"]) != ActivityKindAnnounce {
-		return true, nil
 	}
 	t.last[taskID] = activity
 	chatID := t.chatID
@@ -179,32 +155,6 @@ func (t *ActivityTracker) Track(eventType string, at int64, payload map[string]a
 		runID = anyString(payload["runId"])
 	}
 	return true, []StreamEvent{newActivityEvent(runID, chatID, taskID, activity)}
-}
-
-// admit applies the announcement hold to a fresh activity of a scope: an
-// announcement starts or renews the hold, idle ends it, and anything else
-// waits until the hold has passed.
-func (t *ActivityTracker) admit(scope string, kind string, at int64) bool {
-	switch kind {
-	case ActivityKindAnnounce:
-		if t.hold > 0 {
-			t.heldUntil[scope] = at + t.hold
-		}
-		return true
-	case "idle":
-		delete(t.heldUntil, scope)
-		return true
-	}
-	if t.held(scope, at) {
-		return false
-	}
-	delete(t.heldUntil, scope)
-	return true
-}
-
-func (t *ActivityTracker) held(scope string, at int64) bool {
-	until, ok := t.heldUntil[scope]
-	return ok && at < until
 }
 
 func derivedActivity(eventType string, payload map[string]any) map[string]any {

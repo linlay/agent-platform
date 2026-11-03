@@ -85,7 +85,7 @@ func TestQueryPersistsOriginalJSONAcrossTransports(t *testing.T) {
 			if !reflect.DeepEqual(line.Query, want) {
 				t.Fatalf("incoming query changed: got %#v, want %#v", line.Query, want)
 			}
-			if line.AccessLevel != "default" || line.AgentKey != "mock-agent" || line.RunID == "" || line.RequestID == "" ||
+			if line.AccessLevel != "ask_for_approval" || line.AgentKey != "mock-agent" || line.RunID == "" || line.RequestID == "" ||
 				line.Origin == nil || line.Origin.Type != "user" || line.Lane != "" {
 				t.Fatalf("platform decisions lost beside the query: %#v", line)
 			}

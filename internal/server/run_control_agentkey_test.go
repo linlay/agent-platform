@@ -133,7 +133,7 @@ func TestAccessLevelHTTPUpdatesRunAccessLevel(t *testing.T) {
 		ChatID:      "chat-access-http",
 		AgentKey:    "mock-agent",
 		RunOwner:    contracts.AgentRunOwner("mock-agent"),
-		AccessLevel: contracts.AccessLevelDefault,
+		AccessLevel: contracts.AccessLevelAskForApproval,
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/access-level", bytes.NewBufferString(`{"agentKey":"mock-agent","runId":"run-access-http","accessLevel":"auto_approve","reason":"test"}`))

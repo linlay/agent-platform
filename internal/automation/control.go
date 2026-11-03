@@ -151,7 +151,7 @@ func (s *Service) prepareControl(action string, args map[string]any, key string)
 	// The effective zone in After is bound to approval separately below.
 	def.Query.AccessLevel, _ = normalizeAutomationAccessLevel(def.Query.AccessLevel)
 	if def.Query.AccessLevel == "" {
-		def.Query.AccessLevel = "default"
+		def.Query.AccessLevel = contracts.AccessLevelAskForApproval
 	}
 	p.Definition = def
 	if def.Query.RequestID != "" || len(def.Query.References) > 0 || def.Query.Scene != nil {
@@ -198,6 +198,10 @@ func (s *Service) detailForDefinition(def Definition) (api.AutomationDetailRespo
 // ExecuteControl serializes HTTP/tool management and records the intent before any side effect.
 // An invocation whose outcome is unknown is never replayed.
 func (s *Service) ExecuteControl(action string, args map[string]any, key string, authorize func(string) bool) (any, error) {
+	return s.executeControl(action, args, key, authorize, nil)
+}
+
+func (s *Service) executeControl(action string, args map[string]any, key string, authorize func(string) bool, callerLevel *string) (any, error) {
 	if err := s.AutomationDepsReady(); err != nil {
 		return nil, err
 	}
@@ -206,6 +210,11 @@ func (s *Service) ExecuteControl(action string, args map[string]any, key string,
 	p, err := s.prepareControl(action, args, key)
 	if err != nil {
 		return nil, err
+	}
+	if callerLevel != nil {
+		if err := s.validateControlCaller(p, key, *callerLevel); err != nil {
+			return nil, err
+		}
 	}
 	if !authorize(p.Digest) {
 		return nil, fmt.Errorf("approval_required: approve this exact invocation and baseline")

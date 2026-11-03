@@ -10,6 +10,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	rt "agent-platform/internal/runtime/types"
 )
 
 func postPrimaryQuery(t *testing.T, handler http.Handler, body map[string]any) *httptest.ResponseRecorder {
@@ -111,6 +112,32 @@ func TestPrimaryChatQueryCreatesAndReplacesPrimary(t *testing.T) {
 	}
 	if rec := putChatPrimary(t, fixture.server, "missing"); rec.Code != http.StatusNotFound {
 		t.Fatalf("PUT missing chat: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestReservedPrimaryDoesNotOverwriteConcurrentPrimary(t *testing.T) {
+	f := newTestFixture(t)
+	service := testQueryService(f.server)
+	admission, err := service.PrepareQueryAdmissionRequest(context.Background(), rt.QueryCommand{AgentKey: "mock-agent", ChatID: "reserved-voice", Message: "voice question", Primary: true, PrimaryIfMissing: true}, true, "zh-CN", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Publish another primary between the ordinary admission and creation steps.
+	if response := postPrimaryQuery(t, f.server, map[string]any{"agentKey": "mock-agent", "chatId": "selected-primary", "message": "selected elsewhere", "primary": true}); response.Code != http.StatusOK {
+		t.Fatal(response.Body.String())
+	}
+	prepared, err := service.CompleteQueryPreparation(context.Background(), admission, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.Release != nil {
+		defer prepared.Release()
+	}
+	if prepared.Session.RunEnvironment != nil {
+		defer prepared.Session.RunEnvironment.Destroy()
+	}
+	if id := agentPrimaryChatID(t, f.server, "mock-agent"); id != "selected-primary" {
+		t.Fatalf("reserved Query replaced primary: %s", id)
 	}
 }
 

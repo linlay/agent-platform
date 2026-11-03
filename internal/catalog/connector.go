@@ -161,7 +161,9 @@ func resolveConnectorPackages(def *AgentDefinition, load func(string) (connector
 		if err != nil {
 			return err
 		}
-		if len(credential.Env) > 0 {
+		// OneID CLI entries receive the default identity variable even without
+		// custom templates, and must retain the direct-invocation restriction.
+		if len(credential.Env) > 0 || (pkg.AuthMode == connector.AuthOneID && pkg.CLI != nil) {
 			for name := range credential.Env {
 				if credentialNames[name] {
 					return fmt.Errorf("connectors have conflicting credential env %s", name)

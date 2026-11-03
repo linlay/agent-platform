@@ -62,3 +62,17 @@ Workspace 由 Agent `workspaceRoot` 决定；full_access 只把访问范围扩�
 - `find -exec` / `xargs` 内部执行对象、Container glob 和 Windows Shell 方言仍有分析限制；Git include 变更依赖缓存刷新，不能保证即时失效。
 
 具体路径、脚本凭据与审批规则见 [工具目录权限](工具目录权限.md)；人工交互与恢复见 [HITL 协议](HITL协议.md)。
+
+
+### 控制源码只写保护与默认权限
+
+受管 Agent/Automation 源码和 Agent 运行版本根（AgentsDir、AutomationsDir、RUAgentsDir）通过受信任只写保护拒绝普通文件工具及可分析 Bash mutation，优先于 writeRoots、hostAccess、审批收据与 full_access；祖先目录只拦截移动、删除和递归操作（与其他只读根相同的子树检查），写入祖先目录中的普通文件不受影响，Workspace 包含 runtime 根时仍可正常使用。读取沿用普通策略，专用管理事务仍可写。ProtectedPaths 继续用于同时禁读禁写的身份/状态秘密，不混用。Host 任意脚本仍无 OS 级隔离，不能据此保证脚本内部无法访问源码。
+
+Run 默认权限来自 Agent accessConfig.default，未配置为 ask_for_approval；显式用户输入优先。子执行器使用自身默认，父 Run 降档不限制整条调用链；切档不写回 Agent 配置。Automation 省略仍固定 ask_for_approval。
+
+尚未验证，不能写成已交付：
+
+- 真实 Codex/Claude ACP bridge 与远端 Proxy 对已解析档位的实际执行效果（目前只有本地测试后端用例）。
+- Desktop 普通聊天、看板与嵌入 WebClient 的端到端档位联调。
+- 管理接口与连接器身份边界：受限连接器执行能力、oneid 进程获得的身份 token 能否调用管理路由，公开 CLI env、错误输出、命令行与工具结果是否泄露可复用管理凭据；关闭鉴权的部署不能把 Agent 工具审批当作 HTTP 管理边界。
+- tools.yml、agent-settings 等安全配置及 Connector/Skill 源码是否需要同类只写保护，尚未做范围审计。

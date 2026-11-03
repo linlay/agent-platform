@@ -51,7 +51,7 @@ func processEnvironment(req startPTYRequest) []string {
 	filtered := make([]string, 0, len(env))
 	for _, entry := range env {
 		key, _, _ := strings.Cut(entry, "=")
-		if !strings.EqualFold(key, agentconfig.EnvChatDir) && !strings.EqualFold(key, agentconfig.EnvAccessToken) {
+		if !strings.EqualFold(key, agentconfig.EnvChatDir) && !strings.EqualFold(key, agentconfig.EnvIDToken) {
 			filtered = append(filtered, entry)
 		}
 	}

@@ -97,21 +97,21 @@ func (s *ContainerHubSandboxService) resolveRuntimeLevel(execCtx *contracts.Exec
 
 func (s *ContainerHubSandboxService) Execute(ctx context.Context, execCtx *contracts.ExecutionContext, command string, cwd string, timeout int64, env map[string]string) (contracts.SandboxExecutionResult, error) {
 	if err := agentconfig.ValidateUserEnvironment(env); err != nil {
-		return contracts.SandboxExecutionResult{}, err
+		return contracts.SandboxExecutionResult{}, fmt.Errorf("%w: %w", contracts.ErrSandboxCommandNotStarted, err)
 	}
 	if err := s.OpenIfNeeded(ctx, execCtx); err != nil {
-		return contracts.SandboxExecutionResult{}, err
+		return contracts.SandboxExecutionResult{}, fmt.Errorf("%w: %w", contracts.ErrSandboxCommandNotStarted, err)
 	}
 	executionCwd := strings.TrimSpace(cwd)
 	if executionCwd == "" {
 		executionCwd = strings.TrimSpace(execCtx.Session.RuntimeContext.SandboxPaths.WorkspaceDir)
 	}
 	if executionCwd == "" {
-		return contracts.SandboxExecutionResult{}, fmt.Errorf("workspace_unavailable: sandbox execution requires a workspace")
+		return contracts.SandboxExecutionResult{}, fmt.Errorf("%w: workspace_unavailable: sandbox execution requires a workspace", contracts.ErrSandboxCommandNotStarted)
 	}
 	payload := map[string]any{
-		"command": "/bin/sh",
-		"args":    []string{"-lc", command},
+		"command": sandboxShellExecutable,
+		"args":    []string{sandboxShellStartup, command},
 		"cwd":     executionCwd,
 	}
 	if timeout > 0 {
@@ -119,7 +119,7 @@ func (s *ContainerHubSandboxService) Execute(ctx context.Context, execCtx *contr
 	}
 	executionEnv, err := sandboxCommandEnvironment(execCtx, env)
 	if err != nil {
-		return contracts.SandboxExecutionResult{}, fmt.Errorf("snapshot run environment: %w", err)
+		return contracts.SandboxExecutionResult{}, fmt.Errorf("%w: snapshot run environment: %w", contracts.ErrSandboxCommandNotStarted, err)
 	}
 	if len(executionEnv) > 0 {
 		payload["env"] = executionEnv

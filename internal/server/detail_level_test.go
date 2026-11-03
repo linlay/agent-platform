@@ -53,16 +53,19 @@ func TestQueryDefaultsToSummaryDetail(t *testing.T) {
 	}
 
 	var activities []string
+	var usageSnapshots int
 	var lastSeq float64
 	var complete map[string]any
 	for _, message := range decodeSSEMessages(t, rec.Body.String()) {
 		eventType, _ := message["type"].(string)
 		switch {
 		case strings.HasPrefix(eventType, "tool."), strings.HasPrefix(eventType, "reasoning."),
-			eventType == "usage.snapshot", eventType == "debug.llmChat":
+			eventType == "debug.llmChat":
 			t.Fatalf("summary leaked %s: %#v", eventType, message)
+		case eventType == "usage.snapshot":
+			usageSnapshots++
 		case eventType == "run.activity":
-			if message["seq"] != float64(0) || message["activity"] != nil || message["retry"] != nil || message["phase"] != nil {
+			if message["seq"] != float64(0) || message["activity"] != nil || message["phase"] != nil {
 				t.Fatalf("unexpected summary activity %#v", message)
 			}
 			activities = append(activities, message["message"].(string))
@@ -76,14 +79,16 @@ func TestQueryDefaultsToSummaryDetail(t *testing.T) {
 		}
 		lastSeq = seq
 	}
-	// Content clears the line with an empty message instead of "replying".
-	want := []string{"正在思考", "正在调用「日期时间」", "正在思考", ""}
-	if strings.Join(activities, "|") != strings.Join(want, "|") {
-		t.Fatalf("activities=%q want %q", activities, want)
+	// Notifications include automatic progress and retain the clear when content starts.
+	if len(activities) == 0 || activities[len(activities)-1] != "" {
+		t.Fatalf("activities=%q", activities)
+	}
+	if usageSnapshots == 0 {
+		t.Fatal("summary did not receive live usage")
 	}
 	usage, _ := complete["usage"].(map[string]any)
 	run, _ := usage["run"].(map[string]any)
-	// Summary viewers read usage from the terminal event.
+	// Terminal usage remains available alongside live snapshots.
 	if run["toolCallCount"] != float64(1) || run["llmChatCompletionCount"] != float64(2) ||
 		run["promptTokens"] != float64(30) || run["completionTokens"] != float64(7) {
 		t.Fatalf("unexpected terminal usage: %#v", complete)
@@ -96,6 +101,13 @@ func TestChatHistoryHonorsDetailLevel(t *testing.T) {
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"chatId":"chat-detail","message":"现在几点？"}`)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("query: %d %s", rec.Code, rec.Body.String())
+	}
+	// Delivery can finish just before the runtime clears its active Run. Read
+	// history only after that boundary; an active full Run overrides read detail.
+	for _, event := range decodeSSEMessages(t, rec.Body.String()) {
+		if event["type"] == "run.start" {
+			waitRunTerminal(t, fixture.server, event["runId"].(string))
+		}
 	}
 	types := func(detail string) []string {
 		path := "/api/chat?chatId=chat-detail"
@@ -135,11 +147,13 @@ func TestDetailLevelRejectsUnknownValue(t *testing.T) {
 	fixture := newDatetimeToolLoopFixture(t)
 	for _, req := range []*http.Request{
 		httptest.NewRequest(http.MethodPost, "/api/query?detail=verbose", bytes.NewBufferString(`{"message":"hi"}`)),
+		httptest.NewRequest(http.MethodPost, "/api/query?detail=none", bytes.NewBufferString(`{"message":"hi"}`)),
 		httptest.NewRequest(http.MethodGet, "/api/chat?chatId=x&detail=verbose", nil),
+		httptest.NewRequest(http.MethodGet, "/api/chat?chatId=x&detail=none", nil),
 	} {
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, req)
-		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "detail must be summary, full or none") {
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "detail must be summary or full") {
 			t.Fatalf("%s: %d %s", req.URL, rec.Code, rec.Body.String())
 		}
 	}
@@ -289,9 +303,9 @@ func TestConfiguredAgentDetailAcrossHTTPAndWS(t *testing.T) {
 }
 
 func TestChatReadDetailFollowsActiveRun(t *testing.T) {
-	active := api.ChatDetailResponse{ActiveRun: &api.ActiveRunInfo{RunID: "run_1", Detail: stream.DetailNone}}
-	if got := chatReadDetail(active, stream.DetailFull); got != stream.DetailNone {
-		t.Fatalf("active Chat read at %q, want the Run's none", got)
+	active := api.ChatDetailResponse{ActiveRun: &api.ActiveRunInfo{RunID: "run_1", Detail: stream.DetailSummary}}
+	if got := chatReadDetail(active, stream.DetailFull); got != stream.DetailSummary {
+		t.Fatalf("active Chat read at %q, want the Run's summary", got)
 	}
 	if got := chatReadDetail(api.ChatDetailResponse{}, stream.DetailFull); got != stream.DetailFull {
 		t.Fatalf("idle Chat read at %q, want the requested full", got)

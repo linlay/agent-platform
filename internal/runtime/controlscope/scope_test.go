@@ -114,3 +114,22 @@ func TestInProcessCreationHasNoNetworkTransport(t *testing.T) {
 		t.Fatalf("round trip: %#v %v", got, err)
 	}
 }
+
+func TestVoiceRunAllowsSameSubjectMainUIOnly(t *testing.T) {
+	owner := Scope{Transport: "voice", Subject: "voice-user"}
+	for _, tc := range []struct {
+		caller  Scope
+		allowed bool
+	}{
+		{Scope{Transport: "http", Subject: "voice-user"}, true},
+		{Scope{Transport: "ws", Lane: "main", Subject: "voice-user", Boundary: "different-ui-device"}, true},
+		{Scope{Transport: "ws", Lane: "btw", Subject: "voice-user"}, false},
+		{Scope{Transport: "ws", Lane: "explain", Subject: "voice-user"}, false},
+		{Scope{Transport: "http", Subject: "another-user"}, false},
+		{Scope{Transport: "ws", Lane: "main"}, false},
+	} {
+		if (Check(owner, tc.caller) == "") != tc.allowed {
+			t.Fatalf("unexpected voice control grant: %#v", tc)
+		}
+	}
+}

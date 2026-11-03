@@ -15,6 +15,7 @@ import (
 
 func defaultConfig(options LoadOptions) Config {
 	runtimeMode, _ := ParseRuntimeMode(options.RuntimeMode)
+	webappHost, _ := ParseWebAppHostMode(options.WebAppHost)
 	runtimeRoot := defaultRuntimeRoot()
 	paths := PathsConfig{
 		ConnectorsCenterDir: filepath.Join(runtimeRoot, "connectors-center"),
@@ -33,13 +34,18 @@ func defaultConfig(options LoadOptions) Config {
 		RUPreviewsDir:       filepath.Join(runtimeRoot, "ru-previews"),
 		PanDir:              filepath.Join(runtimeRoot, "pan"),
 		SkillsCenterDir:     filepath.Join(runtimeRoot, "skills-center"),
+		WebAppsDir:          filepath.Join(runtimeRoot, "webapps"),
+		WebAppDataDir:       filepath.Join(runtimeRoot, "webapp-data"),
 	}
 	return Config{
 		Export:          ConversationExportConfig{MaxSnapshotBytes: 50 << 20},
 		DocumentPreview: documentpreview.DefaultConfig(),
 		HTTPProxy:       httpclient.Config{Mode: "auto", SystemRefreshInterval: httpclient.DefaultRefreshInterval},
+		Voice:           VoiceConfig{MaxSentenceSilenceMS: 600, DownlinkLeadMS: 300},
 		SsoIdTokenFile:  options.SsoIdTokenFile,
 		RuntimeMode:     runtimeMode,
+		WebAppHost:      webappHost,
+		WebApps:         DefaultWebAppsConfig(),
 		Server:          ServerConfig{Port: "8080"},
 		Paths:           paths,
 		Agents:          CatalogConfig{ExternalDir: paths.AgentsDir},
@@ -71,7 +77,7 @@ func defaultConfig(options LoadOptions) Config {
 		},
 		Providers: CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "providers")},
 		Models:    CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "models")},
-		Mail:      MailConfig{MaxHops: 4},
+		Mail:      MailConfig{Enabled: false, MaxHops: 4, RetentionDays: 30},
 		Automation: AutomationConfig{
 			ExternalDir: paths.AutomationsDir,
 			Enabled:     true,
@@ -87,8 +93,7 @@ func defaultConfig(options LoadOptions) Config {
 			Timezone:        "Local",
 			Worker:          MemoryWorkerConfig{Enabled: true, PollIntervalSeconds: 300, TimeoutSeconds: 120, MaxBatches: 20},
 		},
-		PlanningMode:        DefaultPlanningModeConfig(),
-		AnnounceHoldSeconds: DefaultAnnounceHoldSeconds,
+		PlanningMode: DefaultPlanningModeConfig(),
 		Defaults: DefaultsConfig{
 			Budget: BudgetDefaultsConfig{
 				Timeout:  3600,
@@ -239,7 +244,7 @@ func DefaultAccessPolicyConfig() AccessPolicyConfig {
 func defaultAccessPolicyConfig() AccessPolicyConfig {
 	return AccessPolicyConfig{
 		Levels: map[string]AccessPolicyLevelConfig{
-			"default": {
+			"ask_for_approval": {
 				ReadRoots:     []string{"@workspace", "@chat", "@agent", "@skills", "@temp"},
 				WriteRoots:    []string{"@chat", "@temp"},
 				ReadonlyRoots: []string{"@agent", "@skills"},
@@ -255,7 +260,7 @@ func defaultAccessPolicyConfig() AccessPolicyConfig {
 				},
 			},
 			"auto_approve": {
-				Inherit: "default",
+				Inherit: "ask_for_approval",
 				Approvals: AccessPolicyApprovalConfig{
 					ReadOutsideRoots:      "auto",
 					WriteOutsideRoots:     "hitl",
@@ -306,6 +311,9 @@ func DefaultBashInheritEnv() []string {
 }
 
 func (c *Config) normalize(configRoot string) error {
+	if err := validateBashShellConfig(c.Bash); err != nil {
+		return err
+	}
 	stateDir, err := resolveStatePath(configRoot, c.Paths.EffectiveStateDir())
 	if err != nil {
 		return err
@@ -313,6 +321,8 @@ func (c *Config) normalize(configRoot string) error {
 	c.Paths.StateDir = stateDir
 	for name, value := range map[string]*string{
 		"connectors-center-dir": &c.Paths.ConnectorsCenterDir,
+		"webapps-dir":           &c.Paths.WebAppsDir,
+		"webapp-data-dir":       &c.Paths.WebAppDataDir,
 	} {
 		if strings.TrimSpace(*value) == "" {
 			continue
@@ -582,6 +592,19 @@ func normalizeSpeechGenerateConfig(cfg SpeechGenerateConfig) SpeechGenerateConfi
 }
 
 func normalizeAccessPolicyConfig(cfg AccessPolicyConfig) AccessPolicyConfig {
+	// Preserve deployed approval policy while default becomes a request selector.
+	if legacy, ok := cfg.Levels["default"]; ok {
+		if _, exists := cfg.Levels["ask_for_approval"]; !exists {
+			cfg.Levels["ask_for_approval"] = legacy
+		}
+		delete(cfg.Levels, "default")
+	}
+	for name, level := range cfg.Levels {
+		if strings.TrimSpace(level.Inherit) == "default" {
+			level.Inherit = "ask_for_approval"
+			cfg.Levels[name] = level
+		}
+	}
 	defaults := defaultAccessPolicyConfig()
 	if len(cfg.Levels) == 0 {
 		cfg.Levels = defaults.Levels
@@ -605,10 +628,10 @@ func normalizeAccessPolicyConfig(cfg AccessPolicyConfig) AccessPolicyConfig {
 		level.Approvals = normalizeAccessPolicyApprovals(level.Approvals)
 		normalizedLevels[normalizedName] = level
 	}
-	if level, ok := normalizedLevels["default"]; ok {
+	if level, ok := normalizedLevels["ask_for_approval"]; ok {
 		level.ReadRoots = appendAccessPolicyRoot(level.ReadRoots, "@temp")
 		level.WriteRoots = appendAccessPolicyRoot(level.WriteRoots, "@temp")
-		normalizedLevels["default"] = level
+		normalizedLevels["ask_for_approval"] = level
 	}
 	cfg.Levels = normalizedLevels
 	return cfg
@@ -927,6 +950,6 @@ func defaultBashAllowedCommands(goos string) []string {
 		"cd", "stat", "file", "du", "test", "which", "mkdir", "touch", "cp", "mv", "rm", "ln", "chmod",
 		"env", "date", "bash", "sh",
 		"make", "go", "npm", "yarn", "pnpm", "node", "python", "python3", "pip",
-		"curl", "wget",
+		"curl", "wget", "lsof",
 	}
 }

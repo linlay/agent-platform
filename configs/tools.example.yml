@@ -5,7 +5,7 @@ access-policy:
   # GENERAL default to editing=true, KBASE to false), not by write-roots: no
   # approval or access level can mutate a read-only Workspace.
   levels:
-    default:
+    ask_for_approval:
       read-roots:
         - "@workspace"
         - "@chat"
@@ -32,7 +32,7 @@ access-policy:
         remote-mutation: hitl
 
     auto_approve:
-      inherit: default
+      inherit: ask_for_approval
       approvals:
         read-outside-roots: auto
         write-outside-roots: hitl
@@ -221,7 +221,7 @@ speech-generate:
       sample-rate: 32000
       max-text-chars: 3000
     qwen-flash:
-      model-key: dashscope-qwen3-tts-flash
+      model-key: th-dashscope-qwen3-tts-flash
       voice: Cherry
       # Qwen TTS 单次文本上限 600 字，输出固定为 24kHz WAV。
       max-text-chars: 600

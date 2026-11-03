@@ -5,6 +5,7 @@ import (
 	"agent-platform/internal/conversationexport"
 	"agent-platform/internal/i18n"
 	"agent-platform/internal/stream"
+	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
@@ -65,7 +66,7 @@ func TestLegacyToolResultInheritsSnapshotTranslationsAtReadBoundary(t *testing.T
 				}
 				// Export consumes the same localized replay events.
 				exportEvents := append([]stream.EventData{{Type: "request.query", Timestamp: snapshot.Timestamp, Payload: map[string]any{"runId": "run", "message": "Read the file"}}}, localized...)
-				doc, err := conversationexport.BuildSnapshotDocument(&chat.Summary{ChatID: "chat", CreatedAt: snapshot.Timestamp}, exportEvents, nil, snapshot.Timestamp+10, locale, nil)
+				doc, err := conversationexport.BuildDocument(context.Background(), &chat.Summary{ChatID: "chat", CreatedAt: snapshot.Timestamp}, exportEvents, snapshot.Timestamp+10, locale, nil, nil)
 				if err != nil {
 					t.Fatal(err)
 				}

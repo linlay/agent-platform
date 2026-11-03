@@ -43,6 +43,9 @@ DEPLOY_RUNTIME_RESOURCE_SOURCE=""
 DEPLOY_RUNTIME_RESOURCE_PREVIOUS_SOURCE=""
 DEPLOY_RUNTIME_RESOURCE_MODE=""
 DEPLOY_DESKTOP_DEVICE_ID=""
+DEPLOY_RUNTIME_RECOVERY_SOURCE=""
+DEPLOY_RUNTIME_RECOVERY_ACTION=""
+DEPLOY_RUNTIME_RECOVERY_CONFIG_DIR=""
 
 program_die() {
   echo "[program] $*" >&2
@@ -145,6 +148,16 @@ program_apply_deploy_flags() {
         else
           DEPLOY_DOCUMENT_PREVIEW_PUBLIC_BASE_URL="$2"
         fi
+        shift 2
+        ;;
+      --runtime-recovery-config-dir)
+        [[ $# -ge 2 ]] || program_die "missing value for $1"
+        DEPLOY_RUNTIME_RECOVERY_CONFIG_DIR="$2"
+        shift 2
+        ;;
+      --runtime-recovery-source|--runtime-recovery-action)
+        [[ $# -ge 2 ]] || program_die "missing value for $1"
+        if [[ "$1" == "--runtime-recovery-source" ]]; then DEPLOY_RUNTIME_RECOVERY_SOURCE="$2"; else DEPLOY_RUNTIME_RECOVERY_ACTION="$2"; fi
         shift 2
         ;;
       --ap-runtime-dir)
@@ -277,6 +290,12 @@ program_apply_deploy_flags() {
   done
 
   program_refresh_paths
+  if [[ -n "$DEPLOY_RUNTIME_RECOVERY_SOURCE" || -n "$DEPLOY_RUNTIME_RECOVERY_ACTION" ]]; then
+    program_require_arg_value "--runtime-recovery-source" "$DEPLOY_RUNTIME_RECOVERY_SOURCE"
+    program_require_arg_value "--ap-runtime-dir" "$DEPLOY_AP_RUNTIME_DIR"
+    case "$DEPLOY_RUNTIME_RECOVERY_ACTION" in check|restore) ;; *) program_die "recovery action must be check or restore" ;; esac
+    return 0
+  fi
   if [[ -f "$BUNDLE_ROOT/configs/runtime.example.yml" ]] && { [[ "$DEPLOY_DESKTOP_CONFIG_RESET" == "1" ]] || [[ ! -f "$CONFIG_ROOT/configs/runtime.yml" ]]; }; then
     program_require_arg_value "--document-preview-api-base-url" "$DEPLOY_DOCUMENT_PREVIEW_API_BASE_URL"
     program_require_arg_value "--document-preview-public-base-url" "$DEPLOY_DOCUMENT_PREVIEW_PUBLIC_BASE_URL"
@@ -841,4 +860,9 @@ program_migrate_sso_provider_config() {
     chmod 600 "$temporary"
     mv -f "$temporary" "$file"
   done < <(find "$root/registries/providers" -type f \( -name '*.yml' -o -name '*.yaml' \) -print0)
+}
+
+# Offline recovery intentionally does not initialize config or start a runtime.
+program_recover_runtime() {
+  "$BACKEND_BIN" runtime-recovery --source-config-dir "$DEPLOY_RUNTIME_RECOVERY_CONFIG_DIR" --source "$DEPLOY_RUNTIME_RECOVERY_SOURCE" --ap-runtime-dir "$DEPLOY_AP_RUNTIME_DIR" --action "$DEPLOY_RUNTIME_RECOVERY_ACTION"
 }

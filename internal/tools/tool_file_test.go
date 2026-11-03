@@ -948,13 +948,13 @@ func fileToolExecutor(root string, requireApproval bool) *RuntimeToolExecutor {
 		cfg: config.Config{
 			AccessPolicy: config.AccessPolicyConfig{
 				Levels: map[string]config.AccessPolicyLevelConfig{
-					contracts.AccessLevelDefault: {
+					contracts.AccessLevelAskForApproval: {
 						ReadRoots:     []string{root, "@chat", "@agent", "@skills"},
 						WriteRoots:    []string{root, "@chat"},
 						ReadonlyRoots: []string{"@agent", "@skills"},
 					},
 					contracts.AccessLevelAutoApprove: {
-						Inherit: contracts.AccessLevelDefault,
+						Inherit: contracts.AccessLevelAskForApproval,
 						Approvals: config.AccessPolicyApprovalConfig{
 							ReadOutsideRoots:      "auto",
 							WriteOutsideRoots:     "hitl",
@@ -994,7 +994,7 @@ func fileToolWorkspaceRoot(executor *RuntimeToolExecutor) string {
 	if executor == nil {
 		return ""
 	}
-	level := executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault]
+	level := executor.cfg.AccessPolicy.Levels[contracts.AccessLevelAskForApproval]
 	for _, root := range level.ReadRoots {
 		if filepath.IsAbs(root) {
 			return root
@@ -1410,7 +1410,7 @@ func TestKBaseEditingUsesAccessPolicyForChatAndExternalWrites(t *testing.T) {
 	if err := os.WriteFile(externalReadPath, []byte("secret"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	execCtx.Session.AccessLevel = contracts.AccessLevelDefault
+	execCtx.Session.AccessLevel = contracts.AccessLevelAskForApproval
 	externalRead, err := executor.invokeRead(map[string]any{"filePath": externalReadPath}, execCtx)
 	if err != nil {
 		t.Fatal(err)

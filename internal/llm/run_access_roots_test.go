@@ -39,7 +39,7 @@ func TestReferencedSkillRunAccessSkipsReadHITLAndBlocksMutation(t *testing.T) {
 	stream := &llmRunStream{
 		session: session,
 		engine: &LLMAgentEngine{cfg: config.Config{AccessPolicy: config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
-			contracts.AccessLevelDefault: {
+			contracts.AccessLevelAskForApproval: {
 				ReadRoots:     []string{"@workspace"},
 				WriteRoots:    []string{"@workspace"},
 				ReadonlyRoots: []string{},

@@ -71,7 +71,7 @@ func (p Policy) Source(file string) Source {
 	}
 	key := pathKey(file)
 	name := strings.ToLower(path.Base(strings.ReplaceAll(file, `\`, "/")))
-	if (p.SsoIdTokenFile != "" && key == pathKey(p.SsoIdTokenFile)) || name == "sso-access-token" || name == "sso-access-token.txt" || name == "sso-id-token" || name == "sso-id-token.txt" || name == "sso-credentials.enc" {
+	if (p.SsoIdTokenFile != "" && key == pathKey(p.SsoIdTokenFile)) || name == "sso-access-token" || name == "sso-access-token.txt" || name == "sso-id-token" || name == "sso-id-token.txt" || name == "sso-credentials.enc" || name == "sso-credentials.json" {
 		return Identity
 	}
 	if inside(key, pathKey(p.Providers)) {

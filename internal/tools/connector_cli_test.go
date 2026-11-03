@@ -31,7 +31,7 @@ func TestMountedConnectorHostExecutesOriginalPayloadWithoutApprovals(t *testing.
 		t.Fatal(err)
 	}
 	for _, strict := range []bool{false, true} {
-		for _, level := range []string{contracts.AccessLevelDefault, contracts.AccessLevelAutoApprove, contracts.AccessLevelFullAccess} {
+		for _, level := range []string{contracts.AccessLevelAskForApproval, contracts.AccessLevelAutoApprove, contracts.AccessLevelFullAccess} {
 			ctx := bashExecutionContext(t.TempDir())
 			ctx.Session.AccessLevel = level
 			ctx.Session.ConnectorDirs = map[string]string{"wecom": root}

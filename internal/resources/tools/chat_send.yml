@@ -8,8 +8,6 @@ description: "Send a durable letter to an Agent Chat and receive the final resul
 clientVisible: true
 explicitOnly: true
 readOnly: false
-confirmationRules:
-  - view: {key: chat_start_review}
 inputSchema:
   type: object
   properties:
@@ -29,9 +27,10 @@ inputSchema:
       type: string
       enum:
         - default
+        - ask_for_approval
         - auto_approve
         - full_access
-      description: "Permission level for this run. Above the caller Run level requires human approval."
+      description: "Default/omit uses target default; concrete levels cannot exceed caller."
     references:
       type: array
       description: "Resources selected for this task. Each item must be used; no tools or unrelated permissions are added."

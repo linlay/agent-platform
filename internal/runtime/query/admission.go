@@ -126,7 +126,6 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 		Origin:             prepared.Req.Origin,
 		AccessGrant:        prepared.Req.AccessGrant,
 		PlanRunID:          prepared.Req.PlanRunID,
-		AnnounceHold:       s.deps.Config.AnnounceHold(),
 	})
 	if s.deps.Tools != nil {
 		for _, toolDef := range s.deps.Tools.Definitions() {
@@ -357,11 +356,10 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	}
 	req.Role = req.Origin.ExecutionRole()
 	req.ChatSource = runtimetypes.ChatSourceFromContext(ctx)
-	accessLevel, ok := contracts.NormalizeAccessLevel(req.AccessLevel)
+	_, ok := contracts.NormalizeRequestedAccessLevel(req.AccessLevel)
 	if !ok {
-		return queryAdmission{}, &statusError{Status: 400, Message: "accessLevel must be default, auto_approve, or full_access"}
+		return queryAdmission{}, &statusError{Status: 400, Message: "accessLevel must be default, ask_for_approval, auto_approve, or full_access"}
 	}
-	req.AccessLevel = accessLevel
 
 	runID := strings.TrimSpace(req.RunID)
 	if runID == "" {
@@ -484,10 +482,11 @@ func (s *Service) PrepareQueryAdmissionRequest(
 		return queryAdmission{}, statusErr
 	}
 	if !req.SkipInteractionPolicy && !sessionbuild.IsProxyAgentMode(agentDef.Mode) && !catalog.AgentIsChannelMode(agentDef.Mode) {
-		if err := ValidateInteractionInput(agentDef.Interaction(), req); err != nil {
+		if err := ValidateInteractionInput(agentDef.Interaction(), req, agentDef.AccessConfig.EffectiveDefault()); err != nil {
 			return queryAdmission{}, err
 		}
 	}
+	ResolveQueryAccess(&req, agentDef)
 	if err := s.ValidateQueryModelOptions(req.Model, agentDef); err != nil {
 		return queryAdmission{}, err
 	}
@@ -622,7 +621,15 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 		}
 	}
 	if req.Primary {
-		if err := s.deps.PrimaryChats.PublishPrimaryChat(agentKey, chatID); err != nil {
+		publish := s.deps.PrimaryChats.PublishPrimaryChat
+		if req.PrimaryIfMissing {
+			conditional, ok := s.deps.PrimaryChats.(interface{ BackfillPrimaryChat(string, string) error })
+			if !ok {
+				return preparedQuery{}, &statusError{Status: 501, Code: "not_supported", Message: "conditional primary chat is not supported"}
+			}
+			publish = conditional.BackfillPrimaryChat
+		}
+		if err := publish(agentKey, chatID); err != nil {
 			return preparedQuery{}, err
 		}
 	}

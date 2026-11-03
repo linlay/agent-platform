@@ -8,17 +8,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"agent-platform/internal/agentconfig"
-	"agent-platform/internal/bashsec"
 	"agent-platform/internal/config"
 	contracts "agent-platform/internal/contracts"
 	"agent-platform/internal/runenv"
+	"agent-platform/internal/shellreview"
 )
 
 type collectingToolOutputSink struct {
@@ -71,101 +70,6 @@ func (s *collectingToolOutputSink) EmitToolOutput(ctx context.Context, output co
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	}
-}
-
-func TestResolveHostShellInvocationDefaultsToPowerShellOnWindows(t *testing.T) {
-	executable, args := resolveHostShellInvocation(config.BashConfig{}, "Get-Process", "windows")
-
-	if executable != "powershell.exe" {
-		t.Fatalf("expected powershell.exe, got %q", executable)
-	}
-	wantCommand := "$OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false; [Console]::OutputEncoding = $OutputEncoding; Get-Process"
-	wantArgs := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", wantCommand}
-	if !reflect.DeepEqual(args, wantArgs) {
-		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
-	}
-}
-
-func TestResolveHostShellInvocationDefaultsToUTF8CmdOnWindows(t *testing.T) {
-	executable, args := resolveHostShellInvocation(config.BashConfig{
-		ShellExecutable: "cmd.exe",
-	}, "dir", "windows")
-
-	if executable != "cmd.exe" {
-		t.Fatalf("expected cmd.exe, got %q", executable)
-	}
-	wantArgs := []string{"/d", "/s", "/c", "chcp 65001 >NUL & dir"}
-	if !reflect.DeepEqual(args, wantArgs) {
-		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
-	}
-}
-
-func TestResolveHostShellInvocationDefaultsToBashOnUnix(t *testing.T) {
-	executable, args := resolveHostShellInvocation(config.BashConfig{}, "pwd", "linux")
-
-	if executable != "bash" {
-		t.Fatalf("expected bash, got %q", executable)
-	}
-	wantArgs := []string{"--noprofile", "--norc", "-o", "pipefail", "-c", "pwd"}
-	if !reflect.DeepEqual(args, wantArgs) {
-		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
-	}
-}
-
-func TestResolveHostShellInvocationLeavesNonBashUnixDefaultsUnchanged(t *testing.T) {
-	executable, args := resolveHostShellInvocation(config.BashConfig{
-		ShellExecutable: "sh",
-	}, "pwd", "linux")
-
-	if executable != "sh" {
-		t.Fatalf("expected sh, got %q", executable)
-	}
-	wantArgs := []string{"-c", "pwd"}
-	if !reflect.DeepEqual(args, wantArgs) {
-		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
-	}
-}
-
-func TestResolveHostShellInvocationCustomBashArgsRemainAuthoritative(t *testing.T) {
-	executable, args := resolveHostShellInvocation(config.BashConfig{
-		ShellExecutable: "bash",
-		ShellArgs:       []string{"-lc", "{{command}}"},
-	}, "pwd", "linux")
-
-	if executable != "bash" {
-		t.Fatalf("expected bash, got %q", executable)
-	}
-	wantArgs := []string{"-lc", "pwd"}
-	if !reflect.DeepEqual(args, wantArgs) {
-		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
-	}
-}
-
-func TestResolveHostShellInvocationSupportsCustomArgs(t *testing.T) {
-	executable, args := resolveHostShellInvocation(config.BashConfig{
-		ShellExecutable: "cmd.exe",
-		ShellArgs:       []string{"/d", "/s", "/c", "{{command}}"},
-	}, "dir", "windows")
-
-	if executable != "cmd.exe" {
-		t.Fatalf("expected cmd.exe, got %q", executable)
-	}
-	wantArgs := []string{"/d", "/s", "/c", "dir"}
-	if !reflect.DeepEqual(args, wantArgs) {
-		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
-	}
-}
-
-func TestResolveHostShellInvocationAppendsCommandWithoutPlaceholder(t *testing.T) {
-	_, args := resolveHostShellInvocation(config.BashConfig{
-		ShellExecutable: "pwsh.exe",
-		ShellArgs:       []string{"-NoProfile", "-Command"},
-	}, "node --version", "windows")
-
-	wantArgs := []string{"-NoProfile", "-Command", "node --version"}
-	if !reflect.DeepEqual(args, wantArgs) {
-		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
 	}
 }
 
@@ -365,7 +269,7 @@ func TestInvokeHostBashSuccessWithStderrReturnsStructuredJSON(t *testing.T) {
 		cfg: config.Config{
 			AccessPolicy: config.AccessPolicyConfig{
 				Levels: map[string]config.AccessPolicyLevelConfig{
-					contracts.AccessLevelDefault: {
+					contracts.AccessLevelAskForApproval: {
 						Approvals: config.AccessPolicyApprovalConfig{
 							BashOpaqueCommand: "allow",
 						},
@@ -901,7 +805,7 @@ func TestMergeBashCommandEnvNeverInheritsIdentityToken(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(ssoIdTokenFile), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("AP_ACCESS_TOKEN", "ambient-token")
+	t.Setenv("AP_ID_TOKEN", "ambient-token")
 	valuesFor := func(env []string) map[string]string {
 		t.Helper()
 		values := map[string]string{}
@@ -914,29 +818,51 @@ func TestMergeBashCommandEnvNeverInheritsIdentityToken(t *testing.T) {
 		return values
 	}
 	execCtx := &contracts.ExecutionContext{
-		StaticRuntimeEnv: map[string]string{"AP_ACCESS_TOKEN": "runtime-token"},
+		StaticRuntimeEnv: map[string]string{"AP_ID_TOKEN": "runtime-token"},
 	}
 
-	if _, ok := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvAccessToken]; ok {
+	if _, ok := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvIDToken]; ok {
 		t.Fatal("missing identity file must remove inherited and runtime access tokens")
 	}
 	if err := os.WriteFile(ssoIdTokenFile, []byte("token-a\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvAccessToken]; got != "" {
-		t.Fatalf("AP_ACCESS_TOKEN = %q, want no token", got)
+	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvIDToken]; got != "" {
+		t.Fatalf("AP_ID_TOKEN = %q, want no token", got)
 	}
 	if err := os.WriteFile(ssoIdTokenFile, []byte("token-b\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvAccessToken]; got != "" {
-		t.Fatalf("AP_ACCESS_TOKEN = %q, want no token", got)
+	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvIDToken]; got != "" {
+		t.Fatalf("AP_ID_TOKEN = %q, want no token", got)
 	}
 	if err := os.Remove(ssoIdTokenFile); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvAccessToken]; ok {
-		t.Fatal("removed identity file must remove AP_ACCESS_TOKEN from the next Host Bash")
+	if _, ok := valuesFor(mustMergeBashCommandEnv(t, execCtx, ssoIdTokenFile))[agentconfig.EnvIDToken]; ok {
+		t.Fatal("removed identity file must remove AP_ID_TOKEN from the next Host Bash")
+	}
+}
+
+func TestHostBashIdentityFilteringSurvivesWildcardInheritance(t *testing.T) {
+	t.Setenv("AP_ID_TOKEN", "ambient-token")
+	t.Setenv("ap_id_token", "ambient-lowercase-token")
+	execCtx := &contracts.ExecutionContext{StaticRuntimeEnv: map[string]string{"Ap_Id_Token": "runtime-token", "KEEP": "public"}}
+	for _, inherit := range [][]string{{"AP_ID_TOKEN"}, {"AP_*"}, {"*"}} {
+		env, err := mergeCommandEnvWith(execCtx, inherit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range env {
+			key, _, _ := strings.Cut(entry, "=")
+			if strings.EqualFold(key, agentconfig.EnvIDToken) {
+				t.Fatal("identity entered ordinary Host Bash")
+			}
+		}
+		vars := bashEnvironmentVariables([]string{"Ap_Id_Token=secret", "KEEP=public"})
+		if len(vars) != 1 || vars["KEEP"] != "public" {
+			t.Fatal("identity entered access review")
+		}
 	}
 }
 
@@ -970,7 +896,7 @@ func TestInvokeHostBashDoesNotExposeDefaultIdentityToken(t *testing.T) {
 
 	result, err := executor.invokeHostBash(
 		context.Background(),
-		map[string]any{"command": "printenv AP_ACCESS_TOKEN"},
+		map[string]any{"command": "printenv AP_ID_TOKEN"},
 		bashExecutionContext(root),
 	)
 	if err != nil {
@@ -998,7 +924,7 @@ func TestInvokeHostBashRedirectIntoWorkspaceNeedsNoShellApproval(t *testing.T) {
 func softSecurityExecutor() *RuntimeToolExecutor {
 	allow := config.AccessPolicyApprovalConfig{ReadOutsideRoots: "allow", WriteOutsideRoots: "allow", BashComplexFilesystem: "allow", BashOpaqueCommand: "allow", BashWriteInWriteRoots: "allow"}
 	return &RuntimeToolExecutor{cfg: config.Config{
-		AccessPolicy: config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{contracts.AccessLevelDefault: {Approvals: allow}}},
+		AccessPolicy: config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{contracts.AccessLevelAskForApproval: {Approvals: allow}}},
 		Bash:         config.BashConfig{AllowedCommands: []string{"printf", "xargs"}, ShellFeaturesEnabled: true, ShellExecutable: "bash", MaxCommandChars: 16000},
 	}}
 }
@@ -1018,23 +944,26 @@ func TestInvokeHostBashConsumesMatchingSoftSecurityApproval(t *testing.T) {
 	root := t.TempDir()
 	command := "printf ok | xargs printf"
 	execCtx := bashExecutionContext(root)
-	execCtx.BashSecurityApprovals = map[string]int{bashsec.ApprovalFingerprint(command): 1}
-	result, err := softSecurityExecutor().invokeHostBash(context.Background(), map[string]any{"command": command}, execCtx)
+	executor := softSecurityExecutor()
+	args := map[string]any{"command": command}
+	preflight := executor.ReviewBashAccess(context.Background(), args, execCtx, executor.cfg.AccessPolicy)
+	execCtx.AccessPolicyApprovals = map[string]int{preflight.Fingerprint: 1}
+	result, err := executor.invokeHostBash(context.Background(), args, execCtx)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
 	if result.Error != "" || result.ExitCode != 0 {
 		t.Fatalf("expected approved command to execute, got %#v", result)
 	}
-	if _, ok := execCtx.BashSecurityApprovals[bashsec.ApprovalFingerprint(command)]; ok {
-		t.Fatalf("expected approval to be consumed, got %#v", execCtx.BashSecurityApprovals)
+	if _, ok := execCtx.AccessPolicyApprovals[preflight.Fingerprint]; ok {
+		t.Fatalf("expected approval to be consumed, got %#v", execCtx.AccessPolicyApprovals)
 	}
 }
 
 func TestInvokeHostBashRejectsMismatchedSoftSecurityApproval(t *testing.T) {
 	root := t.TempDir()
 	execCtx := bashExecutionContext(root)
-	execCtx.BashSecurityApprovals = map[string]int{bashsec.ApprovalFingerprint("printf no | xargs printf"): 1}
+	execCtx.AccessPolicyApprovals = map[string]int{shellreview.ApprovalFingerprint("printf no | xargs printf"): 1}
 	result, err := softSecurityExecutor().invokeHostBash(context.Background(), map[string]any{"command": "printf ok | xargs printf"}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
@@ -1062,7 +991,7 @@ func TestInvokeHostBashAccessPolicyRequiresApprovalForOutsidePath(t *testing.T) 
 		},
 	}
 	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
-		AccessLevel:   contracts.AccessLevelDefault,
+		AccessLevel:   contracts.AccessLevelAskForApproval,
 		WorkspaceRoot: root,
 	}}
 
@@ -1156,7 +1085,7 @@ func TestInvokeHostBashAppliesChatAndTempScriptApprovalRules(t *testing.T) {
 		expectAudit bool
 	}{
 		{name: "auto-approved chat python", interpreter: "python3", cwd: "@chat", script: "task.py", accessLevel: contracts.AccessLevelAutoApprove, expectAudit: true},
-		{name: "default temp node", interpreter: "node", cwd: "@temp", script: "task.js", accessLevel: contracts.AccessLevelDefault},
+		{name: "default temp node", interpreter: "node", cwd: "@temp", script: "task.js", accessLevel: contracts.AccessLevelAskForApproval},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1181,7 +1110,7 @@ func TestInvokeHostBashAppliesChatAndTempScriptApprovalRules(t *testing.T) {
 			if err != nil {
 				t.Fatalf("invokeHostBash returned error: %v", err)
 			}
-			if test.accessLevel == contracts.AccessLevelDefault {
+			if test.accessLevel == contracts.AccessLevelAskForApproval {
 				if result.Error != "bash_access_approval_required" {
 					t.Fatalf("default temporary script bypass: %+v", result)
 				}
@@ -1262,8 +1191,8 @@ func TestInvokeHostBashRealOutsideRedirectionStillRequiresAccessApproval(t *test
 			AccessLevel:   contracts.AccessLevelAutoApprove,
 			WorkspaceRoot: root,
 		},
-		BashSecurityApprovals: map[string]int{
-			bashsec.ApprovalFingerprint(command): 1,
+		AccessPolicyApprovals: map[string]int{
+			shellreview.ApprovalFingerprint(command): 1,
 		},
 	}
 

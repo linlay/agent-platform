@@ -20,6 +20,22 @@
 
 普通 Agent query 准入失败时，已存在但配置无效的 Agent 返回 `422 agent_configuration_invalid`，不存在或不可用且无 invalid 管理记录的 Agent 返回 `404 agent_not_found`，均不可重试。HTTP（包括 SSE 启动前）与 WebSocket 在 `data.error` 保留应用错误码、`status`、`retryable` 和可选 `diagnostics`，按请求/连接语言返回提示。旧 `contextConfig.agents` 和 agents 标签忽略并生成一条非阻断弃用 warning，不影响主 Agent 有效性；已有 Chat 历史仍可读取。
 
+## Linux Compose WebApp owner 管理
+
+只在合法启用 Compose WebApp 宿主后注册。所有入口要求经普通 Platform JWT verifier 验证的唯一配置 owner；应用 token 和连接器 grant 均不能代替 owner。接口保持 `{code,msg,data}`，失败在 `data.error` 返回稳定 code/status/retryable，响应 no-store，不回显服务器绝对路径或凭据。
+
+| 方法 | 路径 | 输入与结果 |
+| --- | --- | --- |
+| GET | `/api/admin/webapps/host` | 运行前提、托管阶段与待人工恢复诊断 |
+| GET | `/api/admin/webapps` | `{items:[...]}`，仅安装与期望/观察状态的安全投影 |
+| POST | `/api/admin/webapps/uploads` | 原始 `application/zip` 字节；返回 uploadId、sha256、size、createdAt |
+| POST | `/api/admin/webapps/preflight` | `{uploadId}`；返回审阅 Manifest、大小、文件数和 expectedRevision，不执行代码 |
+| POST | `/api/admin/webapps/install` | `{uploadId,sha256,expectedRevision}`；首次 expectedRevision 为空，更新必须等于当前 revision；本批次同步返回 stopped 应用 |
+| GET | `/api/admin/webapps/{id}` | 单应用安装状态；不存在返回 404 |
+| DELETE | `/api/admin/webapps/{id}` | `{expectedRevision,purgeData}`；默认保留数据，必须先 stopped |
+
+JSON 键严格区分大小写，拒绝重复键、未知字段及尾随 JSON；上传和解包限额来自 webapps 配置。管理 Cookie 写请求要求精确 platform-origin，所有非空 Origin 必须匹配配置来源；Bearer 自动化调用可省略 Origin。摘要、revision、运行中更新及数据删除条件失败不会自动重试。公开应用域、票据、SDK、启停和 operationId 属于后续批次，当前不能调用尚未注册的接口。
+
 ## Desktop ACP 注册
 
 `PUT /api/desktop/acp-bridges` 接受 `sourcePluginId`、`bridgeId`、`baseUrl`、可选 `timeoutMs` 和 `authToken`；省略 token 时保留已有值，显式空字符串清除。`DELETE` 接受同一插件身份与 bridge ID。插件身份由 Desktop 在认证的插件 socket 上确定，不能从插件请求体透传覆盖。
@@ -248,7 +264,7 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 | POST | `/api/chat/derive` | body: `sourceChatId`、`sourceRunId`、`chatId`、`chatName` | 从已完成 run 派生新 chat |
 | POST | `/api/compact` | body: `requestId`、`chatId`、`trigger`、`level` | 历史或活动原生根 Run 的上下文压缩最终结果 |
 | POST | `/api/chat/archive` | body: `chatId`、`reason` | 归档结果 |
-| GET | `/api/chat/export` | query: `chatId`，可选 `format=markdown\|html` | 默认 Markdown；`html` 返回完整静态只读文档；`sse` 与未知格式返回 400 |
+| GET | `/api/chat/export` | query: `chatId`，可选 `format=markdown\|snapshot` | 默认 Markdown；`snapshot` 返回 V1 JSON；HTML 与未知格式返回 400 |
 | GET | `/api/chat/jsonl` | query: `chatId` | 原始持久化 chat JSONL 文本；active 不存在时回退 archive，不得作为公开分享输入 |
 | GET | `/api/chat/system-prompt` | query: `chatId`、`runId`、`agentKey` | 获取该 agent 在历史 run 中首次使用的持久化 system message；服务端从 run 的 system-init / step `systemRef` 解析快照 |
 | GET | `/api/chat/llm-trace` | query: `file=<chatId>/.llm-records/<runId>_NNN.json` | 原始 LLM chat trace JSON 文本 |
@@ -373,7 +389,7 @@ Automation 的 `description` 和 `zoneId` 均可省略。Execution 的 `zoneId` 
 
 Automation 列表和详情固定返回 `executionHistory:{available,state,message?}`，其中 `state` 为 `initializing|ready|degraded|unavailable`。History 不可读不影响 Automation 配置 API；`/api/automation/executions` 和 `/api/automation/execution` 此时返回 `503`。
 
-Automation 创建、更新的 `query.accessLevel` 与详情中的同名字段支持 `default/auto_approve/full_access`，省略时执行权限为 `default`；更新省略整个 `query` 保留原值，提供 `query` 则整体替换，省略其中的档位恢复默认。非法值或错误类型返回 400。定时和手动触发均使用受理时的配置，不继承已有 Chat 的历史权限，也不经过 `chat_start` 的权限提升审批；目标交互准入及工具硬限制继续生效。
+Automation 创建、更新的 `query.accessLevel` 与详情中的同名字段支持 `ask_for_approval/auto_approve/full_access`，省略时执行权限为 `ask_for_approval`；更新省略整个 `query` 保留原值，提供 `query` 则整体替换，省略其中的档位恢复默认。非法值或错误类型返回 400。定时和手动触发均使用受理时的配置，不继承已有 Chat 的历史权限，也不做 `chat_start` 的父档位比较；目标交互准入及工具硬限制继续生效。
 
 `POST /api/automation/trigger` 是 HTTP-only 的原生手动触发入口。每次请求都会创建不同的 Execution，并与 Cron 执行共用全局 Automation 并发池；暂停状态也可触发，但不会扣减 `remainingRuns`、持久化 Automation 或改变 `nextFireAt`。成功响应保持统一 200 包装，例如 `data:{"accepted":true,"status":"accepted","automationId":"daily-report","executionId":"exec_xxx"}`。该响应只表示已受理，Query 准入、模型执行、HITL 或停止取消等后续结果通过 execution history 和 `automation.execution.*` push 反映。
 
@@ -564,7 +580,7 @@ TEAM 总控的普通工具与 reasoning 沿普通 Agent 事件链路；内部 `a
 
 #### 细节等级与 run.activity
 
-`/api/query` 与 `/api/chat` 接受细节等级 `detail`：HTTP 用 URL 参数（`?detail=full`），WS 用请求帧顶层字段（与 `type`、`id` 并列，见[帧类型](#帧类型)），不放进 query 请求体，因此不进入 JSONL 原始 query。显式取值为 `summary`、`full` 或 `none`，其他值返回 400 `invalid_detail`；WS 其他路由携带 `detail` 同样拒绝。
+`/api/query` 与 `/api/chat` 接受细节等级 `detail`：HTTP 用 URL 参数（`?detail=full`），WS 用请求帧顶层字段（与 `type`、`id` 并列，见[帧类型](#帧类型)），不放进 query 请求体，因此不进入 JSONL 原始 query。显式取值为 `summary` 或 `full`（旧 `none` 不再支持），其他值返回 400 `invalid_detail`；WS 其他路由携带 `detail` 同样拒绝。
 
 档位属于 Run：`/api/query` 受理时冻结（请求显式值 > 实际准入 Agent 的 `interactionConfig.defaultDetail` > summary，Agent 默认值来自 Agent 显式配置 > agent-settings.yml 对应 mode 配置），整个 Run 期间所有观察者收到同一档事件。没有调用方连接的 Run（`chat_start`、Automation、`/api/execute`）取 Agent 默认值；批准计划后启动的执行 Run 沿用规划 Run 的档位；TEAM 子任务与 steer 不改变档位。档位只在进程内保存，不落盘（Platform 重启本就取消未完成 Run）。
 
@@ -575,28 +591,30 @@ TEAM 总控的普通工具与 reasoning 沿普通 Agent 事件链路；内部 `a
 
 落盘始终完整，细节等级只决定下发哪些事件：
 
-| 事件 | none | summary | full |
-|---|---|---|---|
-| `request.query/steer/submit`、`chat.start` | ✓ | ✓ | ✓ |
-| `run.start/complete/cancel/error` | ✓ | ✓ | ✓ |
-| `task.start/complete/cancel/error` | ✓ | ✓ | ✓ |
-| `content.*`（含 `content.view`、`content.snapshot`） | ✓ | ✓ | ✓ |
-| `planning.*`、`plan.create/update`、`artifact.publish`、`source.publish` | ✓ | ✓ | ✓ |
-| `awaiting.ask/answer` | ✓ | ✓ | ✓ |
-| 公示与清除 `run.activity`（`kind` 为 `announce` 或 `idle`） | ✓ | ✓ | ✓ |
-| 其他进度 `run.activity` | — | ✓ | ✓ |
-| 重试 `run.activity`（带 `retry`） | — | — | ✓ |
-| `reasoning.*`、`tool.*`、`usage.snapshot`、`context.compact.*`、`debug.llmChat`、`memory.*` 及其他类型 | — | — | ✓ |
+| 事件 | summary | full |
+|---|---|---|
+| `request.query/steer/submit`、`chat.start` | ✓ | ✓ |
+| `run.start/complete/cancel/error` | ✓ | ✓ |
+| `task.start/complete/cancel/error` | ✓ | ✓ |
+| `content.*`（含 `content.view`、`content.snapshot`） | ✓ | ✓ |
+| `planning.*`、`plan.create/update`、`artifact.publish`、`source.publish` | ✓ | ✓ |
+| `awaiting.ask/answer` | ✓ | ✓ |
+| 公示与清除 `run.activity`（`kind` 为 `announce` 或 `idle`） | ✓ | ✓ |
+| 其他进度 `run.activity` | ✓ | ✓ |
+| 重试 `run.activity`（带 `retry`） | ✓ | ✓ |
+| `run.access_level.changed`、`context.compact.*`、`usage.snapshot` | ✓ | ✓ |
+| `tool.wait`、`tool.wait.update`、wait 的 `tool.result` | ✓ | ✓ |
+| `reasoning.*`、其他 `tool.*`、`debug.llmChat`、`memory.*` 及其他类型 | — | ✓ |
 
-summary 与 none 都是白名单，新增事件类型默认不进入。none 与 summary 下发相同的事件，只是进度活动只保留模型的公示和输出开始时的清除，思考、工具、等待等自动进度不下发。full 是全集；客户端的详细视图忽略进度活动，因为细节事件本身已经展示了进度。summary 不下发 `usage.snapshot`，用量读取 `run.complete/cancel/error` 的 `usage.run` 与 `usage.chat`：其中 `toolCallCount`、`llmChatCompletionCount` 固定输出（含 0），另有 `promptTokens`、`completionTokens`、`completionTokensDetails.reasoningTokens`、`estimatedCost` 等；full 仍实时下发 `usage.snapshot`。`/api/chat` 只按等级过滤 `events`，`runs[].usage` 与顶层 `usage` 不受影响。Proxy 上游查询固定请求 `full`，由本地按查看者等级过滤；gateway 与 Desktop 透传客户端的 `detail`，省略时跟随 Agent。
+summary（精简）保留通知与状态同步：权限变更、上下文压缩、工具等待及其完成、实时用量和全部进度/重试活动均下发，不能因展示精简而丢失通知。思考正文和普通工具参数、结果等过程详情继续由白名单过滤。提问和审批本身仍通过 `awaiting.ask/answer` 正常展示。full（详细）是全集；客户端的详细视图忽略进度活动，因为细节事件本身已经展示了进度。summary 与 full 均实时下发 `usage.snapshot`，终态仍可读取 `run.complete/cancel/error` 的 `usage.run` 与 `usage.chat`：其中 `toolCallCount`、`llmChatCompletionCount` 固定输出（含 0），另有 `promptTokens`、`completionTokens`、`completionTokensDetails.reasoningTokens`、`estimatedCost` 等。`/api/chat` 只按等级过滤 `events`，`runs[].usage` 与顶层 `usage` 不受影响。Proxy 上游查询固定请求 `full`，由本地按查看者等级过滤；gateway 与 Desktop 透传客户端的 `detail`，省略时跟随 Agent。
 
 `run.activity` 用一句话说明 Run（或带 `taskId` 的子任务）现在在做什么。字段只有 `runId`、`chatId`、可选 `taskId`、`message`，进度活动另带 `kind`（`thinking`、`reasoning`、`tool_run`、`announce`、`subtask`、`awaiting`、`compacting`、`idle`），重试时另带 `retry`；`message` 按查看者语言渲染（HTTP 用请求语言、WS 用连接当前语言）。同一 `(runId, taskId)` 新的一条替换旧的一条；`message` 为空（`kind:"idle"`）表示该 scope 当前没有活动（用户正在看正文或计划），客户端隐藏活动行；`task.complete/cancel/error` 清除该子任务的活动，Run 终止事件清除全部。
 
-- 进度活动（summary 与 full 都有，summary 视图展示；none 只有公示与清除）：模型请求开始时为“正在思考”；`reasoning.start` 时为“正在”加该段的 `reasoningLabel`（英文为 `reasoningLabel…`），不读取推理正文；`content.start` 与 `planning.start` 发出 `message` 为空的活动以清空活动行，正文本身就是进度；每个模型回合在参数完整后（`tool.end` 时、审批之前）至多发一条工具活动，覆盖审批等待和整批执行，`tool.start` 与执行开始不再单独发：本回合有公示工具（`action_announce`）时为公示，否则为第一个工具的“工具 label：说明”，说明取工具定义 `activityArgs` 中第一个非空参数，没有则为“正在调用「工具 label」”；`task.start` 在父级显示“正在委派子任务「taskName」”；`awaiting.ask` 按 mode 显示“等待你审批 / 回答 / 填写表单 / 确认计划”，`awaiting.answer` 后恢复等待前的那条活动；`context.compact.start` 为“正在整理上下文”。相同文案仍下发，由客户端决定是否刷新展示；`clientVisible:false` 工具不产生活动，公示除外：公示是模型写给用户的话，不是工具本身的展示。
-- 公示（`kind:"announce"`）：`message` 是模型用用户语言写的一句话（下一步要做什么），原样展示、不翻译。公示发出后，该 scope 的其他活动至少被压住 `agent-settings.yml` 的 `announce-hold-seconds`（默认 60 秒，0 关闭）：期间思考、工具、等待、子任务委派、整理上下文等活动都不生成；新公示立即替换并重新计时，`idle`（开始输出正文或计划）与 Run 终止立即结束压住。到时不主动清除，下一条活动到来时才替换，所以长步骤会一直显示公示。压住在服务端完成，各档与各客户端看到同一结果；Proxy 对上游的公示同样生效。
-- none 下公示显示到下一条公示、开始输出正文或计划（`idle`）或 Run 终止，中间的其他活动不下发。attach 时服务端对每个 scope 先补发最后一条公示（若当前活动不是它），再补发当前活动（含空 `message` 的清除）：none 停在公示或清除，summary 停在当前活动。
+- 进度活动（summary 与 full 均接收全部通知）：模型请求开始时为“正在思考”；`reasoning.start` 时为“正在”加该段的 `reasoningLabel`（英文为 `reasoningLabel…`），不读取推理正文；`content.start` 与 `planning.start` 发出 `message` 为空的活动以清空活动行，正文本身就是进度；每个模型回合在参数完整后（`tool.end` 时、审批之前）至多发一条工具活动，覆盖审批等待和整批执行，`tool.start` 与执行开始不再单独发：本回合有公示工具（`action_announce`）时为公示，否则为第一个工具的“工具 label：说明”，说明取工具定义 `activityArgs` 中第一个非空参数，没有则为“正在调用「工具 label」”；`task.start` 在父级显示“正在委派子任务「taskName」”；`awaiting.ask` 按 mode 显示“等待你审批 / 回答 / 填写表单 / 确认计划”，`awaiting.answer` 后恢复等待前的那条活动；`context.compact.start` 为“正在整理上下文”。相同文案仍下发，由客户端决定是否刷新展示；`clientVisible:false` 工具不产生活动，公示除外：公示是模型写给用户的话，不是工具本身的展示。
+- 公示（`kind:"announce"`）：`message` 是模型用用户语言写的一句话（下一步要做什么），原样展示、不翻译。summary 下持续显示到下一条公示、开始输出正文或计划（`idle`）或 Run 终止；不再设置保持秒数，旧 `announce-hold-seconds` 配置拒绝加载。full 的其他进度正常生成和下发，不被公示压住。
+- attach 时服务端分别保存每个 scope 的最后一条公示或清除，以及当前完整进度；先补发公示状态，再补发不同的当前活动。两档均收到公示或清除与当前活动，客户端决定其展示。清除状态在后续自动进度出现后仍保留，重连不恢复已清除的旧公示。
 - 进度活动不占公共序号：`seq` 为 0，不进入 attach 回放日志、不落盘；attach 时服务端为每个仍在活动的 scope 补发当前那一条（同样 `seq` 为 0）。因此 full 的公共 `seq` 保持连续（忽略 `seq` 为 0 的事件）；summary 因过滤会出现跳号，客户端不能把跳号当作丢事件。
-- 重试活动（仅 full）：模型请求可恢复重试时发出，`retry` 含 `runSeq`（模型轮次）、`attempt`（含首次请求）、`maxAttempts`、`reason`、`error`（公共结构化错误）、`timeoutSeconds`、`elapsedMs`，普通重试另带 `delayMs` 与 `retryAt`（epoch ms），客户端显示序号为 `attempt-1` / `maxAttempts-1`；等待前先发出，等待支持取消。summary 与 none 看不到重试，重试耗尽后各档都收到终止 `run.error`。
+- 重试活动（summary 与 full 均接收）：模型请求可恢复重试时发出，`retry` 含 `runSeq`（模型轮次）、`attempt`（含首次请求）、`maxAttempts`、`reason`、`error`（公共结构化错误）、`timeoutSeconds`、`elapsedMs`，普通重试另带 `delayMs` 与 `retryAt`（epoch ms），客户端显示序号为 `attempt-1` / `maxAttempts-1`；等待前先发出，等待支持取消。两档均收到重试通知，重试耗尽后均收到终止 `run.error`。
 
 `run.activity` 不表示 run 失败；`run.error` 仍是终止事件，发出后不应再出现 content / reasoning / tool 等业务事件，后面只允许传输层 `[DONE]`。
 
@@ -659,7 +677,11 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 
 输入来源只由平台判定的 `origin` 表达（见上文），不决定 chat 摘要的 `source`；外部请求不能通过任何字段（包括 `role`）伪造 automation 来源。旧记录中 `role:"automation"/"system"` 的 query 继续不参与搜索和导出。普通 HTTP `/api/query` 传入 `sourceUser` 也不会改变 source；该字段只在受信 channel/gateway 上下文中作为远端用户提示使用。
 
-Markdown 与 Snapshot 导出统一由 `Summary + LoadChat` 投影一次内部 `ConversationSnapshotV1`。它包含已绑定的可见根 query、reasoning/content、工具、来源、计划、子任务、运行终态，以及已发布 HTML 附件的声明；不包含系统提示、任意原始 payload 或附件文件字节。构建过程只执行一次 JSON 序列化，同一份字节在导出出口按 `configs/runtime.yml` 的 `conversation-export.max-snapshot-mib`（默认 50，正整数，重启生效）校验并用于 `format=snapshot` 响应；Snapshot 响应携带 `X-Conversation-Export-Max-Bytes` 字节额度头，CORS 暴露该头。HTTP/工具每次导出只构建一次，普通会话投影不应用导出额度。当前 Platform 对每个 turn 最多保留 2000 个节点。Markdown 仅消费同一 Snapshot 结构体，写出已完成轮次的用户问题和最后一个 assistant 正文回答。
+Markdown 与 Snapshot 导出统一由 `Summary + LoadChat` 投影一次内部 `ConversationSnapshotV1`。它包含已绑定的可见根 query、reasoning/content、工具、来源、计划、子任务、运行终态，以及已发布产物和可见图片音视频的候选声明；不包含系统提示、任意原始 payload 或附件文件字节。构建过程只执行一次 JSON 序列化，同一份字节在导出出口按 `configs/runtime.yml` 的 `conversation-export.max-snapshot-mib`（默认 50，正整数，重启生效）校验并用于 `format=snapshot` 响应；Snapshot 响应携带 `X-Conversation-Export-Max-Bytes` 字节额度头，CORS 暴露该头。HTTP/工具每次导出只构建一次，普通会话读取只消费纯投影结构，不编码 JSON、不读取资源文件，也不应用导出额度。HTTP 导出的 manifest 读取失败时保留正文并记录遗漏；工具导出沿用严格失败语义。当前 Platform 对每个 turn 最多保留 2000 个节点。Markdown 仅消费同一 Snapshot 结构体，写出已完成轮次的用户问题和最后一个 assistant 正文回答。
+
+Snapshot 资源发现独立于纯事件投影：只处理当前 Chat 已发布产物、query/人类 steer 引用、成功 `image_generate` 输出和实际 Markdown 媒体；HTML 只解析 img/audio/video/source 的直接 src/srcset/poster，不递归扫描目录、Workspace、CSS 或 JS。普通媒体候选返回 stat 大小，未知 hash 省略；Desktop 冻结成功后补齐最终 size/hash。已发布附件始终保留 manifest 声明，不因文件暂时缺失或变更而在快照收集阶段删除；HTML 完整性校验或依赖发现失败时保留主附件候选，实际读取继续按 manifest 校验。节点可选 `attachmentIds`、HTML 描述符可选 `mediaRefs`，根级可选 `omittedResources` 保存逐项失败原因；规范 sourceRef 的 SHA-256 前 12 字节作为稳定 ID，成功和省略不重叠。同次导出复用一份 manifest 快照；既有已发布清单仍适用于非媒体下载，实际资源读取按当次请求重新执行 manifest/hash 校验。
+
+`POST /api/chat/export/resources/read` 只服务 Desktop app/device scope 且带本地主体的 token，正文为 `{chatId, sourceRef}`。sourceRef 必须是当前 Chat 规范相对引用；普通文件限图片/音频/视频，路径与 MIME 检查复用 chatresource/documentmeta。端点只返回原字节，不扩展通用资源读取权限。已登记资源必须通过产物校验，失败不降级；未登记的当前 Chat 媒体允许作为 HTML 相邻依赖读取。文件读取归 chatresource，快照层只发现引用和装配描述。错误映射：400 invalid、401/403 forbidden、404 not_found、409 changed、415 unsupported；响应不泄漏本地绝对路径。
 
 `GET /api/chat/export` 的空 `format` 与 `format=markdown` 返回 `text/markdown`；`format=snapshot` 返回 `application/json` 和 `<title>.snapshot.json` 文件名。响应的 `Content-Disposition` 使用标准媒体类型参数序列化：ASCII 文件名使用 `filename`，含非 ASCII 字符的文件名使用 RFC 编码的 `filename*`，响应头不会包含裸 Unicode。客户端必须按标准媒体类型参数解析文件名。Platform 不提供 `format=html`、模板加载、资源域名 Header 或创建、列表、撤销分享 API，也不接收 Tunnel site token。WebClient 拥有 HTML 模板和运行时，Desktop Worker 负责本地 HTML 生成，Tunnel 协议、RFC3339 分享元数据和链接生命周期由 Desktop/Tunnel 边界负责。
 
@@ -716,6 +738,78 @@ Chat JSONL 步骤行用可选数组 `toolUsage` 保存这些调用（字段同�
 Agent 编辑选项与 ACP 模型选项中的 `contextWindow` 是 API 响应字段名；model registry YAML 中对应配置字段为 `maxInputTokens`。Native 聊天模型选项不返回该字段；用量显示读取 usage 数据。
 
 HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attach backlog 与 H2A 缓冲见 [真流式和H2A](真流式和H2A.md)。
+
+### 实时语音 v1
+
+`GET /api/voice/capabilities` 按 `{code,msg,data}` 返回本地能力，不探测供应商：
+
+```json
+{"enabled":true,"reason":"","version":1,"websocketPath":"/api/voice/ws",
+ "input":{"codecs":["pcm_s16le"],"sampleRate":16000,"channels":1},
+ "output":{"codecs":["pcm_s16le"],"sampleRates":[16000,24000]},
+ "voices":[{"id":"longanyang","label":"longanyang"}],"defaultVoice":"longanyang"}
+```
+
+voice 默认关闭；未启用或模型未配置时 `enabled:false`，`reason` 给出原因。`voices` 来自 `voice.voices`，label 当前等于 id。
+
+`GET /api/voice/ws` 复用普通 JWT Bearer/cookie，浏览器可用既有 `bearer.<token>` 子协议，带 Origin 必须同源或命中部署 CORS allowlist；此入口不读取 URL token。文本帧是 JSON 控制消息（未知字段拒绝），二进制帧是裸 PCM，主 `/ws` 不收音频。
+
+客户端 → 服务端：
+
+| type | 字段 | 说明 |
+|---|---|---|
+| hello | version:1, agentKey, chatId?, voice?, audio.input{codec,sampleRate,channels,frameMs}, audio.output{codec,sampleRate,channels?,frameMs?} | 连接后 10 秒内的首帧。input 固定 pcm_s16le/16000/1/20；output 为 pcm_s16le 的 16000 或 24000。voice 省略取默认，须在 voices 内 |
+| listen | state:start/stop, mode:auto/manual | start 开启新一轮收音；auto 由服务端按句尾静音判定说完，manual 以 stop 结束 |
+| abort | reason? | 打断当前轮 |
+
+服务端 → 客户端：
+
+| type | 字段 | 说明 |
+|---|---|---|
+| hello | version, sessionId, agentKey, chatId, audio.output{codec,sampleRate,channels:1,frameMs:20} | 握手成功 |
+| stt | turn, text, final | 识别中间结果与整句定稿；定稿后停止收音并提交 Query |
+| run | turn, state:start/end, runId, chatId, finishReason? | start 与 end 之间显示思考中 |
+| awaiting | turn, runId, awaitingId, mode | Run 等待人工，随后朗读固定提示语 |
+| tts | turn, state:start/stop, text?, reason? | start 携带朗读全文，其后的二进制帧属于该轮；stop 的 reason 为 done/error，只表示音频发完，不代表客户端播完 |
+| abort | turn | 打断确认 |
+| error | code, msg | 见下方错误码 |
+
+服务端接受 listen start 时 turn 加 1，被拒绝的 listen start 不分配轮次。
+
+音频：
+
+- 上行只在收音阶段接受，按实时节奏发送；每帧 640 字节（20ms），仅最后一帧可更短且须为偶数字节，短帧后再发报 `invalid_audio`。单轮 PCM 最长 60 秒，识别文本最多 4000 字，10 秒内无识别结果按 `no_speech` 结束。
+- 下行每帧 20ms，服务端按实时节奏发送，最多领先 `voice.downlink-lead-ms`；不做 ACK 流控，客户端自行起播缓冲。
+- 半双工：一次 listen 只产生一个定稿，收到 tts stop 并本地播完后再发 listen start。收音中重复的 start 忽略；轮次已进入运行、等待或朗读时返回 `turn_busy`。
+
+打断：客户端立即本地静音、清空播放并发送 abort，此后丢弃音频和本轮消息，直到收到 abort 确认。服务端结束当前轮、丢弃等待提交的定稿，经 Runtime Interrupt 取消本会话受理的 Run，再回发 `{"type":"abort","turn":N}`；事件循环是唯一写出口，确认之后不会再有旧轮音频。关闭连接不取消 Run，取消必须发 abort。
+
+会话与 Run：一条 WS 绑定一个 Agent/Chat。hello 的 chatId 须属于该 Agent；省略时用该 Agent 的主要聊天，没有则在首轮以 primary 新建，期间主要聊天被他处设定返回 `chat_changed`。每个定稿作为一次普通 Query（planningMode:false，省略权限/编辑/model/references），成功保存且 complete 的最后正文去掉代码块、表格、链接地址等 Markdown 后才朗读（最多 800 字）。Chat 已有非本会话的活动 Run 返回 `chat_busy`；打断后的新定稿等旧 Run 终态后再提交，等待超时返回 `run_busy_timeout`。断线只停媒体并释放观察，不中断已受理 Run，重连不补录音/Query/播放。awaiting 只提示并等原界面 Submit，提示播放结束不开放新讲话；Run 完成后仍留有待处理项时返回 `awaiting_pending` 并结束本轮，不朗读。语音 Run 采用事实上的 voice transport，原用户的 HTTP/main WS 界面可按 subject 观察/控制，跨用户及 BTW/explain 拒绝；它不新增 Agent mode 或改变普通 HTTP/WS Run 的设备/transport 边界。HITL Submit 仍走既有授权和跨设备规则。
+
+错误码：
+
+- hello 前：`invalid_request`（首帧不是合法 hello，或 Agent、Chat、音色、音频格式不符）、`voice_unavailable`（模型或配置不可用），发送后关闭连接。
+- hello 后，error 结束当前轮，连接保留：`no_speech`、`asr_failed`、`recording_limit`、`transcript_limit`、`invalid_audio`、`audio_overflow`、`chat_busy`、`chat_changed`、`run_failed`、`run_busy_timeout`、`awaiting_pending`、`tts_failed`。无法观察 Run（`run_failed`）或旧 Run 收尾超时（`run_busy_timeout`）时随后关闭连接。
+- `turn_busy` 与 `invalid_request` 只拒绝该条消息，不影响进行中的轮。awaiting 提示语合成失败只以 `tts stop(reason=error)` 表示，不发 error，本轮继续等待。
+
+时序示例：
+
+```text
+→ {"type":"hello","version":1,"agentKey":"zenmi","audio":{"input":{"codec":"pcm_s16le","sampleRate":16000,"channels":1,"frameMs":20},"output":{"codec":"pcm_s16le","sampleRate":16000}}}
+← {"type":"hello","version":1,"sessionId":"vs1","agentKey":"zenmi","chatId":"c1","audio":{"output":{"codec":"pcm_s16le","sampleRate":16000,"channels":1,"frameMs":20}}}
+→ {"type":"listen","state":"start","mode":"auto"}
+→ [PCM 20ms] ...
+← {"type":"stt","turn":1,"text":"今天北京","final":false}
+← {"type":"stt","turn":1,"text":"今天北京天气怎么样？","final":true}
+← {"type":"run","turn":1,"state":"start","runId":"r1","chatId":"c1"}
+← {"type":"run","turn":1,"state":"end","runId":"r1","chatId":"c1","finishReason":"complete"}
+← {"type":"tts","turn":1,"state":"start","text":"北京今天晴，最高十八度。"}
+← [PCM 20ms] ...
+← {"type":"tts","turn":1,"state":"stop","reason":"done"}
+→ {"type":"listen","state":"start","mode":"auto"}
+```
+
+当前后端隔离矩阵已通过，WebClient 与 Desktop 宿主已切换；zenmind-gateway 路由、设备与真实部署/性能验收仍未完成，不能作为整阶段已交付依据。剩余工作见 [实时语音方案](../plans/realtime-voice.md)。
 
 ### KBASE
 
@@ -906,7 +1000,7 @@ WebSocket 存活配置与 SSE heartbeat 完全独立。服务端默认每 30 秒
 }
 ```
 
-`/api/query`、`/api/chat` 的请求帧可在顶层携带 `detail`（显式 `summary`、`full` 或 `none`，省略跟随 Agent），它是下发选项而非 payload；attach 帧不接受，规则见[细节等级](#细节等级与-runactivity)：
+`/api/query`、`/api/chat` 的请求帧可在顶层携带 `detail`（显式 `summary` 或 `full`，省略跟随 Agent），它是下发选项而非 payload；attach 帧不接受，规则见[细节等级](#细节等级与-runactivity)：
 
 ```json
 {"frame":"request","type":"/api/query","id":"req-2","detail":"full","payload":{"message":"hello"}}
@@ -970,7 +1064,7 @@ Desktop Action 的执行器错误由 Desktop Broker 转换为统一 error frame�
 | `connected` | `protocolVersion=2`、`sessionId`、`serverTime`、`liveness.heartbeatIntervalMs`、`liveness.silenceTimeoutMs` |
 | `heartbeat` | `sessionId`、单调递增 `sequence`、`timestamp` |
 | `auth.expiring` | `expiresAt` |
-| `run.started` | `runId`、`chatId`、`agentKey`、必填 `startedAt` |
+| `run.started` | `runId`、`chatId`、`agentKey`、必填 `startedAt`；带 requestId 的 execute 另含 requestId，仅用于取消关联，不去重 |
 | `run.finished` | `runId`、`chatId`、`status`、`finishReason`、必填 `finishedAt` |
 | `chat.created` | `chatId`、`chatName`、`agentKey`、`createdAt`、`source` |
 | `chat.updated` | `chatId`、`lastRunId`、`lastRunContent`、`updatedAt` |
@@ -995,6 +1089,8 @@ Desktop Action 的执行器错误由 Desktop Broker 转换为统一 error frame�
 `artifact.published` 是 Main 专属产物发布通知：本地成功发布并持久化 manifest 后，由实时 `artifact.publish` 生命周期触发；代理收到实时发布事件并写入本地记录后使用同一转换逻辑。每个产物一条 push，字段平铺在 `data` 中，不携带 `artifacts`、`artifactCount`、`toolId` 或 `taskId`。`url` 是相对于 `chatId` 的发布资源引用，`publishedAt` 是发布事件的 epoch 毫秒时间。它只投递给当前已认证注册的 `desktop-main`，所有 BTW、Explain、WebClient、Gateway 及其他 WS 均不接收；Main 离线不转投、不缓存通知。通知不依赖网关、当前选中 Chat 或 Run stream 订阅，attach/历史回放不重发；客户端以 `(chatId, runId, artifactId)` 幂等更新，断线后通过持久化产物清单对账。
 
 `resource.pushed` 仅表示文件已成功上传网关；没有网关配置/路由或上传失败不发送，代理不再把 `artifact.publish` 转换成它。`artifact.publish` 仍保留为原有批次 Run stream 事件。
+
+邮件更新 `mail.updated`、会话改名 `chat.renamed` 与自动化执行记录的 `automation.execution.created/updated/completed` 均属于业务 Push，Desktop 与 WebClient 必须按契约转发和消费，不受 Run 的 summary/full 档位影响。
 
 除 Main 专属 `artifact.published` 外，上述全局 Push 广播排除 `desktop-btw` 和 `desktop-explain` 连接。BTW lane 只接收握手、heartbeat、本连接请求的 response/error 与 Run stream；Desktop Primary 可以按全局唯一 runId 使用 `run.finished` 收敛 BTW RunChannel。
 
@@ -1436,4 +1532,52 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 
 ## Mailbox 会话投递
 
-会话投递增加 GET /api/mails 与 POST /api/mails/action，广播 mail.updated；request.query/request.steer 在顶层记录 mailId、mailKind、mailAttempt、mailHop，reply 另有 outcome；submit 可带平台生成的 origin/accessGrant 审计。字段不能由公共输入伪造，JSON 仍使用统一包裹。具体参数与权限见 [Mailbox](Mailbox.md#http-与展示)。
+Mailbox 默认关闭；在 `configs/runtime.yml` 设置 `mail.enabled: true` 并重启后启用。关闭时邮件列表与动作接口返回 503，不创建或打开 `mail.db`，详见 [启用与关闭](Mailbox.md#启用与关闭)。
+
+会话投递增加 GET /api/mails 与 POST /api/mails/action，广播 mail.updated；request.query/request.steer 在顶层记录 mailId、mailKind、mailAttempt、mailHop，reply 另有 outcome；submit 可带平台生成的 origin/accessGrant 审计。字段不能由公共输入伪造，JSON 仍使用统一包裹。具体参数与权限见 [Mailbox](Mailbox.md#http-与展示)。列表及动作的 JSON 字段名不随 MAILS 数据库列名变化；purgedAt 只表示邮件正文已清理，创建会话、父邮件和回信关系继续保留，HTTP/JSONL 协议不变。
+
+
+## Agent 默认权限与来源
+
+Agent YAML 的 accessConfig.default 是默认值，使用目录 /api/agents、/api/agent 及对应 WS 返回有效 defaultAccessLevel。普通 /api/query、/api/execute 与 BTW/explain 在省略 accessLevel 时取目标冻结定义的默认，未配置为 ask_for_approval；显式请求优先。关闭 interactionConfig.accessLevel 时仅接受省略或等于 Agent 默认的显式值。活动 Run 当前档位与 Agent 默认分别展示，运行中切档不写回 YAML。
+
+Agent 发起 chat_start/chat_send 时，省略采用目标默认且可高于父 Run；显式高于父当前档位返回 run_start_access_level_exceeded，executionState=not_started。目标准备与准入快照变化返回可重试的 run_start_target_changed。Automation 省略仍固定 ask_for_approval。
+
+JSONL query 原始输入不补默认。顶层 accessLevel 保存有效值，accessGrant.source 可为 explicit/agent_default/platform_default/automation_config/automation_default/continuation，目标 revision 与父基线在适用时一起冻结。旧 inherited/approved 历史继续读取，不按新配置重算。
+
+计划批准的 param 可带 executionAccessLevel（三个档位之一），用于确认等待期间升高的 Agent 默认。未确认升高返回 HTTP 409/plan_access_level_changed，data.executionAccessLevel 返回当前值，等待项不消费；客户端先刷新展示，再由用户重新确认。它不替代原始显式请求或规划期间用户切档。
+
+
+### 默认权限选择与具体档位
+
+Query、execute、side query 和子执行器的输入 `accessLevel: default`（或省略）表示由后台解析目标 Agent 的 `accessConfig.default`；Agent 未配置时使用 `ask_for_approval`。`default` 不再表示请求审批，也不是执行权限档位。用户显式选择使用 `ask_for_approval`（Ask for approval）、`auto_approve`（Auto-approve）或 `full_access`（Full access）。运行中的切档接口只接受这三个具体档位。
+
+Runtime 受理时冻结具体权限与来源，JSONL 顶层 `accessLevel`、Run 状态和权限事件使用具体档位；原始 query 保留请求中的 `default` 或省略，不改写。旧 JSONL 顶层 `default` 是旧版已冻结的请求审批决定，回读为 `ask_for_approval`，不依据当前 Agent 配置重算；旧规划记录中显式请求审批的执行续接也保留原权限。
+
+Automation 保持独立的场景默认：省略或 `default` 使用 `ask_for_approval`，不采用 Agent/Chat 的高权限默认。Gateway 与 Desktop WebApp execute 的固定低权限调用明确发送 `ask_for_approval`。Platform、WebClient、Desktop 和 Gateway 应同步升级，旧调用方若要明确请求审批，必须改发 `ask_for_approval`。
+
+## Linux Compose WebApp 前置诊断
+
+`GET /api/admin/webapps/host` 仅在 Linux standalone、显式 `--webapp-host=compose` 且 `runtime.yml` 的 `webapps.enabled: true` 时注册。启用还要求 JWT issuer/audience/expiry 和唯一 allowed-subjects owner；接口不接受 WebApp/连接器执行 token。未启用不注册路由；认证后 subject 非 owner 返回 403，宿主状态未装配返回 503；响应 no-store，包裹为 `{code,msg,data}`。
+
+`data` 含 host/os/arch、nodeVersion/nodeReady、supervisorReady、landlockAbi/isolationReady、isolationProfile/ipcScoped/deviceIoctlRestricted、warnings、backendPrerequisitesReady、hostingAvailable、stage 和 issues。stage 可为 foundation/installation/static/backend；staticAvailable 表示私有静态网关已组装，hostingAvailable 在受限 Node runner 已组装且前提满足时为 true。issues 另含启动时留作人工恢复的安装（`webapp_installation_invalid`、`webapp_recovery_required`），只给出代码，应用 ID 写入日志。安装与静态启停使用独立 owner 路由。
+
+启用时，Host 分类先于平台 API/CORS/WS。未知或应用内容 Host 不回落平台路由；仅 loopback peer 的精确 loopback:平台端口 GET /healthz 保留健康检查。内容域 Origin 禁止进入平台 API/主 WS，不使用 X-Forwarded-Host 推断平台身份。完整范围及限制见 [WebApp 托管](WebApp托管.md)。
+
+### WebApp 静态生命周期与访问
+
+owner 管理详情返回安装记录、Manifest、policy、用户配置及配置摘要。start/stop/restart 绑定安装与状态修订；静态 stop 撤销并等待旧 generation 租约结束。配置/授权 PUT 绑定各自 revision；运行中 Node 配置及授权变化通过重建代次生效。启动/安装状态与错误以源码 DTO 为准。
+
+`POST /api/admin/webapps/<id>/launch-ticket` 返回独立本地应用端口的 POST action、一次性 ticket 和过期时间；WebClient 用无 opener 表单打开。应用端 session 兑换、bootstrap 和配置路径归网关，不进入平台 mux。会话与票据只在内存中保存摘要；容器重启、应用停止及 owner 显式 `POST /api/admin/webapps/sessions/revoke` 后失效。Node 代理已接入；SDK transport 与连接器 action 已接入；assistant/skill/artifact 后续接入，不能据托管可用性推断所有 action 已交付。
+
+每应用使用 `http://127.0.0.1:<port>`；Compose 发布范围仅绑定宿主 loopback。独立域名/DNS/TLS/nginx 已按用户要求延期；本地模式不提供跨注册域 Cookie 隔离。详情见 [WebApp 托管](WebApp托管.md)。
+
+### WebApp 后端状态与日志
+
+生命周期与安装返回 202 operationId，读取 `/api/admin/webapps/operations/<operationId>` 观察受理结果；启动受理结果仍可为 starting，客户端继续通过管理读取观察状态；每次重启创建新 generation 并撤销旧页面/后端凭据。restart 为同应用锁下的停止再启动。健康、最近错误、退出码和重启次数只报告受控字段，不回显 PID、环境或内部地址。日志 `GET /api/admin/webapps/<id>/logs?stream=stdout|stderr&cursor=...` 只给 owner，返回有界尾部；reset 表示替换已有展示，不能将其当作永久事件日志。
+
+### Compose WebApp SDK
+
+`/__desktop/bridge.js`、bootstrap/config 和 `actions/call` 归应用会话边界，SDK action POST 要求精确应用 Origin 与 X-WebApp-CSRF，响应使用 `{ok,action,result|error}`。该 envelope 与 owner 管理的 `{code,msg,data}` 分离。
+
+Node 通过固定 loopback 的 `/webapps/session` 和 `/webapps/actions/call` 使用绑定代次的应用能力凭证；前者只接受 bootstrap 凭证，后者只接受短期 action token，均拒绝浏览器 Origin。应用凭证不被平台 JWT 或连接器 HTTP grant 接口接受。连接器调用进程内中立 scope，不生成伪造 deviceId。精确 action 与可用性由 capabilities 回应，不开放通用 Desktop Action 转发。

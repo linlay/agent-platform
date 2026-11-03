@@ -563,12 +563,13 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 var agentYAMLKeyOrder = map[string][]string{
 	"": {
 		"key", "name", "mode", "engine", "role", "description", "icon",
-		"modelConfig", "budget", "interactionConfig",
+		"modelConfig", "accessConfig", "budget", "interactionConfig",
 		"runtimeConfig", "projectConfig", "proxyConfig", "channelConfig",
 		"toolConfig", "skillConfig", "connectorConfig", "contextConfig",
 		"kbaseConfig", "memoryConfig", "promptFile", "runtimePrompts", "stageSettings",
 		"visibility", "controls", "greetings", "introductions", "wonders",
 	},
+	"accessConfig":          {"default"},
 	"modelConfig":           {"modelKey", "maxInputTokens", "serviceTier", "reasoning", "sampling"},
 	"modelConfig.reasoning": {"enabled", "effort"},
 	"contextConfig":         {"tags"},

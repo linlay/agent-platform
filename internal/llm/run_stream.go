@@ -7,10 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"agent-platform/internal/accesspolicy"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
-	"agent-platform/internal/bashsec"
 	"agent-platform/internal/chat"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
@@ -196,14 +194,12 @@ type preparedToolInvocation struct {
 	awaitExternalResult      bool
 	toolCallCounted          bool
 	precheckedHITL           *hitl.InterceptResult
-	bashSecurityReview       *bashsec.ReviewResult
-	bashAccessReview         *accesspolicy.BashPlan
 	shownApproval            *approvalRequest // immutable requirements displayed to the user
 	fileAccessPlan           *filetools.AccessPlan
 	fileWritePlan            *filetools.WritePlan
 	approvalDecision         string
 	approvalSequence         int
-	hostBashAuthorization    *hostBashAuthorization
+	bashAuthorization        *bashAuthorization
 	hitlDecision             *hitlDecisionState
 	queuedResult             *ToolExecutionResult
 	teamDispatch             *agentteam.Dispatch

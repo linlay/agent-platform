@@ -52,7 +52,7 @@ func TestControlCreateReplayUpdateAndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.After.Query.AccessLevel != "default" || plan.After.ZoneID != "Asia/Shanghai" || len(plan.Preview) != 3 {
+	if plan.After.Query.AccessLevel != "ask_for_approval" || plan.After.ZoneID != "Asia/Shanghai" || len(plan.Preview) != 3 {
 		t.Fatalf("preview: %+v", plan)
 	}
 	if _, err = s.ExecuteControl("create", args, "create-call", func(string) bool { return false }); err == nil {
@@ -260,7 +260,7 @@ func TestControlTriggerReplayDispatchesOnce(t *testing.T) {
 	var count atomic.Int32
 	dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest, _ QueryRunHooks) (QueryRunResult, error) {
 		count.Add(1)
-		if req.AccessLevel != "default" {
+		if req.AccessLevel != "ask_for_approval" {
 			t.Errorf("unexpected access level: %s", req.AccessLevel)
 		}
 		return successfulTestQuery(req, QueryRunHooks{}), nil

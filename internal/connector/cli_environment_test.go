@@ -30,11 +30,15 @@ func TestCLIEnvironmentValidation(t *testing.T) {
 		{"empty literal", AuthDelegated, "OPTIONAL", "", true},
 		{"token field", AuthToken, "FOO_KEY", "${API_KEY}", true},
 		{"mcp token", AuthMCP, "FOO_TOKEN", "Bearer ${OAUTH_ACCESS_TOKEN}", true},
-		{"oneid token", AuthOneID, "FOO_TOKEN", "${ONEID_TOKEN}", true},
+		{"oneid token", AuthOneID, "FOO_TOKEN", "${AP_ID_TOKEN}", true},
+		{"oneid prefixed token", AuthOneID, "FOO_TOKEN", "Bearer ${AP_ID_TOKEN}", true},
 		{"undeclared credential", AuthToken, "FOO_KEY", "${MISSING}", false},
 		{"credential in self mode", AuthDelegated, "FOO_KEY", "${API_KEY}", false},
 		{"old mcp name", AuthMCP, "FOO_TOKEN", "${ACCESS_TOKEN}", false},
 		{"old oneid name", AuthOneID, "FOO_TOKEN", "${AP_ACCESS_TOKEN}", false},
+		{"old oneid alias", AuthOneID, "FOO_TOKEN", "${ONEID_TOKEN}", false},
+		{"oneid token in self mode", AuthDelegated, "FOO_TOKEN", "${AP_ID_TOKEN}", false},
+		{"reserved identity key", AuthOneID, "AP_ID_TOKEN", "fixed", false},
 		{"shell execution variable", AuthDelegated, "BASH_ENV", "x", false},
 		{"path", AuthDelegated, "PATH", "/tmp", false},
 		{"platform prefix", AuthDelegated, "AP_TOKEN", "x", false},
@@ -96,8 +100,11 @@ func TestCLIEnvironmentSeparatesPublicValuesFromCredentials(t *testing.T) {
 	if templates, err := oauth.CLICredentialTemplates(); err != nil || templates["FOO_TOKEN"] != "Bearer ${ACCESS_TOKEN}" {
 		t.Fatalf("oauth template %v %v", templates, err)
 	}
-	oneid := cliEnvPackage(t, AuthOneID, map[string]any{"FOO_TOKEN": "${ONEID_TOKEN}"})
-	if templates, err := oneid.CLICredentialTemplates(); err != nil || templates["FOO_TOKEN"] != "${AP_ACCESS_TOKEN}" {
+	oneid := cliEnvPackage(t, AuthOneID, map[string]any{"FOO_TOKEN": "${AP_ID_TOKEN}"})
+	if public, err := oneid.CLIConfigEnvironment(); err != nil || len(public) != 0 {
+		t.Fatalf("oneid credential entered public environment: %v", err)
+	}
+	if templates, err := oneid.CLICredentialTemplates(); err != nil || templates["FOO_TOKEN"] != "${AP_ID_TOKEN}" {
 		t.Fatalf("oneid template %v %v", templates, err)
 	}
 }

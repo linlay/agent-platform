@@ -178,9 +178,9 @@ func TestDesktopCDPParamsFileReadPermissions(t *testing.T) {
 						filetools.RegisterExactReadApproval(execCtx, result.Structured["fingerprint"].(string))
 					}
 					if mode == "block" {
-						level := executor.cfg.AccessPolicy.Levels[AccessLevelDefault]
+						level := executor.cfg.AccessPolicy.Levels[AccessLevelAskForApproval]
 						level.Approvals.ReadOutsideRoots = "block"
-						executor.cfg.AccessPolicy.Levels[AccessLevelDefault] = level
+						executor.cfg.AccessPolicy.Levels[AccessLevelAskForApproval] = level
 					}
 					result, err = executor.invokeDesktopCDP(context.Background(), args, execCtx)
 					if mode == "block" {
@@ -213,7 +213,7 @@ func desktopCDPParamsTestRuntime(root string) (*RuntimeToolExecutor, *ExecutionC
 		cfg: config.Config{
 			RuntimeMode: config.RuntimeModeDesktop,
 			AccessPolicy: config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
-				AccessLevelDefault: {ReadRoots: []string{"@workspace", "@chat"}, Approvals: config.AccessPolicyApprovalConfig{ReadOutsideRoots: "hitl"}},
+				AccessLevelAskForApproval: {ReadRoots: []string{"@workspace", "@chat"}, Approvals: config.AccessPolicyApprovalConfig{ReadOutsideRoots: "hitl"}},
 			}},
 		},
 		clientRequest: invoker,

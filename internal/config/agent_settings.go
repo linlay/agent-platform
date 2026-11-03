@@ -169,7 +169,7 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 		return err
 	}
 	dropRetiredPlanExecute(values, path)
-	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "announce-hold-seconds", "general", "coder", "kbase", "team", "executor", "proxy", "channel", "acp-bridges")
+	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "general", "coder", "kbase", "team", "executor", "proxy", "channel", "acp-bridges")
 	if err != nil {
 		return err
 	}
@@ -180,21 +180,6 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 	c.PresetTools, c.PresetConnectors = presets.Tools, presets.Connectors
 	if c.PlanningMode, err = parsePlanningMode(values, path, c.PlanningMode); err != nil {
 		return err
-	}
-	if raw, exists := values["announce-hold-seconds"]; exists {
-		seconds := -1
-		switch v := raw.(type) {
-		case int:
-			seconds = v
-		case int64:
-			seconds = int(v)
-		case uint64:
-			seconds = int(v)
-		}
-		if seconds < 0 {
-			return fmt.Errorf("%s.announce-hold-seconds must be a non-negative integer", path)
-		}
-		c.AnnounceHoldSeconds = seconds
 	}
 	c.ModeDefaultDetails = map[string]string{}
 	for _, mode := range []string{"general", "coder", "kbase", "team", "executor", "proxy", "channel"} {
@@ -215,8 +200,8 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 		}
 		if value, exists := node["default-detail"]; exists {
 			level, ok := value.(string)
-			if !ok || (level != "summary" && level != "full" && level != "none") {
-				return fmt.Errorf("%s.%s.interaction-config.default-detail must be summary, full or none", path, mode)
+			if !ok || (level != "summary" && level != "full") {
+				return fmt.Errorf("%s.%s.interaction-config.default-detail must be summary or full", path, mode)
 			}
 			c.ModeDefaultDetails[mode] = level
 		}

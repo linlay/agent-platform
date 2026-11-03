@@ -19,7 +19,6 @@ const (
 	EnvConnectorDir       = "CONNECTOR_DIR"
 	EnvConnectorConfigDir = "CONNECTOR_CONFIG_DIR"
 	EnvOAuthAccessToken   = "OAUTH_ACCESS_TOKEN"
-	EnvOneIDToken         = "ONEID_TOKEN"
 	envHome               = "HOME"
 )
 
@@ -81,7 +80,7 @@ func (p Package) credentialVariables() map[string]bool {
 	case AuthMCP:
 		return map[string]bool{EnvOAuthAccessToken: true}
 	case AuthOneID:
-		return map[string]bool{EnvOneIDToken: true}
+		return map[string]bool{shellenv.EnvIDToken: true}
 	}
 	return nil
 }
@@ -163,7 +162,6 @@ func (p Package) CLICredentialTemplates() (map[string]string, error) {
 			return nil, err
 		}
 		value = strings.ReplaceAll(value, "${"+EnvOAuthAccessToken+"}", "${ACCESS_TOKEN}")
-		value = strings.ReplaceAll(value, "${"+EnvOneIDToken+"}", "${AP_ACCESS_TOKEN}")
 		result[key] = value
 	}
 	if len(result) == 0 {

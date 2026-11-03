@@ -53,7 +53,7 @@ func TestMailboxStartsDetachedRunAndReturnsCompleteResultToWaitingChat(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := contracts.QuerySession{RunID: "parent-run", ChatID: "mail-parent", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent"), AccessLevel: "default"}
+	session := contracts.QuerySession{RunID: "parent-run", ChatID: "mail-parent", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent"), AccessLevel: "ask_for_approval"}
 	_, parent, _ := f.runs.Register(ctx, session)
 	defer f.runs.Finish(session.RunID)
 	scope := controlscope.Scope{Transport: "http", Subject: "alice"}
@@ -147,9 +147,9 @@ func TestMailboxAskSubmitUsesLivePermissionAndPreservesHumanBoundary(t *testing.
 	t.Cleanup(func() { cancel(); box.Close() })
 	query := testQueryService(f.server)
 	query.BindMailbox(box)
-	parentSession := contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent"), AccessLevel: "default"}
+	parentSession := contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent"), AccessLevel: "ask_for_approval"}
 	_, parent, _ := f.runs.Register(ctx, parentSession)
-	childSession := contracts.QuerySession{RunID: "child", ChatID: "child-chat", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent"), AccessLevel: "default"}
+	childSession := contracts.QuerySession{RunID: "child", ChatID: "child-chat", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent"), AccessLevel: "ask_for_approval"}
 	_, child, _ := f.runs.Register(ctx, childSession)
 	defer f.runs.Finish("parent")
 	defer f.runs.Finish("child")

@@ -49,7 +49,7 @@ func TestLibraryManagementSourceChangesAlwaysRequireHumanReview(t *testing.T) {
 	if err := os.Symlink(source, alias); err != nil {
 		t.Fatal(err)
 	}
-	for _, level := range []string{"default", "auto_approve", "full_access"} {
+	for _, level := range []string{"ask_for_approval", "auto_approve", "full_access"} {
 		for _, tc := range []struct {
 			name   string
 			change func(map[string]any, map[string]any)

@@ -19,3 +19,16 @@ func TestInheritedEnvironmentUsesConfiguredNamesAndPrefixes(t *testing.T) {
 		}
 	}
 }
+
+func TestIdentityCannotBeInheritedEvenWhenExplicitlyListed(t *testing.T) {
+	host := []string{"AP_ID_TOKEN=spoofed", "ap_id_token=also-spoofed", "AP_KEEP=public", "PATH=/usr/bin"}
+	for _, names := range [][]string{nil, {"AP_ID_TOKEN", "ap_id_token", "AP_KEEP"}, {"AP_*"}, {"*"}} {
+		got := InheritedEnvironment(host, names...)
+		for _, entry := range got {
+			key, _, _ := strings.Cut(entry, "=")
+			if strings.EqualFold(key, EnvIDToken) {
+				t.Fatal("identity inherited from host")
+			}
+		}
+	}
+}

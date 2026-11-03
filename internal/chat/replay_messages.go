@@ -101,6 +101,9 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID string, 
 					"taskId":    taskID,
 					"arguments": fnArgs,
 				}
+				if label, _ := tcMap["_toolLabel"].(string); label != "" {
+					payload["toolLabel"] = label
+				}
 				addReplayLiveSeq(payload, liveSeq)
 				events = append(events, stream.EventData{
 					Seq:       nextSeq(),

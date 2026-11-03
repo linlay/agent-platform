@@ -20,7 +20,12 @@ func (s *Service) LocalRunExecutorParams(
 ) runexec.NativeOptions {
 	execution := s.resolvedQueryExecution(prepared)
 	if !execution.HiddenRun {
-		s.broadcast("run.started", runStartedPushPayload(prepared.Req.RunID, prepared.Req.ChatID, prepared.Req.AgentKey, registered.StartedAtMillis))
+		payload := runStartedPushPayload(prepared.Req.RunID, prepared.Req.ChatID, prepared.Req.AgentKey, registered.StartedAtMillis)
+		// Correlate synchronous execute with its canonical Run without adding a stream.
+		if prepared.Req.ResultContract != nil && prepared.Req.RequestID != "" {
+			payload = runStartedPushPayload(prepared.Req.RunID, prepared.Req.ChatID, prepared.Req.AgentKey, registered.StartedAtMillis, prepared.Req.RequestID)
+		}
+		s.broadcast("run.started", payload)
 	}
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	contracts.BindContentViews(registered.RunCtx, mapper, &prepared.Session)
@@ -44,7 +49,9 @@ func (s *Service) LocalRunExecutorParams(
 		}
 
 		onContinuation = func(c contracts.DeltaRunContinuation) (string, error) {
-			c.ContinuationState = &awaitingContinuationAdmission{Summary: prepared.Summary, AgentKey: prepared.AgentDef.Key, TeamSnapshot: prepared.TeamSnapshot, AgentDef: prepared.AgentDef, Frozen: true}
+			if c.ContinuationState == nil {
+				c.ContinuationState = &awaitingContinuationAdmission{Summary: prepared.Summary, AgentKey: prepared.AgentDef.Key, TeamSnapshot: prepared.TeamSnapshot, AgentDef: prepared.AgentDef, Frozen: true}
+			}
 			return s.startRunContinuation(c)
 		}
 	}
@@ -90,6 +97,7 @@ func (s *Service) LocalRunExecutorParams(
 }
 
 type queryRunResult struct {
+	Persisted     bool
 	AssistantText string
 	FinishReason  string
 	Usage         chat.UsageData
@@ -119,6 +127,7 @@ func (s *Service) executePreparedLocalQuery(prepared preparedQuery, registered r
 	result := runexec.ExecuteNative(params)
 	completion := result.Completion
 	return queryRunResult{
+		Persisted:     result.Persisted,
 		AssistantText: completion.AssistantText, FinishReason: completion.FinishReason,
 		Usage: completion.Usage, Completion: &completion,
 		ErrorMessage: result.ErrorMessage, ErrorPayload: result.ErrorPayload,

@@ -54,7 +54,7 @@ func (h *ToolHandler) prepareAutomationApproval(_ context.Context, tool string, 
 	if key == "" {
 		return nil, fmt.Errorf("automation invocation identity required")
 	}
-	plan, err := h.automations.PrepareControl(action, p, key)
+	plan, err := h.automations.PrepareControlForRun(action, p, key, e.RunControl)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (h *ToolHandler) invokeAutomation(tool, action string, p map[string]any, e 
 		return nil, fmt.Errorf("automation service unavailable")
 	}
 	if tool == "automation_manage" {
-		return h.automations.ExecuteControl(action, p, automationInvocation(e), func(digest string) bool {
+		return h.automations.ExecuteControlForRun(action, p, automationInvocation(e), e.RunControl, func(digest string) bool {
 			return contracts.ConsumeToolApproval(e, contracts.ToolApprovalFingerprint(e, tool, action, digest))
 		})
 	}

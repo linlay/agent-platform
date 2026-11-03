@@ -57,6 +57,7 @@ type ControlPlan struct {
 	After               string
 	GeneratedFiles      map[string]string
 	Digest              string
+	AccessConfigChange  *AccessConfigChange
 	KnowledgeBinding    *KnowledgeBindingReview
 	DetachedAgentKeys   []string
 	root, rel, revision string
@@ -517,7 +518,11 @@ func (s *ControlService) Prepare(c ControlChange, caller string) (*ControlPlan, 
 			}
 		}
 		p.After = c.Content
-		if c.ResourceType == "agent" && filepath.Base(rel) == "agent.yml" {
+		if c.ResourceType == "agent" && rel == "agent.yml" {
+			p.AccessConfigChange, e = accessConfigChange(string(old), c.Content)
+			if e != nil {
+				return nil, e
+			}
 			p.After, _, e = redactAgentEnvironment(c.Content)
 			if e != nil {
 				return nil, e

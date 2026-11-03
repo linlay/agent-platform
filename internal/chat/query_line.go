@@ -223,36 +223,45 @@ func lineRequestID(line map[string]any) string {
 
 // queryLineFromMap decodes a persisted query line without a JSON round trip, so
 // numbers keep the decoder's json.Number form.
+func storedQueryAccessLevel(value any) string {
+	level := strings.TrimSpace(stringFromAny(value))
+	if level == "default" {
+		return "ask_for_approval"
+	}
+	return level
+}
+
 func queryLineFromMap(line map[string]any, fallbackChatID string) *QueryLine {
 	chatID := strings.TrimSpace(stringFromAny(line["chatId"]))
 	if chatID == "" {
 		chatID = strings.TrimSpace(fallbackChatID)
 	}
 	out := &QueryLine{
-		MailInput:    queryinput.MailFromPayload(line),
-		Type:         "query",
-		ChatID:       chatID,
-		RunID:        strings.TrimSpace(stringFromAny(line["runId"])),
-		UpdatedAt:    int64FromAny(line["updatedAt"]),
-		LiveSeq:      int64FromAny(line["liveSeq"]),
-		RequestID:    strings.TrimSpace(stringFromAny(line["requestId"])),
-		AgentKey:     strings.TrimSpace(stringFromAny(line["agentKey"])),
-		TaskID:       strings.TrimSpace(stringFromAny(line["taskId"])),
-		TaskName:     strings.TrimSpace(stringFromAny(line["taskName"])),
-		TaskToolID:   strings.TrimSpace(stringFromAny(line["taskToolId"])),
-		TaskAgentKey: lineTaskAgentKey(line),
-		Lane:         strings.TrimSpace(stringFromAny(line["lane"])),
-		Origin:       queryinput.OriginFromPayload(line["origin"]),
-		AccessGrant:  cloneStringAnyMap(anyMap(line["accessGrant"])),
-		PlanRunID:    strings.TrimSpace(stringFromAny(line["planRunId"])),
-		AccessLevel:  strings.TrimSpace(stringFromAny(line["accessLevel"])),
-		Hidden:       boolFromAny(line["hidden"]),
-		PlanningMode: boolFromAny(line["planningMode"]),
-		Model:        line["model"],
-		References:   line["references"],
-		Locale:       strings.TrimSpace(stringFromAny(line["locale"])),
-		Query:        cloneStringAnyMap(anyMap(line["query"])),
-		Messages:     messagesFromEventValue(line["messages"]),
+		LegacyAccessLevel: strings.TrimSpace(stringFromAny(line["accessLevel"])) == "default",
+		MailInput:         queryinput.MailFromPayload(line),
+		Type:              "query",
+		ChatID:            chatID,
+		RunID:             strings.TrimSpace(stringFromAny(line["runId"])),
+		UpdatedAt:         int64FromAny(line["updatedAt"]),
+		LiveSeq:           int64FromAny(line["liveSeq"]),
+		RequestID:         strings.TrimSpace(stringFromAny(line["requestId"])),
+		AgentKey:          strings.TrimSpace(stringFromAny(line["agentKey"])),
+		TaskID:            strings.TrimSpace(stringFromAny(line["taskId"])),
+		TaskName:          strings.TrimSpace(stringFromAny(line["taskName"])),
+		TaskToolID:        strings.TrimSpace(stringFromAny(line["taskToolId"])),
+		TaskAgentKey:      lineTaskAgentKey(line),
+		Lane:              strings.TrimSpace(stringFromAny(line["lane"])),
+		Origin:            queryinput.OriginFromPayload(line["origin"]),
+		AccessGrant:       cloneStringAnyMap(anyMap(line["accessGrant"])),
+		PlanRunID:         strings.TrimSpace(stringFromAny(line["planRunId"])),
+		AccessLevel:       storedQueryAccessLevel(line["accessLevel"]),
+		Hidden:            boolFromAny(line["hidden"]),
+		PlanningMode:      boolFromAny(line["planningMode"]),
+		Model:             line["model"],
+		References:        line["references"],
+		Locale:            strings.TrimSpace(stringFromAny(line["locale"])),
+		Query:             cloneStringAnyMap(anyMap(line["query"])),
+		Messages:          messagesFromEventValue(line["messages"]),
 	}
 	if system, ok := systemFromEventValue(line["system"]); ok {
 		out.System = &system

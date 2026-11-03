@@ -33,7 +33,7 @@ func TestCatalogProjectRequiresWorkspaceBeforeValidationApprovalAndApply(t *test
 				{"root alias", "runtimeConfig:\n  workspaceRoot: '@root'\n"},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
-					for _, level := range []string{"default", "auto_approve", "full_access"} {
+					for _, level := range []string{"ask_for_approval", "auto_approve", "full_access"} {
 						t.Run(level, func(t *testing.T) {
 							execution := controlExecution()
 							execution.AccessLevel = level

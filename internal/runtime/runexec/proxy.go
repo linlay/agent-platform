@@ -22,7 +22,6 @@ type ProxyExecutor struct {
 	Runs              contracts.RunManager
 	Models            *models.ModelRegistry
 	Billing           config.BillingConfig
-	AnnounceHold      time.Duration
 	Routes            *proxy.Service
 	Driver            *proxy.Driver
 	Notifications     contracts.NotificationSink
@@ -91,7 +90,6 @@ func (e *ProxyExecutor) launch(prepared runtimetypes.PreparedQuery, registered r
 		prepared.Req.Mail.Payload(payload)
 		recorder.runtimeEvent(stream.EventData{Type: "request.query", Payload: payload})
 	}
-	recorder.SetAnnounceHold(e.AnnounceHold)
 	ctx, cancel := context.WithCancel(registered.RunCtx)
 	stopLifecycle := context.AfterFunc(e.BackgroundContext, cancel)
 	go func() {
@@ -128,7 +126,9 @@ func (e *ProxyExecutor) execute(ctx context.Context, prepared runtimetypes.Prepa
 		// Deliver the recorder's result before closing observers. Waiting for
 		// delivery first would deadlock a caller that still owns its observer.
 		if onCompletion != nil && completion.RunID != "" {
-			onCompletion(recorder.Result(completion))
+			result := recorder.Result(completion)
+			result.Persisted = persisted
+			onCompletion(result)
 		}
 		if bus != nil {
 			bus.FreezeAndWait()

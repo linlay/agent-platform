@@ -10,7 +10,7 @@ import (
 )
 
 func TestAutomationAccessLevelPersistReloadAndDispatch(t *testing.T) {
-	for _, level := range []string{"", "default", "auto_approve", "full_access"} {
+	for _, level := range []string{"", "default", "ask_for_approval", "auto_approve", "full_access"} {
 		t.Run("level="+level, func(t *testing.T) {
 			registry := NewRegistry(t.TempDir())
 			def := Definition{ID: "daily", Name: "Daily", Enabled: true, Cron: "0 9 * * *", AgentKey: "agent", Query: Query{Message: "run", AccessLevel: level}}
@@ -31,11 +31,11 @@ func TestAutomationAccessLevelPersistReloadAndDispatch(t *testing.T) {
 			if strings.Contains(source.Content, "accessLevel:") != (level != "") {
 				t.Fatalf("unexpected source: %s", source.Content)
 			}
-			expected, _ := contracts.NormalizeAccessLevel(level)
+			expected, _ := contracts.NormalizeRequestedAccessLevel(level)
 			var called bool
 			dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 				called = true
-				actual, valid := contracts.NormalizeAccessLevel(req.AccessLevel)
+				actual, valid := contracts.NormalizeRequestedAccessLevel(req.AccessLevel)
 				if !valid || actual != expected {
 					t.Fatalf("want %s got %q", expected, req.AccessLevel)
 				}

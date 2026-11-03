@@ -1,8 +1,9 @@
 package llm
 
 import (
-	"agent-platform/internal/contracts/queryinput"
-	"agent-platform/internal/view"
+	"agent-platform/internal/accesspolicy"
+	"agent-platform/internal/shellreview"
+	shellplan "agent-platform/internal/shellreview/plan"
 	"bufio"
 	"context"
 	"errors"
@@ -19,15 +20,16 @@ import (
 	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
-	"agent-platform/internal/bashsec"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	contracts "agent-platform/internal/contracts"
+	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/hitl"
 	"agent-platform/internal/models"
 	streampkg "agent-platform/internal/stream"
 	"agent-platform/internal/toolinteraction"
 	runtimetools "agent-platform/internal/tools"
+	"agent-platform/internal/view"
 )
 
 func encodedSubmitParams(t *testing.T, value any) api.SubmitParams {
@@ -1076,7 +1078,7 @@ func TestFinishCurrentTurnEstimatesFileWriteChangeOnToolEnd(t *testing.T) {
 
 func accessPolicyAllowingRoot(root string) config.AccessPolicyConfig {
 	return config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
-		contracts.AccessLevelDefault: {
+		contracts.AccessLevelAskForApproval: {
 			ReadRoots:  []string{root},
 			WriteRoots: []string{root},
 		},
@@ -2448,12 +2450,10 @@ func TestPrepareToolCall_BashDescriptionIsOptional(t *testing.T) {
 }
 
 func TestBuildApprovalAskItem_BashDescriptionFallsBackToCommand(t *testing.T) {
-	review := bashsec.ReviewResult{Decision: bashsec.ReviewAllow}
 	invocation := &preparedToolInvocation{
-		toolID:             "tool_1",
-		toolName:           "bash",
-		args:               map[string]any{"command": "chmod 777 ~/a.sh"},
-		bashSecurityReview: &review,
+		toolID:   "tool_1",
+		toolName: "bash",
+		args:     map[string]any{"command": "chmod 777 ~/a.sh"},
 	}
 
 	item := (&llmRunStream{}).buildApprovalAskItem(invocation)
@@ -2866,7 +2866,7 @@ func TestBashSecuritySoftBlockEmitsApprovalWithoutChecker(t *testing.T) {
 		t.Fatalf("expected one approval item, got %#v", ask)
 	}
 	approval, _ := ask.Approvals[0].(map[string]any)
-	if approval["ruleKey"] != bashsec.RuleKeyRuntimeWrapperXargs {
+	if approval["ruleKey"] != shellreview.RuleKeyRuntimeWrapperXargs {
 		t.Fatalf("expected stable bash security rule key, got %#v", approval)
 	}
 	options, _ := approval["options"].([]any)
@@ -3034,7 +3034,7 @@ func TestBashSecuritySoftBlockPrefixApprovalWhitelistsRule(t *testing.T) {
 	if err := stream.awaitHITLSubmitAndExecute(); err != nil {
 		t.Fatalf("awaitHITLSubmitAndExecute returned error: %v", err)
 	}
-	if !stream.isRuleWhitelisted(bashsec.RuleKeyRuntimeWrapperXargs) {
+	if !stream.isRuleWhitelisted(shellreview.RuleKeyRuntimeWrapperXargs) {
 		t.Fatalf("expected bash security rule whitelist, got %#v", stream.hitlRuleWhitelist)
 	}
 
@@ -3085,8 +3085,8 @@ func TestBashSecuritySoftBlockAutoApprovesByAccessLevel(t *testing.T) {
 	if stream.hitlPendingCall != nil || len(stream.pending) != 1 {
 		t.Fatalf("expected no approval ask and one tool result, pending=%#v hitlPending=%#v", stream.pending, stream.hitlPendingCall)
 	}
-	if len(stream.execCtx.BashSecurityApprovals) != 0 {
-		t.Fatalf("host invocation leaked its security approval into the run: %#v", stream.execCtx.BashSecurityApprovals)
+	if len(stream.execCtx.AccessPolicyApprovals) != 0 {
+		t.Fatalf("host invocation leaked its security approval into the run: %#v", stream.execCtx.AccessPolicyApprovals)
 	}
 }
 
@@ -3101,8 +3101,8 @@ func TestBashSecuritySoftBlockUsesExistingFingerprintApproval(t *testing.T) {
 		},
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{
-			BashSecurityApprovals: map[string]int{
-				bashsec.ApprovalFingerprint(command): 1,
+			AccessPolicyApprovals: map[string]int{
+				shellreview.ApprovalFingerprint(command): 1,
 			},
 		},
 		activeToolCall: &preparedToolInvocation{
@@ -3111,6 +3111,9 @@ func TestBashSecuritySoftBlockUsesExistingFingerprintApproval(t *testing.T) {
 			args:     map[string]any{"command": command, "description": "创建 owner"},
 		},
 	}
+
+	plan := stream.rawBashAccessReview(stream.activeToolCall)
+	stream.execCtx.AccessPolicyApprovals = map[string]int{plan.Fingerprint: 1}
 
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)
@@ -3972,14 +3975,14 @@ func TestPendingFileReadApprovalResolvesAfterAccessLevelUpdate(t *testing.T) {
 	outside := t.TempDir()
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinition("file_read")}}
 	control := contracts.NewRunControl(context.Background(), "run_1")
-	control.SetInitialAccessLevel(contracts.AccessLevelDefault)
+	control.SetInitialAccessLevel(contracts.AccessLevelAskForApproval)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	session := contracts.QuerySession{
 		RequestID:   "req_1",
 		ChatID:      "chat_1",
 		RunID:       "run_1",
-		AccessLevel: contracts.AccessLevelDefault,
+		AccessLevel: contracts.AccessLevelAskForApproval,
 	}
 	stream := &llmRunStream{
 		ctx:        ctx,
@@ -3988,10 +3991,10 @@ func TestPendingFileReadApprovalResolvesAfterAccessLevelUpdate(t *testing.T) {
 		engine:     &LLMAgentEngine{tools: executor},
 		execCtx: &contracts.ExecutionContext{
 			Session: contracts.QuerySession{
-				AccessLevel:   contracts.AccessLevelDefault,
+				AccessLevel:   contracts.AccessLevelAskForApproval,
 				WorkspaceRoot: root,
 			},
-			AccessLevel: contracts.AccessLevelDefault,
+			AccessLevel: contracts.AccessLevelAskForApproval,
 			RunControl:  control,
 		},
 		activeToolCall: &preparedToolInvocation{
@@ -4309,7 +4312,7 @@ func TestPendingOpaqueScriptApprovalResolvesAfterAccessLevelUpdate(t *testing.T)
 		RequestID:     "req_dynamic",
 		ChatID:        "chat_1",
 		RunID:         "run_dynamic",
-		AccessLevel:   contracts.AccessLevelDefault,
+		AccessLevel:   contracts.AccessLevelAskForApproval,
 		WorkspaceRoot: workspace,
 		ChatRoot:      chatDir,
 		RuntimeContext: contracts.RuntimeRequestContext{LocalPaths: contracts.LocalPaths{
@@ -4322,7 +4325,7 @@ func TestPendingOpaqueScriptApprovalResolvesAfterAccessLevelUpdate(t *testing.T)
 		bashToolDefinition(),
 	}}
 	control := contracts.NewRunControl(context.Background(), session.RunID)
-	control.SetInitialAccessLevel(contracts.AccessLevelDefault)
+	control.SetInitialAccessLevel(contracts.AccessLevelAskForApproval)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	stream := &llmRunStream{
@@ -4332,7 +4335,7 @@ func TestPendingOpaqueScriptApprovalResolvesAfterAccessLevelUpdate(t *testing.T)
 		engine:     &LLMAgentEngine{tools: executor},
 		execCtx: &contracts.ExecutionContext{
 			Session:     session,
-			AccessLevel: contracts.AccessLevelDefault,
+			AccessLevel: contracts.AccessLevelAskForApproval,
 			RunControl:  control,
 		},
 	}
@@ -4802,7 +4805,7 @@ func TestKBaseReadOnlySourceMutationSkipsMeaninglessHITLPreflight(t *testing.T) 
 		RunID:         "run_1",
 		Mode:          agentkbase.Mode,
 		WorkspaceRoot: source,
-		AccessLevel:   contracts.AccessLevelDefault,
+		AccessLevel:   contracts.AccessLevelAskForApproval,
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{WorkspaceDir: source},
 		},
@@ -4813,7 +4816,7 @@ func TestKBaseReadOnlySourceMutationSkipsMeaninglessHITLPreflight(t *testing.T) 
 		engine: &LLMAgentEngine{cfg: config.Config{
 			AccessPolicy: config.AccessPolicyConfig{
 				Levels: map[string]config.AccessPolicyLevelConfig{
-					contracts.AccessLevelDefault: {
+					contracts.AccessLevelAskForApproval: {
 						WriteRoots: []string{},
 						Approvals: config.AccessPolicyApprovalConfig{
 							WriteOutsideRoots: "hitl",
@@ -5553,7 +5556,7 @@ func TestAwaitHITLApprovalBatchAndContinue_HostUsesUnifiedBashToolName(t *testin
 		},
 		session: contracts.QuerySession{
 			WorkspaceRoot:          t.TempDir(),
-			AccessLevel:            contracts.AccessLevelDefault,
+			AccessLevel:            contracts.AccessLevelAskForApproval,
 			RequestID:              "req_1",
 			ChatID:                 "chat_1",
 			RunID:                  "run_1",
@@ -5642,7 +5645,7 @@ func TestPrepareQueuedBashApprovalBatch_AppendsSingleSummaryAfterAllApprovedResu
 		},
 		session: contracts.QuerySession{
 			WorkspaceRoot: t.TempDir(),
-			AccessLevel:   contracts.AccessLevelDefault,
+			AccessLevel:   contracts.AccessLevelAskForApproval,
 			RequestID:     "req_1",
 			ChatID:        "chat_1",
 			RunID:         "run_1",
@@ -5746,7 +5749,7 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 		},
 		session: contracts.QuerySession{
 			WorkspaceRoot: t.TempDir(),
-			AccessLevel:   contracts.AccessLevelDefault,
+			AccessLevel:   contracts.AccessLevelAskForApproval,
 			RequestID:     "req_1",
 			ChatID:        "chat_1",
 			RunID:         "run_1",
@@ -5900,15 +5903,16 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 
 func TestAwaitHITLApprovalBatchAndContinueUsesStoredMatch(t *testing.T) {
 	runControl := contracts.NewRunControl(context.Background(), "run_1")
-	review := bashsec.ReviewBashSecurity("xargs echo")
+	review := shellplan.New("xargs echo", contracts.AccessLevelAskForApproval, accesspolicy.DecisionRequiresApproval, "runtime wrapper", shellreview.RuleKeyRuntimeWrapperXargs, "original")
+	reviewer := &changingBashReviewExecutor{plan: review}
 	invocation := &preparedToolInvocation{
-		toolID:             "tool_1",
-		toolName:           "bash",
-		args:               map[string]any{"command": "xargs echo", "description": "runtime wrapper"},
-		bashSecurityReview: &review,
+		toolID:   "tool_1",
+		toolName: "bash",
+		args:     map[string]any{"command": "xargs echo", "description": "runtime wrapper"},
 	}
 	stream := &llmRunStream{
-		ctx: context.Background(),
+		ctx:    context.Background(),
+		engine: &LLMAgentEngine{tools: reviewer},
 		session: contracts.QuerySession{
 			RequestID: "req_1",
 			ChatID:    "chat_1",
@@ -5927,8 +5931,7 @@ func TestAwaitHITLApprovalBatchAndContinueUsesStoredMatch(t *testing.T) {
 	if stream.hitlPendingBatch == nil || len(stream.hitlPendingBatch.matches) != 1 {
 		t.Fatalf("expected one stored batch match, got %#v", stream.hitlPendingBatch)
 	}
-	allow := bashsec.ReviewResult{Decision: bashsec.ReviewAllow}
-	invocation.bashSecurityReview = &allow
+	reviewer.plan = shellplan.BashPlan{Decision: accesspolicy.DecisionAllow}
 
 	ask := stream.pending[0].(contracts.DeltaAwaitAsk)
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
@@ -6036,7 +6039,7 @@ func TestPrepareQueuedBashApprovalBatch_BlocksEntireTurnAndResumesInOriginalOrde
 		},
 		session: contracts.QuerySession{
 			WorkspaceRoot: t.TempDir(),
-			AccessLevel:   contracts.AccessLevelDefault,
+			AccessLevel:   contracts.AccessLevelAskForApproval,
 			RequestID:     "req_1",
 			ChatID:        "chat_1",
 			RunID:         "run_1",
@@ -6140,7 +6143,7 @@ func TestInvokeQueuedToolCallsAndPostHook_BlocksReadySiblingBeforeLaterApproval(
 		},
 		session: contracts.QuerySession{
 			WorkspaceRoot: t.TempDir(),
-			AccessLevel:   contracts.AccessLevelDefault,
+			AccessLevel:   contracts.AccessLevelAskForApproval,
 			RequestID:     "req_1",
 			ChatID:        "chat_1",
 			RunID:         "run_1",

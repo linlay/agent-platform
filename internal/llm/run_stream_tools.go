@@ -1,6 +1,7 @@
 package llm
 
 import (
+	shellplan "agent-platform/internal/shellreview/plan"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,7 +15,6 @@ import (
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
-	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/filetools"
@@ -191,12 +191,9 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 	}
 	s.refreshAccessLevelForInvocation(invocation)
 	if isBashTool(invocation.toolName) {
-		review := s.lookupBashSecurityReview(invocation)
-		switch review.Decision {
-		case bashsec.ReviewRequiresApproval:
-		case bashsec.ReviewBlock:
-			invocation.bashSecurityReview = &review
-			blocked := bashSecurityBlockedToolResult(review)
+		review := s.rawBashAccessReview(invocation)
+		if review.Blocked() {
+			blocked := bashBlockedToolResult(review)
 			deltas, message := preparedToolResultMessage(toolID, toolCall.Function.Name, blocked, blocked.Output)
 			return nil, deltas, message
 		}
@@ -283,8 +280,8 @@ func (s *llmRunStream) invocationMayAwaitBeforeResult(invocation *preparedToolIn
 	if invocation == nil {
 		return false
 	}
-	if s.usesHostBashAuthorization(invocation) {
-		return s.prepareHostBashAuthorization(invocation) != nil
+	if s.usesBashAuthorization(invocation) {
+		return s.prepareBashAuthorization(invocation) != nil
 	}
 	if strings.TrimSpace(invocation.approvalDecision) != "" {
 		return false
@@ -345,8 +342,8 @@ func (s *llmRunStream) canInvokeToolConcurrently(invocation *preparedToolInvocat
 	if invocation == nil || invocation.awaitExternalResult || len(invocation.prelude) > 0 {
 		return false
 	}
-	if s.usesHostBashAuthorization(invocation) {
-		return s.prepareHostBashAuthorization(invocation) == nil
+	if s.usesBashAuthorization(invocation) {
+		return s.prepareBashAuthorization(invocation) == nil
 	}
 	if strings.TrimSpace(invocation.approvalDecision) != "" {
 		return false
@@ -364,7 +361,7 @@ func (s *llmRunStream) canInvokeToolConcurrently(invocation *preparedToolInvocat
 		return false
 	}
 	if isBashTool(invocation.toolName) {
-		if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewBlock {
+		if review := s.lookupBashAccessReview(invocation); review.Blocked() {
 			return false
 		}
 		if result := s.lookupPrecheckedHITL(invocation); result.Intercepted {
@@ -398,7 +395,7 @@ func (s *llmRunStream) invocationMayConsumeOneShotApproval(invocation *preparedT
 		return false
 	}
 	if isBashTool(invocation.toolName) {
-		return len(s.execCtx.BashSecurityApprovals) > 0 || len(s.execCtx.AccessPolicyApprovals) > 0
+		return len(s.execCtx.AccessPolicyApprovals) > 0
 	}
 	switch strings.ToLower(strings.TrimSpace(invocation.toolName)) {
 	case "file_read", "file_grep", "file_glob":
@@ -812,7 +809,7 @@ func (s *llmRunStream) serialExecutionContext(invocation *preparedToolInvocation
 	cloned.CurrentToolID = invocation.toolID
 	cloned.CurrentToolName = invocation.toolName
 	cloned.RunLoopState = RunLoopStateToolExecuting
-	takeHostBashAuthorization(invocation, &cloned)
+	takeBashAuthorization(invocation, &cloned)
 	return &cloned
 }
 
@@ -932,7 +929,6 @@ func (s *llmRunStream) concurrentExecutionContext(invocation *preparedToolInvoca
 	cloned.RunEnvironment = s.execCtx.RunEnvironment
 	cloned.AccessPolicyApprovals = nil
 	cloned.AccessPolicyRuleApprovals = cloneBoolMap(s.execCtx.AccessPolicyRuleApprovals)
-	cloned.BashSecurityApprovals = nil
 	cloned.ToolApprovals = nil
 	cloned.FileReadApprovals = cloneIntMap(s.execCtx.FileReadApprovals)
 	cloned.FileReadRuleApprovals = cloneBoolMap(s.execCtx.FileReadRuleApprovals)
@@ -941,13 +937,18 @@ func (s *llmRunStream) concurrentExecutionContext(invocation *preparedToolInvoca
 	cloned.FileWriteApprovals = cloneIntMap(s.execCtx.FileWriteApprovals)
 	cloned.FileWriteRuleApprovals = cloneBoolMap(s.execCtx.FileWriteRuleApprovals)
 	cloned.ReadFileState = cloneReadFileState(s.execCtx.ReadFileState)
-	takeHostBashAuthorization(invocation, &cloned)
+	takeBashAuthorization(invocation, &cloned)
 	return &cloned
 }
 
 func (s *llmRunStream) mergeConcurrentExecutionContext(execCtx *ExecutionContext) {
 	if s == nil || s.execCtx == nil || execCtx == nil {
 		return
+	}
+	// A sandbox may open only after approval. Its invocation owns a private
+	// authorization context, so return the session handle to the Run for cleanup.
+	if execCtx.SandboxSession != nil {
+		s.execCtx.SandboxSession = execCtx.SandboxSession
 	}
 	if execCtx.BudgetPaused > s.execCtx.BudgetPaused {
 		s.execCtx.BudgetPaused = execCtx.BudgetPaused
@@ -1124,11 +1125,11 @@ func (s *llmRunStream) handleToolApprovalBeforeInvoke(invocation *preparedToolIn
 		return true, s.emitApprovalRequestDeltas(request)
 	}
 
-	if s.usesHostBashAuthorization(invocation) {
-		return true, s.invokeAuthorizedHostBash(invocation)
+	if s.usesBashAuthorization(invocation) {
+		return true, s.invokeAuthorizedBash(invocation)
 	}
 	if isBashTool(invocation.toolName) {
-		if s.handleBashSecurityBlockBeforeInvoke(invocation) {
+		if s.handleBashBlockBeforeInvoke(invocation) {
 			return true, nil
 		}
 		if review := s.lookupBashAccessReview(invocation); review.Blocked() {
@@ -1142,9 +1143,6 @@ func (s *llmRunStream) handleToolApprovalBeforeInvoke(invocation *preparedToolIn
 	if handled, err := s.handleFileApprovalBeforeInvoke(invocation); handled {
 		return true, err
 	}
-	if handled, err := s.handleBashSecurityApprovalBeforeInvoke(invocation); handled {
-		return true, err
-	}
 	if invocation.precheckedHITL != nil && invocation.precheckedHITL.Intercepted {
 		return true, s.handleHITLApproval(invocation, *invocation.precheckedHITL, hitlApprovalOptions{})
 	}
@@ -1155,7 +1153,7 @@ func (s *llmRunStream) handleToolApprovalBeforeInvoke(invocation *preparedToolIn
 			})
 		}
 	}
-	if s.handleBashSecurityBlockBeforeInvoke(invocation) {
+	if s.handleBashBlockBeforeInvoke(invocation) {
 		return true, nil
 	}
 	if handled, err := s.handleBashAccessApprovalBeforeInvoke(invocation); handled {
@@ -1182,13 +1180,6 @@ func (s *llmRunStream) handleFileApprovalBeforeInvoke(invocation *preparedToolIn
 	return false, nil
 }
 
-func (s *llmRunStream) handleBashSecurityApprovalBeforeInvoke(invocation *preparedToolInvocation) (bool, error) {
-	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
-		return s.handleBuiltInApprovalRequest(s.bashSecurityApprovalRequest(invocation, review))
-	}
-	return false, nil
-}
-
 func (s *llmRunStream) handleBashAccessApprovalBeforeInvoke(invocation *preparedToolInvocation) (bool, error) {
 	if review := s.lookupBashAccessReview(invocation); review.Decision == accesspolicy.DecisionRequiresApproval {
 		return s.handleBuiltInApprovalRequest(s.bashAccessApprovalRequest(invocation, review))
@@ -1204,9 +1195,9 @@ func (s *llmRunStream) handleBuiltInApprovalRequest(request approvalRequest) (bo
 	return true, s.emitApprovalRequestDeltas(request)
 }
 
-func (s *llmRunStream) handleBashSecurityBlockBeforeInvoke(invocation *preparedToolInvocation) bool {
-	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewBlock {
-		s.appendOriginalToolResult(invocation, bashSecurityBlockedToolResult(review))
+func (s *llmRunStream) handleBashBlockBeforeInvoke(invocation *preparedToolInvocation) bool {
+	if review := s.lookupBashAccessReview(invocation); review.Blocked() {
+		s.appendOriginalToolResult(invocation, bashBlockedToolResult(review))
 		return true
 	}
 	return false
@@ -1239,11 +1230,14 @@ func (s *llmRunStream) invokeToolAndPublishResult(invocation *preparedToolInvoca
 		return s.startActiveToolExecution(invocation)
 	}
 	execCtx := s.execCtx
-	if invocation.hostBashAuthorization != nil {
+	if invocation.bashAuthorization != nil {
 		execCtx = s.serialExecutionContext(invocation)
 	}
 	invocation.executionStarted = true
 	result, invokeErr := s.engine.tools.Invoke(s.ctx, invocation.toolName, invocation.args, execCtx)
+	if execCtx != s.execCtx {
+		s.mergeConcurrentExecutionContext(execCtx)
+	}
 	if invokeErr != nil {
 		if errors.Is(invokeErr, ErrRunInterrupted) && s.isWaitingInteractionInvocation(invocation) {
 			return s.handleInterruptIfNeeded()
@@ -1546,8 +1540,8 @@ func (s *llmRunStream) emitRecordedTerminalToolBudgetError() {
 }
 
 func (s *llmRunStream) prepareToolResultForPublish(invocation *preparedToolInvocation, result ToolExecutionResult) ToolExecutionResult {
-	if authorization := invocation.hostBashAuthorization; authorization != nil {
-		authorization.access, authorization.security = nil, nil
+	if authorization := invocation.bashAuthorization; authorization != nil {
+		authorization.access = nil
 		authorization.retired = true
 		if !authorization.dispatched && invocation.hitlDecision != nil {
 			invocation.hitlDecision.Executed = false
@@ -1733,13 +1727,13 @@ func applyHITLMetadata(result ToolExecutionResult, invocation *preparedToolInvoc
 	return result
 }
 
-func bashSecurityBlockedToolResult(review bashsec.ReviewResult) ToolExecutionResult {
+func bashBlockedToolResult(review shellplan.BashPlan) ToolExecutionResult {
 	reason := strings.TrimSpace(review.Reason)
 	if reason == "" {
 		reason = "bash command blocked by security review"
 	}
 	payload := map[string]any{
-		"error":    "bash_security_blocked",
+		"error":    review.ErrorCode(),
 		"exitCode": -1,
 		"output":   reason,
 	}
@@ -1753,7 +1747,7 @@ func bashSecurityBlockedToolResult(review bashsec.ReviewResult) ToolExecutionRes
 	return ToolExecutionResult{
 		Output:     string(data),
 		Structured: payload,
-		Error:      "bash_security_blocked",
+		Error:      review.ErrorCode(),
 		ExitCode:   -1,
 	}
 }

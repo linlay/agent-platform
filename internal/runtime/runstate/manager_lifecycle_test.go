@@ -270,7 +270,7 @@ func TestManagerUpdateAccessLevelPublishesEventAndStatus(t *testing.T) {
 		ChatID:      "chat_1",
 		AgentKey:    "agent_1",
 		RunOwner:    contracts.AgentRunOwner("agent_1"),
-		AccessLevel: contracts.AccessLevelDefault,
+		AccessLevel: contracts.AccessLevelAskForApproval,
 	})
 	observer, err := manager.AttachObserver("run_access", 0)
 	if err != nil {
@@ -284,7 +284,7 @@ func TestManagerUpdateAccessLevelPublishesEventAndStatus(t *testing.T) {
 		AccessLevel: contracts.AccessLevelAutoApprove,
 		Reason:      "test",
 	})
-	if !ack.Accepted || ack.Status != "updated" || ack.PreviousAccessLevel != contracts.AccessLevelDefault || ack.AccessLevel != contracts.AccessLevelAutoApprove || ack.Version != 2 {
+	if !ack.Accepted || ack.Status != "updated" || ack.PreviousAccessLevel != contracts.AccessLevelAskForApproval || ack.AccessLevel != contracts.AccessLevelAutoApprove || ack.Version != 2 {
 		t.Fatalf("unexpected ack %#v", ack)
 	}
 	status, ok := manager.RunStatus("run_access")
@@ -300,7 +300,7 @@ func TestManagerUpdateAccessLevelPublishesEventAndStatus(t *testing.T) {
 		if event.Type != "run.access_level.changed" {
 			t.Fatalf("unexpected event %#v", event)
 		}
-		if event.String("previousAccessLevel") != contracts.AccessLevelDefault || event.String("accessLevel") != contracts.AccessLevelAutoApprove {
+		if event.String("previousAccessLevel") != contracts.AccessLevelAskForApproval || event.String("accessLevel") != contracts.AccessLevelAutoApprove {
 			t.Fatalf("unexpected event payload %#v", event)
 		}
 	case <-time.After(time.Second):

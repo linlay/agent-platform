@@ -8,8 +8,9 @@ services:
   agent-platform:
     image: agent-platform:${AP_IMAGE_VERSION:?set AP_IMAGE_VERSION in .env}
     init: true
+    command: ["--webapp-host=compose"]
     restart: unless-stopped
-    stop_grace_period: 30s
+    stop_grace_period: 45s
     user: "10001:10001"
     read_only: true
     cap_drop:

@@ -15,12 +15,12 @@ func TestRootAliasPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := filepath.VolumeName(cwd) + string(filepath.Separator)
-	session := contracts.QuerySession{AccessLevel: contracts.AccessLevelDefault}
+	session := contracts.QuerySession{AccessLevel: contracts.AccessLevelAskForApproval}
 	if got := expandRootAlias("@root", session); got != root {
 		t.Fatalf("root = %q, want %q", got, root)
 	}
 	cfg := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
-		contracts.AccessLevelDefault: {
+		contracts.AccessLevelAskForApproval: {
 			ReadRoots: []string{"@root"}, WriteRoots: []string{"@root"},
 			Approvals: config.AccessPolicyApprovalConfig{ReadOutsideRoots: "block", WriteOutsideRoots: "block"},
 		},
@@ -33,9 +33,9 @@ func TestRootAliasPermissions(t *testing.T) {
 			}
 		}
 	}
-	level := cfg.Levels[contracts.AccessLevelDefault]
+	level := cfg.Levels[contracts.AccessLevelAskForApproval]
 	level.ReadonlyRoots = []string{"@root"}
-	cfg.Levels[contracts.AccessLevelDefault] = level
+	cfg.Levels[contracts.AccessLevelAskForApproval] = level
 	plan, err := BuildPathPlan(cfg, session, WriteAccess, "@root/agent-platform-root-alias-test")
 	if err != nil || plan.Allowed() || plan.RequiresApproval() {
 		t.Fatalf("readonly root must block: %#v, %v", plan, err)

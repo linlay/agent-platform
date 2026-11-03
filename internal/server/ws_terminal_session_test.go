@@ -51,7 +51,7 @@ func TestTerminalEnvironmentUsesReservedAgentAndWorkspaceContext(t *testing.T) {
 	if got["AP_WORKSPACE_DIR"] != workspaceDir {
 		t.Fatalf("AP_WORKSPACE_DIR = %q, want %q", got["AP_WORKSPACE_DIR"], workspaceDir)
 	}
-	if _, ok := got[agentconfig.EnvAccessToken]; ok {
+	if _, ok := got[agentconfig.EnvIDToken]; ok {
 		t.Fatalf("Workspace Terminal must not receive the Desktop access token: %#v", got)
 	}
 }
@@ -66,7 +66,7 @@ func TestTerminalEnvironmentRejectsRuntimeOverridesByApplyingPlatformContextLast
 				"AP_AGENT_CONFIG_HOME": "/custom",
 				"AP_WORKSPACE_DIR":     "/wrong-workspace",
 				"AP_CHAT_DIR":          "/wrong-chat",
-				"AP_ACCESS_TOKEN":      "wrong-token",
+				"AP_ID_TOKEN":          "wrong-token",
 			},
 		},
 	}, workspaceDir))
@@ -76,8 +76,8 @@ func TestTerminalEnvironmentRejectsRuntimeOverridesByApplyingPlatformContextLast
 	if _, ok := got[agentconfig.EnvChatDir]; ok {
 		t.Fatalf("Workspace Terminal must remove AP_CHAT_DIR overrides: %#v", got)
 	}
-	if _, ok := got[agentconfig.EnvAccessToken]; ok {
-		t.Fatalf("Workspace Terminal must remove AP_ACCESS_TOKEN overrides: %#v", got)
+	if _, ok := got[agentconfig.EnvIDToken]; ok {
+		t.Fatalf("Workspace Terminal must remove AP_ID_TOKEN overrides: %#v", got)
 	}
 	if got["AP_WORKSPACE_DIR"] != workspaceDir {
 		t.Fatalf("AP_WORKSPACE_DIR = %q, want %q", got["AP_WORKSPACE_DIR"], workspaceDir)

@@ -8,28 +8,13 @@ import (
 	"time"
 )
 
-func TestResolveRunStartAccessLevel(t *testing.T) {
-	levels := []string{AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess}
-	for parentRank, parent := range levels {
-		if level, escalates := ResolveRunStartAccessLevel("", parent); level != parent || escalates {
-			t.Fatalf("omitted must inherit %s: %s %v", parent, level, escalates)
-		}
-		for requestedRank, requested := range levels {
-			level, escalates := ResolveRunStartAccessLevel(requested, parent)
-			if level != requested || escalates != (requestedRank > parentRank) {
-				t.Fatalf("parent=%s requested=%s: %s %v", parent, requested, level, escalates)
-			}
-		}
-	}
-}
-
-func TestRunStartDigestsSeparateIdempotencyFromApproval(t *testing.T) {
+func TestRunStartRequestDigestIgnoresInternalState(t *testing.T) {
 	base := RunStartRequest{AgentKey: "a", Message: "m", References: queryinput.MakeReferences("skill", []string{"s"})}
 	request := RunStartRequestDigest(base)
 	for name, changed := range map[string]RunStartRequest{
 		"message":          {AgentKey: "a", Message: "other", References: queryinput.MakeReferences("skill", []string{"s"})},
 		"target":           {AgentKey: "b", Message: "m", References: queryinput.MakeReferences("skill", []string{"s"})},
-		"explicit default": {AgentKey: "a", Message: "m", References: queryinput.MakeReferences("skill", []string{"s"}), AccessLevel: AccessLevelDefault},
+		"explicit default": {AgentKey: "a", Message: "m", References: queryinput.MakeReferences("skill", []string{"s"}), AccessLevel: AccessLevelAskForApproval},
 		"chat":             {AgentKey: "a", Message: "m", References: queryinput.MakeReferences("skill", []string{"s"}), ChatID: "c"},
 		"skills":           {AgentKey: "a", Message: "m"},
 		"libraries":        {AgentKey: "a", Message: "m", References: append(queryinput.MakeReferences("skill", []string{"s"}), queryinput.MakeReferences("kbase", []string{"kb"})...)},
@@ -41,20 +26,9 @@ func TestRunStartDigestsSeparateIdempotencyFromApproval(t *testing.T) {
 	// Trusted internal fields never affect what the model asked for.
 	withInternal := base
 	withInternal.Origin = RunOrigin{RunID: "r", ToolID: "t"}
-	withInternal.Review = &RunStartReview{ParentAccessVersion: 9}
+	withInternal.Input = map[string]any{"message": "m"}
 	if RunStartRequestDigest(withInternal) != request {
 		t.Fatal("request digest depends on internal state")
-	}
-	approval := RunStartApprovalDigest(request, AccessLevelAutoApprove, 3, AccessLevelFullAccess)
-	for _, other := range []string{
-		RunStartApprovalDigest(request, AccessLevelAutoApprove, 4, AccessLevelFullAccess),
-		RunStartApprovalDigest(request, AccessLevelDefault, 3, AccessLevelFullAccess),
-		RunStartApprovalDigest(request, AccessLevelAutoApprove, 3, AccessLevelAutoApprove),
-		RunStartApprovalDigest("other", AccessLevelAutoApprove, 3, AccessLevelFullAccess),
-	} {
-		if other == approval {
-			t.Fatal("approval digest ignores part of the reviewed baseline")
-		}
 	}
 }
 

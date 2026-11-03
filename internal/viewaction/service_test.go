@@ -130,4 +130,9 @@ func TestActionKeepsBusinessErrorAndTreatsNonJSONAsUnknown(t *testing.T) {
 	if err == nil || err.Error() != "invocation_outcome_unknown" {
 		t.Fatal(err)
 	}
+	f.err = &connectorops.Error{Code: "connector_oneid_unsupported", Status: 422}
+	_, err = s.Execute(context.Background(), doc, "transition", json.RawMessage(`{"key":"DEMO-1","fields":{}}`), "request-001", actor())
+	if !errors.Is(err, f.err) {
+		t.Fatalf("unsupported execution became an unknown outcome: %v", err)
+	}
 }

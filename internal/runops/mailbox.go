@@ -101,15 +101,6 @@ func (h *ToolHandler) invokeMail(ctx context.Context, tool string, args map[stri
 		if err != nil {
 			return resultFromError(err), nil
 		}
-		key := startKey(origin)
-		h.mu.Lock()
-		review, reviewed := h.reviews[key]
-		h.mu.Unlock()
-		if reviewed {
-			req.Start.Review = &contracts.RunStartReview{ParentAccessLevel: review.parentAccessLevel, ParentAccessVersion: review.parentAccessVersion, ApprovalDigest: review.approvalDigest, Consume: func(d string) bool {
-				return contracts.ConsumeToolApproval(exec, contracts.ToolApprovalFingerprint(exec, "chat_send", "send", d))
-			}}
-		}
 		r, err := h.mailbox.Send(ctx, req)
 		if err != nil {
 			return resultFromError(err), nil
@@ -153,40 +144,6 @@ func (h *ToolHandler) invokeMail(ctx context.Context, tool string, args map[stri
 		return mailResult(r), nil
 	}
 	return errorResult("invalid_tool", "unknown mail tool"), nil
-}
-func (h *ToolHandler) prepareMailApproval(ctx context.Context, args map[string]any, exec *contracts.ExecutionContext) (*contracts.ToolApproval, error) {
-	origin, fail := h.mailCaller(exec)
-	if fail != nil {
-		return nil, nil
-	}
-	req, err := h.mailRequest(args, origin, exec)
-	if err != nil {
-		return nil, nil
-	}
-	key := startKey(origin)
-	h.mu.Lock()
-	old, exists := h.reviews[key]
-	h.mu.Unlock()
-	if exists {
-		a := old.approval
-		return &a, nil
-	}
-	p, err := h.mailbox.Prepare(ctx, req)
-	if err != nil || !p.Plan.RequiresApproval {
-		return nil, nil
-	}
-	plan := p.Plan
-	a := contracts.ToolApproval{Fingerprint: contracts.ToolApprovalFingerprint(exec, "chat_send", "send", plan.ApprovalDigest), Title: "chat_send / " + plan.AccessLevel, Form: map[string]any{
-		"action": "send", "caller": map[string]any{"agentKey": origin.AgentKey, "chatId": origin.ChatID, "runId": origin.RunID}, "target": map[string]any{"type": "agent", "key": p.Request.AgentKey, "name": plan.TargetName},
-		"chatId": p.ChatID, "continuesChat": !p.OpenedChat, "chatName": req.Start.ChatName, "message": req.Start.Message, "references": req.Start.References, "files": req.Files, "parentAccessLevel": plan.ParentAccessLevel, "accessLevel": plan.AccessLevel, "modelKey": req.Start.ModelKey, "reasoningEffort": req.Start.ReasoningEffort}}
-	h.mu.Lock()
-	if existing, ok := h.reviews[key]; ok {
-		a = existing.approval
-	} else {
-		h.reviews[key] = startReview{parentAccessLevel: plan.ParentAccessLevel, parentAccessVersion: plan.ParentAccessVersion, approvalDigest: plan.ApprovalDigest, approval: a}
-	}
-	h.mu.Unlock()
-	return &a, nil
 }
 func (h *ToolHandler) mailStatus(args map[string]any, origin contracts.RunOrigin) (contracts.ToolExecutionResult, error) {
 	if err := toolinput.Validate(args, map[string]string{"mailId": "s!"}, ""); err != nil {

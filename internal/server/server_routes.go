@@ -25,6 +25,9 @@ import (
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.bindHostServerShutdown(r.Context())
+	if s.deps.Config.WebApps.Enabled && s.handleWebAppHostBoundary(w, r) {
+		return
+	}
 	startedAt := time.Now()
 	if s.handleCORS(w, r) {
 		return
@@ -206,6 +209,11 @@ func chatSourceFromContext(ctx context.Context) string {
 }
 
 func (s *Server) routes() {
+	if s.deps.Config.WebApps.Enabled {
+		s.router.HandleFunc("/api/admin/webapps/host", s.method(http.MethodGet, s.handleWebAppHost))
+		s.router.HandleFunc("/api/admin/webapps", s.handleWebAppAdmin)
+		s.router.HandleFunc("/api/admin/webapps/", s.handleWebAppAdmin)
+	}
 	s.router.HandleFunc("/healthz", s.method(http.MethodGet, s.handleHealth))
 	s.router.HandleFunc("/monitor", s.handleMonitorPage)
 	s.router.HandleFunc("/monitor/", s.handleMonitorAsset)
@@ -320,6 +328,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/archive/delete", s.method(http.MethodPost, s.handleArchiveDelete))
 	s.router.HandleFunc("/api/archive/restore", s.method(http.MethodPost, s.handleArchiveRestore))
 	s.router.HandleFunc("/api/chat/export", s.method(http.MethodGet, s.handleChatExport))
+	s.router.HandleFunc("/api/chat/export/resources/read", s.method(http.MethodPost, s.handleChatExportResource))
 	s.router.HandleFunc("/api/chat/jsonl", s.method(http.MethodGet, s.handleChatJSONL))
 	s.router.HandleFunc("/api/chat/system-prompt", s.method(http.MethodGet, s.handleChatSystemPrompt))
 	s.router.HandleFunc("/api/chat/llm-trace", s.method(http.MethodGet, s.handleChatLLMTrace))
@@ -333,6 +342,8 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/automation/executions", s.method(http.MethodPost, s.handleAutomationExecutions))
 	s.router.HandleFunc("/api/automation/execution", s.method(http.MethodPost, s.handleAutomationExecution))
 	s.router.HandleFunc("/api/query", s.method(http.MethodPost, s.handleQuery))
+	s.router.HandleFunc("/api/voice/capabilities", s.method(http.MethodGet, s.handleVoiceCapabilities))
+	s.router.HandleFunc("/api/voice/ws", s.method(http.MethodGet, s.handleVoiceWS))
 	s.router.HandleFunc("/api/execute", s.method(http.MethodPost, s.handleExecute))
 	s.router.HandleFunc("/api/compact", s.method(http.MethodPost, s.handleCompact))
 	s.router.HandleFunc("/api/attach", s.method(http.MethodGet, s.handleAttach))

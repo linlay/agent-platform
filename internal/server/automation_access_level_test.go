@@ -67,7 +67,7 @@ func TestAutomationAccessLevelReachesRuntime(t *testing.T) {
 			t.Fatalf("execute level=%q: %#v %v", level, result, err)
 		}
 		snapshot, err := fixture.server.GetRunStatus(result.Completion.RunID)
-		expected, _ := contracts.NormalizeAccessLevel(level)
+		expected := contracts.StoredAccessLevel(level)
 		if err != nil || snapshot.AccessLevel != expected {
 			t.Fatalf("want %s, got %#v: %v", expected, snapshot, err)
 		}

@@ -6,6 +6,10 @@ Set-Location $ScriptDir
 Set-ProgramDeployArgs $args
 Write-Host '[program-deploy] validating bundle'
 Test-ProgramBundle
+if (-not [string]::IsNullOrWhiteSpace($Script:DeployRuntimeRecoverySource)) {
+  Invoke-ProgramRuntimeRecovery
+  exit 0
+}
 Write-Host '[program-deploy] bundle validated'
 Write-Host ("[program-deploy] backend binary: {0}" -f $Script:BackendBin)
 Write-Host ("[program-deploy] initializing config under {0}" -f $Script:ConfigDir)

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/connector"
 )
 
@@ -50,5 +51,39 @@ func TestOneIDStatusFollowsDesktopWithoutPersistingCredentials(t *testing.T) {
 	check("unauthorized")
 	if _, err := os.Stat(filepath.Join(sources.StateRoot, "demo")); !os.IsNotExist(err) {
 		t.Fatal("oneid created connector credential state")
+	}
+}
+
+func TestOneIDExecutionEnvironmentRequiresCurrentIdentityWithOrWithoutTemplates(t *testing.T) {
+	t.Setenv(agentconfig.EnvIDToken, "untrusted-process-token")
+	file := filepath.Join(t.TempDir(), "sso-id-token.txt")
+	for _, templates := range []map[string]string{nil, {"SERVICE_TOKEN": "Bearer ${AP_ID_TOKEN}"}} {
+		binding := connector.CredentialEnvironment{ID: "demo", Mode: connector.AuthOneID, Env: templates}
+		for _, token := range []string{"identity-a", "identity-b"} {
+			if err := os.WriteFile(file, []byte(token), 0600); err != nil {
+				t.Fatal(err)
+			}
+			env, revision, err := ResolveEnvironmentWithRevision(t.Context(), binding, file)
+			if err != nil || revision != "" || env[agentconfig.EnvIDToken] != token {
+				t.Fatal("current oneid identity was not supplied", err)
+			}
+			if len(templates) != 0 && env["SERVICE_TOKEN"] != "Bearer "+env[agentconfig.EnvIDToken] {
+				t.Fatal("custom credential differs from identity snapshot")
+			}
+		}
+		for _, invalid := range []string{"", "invalid\nlines"} {
+			if err := os.WriteFile(file, []byte(invalid), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ResolveEnvironment(t.Context(), binding, file); err == nil {
+				t.Fatal("invalid identity accepted")
+			}
+		}
+		if err := os.Remove(file); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ResolveEnvironment(t.Context(), binding, file); err == nil {
+			t.Fatal("deleted identity fell back to inherited token")
+		}
 	}
 }

@@ -14,7 +14,7 @@ func (s *Service) updateAccessLevel(req queryinput.AccessLevelRequest) (queryinp
 	}
 	accessLevel, ok := contracts.NormalizeAccessLevel(req.AccessLevel)
 	if !ok {
-		return queryinput.AccessLevelResponse{}, &statusError{Status: 400, Message: "accessLevel must be default, auto_approve, or full_access"}
+		return queryinput.AccessLevelResponse{}, &statusError{Status: 400, Message: "accessLevel must be ask_for_approval, auto_approve, or full_access"}
 	}
 	req.AccessLevel = accessLevel
 	if statusErr := s.ValidateRunOwner(req.RunID, req.AgentKey); statusErr != nil {

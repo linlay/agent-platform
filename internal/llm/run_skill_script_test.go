@@ -26,7 +26,7 @@ func TestRunSkillScriptDoesNotAwaitOrGrantInterpreter(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(scripts, "task.sh"), []byte("echo skill\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	session := QuerySession{AgentKey: "a", RunID: "r", ChatID: "c", WorkspaceRoot: root, AccessLevel: AccessLevelDefault}
+	session := QuerySession{AgentKey: "a", RunID: "r", ChatID: "c", WorkspaceRoot: root, AccessLevel: AccessLevelAskForApproval}
 	execCtx := &ExecutionContext{Session: session}
 	session.SkillScripts = skillsexec.New(execCtx.ScriptOwner(), []skillsexec.Root{{Host: root}})
 	execCtx.Session = session

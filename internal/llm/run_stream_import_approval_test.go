@@ -104,7 +104,7 @@ func TestInputReadApprovalPrecedesPackageReviewAndCannotApproveImport(t *testing
 			policy.Levels["default"] = level
 			executor := &importApprovalExecutor{policy: policy}
 			ctx := context.Background()
-			session := QuerySession{RunID: "run", ChatID: "chat", AgentKey: "caller", AccessLevel: AccessLevelDefault, WorkspaceRoot: t.TempDir()}
+			session := QuerySession{RunID: "run", ChatID: "chat", AgentKey: "caller", AccessLevel: AccessLevelAskForApproval, WorkspaceRoot: t.TempDir()}
 			stream := &llmRunStream{ctx: ctx, session: session, runControl: NewRunControl(ctx, "run"), engine: &LLMAgentEngine{cfg: config.Config{AccessPolicy: policy}, tools: executor, interactions: toolinteraction.NewDefaultRegistry()}, execCtx: &ExecutionContext{Session: session, Budget: Budget{Tool: RetryPolicy{Timeout: 1}}}}
 			call := &preparedToolInvocation{toolID: "call", toolName: "package_apply", args: map[string]any{"inputPath": filepath.Join(t.TempDir(), "source.zip")}}
 			request, ok := stream.approvalRequestForInvocation(call)

@@ -34,7 +34,7 @@ func BuildContinuationRequest(input ContinuationRequestInput) api.QueryRequest {
 	}
 	req.Message = ContinuationPrompt(input.Mode, input.Submit.AwaitingID, input.Answer, input.PlanningMarkdown)
 	if strings.TrimSpace(req.AccessLevel) == "" {
-		req.AccessLevel = contracts.AccessLevelDefault
+		req.AccessLevel = contracts.AccessLevelAskForApproval
 	}
 	return req
 }
@@ -56,7 +56,7 @@ func BuildConfirmedPlanRequest(input ContinuationRequestInput) api.QueryRequest 
 	req.Message = ConfirmedPlanPrompt(originalMessage, input.PlanningMarkdown)
 	req.Params = MarkConfirmedPlanRun(contracts.CloneMap(req.Params))
 	if strings.TrimSpace(req.AccessLevel) == "" {
-		req.AccessLevel = contracts.AccessLevelDefault
+		req.AccessLevel = contracts.AccessLevelAskForApproval
 	}
 	return req
 }

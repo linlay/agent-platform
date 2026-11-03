@@ -30,6 +30,13 @@ type shutdownServer interface {
 }
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "runtime-recovery" {
+		if err := runRuntimeRecovery(os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "config-migrate" {
 		if err := config.RunConfigMigration(os.Args[2:], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -163,6 +170,7 @@ func parseConfigOptions(args []string) (config.LoadOptions, error) {
 	fs.StringVar(&options.Port, "port", "", "server listen port")
 	fs.StringVar(&options.SsoIdTokenFile, "sso-id-token-file", "", "absolute identity token file overriding the state directory default")
 	fs.StringVar(&options.RuntimeMode, "runtime-mode", string(config.RuntimeModeStandalone), "runtime host mode: standalone or desktop")
+	fs.StringVar(&options.WebAppHost, "webapp-host", string(config.WebAppHostDisabled), "WebApp host: disabled or compose (Linux standalone only)")
 	if err := fs.Parse(args); err != nil {
 		return config.LoadOptions{}, err
 	}

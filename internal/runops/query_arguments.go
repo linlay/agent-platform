@@ -26,9 +26,9 @@ func parseQueryArguments(args map[string]any) (contracts.RunStartRequest, error)
 			case "chatName":
 				request.ChatName = text
 			case "accessLevel":
-				level, ok := contracts.NormalizeAccessLevel(text)
+				level, ok := contracts.NormalizeRequestedAccessLevel(text)
 				if !ok {
-					return invalid("accessLevel must be default, auto_approve, or full_access")
+					return invalid("accessLevel must be default, ask_for_approval, auto_approve, or full_access")
 				}
 				request.AccessLevel = level
 			case "modelKey":

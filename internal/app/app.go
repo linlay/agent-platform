@@ -64,12 +64,19 @@ import (
 	"agent-platform/internal/tools"
 	"agent-platform/internal/viewaction"
 	"agent-platform/internal/viewquery"
+	"agent-platform/internal/voice"
+	"agent-platform/internal/webapp"
+	"agent-platform/internal/webappbridge"
+	"agent-platform/internal/webapphost"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
 )
 
 type App struct {
+	voice                  *voice.Service
+	webappBridge           *webappbridge.Service
+	webapps                *webapp.Service
 	mailbox                *mailbox.Service
 	nativeConnectorRelease func()
 	Config                 config.Config
@@ -105,6 +112,15 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	cfg, err := config.Load(configOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
+	}
+	var webappHostStatus *webapphost.Status
+	if cfg.WebApps.Enabled {
+		if err := webapphost.ProtectPlatform(); err != nil {
+			return nil, err
+		}
+		status := webapphost.Inspect(rootCtx)
+		webappHostStatus = &status
+		log.Printf("WebApp prerequisites: node=%t supervisor=%t isolation=%t abi=%d", status.NodeReady, status.SupervisorReady, status.IsolationReady, status.LandlockABI)
 	}
 	if err := httpclient.ConfigureDefault(cfg.HTTPProxy); err != nil {
 		return nil, fmt.Errorf("initialize HTTP clients: %w", err)
@@ -408,19 +424,29 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	chatResourceService := chatresource.NewService(chatStore)
 	terminalManager := terminal.NewManager()
 	conversationService := conversation.NewService(chatStore, archiveStore, archiver, runManager)
-	mailStore, err := mailbox.Open(cfg.Paths.ChatsDir)
-	if err != nil {
-		return nil, fmt.Errorf("initialize mailbox: %w", err)
+	voiceService := voice.NewService(backgroundCtx, voice.Dependencies{Config: cfg.Voice, Models: modelRegistry, Runtime: runtimeService, Chats: chatStore, Agents: registry, Runs: runManager})
+	cleanupVoice := true
+	defer func() {
+		if cleanupVoice {
+			voiceService.Close()
+		}
+	}()
+	var mailService *mailbox.Service
+	if cfg.Mail.Enabled {
+		mailStore, err := mailbox.Open(cfg.Paths.ChatsDir)
+		if err != nil {
+			return nil, fmt.Errorf("initialize mailbox: %w", err)
+		}
+		mailService = mailbox.New(backgroundCtx, mailStore, cfg.Paths.ChatsDir, cfg.Mail.MaxHops, notifications)
+		conversationService.MailboxPurge = mailService.PurgeChat
+		conversationService.MailboxOpened = mailService.OpenedChats
 	}
-	mailService := mailbox.New(backgroundCtx, mailStore, cfg.Paths.ChatsDir, cfg.Mail.MaxHops, notifications)
 	cleanupMail := true
 	defer func() {
-		if cleanupMail {
+		if cleanupMail && mailService != nil {
 			_ = mailService.Close()
 		}
 	}()
-	conversationService.MailboxPurge = mailService.PurgeChat
-	conversationService.MailboxOpened = mailService.OpenedChats
 	conversationService.ExportMaxBytes = cfg.Export.MaxSnapshotBytes
 	conversationService.Notifications = notifications
 	conversationService.ControlReceipts = &operationstate.Receipts[conversation.ControlReceipt]{}
@@ -468,7 +494,42 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			def, ok := registry.AgentDefinition(key)
 			return def.Workspace.ProjectDir(), ok && def.MemoryConfig.Enabled && def.Engine == catalog.AgentEngineNative && def.ProxyConfig == nil && def.Mode != "CHANNEL"
 		}).WithArchives(archiveStore)
+	var webapps *webapp.Service
+	var webappRunner *webapphost.Runner
+	var appBridge *webappbridge.Service
+	cleanupWebapps := true
+	if cfg.WebApps.Enabled {
+		webappRunner = webapphost.NewRunner(cfg.Paths.WebAppsDir, cfg.WebApps, webappHostStatus != nil && webappHostStatus.BackendPrerequisitesReady)
+		webapps, err = webapp.Open(webapp.Options{Root: cfg.Paths.WebAppsDir, DataRoot: cfg.Paths.WebAppDataDir, Config: cfg.WebApps, Runner: webappRunner})
+		if err != nil {
+			return nil, fmt.Errorf("initialize WebApp storage: %w", err)
+		}
+	}
+	defer func() {
+		if cleanupWebapps && webapps != nil {
+			_ = webapps.Close()
+		}
+	}()
+	if webapps != nil {
+		adapters := webappbridge.NewAdapters(webappbridge.AdapterOptions{Apps: webapps, Runtime: runtimeService, Registry: registry, Chats: chatStore, Artifacts: chatResourceService, Owner: cfg.Auth.AllowedSubjects[0], Root: filepath.Join(cfg.Paths.WebAppsDir, webapp.SDKStateDir)})
+		appBridge = webappbridge.New(webappbridge.Options{Apps: webapps, Owner: cfg.Auth.AllowedSubjects[0], Connectors: &connectorops.Service{Auth: connectorAuth, Sources: cfg.Paths.ConnectorSources()}, Actions: adapters.Actions()})
+		if err := appBridge.ListenInternal(); err != nil {
+			return nil, fmt.Errorf("initialize WebApp bridge: %w", err)
+		}
+		webappRunner.SetBridge(func(spec webapp.RuntimeSpec) (webapphost.BridgeGrant, error) {
+			url, token, revoke, err := appBridge.GrantBackend(spec)
+			return webapphost.BridgeGrant{URL: url, Token: token, Revoke: revoke}, err
+		})
+	}
+	defer func() {
+		if cleanupWebapps && appBridge != nil {
+			appBridge.Close()
+		}
+	}()
 	srv, err = server.New(server.Dependencies{
+		Voice:             voiceService,
+		WebApps:           webapps,
+		WebAppActions:     appBridge,
 		BackgroundContext: backgroundCtx,
 		Config:            cfg,
 		Chats:             chatStore,
@@ -509,6 +570,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Sandbox:                sandboxClient,
 		MCP:                    mcpClient,
 		ConnectorAuth:          connectorAuth,
+		WebAppHost:             webappHostStatus,
 		MCPToolSyncStatus:      mcpToolSync,
 		ToolInteractions:       interactionRegistry,
 		CatalogReloader:        reloader,
@@ -551,15 +613,30 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		PrimaryChats: conversationService,
 	})
 	runtimeService.Bind(queryService)
-	queryService.BindMailbox(mailService)
+	if mailService != nil {
+		queryService.BindMailbox(mailService)
+	}
 	runtimeToolExecutor.WithWaitConditionProvider(waitEventProvider{runs: runops.NewToolHandler(runtimeService, runManager), auth: srv})
 	if err := queryService.Reconcile(); err != nil {
 		return nil, fmt.Errorf("reconcile persisted awaitings: %w", err)
 	}
-	// Mail recovery never blocks startup; unreconciled mail is suspended by
-	// dispatch once it finds no delivery identity.
-	if err := mailService.Reconcile(queryService.MailConsumedEvidence); err != nil {
-		log.Printf("[mailbox] reconcile: %v", err)
+	if mailService != nil {
+		// Mail recovery never blocks startup; unreconciled mail is suspended by
+		// dispatch once it finds no delivery identity.
+		if err := mailService.Reconcile(queryService.MailConsumedEvidence); err != nil {
+			log.Printf("[mailbox] reconcile: %v", err)
+		}
+		mailService.StartRetention(cfg.Mail.RetentionDays, func(chatID string) (bool, error) {
+			release := conversationService.LockMutation()
+			defer release()
+			summary, err := chatStore.Summary(chatID)
+			if err != nil || summary != nil {
+				return summary != nil, err
+			}
+			return archiveStore.HasChat(chatID)
+		})
+	} else {
+		log.Printf("mailbox disabled")
 	}
 
 	if err := toolExecutor.RegisterHandler(runops.NewToolHandler(runtimeService, runManager).WithMailbox(mailService)); err != nil {
@@ -604,13 +681,22 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		log.Printf("automation orchestrator disabled")
 	}
 	log.Printf("app dependencies initialized in %s", startupElapsed(appInitStartedAt))
+	if webapps != nil {
+		if err := webapps.RestoreDesired(backgroundCtx); err != nil {
+			return nil, fmt.Errorf("restore static WebApps: %w", err)
+		}
+	}
 	memoryWorker.Start(backgroundCtx)
 	cleanupBackground = false
 	cleanupMCP = false
 	cleanupNative = false
 	cleanupMail = false
+	cleanupWebapps = false
 
+	cleanupVoice = false
 	return &App{
+		voice: voiceService, webappBridge: appBridge,
+		webapps:                webapps,
 		mailbox:                mailService,
 		nativeConnectorRelease: nativeRelease,
 		Config:                 cfg,
@@ -633,6 +719,17 @@ func (a *App) Close() error {
 	if a == nil {
 		return nil
 	}
+	if a.Router != nil {
+		a.Router.CloseWebApps()
+	}
+	if a.webapps != nil {
+		if err := a.webapps.Close(); err != nil {
+			log.Printf("close WebApps: %v", err)
+		}
+	}
+	if a.webappBridge != nil {
+		a.webappBridge.Close()
+	}
 	if a.nativeConnectorRelease != nil {
 		defer a.nativeConnectorRelease()
 	}
@@ -641,6 +738,9 @@ func (a *App) Close() error {
 	// restarting the process after shutdown has begun.
 	if a.backgroundCancel != nil {
 		a.backgroundCancel()
+	}
+	if a.voice != nil {
+		a.voice.Close()
 	}
 	if a.mailbox != nil {
 		if err := a.mailbox.Close(); err != nil {

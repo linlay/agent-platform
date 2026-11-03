@@ -95,6 +95,22 @@ func (s *Service) MailOpenedChats(agentKey, subject string, items []map[string]a
 	}
 	return out, nil
 }
+
+// Generated correspondence starts the receiving Agent's own Run; it does not
+// inherit the sender's access level or require the sender to remain alive.
+func (s *Service) MailDefaultAccess(agentKey string) (mailbox.Grant, error) {
+	if s.deps.Registry == nil {
+		return mailbox.Grant{}, runToolError("agent_not_found", "receiving Agent is unavailable")
+	}
+	def, ok := s.deps.Registry.AgentDefinition(agentKey)
+	if !ok {
+		return mailbox.Grant{}, runToolError("agent_not_found", "receiving Agent is unavailable")
+	}
+	level, source, _ := contracts.ResolveInitialAccessLevel("", def.AccessConfig)
+	return mailbox.Grant{AccessLevel: level, AccessGrant: map[string]any{
+		"accessLevel": level, "source": source, "agentKey": agentKey, "agentRevision": def.RuntimeRevision,
+	}}, nil
+}
 func (s *Service) PrepareMail(ctx context.Context, req mailbox.Request) (mailbox.Prepared, error) {
 	r, err := contracts.NormalizeRunStartRequest(req.Start)
 	if err != nil {
@@ -179,14 +195,13 @@ func (s *Service) PrepareMail(ctx context.Context, req mailbox.Request) (mailbox
 		}
 	}
 	p.Request.ChatID = p.ChatID
-	review := p.Request
+	start := p.Request
 	if p.OpenedChat {
-		review.ChatID = ""
+		start.ChatID = ""
 	}
-	p.Plan, err = s.PrepareRunStart(ctx, review)
+	p.Plan, err = s.PrepareRunStart(ctx, start)
 	if err == nil {
 		p.Plan.RequestDigest = contracts.RunStartRequestDigest(p.Request)
-		p.Plan.ApprovalDigest = contracts.RunStartApprovalDigest(p.Plan.RequestDigest, p.Plan.ParentAccessLevel, p.Plan.ParentAccessVersion, p.Plan.AccessLevel)
 	}
 	return p, err
 }
@@ -222,9 +237,8 @@ func (s *Service) mailChatOwned(summary chat.Summary, subject string, seen map[s
 	}
 	return subject == "" && !strings.HasPrefix(summary.Source, "query:")
 }
-func (s *Service) AcceptMail(ctx context.Context, req mailbox.Request, p mailbox.Prepared, persist func(mailbox.Grant) error) error {
+func (s *Service) AcceptMail(ctx context.Context, _ mailbox.Request, p mailbox.Prepared, persist func(mailbox.Grant) error) error {
 	r := p.Request
-	r.Review = req.Start.Review
 	acceptor, ok := s.deps.Runs.(runAccessLevelAcceptor)
 	if !ok {
 		return runToolError("run_start_authorization_unavailable", "atomic mail authorization unavailable")
@@ -237,27 +251,18 @@ func (s *Service) AcceptMail(ctx context.Context, req mailbox.Request, p mailbox
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		level, escalates := contracts.ResolveRunStartAccessLevel(r.AccessLevel, parent)
-		source := "inherited"
-		if r.AccessLevel != "" {
-			source = "explicit"
+		if err := contracts.ValidateExplicitRunAccess(r.AccessLevel, parent); err != nil {
+			return err
 		}
-		grant := map[string]any{"parentAccessLevel": parent, "parentAccessVersion": version, "accessLevel": level, "source": source, "requestDigest": p.Plan.RequestDigest}
-		if review := r.Review; review != nil {
-			d := contracts.RunStartApprovalDigest(p.Plan.RequestDigest, parent, version, level)
-			if parent != review.ParentAccessLevel || version != review.ParentAccessVersion || d != review.ApprovalDigest {
-				return runToolError("run_start_review_stale", "caller permission changed after review; issue a new chat_send invocation")
-			}
-			if review.Consume == nil || !review.Consume(d) {
-				return runToolError("run_start_approval_required", "the one-shot approval is missing or already used")
-			}
-			grant["source"], grant["approvalDigest"] = "approved", d
-		} else if escalates {
-			return runToolError("run_start_approval_required", "mail permission exceeds the caller Run; human approval is required")
+		def, ok := s.deps.Registry.AgentDefinition(r.AgentKey)
+		if !ok {
+			return runToolError("agent_not_found", "target Agent is unavailable")
 		}
-		if level != p.Plan.AccessLevel {
-			return runToolError("run_parent_access_level_changed", "caller permission changed during mail admission")
+		level, source, _ := contracts.ResolveInitialAccessLevel(r.AccessLevel, def.AccessConfig)
+		if def.RuntimeRevision != p.Plan.TargetRevision || level != p.Plan.AccessLevel || source != p.Plan.AccessSource {
+			return runToolError("run_start_target_changed", "target Agent changed during mail admission")
 		}
+		grant := map[string]any{"parentAccessLevel": parent, "parentAccessVersion": version, "accessLevel": level, "source": source, "requestDigest": p.Plan.RequestDigest, "agentKey": r.AgentKey, "agentRevision": p.Plan.TargetRevision}
 		return persist(mailbox.Grant{AccessLevel: level, AccessGrant: grant, Scope: scope})
 	})
 	if err != nil {
@@ -271,8 +276,7 @@ func (s *Service) AcceptMail(ctx context.Context, req mailbox.Request, p mailbox
 
 type mailMutationHeld struct{}
 
-// Only missing-primary reservations need the shared mutation lock. Reviews are
-// prepared before this boundary; no lock is held while waiting for a person.
+// Only missing-primary reservations need the shared mutation lock.
 func (s *Service) BeginMailAcceptance(ctx context.Context, p mailbox.Prepared) (context.Context, mailbox.Prepared, func(), error) {
 	release := func() {}
 	if !p.Primary {
@@ -304,7 +308,6 @@ func (s *Service) BeginMailAcceptance(ctx context.Context, p mailbox.Prepared) (
 		p.OpenedChat = false
 		p.Request.ChatID = current
 		p.Plan.RequestDigest = contracts.RunStartRequestDigest(p.Request)
-		p.Plan.ApprovalDigest = contracts.RunStartApprovalDigest(p.Plan.RequestDigest, p.Plan.ParentAccessLevel, p.Plan.ParentAccessVersion, p.Plan.AccessLevel)
 	}
 	return context.WithValue(ctx, mailMutationHeld{}, true), p, release, nil
 }

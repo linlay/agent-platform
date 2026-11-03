@@ -216,6 +216,7 @@ display VIEW 可以在 `view.json` 声明只读查询，模板按 Markdown 块�
 
    | 错误码 | 含义 | 建议提示 |
    |---|---|---|
+   | `connector_oneid_unsupported` | 当前执行入口不支持 oneid 连接器（HTTP 422） | 当前 VIEW 查询或写操作不支持此连接器，重新登录无法解决 |
    | `connector_auth_required` | 未登录或登录失效 | 请先在连接器页面完成授权 |
    | `connector_configuration_required` | 尚未配置 | 请先完成连接器配置 |
    | `connector_preparation_required` | CLI 尚未准备 | 连接器尚未准备完成 |

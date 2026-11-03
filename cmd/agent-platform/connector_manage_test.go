@@ -126,7 +126,7 @@ func TestConnectorManageTokenFileDoesNotEchoCredentials(t *testing.T) {
 func TestConnectorManageOneIDUsesSsoIdTokenFileAndNeverStoresToken(t *testing.T) {
 	runtimeRoot := t.TempDir()
 	t.Setenv("AP_RUNTIME_STATE_DIR", "")
-	t.Setenv("AP_ACCESS_TOKEN", "untrusted-process-token")
+	t.Setenv("AP_ID_TOKEN", "untrusted-process-token")
 	dir := filepath.Join(runtimeRoot, "connectors-center", "demo")
 	os.MkdirAll(dir, 0755)
 	os.WriteFile(filepath.Join(dir, "connector.json"), []byte(`{"id":"demo","name":"Demo","version":"1.0.0","type":"cli","authMode":"oneid-token"}`), 0644)

@@ -3,6 +3,7 @@ package hostshell
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/config"
@@ -40,7 +41,7 @@ func TempDir(execCtx *contracts.ExecutionContext) string {
 }
 
 // KnownVariables intentionally excludes inherited credentials and the identity
-// access token. These values may appear in access-policy diagnostics.
+// ID token. These values may appear in access-policy diagnostics.
 func KnownVariables(frozen *contracts.ExecutionContext, cfg config.BashConfig, goos string) map[string]string {
 	var values map[string]string
 	if frozen != nil {
@@ -55,6 +56,10 @@ func KnownVariables(frozen *contracts.ExecutionContext, cfg config.BashConfig, g
 		values["HOME"] = home
 		values["TMPDIR"], values["TMP"], values["TEMP"] = TempDir(frozen), TempDir(frozen), TempDir(frozen)
 	}
-	delete(values, agentconfig.EnvAccessToken)
+	for key := range values {
+		if strings.EqualFold(strings.TrimSpace(key), agentconfig.EnvIDToken) {
+			delete(values, key)
+		}
+	}
 	return values
 }
