@@ -4,25 +4,9 @@ import (
 	"strconv"
 	"strings"
 
-	"agent-platform/internal/shellreview/options"
 	"agent-platform/internal/shellreview/registry"
 	"agent-platform/internal/shellreview/types"
 )
-
-var simpleSpecs = map[registry.ID]types.OptionSpec{
-	registry.CmdPwd:      {ShortFlags: "LP", Long: options.Longs(types.OptionNone, "help", "version")},
-	registry.CmdDate:     {ShortFlags: "uR", ShortArgs: map[byte]types.OptionRole{'d': types.OptionValue, 'f': types.OptionRead, 'r': types.OptionRead}, Long: options.Merge(options.Longs(types.OptionNone, "utc", "universal", "rfc-email", "help", "version"), options.Longs(types.OptionOptionalValue, "iso-8601", "rfc-3339"), options.Longs(types.OptionRead, "file", "reference"), options.Longs(types.OptionValue, "date"))},
-	registry.CmdSleep:    {Long: options.Longs(types.OptionNone, "help", "version")},
-	registry.CmdUname:    {ShortFlags: "asnrvmpio", Long: options.Longs(types.OptionNone, "all", "kernel-name", "nodename", "kernel-release", "kernel-version", "machine", "processor", "hardware-platform", "operating-system", "help", "version")},
-	registry.CmdWhoami:   {Long: options.Longs(types.OptionNone, "help", "version")},
-	registry.CmdId:       {ShortFlags: "uGnrgzZ", Long: options.Longs(types.OptionNone, "user", "group", "groups", "name", "real", "zero", "context", "help", "version")},
-	registry.CmdBasename: {ShortFlags: "az", ShortArgs: map[byte]types.OptionRole{'s': types.OptionValue}, Long: options.Merge(options.Longs(types.OptionNone, "multiple", "zero", "help", "version"), options.Longs(types.OptionValue, "suffix"))},
-	registry.CmdDirname:  {ShortFlags: "z", Long: options.Longs(types.OptionNone, "zero", "help", "version")},
-	registry.CmdWhich:    {ShortFlags: "as", Long: options.Longs(types.OptionNone, "all", "help", "version")},
-	registry.CmdPrintenv: {ShortFlags: "0", Long: options.Longs(types.OptionNone, "null", "help", "version")},
-	registry.CmdTr:       {ShortFlags: "cCdst", Long: options.Longs(types.OptionNone, "complement", "delete", "squeeze-repeats", "truncate-set1", "help", "version")},
-	registry.CmdFree:     {ShortFlags: "bkmghwltV", ShortArgs: map[byte]types.OptionRole{'s': types.OptionValue, 'c': types.OptionValue}, Long: options.Merge(options.Longs(types.OptionNone, "bytes", "kilo", "mega", "giga", "human", "wide", "lohi", "total", "help", "version"), options.Longs(types.OptionValue, "seconds", "count"))},
-}
 
 func simpleOperands(id registry.ID, args []string) effectDraft {
 	if id == registry.CmdCd {
@@ -52,24 +36,11 @@ func simpleOperands(id registry.ID, args []string) effectDraft {
 	if id == registry.CmdTest {
 		return testOperands(args)
 	}
-	spec, known := simpleSpecs[id]
-	if !known {
-		if len(args) == 0 {
-			return effectDraft{}
-		}
-		return unknownOperands(args)
+	// top only reads process state; its options are not modeled.
+	if len(args) == 0 {
+		return effectDraft{}
 	}
-	parsed := options.Parse(spec, args)
-	e := effectDraft{Files: parsed.Files, Incomplete: parsed.Incomplete, ExecutesCode: parsed.Exec}
-	if e.Incomplete {
-		for i, path := range parsed.Positional {
-			if path != "-" && !strings.Contains(path, "://") {
-				e.Files = append(e.Files, types.FileAccess{Path: path, Ref: parsed.PositionalRefs[i]})
-			}
-		}
-		escalateWrites(&e)
-	}
-	return e
+	return unknownOperands(args)
 }
 
 // https://www.gnu.org/software/bash/manual/html_node/Bash-Builtins.html

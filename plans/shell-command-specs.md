@@ -109,20 +109,17 @@ sort:
 
 | 批次 | 内容 | 完成门槛 |
 | --- | --- | --- |
-| Y1 格式与加载（已完成，未提交） | `commands.yml` 结构、严格加载、通用测试、`examples` 执行；先只搬 `wc` 一个命令打通。五种 `operands` 与九个角色由测试内的假命令全部覆盖 | 快照零差异 |
-| Y2 搬迁 | 其余 27 个命令搬进 YAML；同一提交删除对应的 Go 表（`simpleSpecs` 条目、`*Spec` 变量和 `analyzers` 条目），不留转发 | 快照与现有测试零差异 |
+| Y1 格式与加载（已完成，073f3b3e） | `commands.yml` 结构、严格加载、通用测试、`examples` 执行；先只搬 `wc` 一个命令打通。五种 `operands` 与九个角色由测试内的假命令全部覆盖 | 快照零差异 |
+| Y2 搬迁（已完成，未提交） | 其余 27 个命令搬进 YAML；同一提交删除对应的 Go 表（`simpleSpecs`、`*Spec` 变量和 `analyzers` 条目），不留转发；只剩 chmod 的 `fileOperationOperands` 改为 `chmod.go` 的 `chmodOperands` | 快照与现有测试零差异；迁移前逐项比对选项表，并对 2337 组参数比对新旧分析结果 |
 | Y3 新增命令 | 允许 YAML 登记 `registry` 里没有的命令名（按名字登记为普通程序，身份识别照常要求系统程序）；之后按实际审批日志逐个补命令 | 每个新命令有样例；三档权限行为符合预期 |
 
 Y1、Y2 只挪结构、不改行为；Y3 才有行为变化，单独评审。
 
-Y2 注意：
-- 现有 Go 代码对 `file`、`diff` 的 `-r`/`-R` 一律按递归读取（`file -r` 实际是“不转义输出”）。为保持零差异，`file` 的 `r` 先写在 `recursive` 下，改正另提。
-- `sort` 的 `r`/`R` 是排序开关，写在 `flag` 下，现有代码也强制不递归，行为一致。
-- 搬完后 `simpleSpecs` 为空，一并删除；`fileOperands`、`fileOperationOperands` 只剩留在 Go 的命令。
+待办（行为修正，单独评审）：现有规则把 `file -r`（实为“不转义输出”）按递归读取，Y2 照搬并在 `commands.yml` 注明；改为 `flag` 会放宽审批，需单独确认。
 
 ## 6. 收尾
 
-Y2 完成后更新：[工具目录权限](../docs/工具目录权限.md)（“命令语义由 `internal/shellreview/commands` 的命令说明表统一描述”一句改为说明 `commands.yml` 与 Go 分析器的分工）、AGENTS.md 的 Shell 审查段（同一处措辞）。Y3 完成后删除本文。
+[工具目录权限](../docs/工具目录权限.md) 与 AGENTS.md 的 Shell 审查段已在 Y2 写明 `commands.yml` 与 Go 分析器的分工。Y3 完成后删除本文。
 
 ## 7. 不做的
 

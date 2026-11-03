@@ -13,6 +13,132 @@
 # Unlisted options keep the shared fallback: operands become writes and the
 # call needs complex-command approval.
 
+# --- operands are data, not files ---
+
+pwd:
+  operands: none
+  short:
+    flag: [L, P]
+  long:
+    flag: [help, version]
+
+date:
+  operands: none
+  short:
+    flag: [u, R]
+    value: [d]
+    read: [f, r]
+  long:
+    flag: [utc, universal, rfc-email, help, version]
+    value: [date]
+    optional: [iso-8601, rfc-3339]
+    read: [file, reference]
+  examples:
+    - args: [-r, notes.txt, +%s]
+      expect: {read: [notes.txt]}
+    - args: [--file=dates.txt]
+      expect: {read: [dates.txt]}
+
+sleep:
+  operands: none
+  long:
+    flag: [help, version]
+
+uname:
+  operands: none
+  short:
+    flag: [a, s, n, r, v, m, p, i, o]
+  long:
+    flag: [all, kernel-name, nodename, kernel-release, kernel-version, machine, processor, hardware-platform, operating-system, help, version]
+
+whoami:
+  operands: none
+  long:
+    flag: [help, version]
+
+id:
+  operands: none
+  short:
+    flag: [u, G, n, r, g, z, Z]
+  long:
+    flag: [user, group, groups, name, real, zero, context, help, version]
+
+basename:
+  operands: none
+  short:
+    flag: [a, z]
+    value: [s]
+  long:
+    flag: [multiple, zero, help, version]
+    value: [suffix]
+
+dirname:
+  operands: none
+  short:
+    flag: [z]
+  long:
+    flag: [zero, help, version]
+
+which:
+  operands: none
+  short:
+    flag: [a, s]
+  long:
+    flag: [all, help, version]
+
+printenv:
+  operands: none
+  short:
+    flag: ["0"]
+  long:
+    flag: ["null", help, version]
+
+tr:
+  operands: none
+  short:
+    flag: [c, C, d, s, t]
+  long:
+    flag: [complement, delete, squeeze-repeats, truncate-set1, help, version]
+
+free:
+  operands: none
+  short:
+    flag: [b, k, m, g, h, w, l, t, V]
+    value: [s, c]
+  long:
+    flag: [bytes, kilo, mega, giga, human, wide, lohi, total, help, version]
+    value: [seconds, count]
+
+# --- operands are read ---
+
+cat:
+  operands: read
+  short:
+    flag: [A, b, e, n, s, t, u, v, E, T]
+  long:
+    flag: [number, number-nonblank, show-all, show-ends, show-tabs, squeeze-blank, show-nonprinting]
+
+head:
+  operands: read
+  numeric: true
+  short:
+    flag: [q, v, z]
+    value: [n, c]
+  long:
+    flag: [quiet, silent, verbose, zero-terminated]
+    value: [lines, bytes]
+
+tail:
+  operands: read
+  numeric: true
+  short:
+    flag: [q, v, f, F, z]
+    value: [n, c, s]
+  long:
+    flag: [quiet, silent, verbose, retry, zero-terminated]
+    value: [lines, bytes, pid, sleep-interval, max-unchanged-stats]
+    optional: [follow]
+
 wc:
   operands: read
   short:
@@ -26,3 +152,149 @@ wc:
       expect: {read: [names.txt]}
     - args: [--files0-from, list.txt]
       expect: {read: [list.txt]}
+
+# -r is raw output, not recursion; kept recursive as before until fixed separately.
+file:
+  operands: read
+  short:
+    flag: [b, h, i, L, s, z, k, N, p, "0"]
+    value: [F]
+    read: [m, f]
+    recursive: [r]
+  long:
+    flag: [brief, mime, mime-type, mime-encoding, dereference, no-dereference, special-files, uncompress, keep-going]
+    value: [separator]
+    read: [files-from, magic-file]
+  examples:
+    - args: [-m, magic.mgc, a.bin]
+      expect: {read: [magic.mgc, a.bin]}
+
+stat:
+  operands: read
+  short:
+    flag: [f, L, t, x]
+    value: [c]
+  long:
+    flag: [dereference, file-system, terse]
+    value: [format, printf]
+
+readlink:
+  operands: read
+  short:
+    flag: [e, f, m, n, q, s, v, z]
+  long:
+    flag: [canonicalize, canonicalize-existing, canonicalize-missing, no-newline, quiet, silent, verbose, zero]
+
+realpath:
+  operands: read
+  short:
+    flag: [e, m, L, P, q, s, z]
+  long:
+    flag: [canonicalize-existing, canonicalize-missing, logical, physical, quiet, strip, no-symlinks, zero]
+    read-dir: [relative-to, relative-base]
+  examples:
+    - args: [--relative-to, base, a.txt]
+      expect: {read: [base, a.txt], recursive: [base]}
+
+cut:
+  operands: read
+  short:
+    flag: [s, n, z]
+    value: [b, c, d, f]
+  long:
+    flag: [only-delimited, complement, zero-terminated]
+    value: [bytes, characters, delimiter, fields, output-delimiter]
+
+sort:
+  operands: read
+  short:
+    flag: [b, d, f, g, i, n, r, u, M, h, s, V, z, c, C, m, R]
+    value: [k, t, S]
+    write: [o]
+    write-dir: [T]
+  long:
+    flag: [unique, reverse, numeric-sort, general-numeric-sort, human-numeric-sort, version-sort, month-sort, ignore-case, ignore-leading-blanks, dictionary-order, stable, merge, random-sort, zero-terminated]
+    value: [key, field-separator, buffer-size, parallel, sort, batch-size]
+    optional: [check]
+    read: [files0-from]
+    write: [output]
+    write-dir: [temporary-directory]
+    exec: [compress-program]
+  examples:
+    - args: [-o, out.txt, -T, tmp, in.txt]
+      expect: {read: [in.txt], output: [out.txt], create: [tmp], recursive: [tmp]}
+    - args: [--compress-program=gzip, in.txt]
+      expect: {read: [in.txt], exec: true}
+
+diff:
+  operands: read
+  short:
+    flag: [u, N, q, s, b, w, B, i, a, y, t, c, p, T, d, e, E, Z]
+    value: [U, C, x, L, W, I, F, S]
+    read: [X]
+    recursive: [r]
+  long:
+    flag: [brief, report-identical-files, new-file, unidirectional-new-file, ignore-case, ignore-space-change, ignore-all-space, ignore-blank-lines, ignore-tab-expansion, ignore-trailing-space, text, side-by-side, expand-tabs, initial-tab, minimal, speed-large-files, strip-trailing-cr, suppress-common-lines, show-c-function, left-column, suppress-blank-empty, no-dereference]
+    value: [exclude, label, width, ignore-matching-lines, show-function-line, starting-file, horizon-lines, tabsize, palette, line-format, old-line-format, new-line-format, unchanged-line-format, old-group-format, new-group-format, changed-group-format, unchanged-group-format]
+    optional: [unified, context, color, normal]
+    read: [exclude-from, from-file, to-file]
+    recursive: [recursive]
+  examples:
+    - args: [-r, a, b]
+      expect: {read: [a, b], recursive: [a, b]}
+    - args: [-X, ignore.txt, --from-file=base, x]
+      expect: {read: [ignore.txt, base, x]}
+
+# --- operands are created, written or deleted ---
+
+mkdir:
+  operands: create
+  short:
+    flag: [p, v]
+    value: [m]
+  long:
+    flag: [parents, verbose]
+    value: [mode, context]
+
+touch:
+  operands: create
+  short:
+    flag: [a, c, m, f, h]
+    value: [d, t]
+    read: [r]
+  long:
+    flag: [no-create, no-dereference]
+    value: [date, time]
+    read: [reference]
+  examples:
+    - args: [-r, ref.txt, new.txt]
+      expect: {read: [ref.txt], create: [new.txt]}
+
+tee:
+  operands: output
+  short:
+    flag: [a, i, p]
+  long:
+    flag: [append, ignore-interrupts]
+    optional: [output-error]
+
+rmdir:
+  operands: delete
+  short:
+    flag: [p, v]
+  long:
+    flag: [parents, ignore-fail-on-non-empty, verbose]
+
+rm:
+  operands: delete
+  short:
+    flag: [f, i, I, d, v]
+    recursive: [r, R]
+  long:
+    flag: [force, dir, verbose, one-file-system, preserve-root]
+    optional: [interactive]
+    recursive: [recursive]
+
+  examples:
+    - args: [-rf, build]
+      expect: {delete: [build], recursive: [build]}
