@@ -254,3 +254,103 @@ Content-Type: application/json
 
 - 本文件：`plans/cutej-execute-upload-references.md`
 - 本地 git commit（仅此 plan），**不 push**
+
+## 补充：评审意见（2026-11-03）
+
+范围更正：本方案与 CuteJ 无关，是 Platform 通用 Execute 能力。原文中「CuteJ」字样（标题、背景「CuteJ 工作流节点」、P2「CuteJ『图片进视觉』」、C1 弊端列、待定问题 9、部署差异「工作流引擎（CuteJ）」）均按「通用 `/api/execute` 调用方」理解；「费用类 App 约束」保留为需求原文中的结果校验约束，不代表本方案服务特定应用。代码中 `cutej` 字样仅见 `internal/tools/tool_web_control_test.go:292` 的测试 URL，与 Execute 链路无关。原文未修改；文件名是否更名见待定问题 10。
+
+以下核对基于本地 HEAD `727febd1`（其父提交即原文所写 main `1ce8a7ec`）。
+
+### 1. 原文核实结果
+
+| 原文位置 | 原文表述 | 结论 | 核对依据 |
+|---|---|---|---|
+| 现状 / upload | 路由 `server_routes.go:372`、`handleUpload` `handler_resource.go:344`、省略 chatId `:363-366`、占位 Chat `:372` | 准确 | 同行号 |
+| 现状 / upload | 响应 `types_search_upload.go:30-45`，ticket 字段 id/type/name/path/mimeType/sizeBytes/url/sha256 | 准确；补充：ticket 无过期、一次性或归属字段 | `internal/api/types_search_upload.go:30-45` |
+| 现状 / execute 解码 | `execute.go:7-18` 无 chatId/references；`handler_execute.go:65-69` 严格解码；测试 `:330`；文档 `:26` | 准确 | 同行号 |
+| 现状 / 运行链路 | `execute_result.go:53` newChatID、`:54-63` StoreFiles、`:72` ResultContract、`:74-87` 不设 References、`:112-113` 读交卷 | 准确；补充：StoreFiles 早于 `prepare`（`:89`），见 R4 | `internal/runtime/query/execute_result.go:53-113` |
+| 现状 / ResultContract | `configureResultContractSession` `:140-167`，调用点 `admission.go:686-687` | 准确 | 同行号 |
+| 能力表 / 可选 chatId | `admission.go:372-375`、`types.go:253` | 准确 | 同行号 |
+| 能力表 / references | 「file 校验当前 Chat 资源（`prepare.go:79-97`）」 | 不完整：`ResourceFileParamForChat` 返回空时引用原样返回（`prepare.go:81-84`）；绝对 http(s) URL 由服务端下载落入 `references/`（`prepare.go:99-102`、`:105-181`，上限 50 MiB，远端 `Content-Type` 覆盖 mimeType `:176-178`） | `internal/runtime/reference/prepare.go:79-180` |
+| 能力表 / Agent 归属 | `target_owner_mismatch` `admission.go:601-606` | 准确；补充：`summary.AgentKey=="" && LastRunID==""` 的占位 Chat 不触发，随后 `UpdateAgentIdentity` 绑定（`admission.go:601`、`:609-615`） | `internal/runtime/query/admission.go:597-618` |
+| 能力表 / 运行冲突 | `query_gate.go:222-288`、awaiting `admission.go:431` → `query_gate.go:60` | 准确；补充：另有 `ReserveChatQuery` 与 `compact_in_progress` 409（`admission.go:382-399`） | 同文件 |
+| 能力表 / 多模态 | `session_builder.go:425-445`、`builder.go:216-256`、`images.go:125-126`，仅 IsVision 时产生 image_url | 准确 | 同行号；`internal/server/steer_images_test.go:62-64`、`:166-174`（非视觉场景断言无 image_url、文件名仍在） |
+| 能力表 / Identity | 「复用 Chat 时 references 授权可沿用，无需另造身份通道」 | 部分准确：principal 只参与 chat 类型引用（`prepare.go:218`）；file 引用只在 `currentChatID` 内解析，不做 principal 判断，其授权实际取决于目标 Chat 是否属于调用方，见 R1 | `internal/runtime/reference/prepare.go:79-97`、`:218` |
+| 目标功能 4 | 「按现有 Query 规则校验访问权限（principal / Chat source）」 | 已定需求不变；核实：Query admission 对目标 chatId 未找到 principal / source 比对（`admission.go:344-451`、`:583-620` 中无此检查；`QueryPrincipalCanReferenceChat` 调用点仅 `prepare.go:218` 与 server 资源类 handler，如 `handler_resource.go:74,101,220-236`）。「现有规则」在本链路是否存在：待确认 | 同左 |
+| P2 | `session_builder.go:426-432` | 准确 | 同行号 |
+| P3 | 「storeExecuteFiles 已按参数 chatId 落盘」 | 准确；遗漏写入时机早于归属与冲突检查（R4） | `execute_result.go:54-63` vs `:89`、`:99` |
+| P5 | 非视觉时图片落在 references 文本侧 | 准确 | `steer_images_test.go:166-174` |
+| P6 | 非空 message `execute_result.go:33-35` | 准确；「默认倾向继续要求 message」为倾向性表述，不作结论 | 同行号 |
+| P9 | execute handler 仅填 Subject，DeviceID/Scope 未组装 | 准确：`queryContext` 会复制 `Caller.DeviceID/Scope`（`start.go:35-36`），但 `handler_execute.go:83-85` 只赋 Subject；「功能上 Subject 可能已够」为推断，待确认 | 同行号 |
+| 组合规则 / chatId 交叉 | 「Query 对不存在 id 会创建」 | 准确：`EnsureChatWithInitialName` 对不存在的 id 新建（`chat/summary_repo.go:39-65`）；对已归档 id 的行为待确认 | 同行号 |
+| 改动面 / 复用校验 | 「不新写一套，依赖现有 admission + Register + Prepare（资源与 principal）」 | 有缺口：Prepare 不覆盖目标 Chat 的 principal 判断（R1）；StoreFiles 不经 admission（R4） | 见上 |
+| 验收 / 前提 | fixture 需 IsVision=true | 准确；可行性已有先例：测试向模型文件追加 `isVision`（`steer_images_test.go:62-64`）；`executeModelRequest` 能取到 Messages/Tools（`handler_execute_test.go:105-113`），已有对 result_submit output schema 的断言（`:157-164`） | 同行号 |
+| 背景 | 「CuteJ 工作流节点」 | 错误（范围更正） | Frank 反馈 |
+
+### 2. 发现的问题与风险
+
+- **R1. 复用 chatId 无调用方归属检查（跨用户）**：`/api/upload` 带 chatId 时直接 `EnsureChatWithSource`，已存在的 Chat 原样返回，不比对 source（`handler_resource.go:363-372`；`chat/summary_repo.go:49-61`）。Query admission 同样未见比对（见核实表「目标功能 4」）。Execute 接受 chatId 后，持有他人 chatId 的已认证调用方可能在该 Chat 写文件、读取其历史作为上下文、引用其中 file。是否有其他层（网关、Desktop 单用户假设）限制：待确认。
+- **R2. 跨 Agent 复用**：归属检查只比较 `summary.AgentKey`（`chat_tools_facade.go:18-24`）；upload 时 agentKey 为空且无 Run 的占位 Chat 可被任意有 result_submit 的 Agent 首次绑定（`admission.go:601`、`:609-615`）。普通 Query Chat（同 Agent 有历史）也可被 Execute 复用；是否允许待定（待定问题 11）。
+- **R3. 复用带历史的 Chat 会把历史带进 ResultContract Run**：`IncludeHistory: !created`（`admission.go:651`），窗口 20 个 Run（`chat/defaults.go:3`，`session_builder.go:71-85`）。历史中可能含旧 Query 对话、旧 Execute 的 task input、旧 `result_submit` 调用与不同 Schema 的 output；历史技能凭据会重建（`AGENTS.md:136`）。本 Run 的工具定义仍是按 Run 生成（`execute_result.go:140-167`），历史中旧 tool_call 的回放形态是否原样进入模型请求：待确认。纯「upload 占位 Chat → 首次 execute」无历史 Run，不受影响。
+- **R4. multipart 文件早于准入检查落盘**：`StoreFiles(chatID)` 在 `prepare` 之前执行（`execute_result.go:54-63` vs `:89`），复用 chatId 时，即便随后 `target_owner_mismatch` / `active_run_conflict` / awaiting / `compact_in_progress` 失败，文件已写入目标 Chat；`saveUploadedFile` 用 `os.Create` 按基名覆盖同名文件（`handler_resource.go:482-499`）。
+- **R5. 重复交卷保护的隔离范围**：`ResultContract` 每次 Execute 新建（`execute_result.go:72`），`Accept` 只保留本实例首个提交（`contracts/result_contract.go`），打回计数在本 Run 的 stream 上（`llm/run_stream_result_submit.go:29,37`），按 Run 隔离。代码层面未见跨 Run 串扰；R3 的历史内容对模型行为的影响不属于该保护范围。
+- **R6. upload ticket 无生命周期语义**：ticket 无过期、一次性、绑定 requestId/调用方的字段（`types_search_upload.go:30-45`）；Prepare 只按 `url` 解析当前 Chat 资源，不校验 `id`（`prepare.go:79-97`）。同一 ticket 可在多次 execute 中重复引用；同 Chat 内任何已存在文件都可按 url 引用。
+- **R7. 远端 URL 引用经 Execute 暴露服务端下载**：绝对 http(s) URL 会被平台下载（`prepare.go:99-102`、`:105-181`，`httpclient.NewClient(0)` 进程级代理），远端 `Content-Type` 覆盖 mimeType（`:176-178`）。是否拦截内网地址：待确认。Execute 是否允许此类引用见待定问题 12。
+- **R8. 路径与 MIME 信任**：当前 Chat 资源引用的 Path 由 url 重算（`session/prompt_context.go:146-176`），客户端 path 不被采信；path-only `/workspace` 引用拒绝（`:156-161`）。mimeType 仍取自客户端（或远端头），图片块按 MIME 白名单筛选（`querymessages/builder.go:216-256`）；`media.LoadImageFile` 是否按内容嗅探：待确认。
+- **R9. 数量、大小与去重**：`NormalizeResourceReferences` 只对 skill/kbase/chat 去重（`queryinput/references.go:48-74`），file 引用不去重；单 Run 数量上限只覆盖 skill/kbase/chat（`session/references.go:33-37`）。单图大小上限 `DefaultMaxImageBytes`（`multimodal/images.go:23,52`），图片张数上限未找到：待确认。multipart 表单上限 32 MiB（`handler_execute.go:42`）。`$file` 文件名与 references 指向同一基名时无交叉检测（C2/C3 相关）。
+- **R10. interactionConfig 对 references 生效，对 `$file` 不生效**：references 经 `ValidateInteractionInput`（`query_interaction.go:26-30`）与 `PrepareRunReferences`（`session/references.go:39-58`），file 类型受 `attachment.localFiles` 控制（`interaction/config.go:154-158`）；EXECUTOR 默认全部开启（`interaction/config.go:32-52`，EXECUTOR 不在各 switch 分支）。Agent 显式关闭 localFiles 时 references 被 400 `interaction_disabled`，multipart `$file` 仍可用。远端执行后端对 chat/kbase/skill 引用不支持（`session/references.go:51-55`）。
+- **R11. 并发**：同 chatId 两次 Execute 由 `ReserveChatQuery`（`admission.go:382-399`）与 `RegisterPreparedQuery`（`query_gate.go:222-288`）拒绝后者，但 R4 的落盘已发生。`/api/upload` 不检查活动 Run（`handler_resource.go:344-372`），Run 进行中可覆盖同名文件；Query 当前消息的图片读取时机与历史重放读到被替换文件的行为（steer 场景见 `steer_images_test.go:139-145`、`:175-180`「附件已不可用」）在 Execute 路径上是否一致：待确认。
+- **R12. 错误码与 `data.chatId` 契约**：`docs/智能体执行接口.md:63-72` 的错误表未列复用路径会出现的 `target_owner_mismatch`、`active_run_conflict`、awaiting 相关码、`compact_in_progress`、`interaction_disabled`、`reference_unavailable`、`resource_reference_*`（含 413/502）、`chat_reference_*`。409 同时承载 `cancelled` 与冲突类码。表中「不创建 Chat」与「已创建 Chat 时 data.chatId」的表述在复用场景含义变化；`prepare` 返回的错误不经 `executeRequestError`，不带 `data.chatId`（`execute_result.go:89-91` vs `:198-204`）。
+- **R13. Chat 名称与事件**：复用占位 Chat 时 `PromotePendingChatName` 用 execute 的 message 命名并广播 `chat.renamed`，新建时广播 `chat.created`（`admission.go:617-640`）。占位 Chat 在首次正式请求前不出现在列表（`docs/API与协议.md:897`），execute 后出现。若复用的是 Agent 主要聊天，execute 不切换指针，但其活动 Run 会使 Mailbox 投递 409（`AGENTS.md:103`）。
+- **R14. 审计与可观测**：JSONL query 行原样保存请求体，平台决定的 references 写在行顶层（`AGENTS.md:105`），execute 的 chatId/references 会随之落盘；带 requestId 的 execute Run 在 `run.started` Push 中附带 requestId 与 chatId（`docs/智能体执行接口.md:102`），复用场景下该 chatId 为调用方传入值。Execute 专用的指标/日志字段是否需要区分「新建 / 复用」：待确认。
+- **R15. 向后兼容**：旧客户端不传新字段行为不变（原文 F/G/H）。曾依赖 `chatId` 被 400 `unknown_field` 拒绝的调用方或测试（`handler_execute_test.go:330`）语义反转。WebClient 已有 `references?: unknown[]`（`agent-webclient/src/shared/data/api/dto/commands.ts:19`）与 `ReferenceData`（`src/shared/contracts/agentEvents.ts:169-175`）两种表示，DTO 复用哪一种：待确认（待定问题 15）。
+- **R16. 鉴权关闭 / 匿名**：principal 为空时 `QueryPrincipalCanReferenceChat` 只拒绝 `query:` 前缀来源的 Chat（`prepare.go:244-248`），资源 handler 对匿名直接放行（`handler_resource.go:220-223`）。与原文部署差异第 5 条同一问题，此处补充具体行号。
+
+### 3. 补充缺口（续 P9）
+
+- **P10. 目标 Chat 访问判断缺位**：对应 R1/R16。实现需求 4 时，「principal / Chat source」判断在 Query 主链路无可复用实现，需决定判断放在 Execute 专用路径还是 Query 通用准入（后者影响 `/api/query` 与 upload 现有行为）。见待定问题 13。
+- **P11. 复用分支的落盘时机**：对应 R4。复用 chatId 且带 multipart 时，文件写入与准入检查的先后需在契约中明确（与 C4 相关）。
+- **P12. 历史上下文**：对应 R3。复用带历史的 Chat 时是否加载历史、是否限定只能复用「仅上传、无 Run」的占位 Chat，需定义。见待定问题 11、14。
+- **P13. 远端引用与引用类型白名单**：对应 R7、原文 P7/待定 3。file 类型内部又分「当前 Chat 资源」「绝对 http(s) URL」「解析为空原样返回」三种（`prepare.go:79-103`），白名单需细化到此层。
+- **P14. 错误契约更新**：对应 R12。`docs/智能体执行接口.md` 错误表与 `data.chatId` 规则。
+- **P15. 限额**：对应 R9。file 引用个数、图片张数、总字节、与 multipart 合计是否设上限。
+
+### 4. 组合规则补充选项（续 C4，未定）
+
+| 选项 | 规则 | 利 | 弊 |
+|---|---|---|---|
+| **C5. 复用 chatId 仅限占位 Chat** | 目标 Chat 必须无 `LastRunID`（仅 upload 产生）；否则 409/400 | 规避 R2/R3 历史与跨 Agent 问题；贴合 upload→execute 流程 | 不能在已有对话的 Chat 上 execute；需新错误码 |
+| **C6. 复用时 multipart 延后落盘** | 带 chatId 时 StoreFiles 移到 admission/注册之后 | 消除 R4 的副作用 | 改动 Execute 编排顺序；失败路径需清理语义 |
+| **C7. references 仅接受当前 Chat 资源 URL** | 拒绝绝对 http(s) 与解析为空的 file 引用 | 规避 R7；与「先 upload」流程一致 | 与 Query references 能力不一致 |
+
+### 5. 验收补充（续 K）
+
+| # | 场景 | 期望 |
+|---|---|---|
+| L | 已认证用户 B 用用户 A 的 chatId 调 execute | 按待定问题 13 的决定返回（拒绝码待定）；不写文件、不起 Run |
+| M | 占位 Chat（upload 未带 agentKey）→ execute(agentKey=exec-agent) | 按待定问题 8 的决定；若允许，Chat 绑定 exec-agent，`chat.renamed` 一次 |
+| N | 复用 chatId + multipart，目标 Chat 有活动 Run | `active_run_conflict`；按 C6/P11 的决定断言文件是否落盘 |
+| O | 非视觉 fixture 模型 + 图片 references | 请求无 `image_url`、含文件名文本；ResultContract 仍生效（参照 `steer_images_test.go:166-174` 写法） |
+| P | references 指向不存在的 `@chat/` 文件 | 4xx（码按 Prepare/ResolveResource 现有行为），不起 Run |
+| Q | references 含绝对 http(s) URL | 按 C7/待定问题 12 决定：拒绝或下载（mock HTTP server，不访问外网） |
+| R | Agent `interactionConfig.attachment.localFiles:false` | references 400 `interaction_disabled`；multipart `$file` 行为按决定 |
+| S | 复用有历史 Run 的 Chat | 按 C5/待定问题 14 决定；若允许，断言模型请求中历史与本轮 `result_submit` 定义的形态 |
+| T | 同一 ticket 两次 execute（串行） | 两次均可引用或按待定问题 16 决定 |
+| U | 同一图片 reference 重复两次 | 断言 `image_url` 出现次数（去重语义待定，R9） |
+| V | 复用 chatId 时的 400 类错误 | `data.chatId` 是否返回与文档一致（R12） |
+| W | 复用 chatId 交卷成功后同 Chat 再 execute | 第二次 Run 拥有独立 ResultContract，首个合法提交被接受（R5） |
+
+测试矩阵缺口：原文 A–K 未覆盖 L–W；现有 `handler_execute_test.go:322` 起的非法请求用例断言「不创建 Chat」，复用路径需另立断言。
+
+### 6. 待定问题（续 9）
+
+10. 文件名 `plans/cutej-execute-upload-references.md` 与标题是否更名为通用 Execute 名称（本次未改）？
+11. 是否允许 Execute 复用「已有 Run / 属于其他 Agent 历史」的 Chat，还是只限占位 Chat（C5）？
+12. Execute 的 file references 是否允许绝对 http(s) URL（服务端下载）？若允许，是否需要内网地址限制（R7，现状待确认）？
+13. 目标 Chat 的调用方归属判断（R1）放在 Execute 专用路径，还是 Query 通用准入（会影响 `/api/query`、`/api/upload` 现有行为）？拒绝时的 HTTP 码与错误码？
+14. 复用带历史的 Chat 时是否加载历史（`IncludeHistory`）及历史技能凭据？
+15. WebClient `ExecuteRequest.references` 用 `unknown[]`（与 commands.ts 一致）还是 `ReferenceData[]`？
+16. upload ticket 是否需要过期 / 一次性 / 绑定调用方语义，还是维持「Chat 内资源 URL 即可引用」？
+17. file 引用数量、图片张数、总大小是否设上限，与 multipart 32 MiB 是否合并计算？重复引用是否去重？
+18. 复用 chatId 且带 multipart 时，文件落盘是否必须在准入检查之后（C6）？失败时已写文件如何处理？
+19. Execute 错误表是否补列复用路径的错误码，`data.chatId` 在复用场景的返回规则？
