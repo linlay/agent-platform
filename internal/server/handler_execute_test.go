@@ -2,11 +2,13 @@ package server
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,7 +42,7 @@ type executeModelRequest struct {
 // newExecuteFixture adds an EXECUTOR agent, cloned from mock-agent, whose
 // tools include result_submit, and registers the result_submit handler the
 // way app assembly does.
-func newExecuteFixture(t *testing.T, model func(call int32, request executeModelRequest, w http.ResponseWriter)) (testFixture, *atomic.Int32) {
+func newExecuteFixture(t *testing.T, model func(call int32, request executeModelRequest, w http.ResponseWriter), vision ...bool) (testFixture, *atomic.Int32) {
 	t.Helper()
 	var calls atomic.Int32
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +52,21 @@ func newExecuteFixture(t *testing.T, model func(call int32, request executeModel
 		model(calls.Add(1), request, w)
 	}, testFixtureOptions{
 		sandbox: &recordingSandbox{},
-		setupRuntime: func(_ string, cfg *config.Config) {
+		setupRuntime: func(root string, cfg *config.Config) {
+			if len(vision) > 0 {
+				path := filepath.Join(root, "registries", "models", "mock-model.yml")
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				flag := "false"
+				if vision[0] {
+					flag = "true"
+				}
+				if err := os.WriteFile(path, append(data, []byte("\nisVision: "+flag+"\n")...), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			source, err := os.ReadFile(filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"))
 			if err != nil {
 				t.Fatalf("read mock agent: %v", err)
@@ -327,7 +343,7 @@ func TestExecuteRejectsInvalidRequestsBeforeStarting(t *testing.T) {
 		"array root":    {"agentKey": executeTestAgent, "message": "x", "outputSchema": map[string]any{"type": "array"}},
 		"no schema":     {"agentKey": executeTestAgent, "message": "x"},
 		"no message":    {"agentKey": executeTestAgent, "outputSchema": executeTestSchema},
-		"unknown field": {"agentKey": executeTestAgent, "message": "x", "outputSchema": executeTestSchema, "chatId": "c1"},
+		"unknown field": {"agentKey": executeTestAgent, "message": "x", "outputSchema": executeTestSchema, "unexpected": "c1"},
 		"case variant":  {"agentKey": executeTestAgent, "Message": "x", "outputSchema": executeTestSchema},
 		"missing part":  {"agentKey": executeTestAgent, "message": "x", "outputSchema": executeTestSchema, "input": map[string]any{"doc": map[string]any{"$file": "doc"}}},
 		"bad access":    {"agentKey": executeTestAgent, "message": "x", "outputSchema": executeTestSchema, "accessLevel": "root"},
@@ -412,6 +428,146 @@ func TestExecuteRejectsUnusedFileParts(t *testing.T) {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	status, response := serveExecute(t, fixture.server, req)
 	if status != http.StatusBadRequest || calls.Load() != 0 {
+		t.Fatalf("execute: %d %#v", status, response)
+	}
+}
+
+func uploadExecuteImage(t *testing.T, server *Server, agentKey string) api.UploadResponse {
+	t.Helper()
+	data, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	if err := form.WriteField("agentKey", agentKey); err != nil {
+		t.Fatal(err)
+	}
+	part, err := form.CreatePart(textproto.MIMEHeader{
+		"Content-Disposition": {`form-data; name="file"; filename="receipt.png"`},
+		"Content-Type":        {"image/png"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/upload", &body)
+	req.Header.Set("Content-Type", form.FormDataContentType())
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	var result api.ApiResponse[api.UploadResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusOK || result.Data.ChatID == "" {
+		t.Fatalf("upload: %d %s", rec.Code, rec.Body.String())
+	}
+	return result.Data
+}
+
+func TestExecuteUsesUploadedImageReferences(t *testing.T) {
+	for _, vision := range []bool{true, false} {
+		name := "non-vision"
+		if vision {
+			name = "vision"
+		}
+		t.Run(name, func(t *testing.T) {
+			fixture, calls := newExecuteFixture(t, func(call int32, request executeModelRequest, w http.ResponseWriter) {
+				if call == 1 {
+					messages, _ := json.Marshal(request.Messages)
+					if bytes.Contains(messages, []byte(`"image_url"`)) != vision {
+						t.Errorf("unexpected image blocks: %s", messages)
+					}
+					if !bytes.Contains(messages, []byte("receipt.png")) {
+						t.Errorf("missing filename: %s", messages)
+					}
+					if vision && !bytes.Contains(messages, []byte("data:image/png;base64,")) {
+						t.Errorf("missing image data: %s", messages)
+					}
+					tool := modelTool(request, "result_submit")
+					parameters, _ := tool["parameters"].(map[string]any)
+					properties, _ := parameters["properties"].(map[string]any)
+					output, _ := properties["output"].(map[string]any)
+					outputProperties, _ := output["properties"].(map[string]any)
+					if _, ok := outputProperties["summary"]; !ok {
+						t.Errorf("missing output schema: %#v", tool)
+					}
+					writeProviderSSE(t, w, submitFrame(t, "uploaded_submit", map[string]any{"status": "success", "output": map[string]any{"summary": "ok"}}), `[DONE]`)
+					return
+				}
+				writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`, `[DONE]`)
+			}, vision)
+			upload := uploadExecuteImage(t, fixture.server, executeTestAgent)
+			u := upload.Upload
+			status, response := postExecute(t, fixture.server, map[string]any{
+				"agentKey": executeTestAgent, "chatId": upload.ChatID, "message": "识别图片", "outputSchema": executeTestSchema,
+				"references": []api.Reference{{ID: u.ID, Type: u.Type, Name: u.Name, Path: u.Path, URL: u.URL, MimeType: u.MimeType}},
+			})
+			if status != http.StatusOK || response.Data["chatId"] != upload.ChatID || response.Data["status"] != "success" || calls.Load() != 2 {
+				t.Fatalf("execute: %d %#v calls=%d", status, response, calls.Load())
+			}
+		})
+	}
+}
+
+func TestExecuteRejectsChatIDWithMultipartBeforeWriting(t *testing.T) {
+	fixture, calls := newExecuteFixture(t, func(_ int32, _ executeModelRequest, _ http.ResponseWriter) { t.Error("unexpected model call") })
+	upload := uploadExecuteImage(t, fixture.server, executeTestAgent)
+	path := filepath.Join(fixture.chats.ChatDir(upload.ChatID), upload.Upload.Name)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	request, _ := json.Marshal(map[string]any{
+		"agentKey": executeTestAgent, "chatId": upload.ChatID, "message": "x", "outputSchema": executeTestSchema,
+		"input": map[string]any{"doc": map[string]any{"$file": "doc"}, "extra": map[string]any{"$file": "extra"}},
+	})
+	_ = form.WriteField("request", string(request))
+	part, _ := form.CreateFormFile("doc", "receipt.png")
+	_, _ = part.Write([]byte("replacement"))
+	part, _ = form.CreateFormFile("extra", "extra.txt")
+	_, _ = part.Write([]byte("new file"))
+	_ = form.Close()
+	req := httptest.NewRequest(http.MethodPost, "/api/execute", &body)
+	req.Header.Set("Content-Type", form.FormDataContentType())
+	status, response := serveExecute(t, fixture.server, req)
+	if status != http.StatusBadRequest || executeErrorCode(response) != "invalid_request" || calls.Load() != 0 {
+		t.Fatalf("execute: %d %#v", status, response)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("upload was changed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(path), "extra.txt")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected new file: %v", err)
+	}
+	summary, err := fixture.chats.Summary(upload.ChatID)
+	if err != nil || summary.LastRunID != "" {
+		t.Fatalf("unexpected Run: %#v %v", summary, err)
+	}
+}
+
+func TestExecuteReusedChatUsesQueryAdmission(t *testing.T) {
+	fixture, calls := newExecuteFixture(t, func(_ int32, _ executeModelRequest, _ http.ResponseWriter) { t.Error("unexpected model call") })
+	upload := uploadExecuteImage(t, fixture.server, "mock-agent")
+	status, response := postExecute(t, fixture.server, map[string]any{
+		"agentKey": executeTestAgent, "chatId": upload.ChatID, "message": "x", "outputSchema": executeTestSchema,
+	})
+	if status != http.StatusConflict || !strings.Contains(response.Msg, "chat owner") {
+		t.Fatalf("execute: %d %#v", status, response)
+	}
+	status, response = postExecute(t, fixture.server, map[string]any{
+		"agentKey": executeTestAgent, "chatId": "execute-missing-resource", "message": "x", "outputSchema": executeTestSchema,
+		"references": []api.Reference{{Type: "file", Name: "missing.png", URL: "@chat/missing.png", MimeType: "image/png"}},
+	})
+	if status != http.StatusBadRequest || executeErrorCode(response) != "resource_reference_unavailable" || calls.Load() != 0 {
 		t.Fatalf("execute: %d %#v", status, response)
 	}
 }

@@ -22,7 +22,7 @@ import (
 // {"$file": "<part>"}.
 const executeFileKey = "$file"
 
-// Execute runs one /api/execute call in a new Chat and returns the Run's
+// Execute runs one /api/execute call in a new or caller-selected Chat and returns the Run's
 // accepted result_submit. The caller waits for the whole Run; when it goes
 // away (ctx done) the Run is interrupted, since nobody can receive the result.
 func (s *Service) Execute(ctx context.Context, cmd runtimetypes.ExecuteCommand) (runtimetypes.ExecuteResult, error) {
@@ -32,6 +32,9 @@ func (s *Service) Execute(ctx context.Context, cmd runtimetypes.ExecuteCommand) 
 	}
 	if strings.TrimSpace(cmd.Message) == "" {
 		return runtimetypes.ExecuteResult{}, executeRequestError(400, "invalid_request", "message is required", "")
+	}
+	if strings.TrimSpace(cmd.ChatID) != "" && len(cmd.FileParts) > 0 {
+		return runtimetypes.ExecuteResult{}, executeRequestError(400, "invalid_request", "chatId cannot be combined with multipart files; use /api/upload instead", "")
 	}
 	if _, err := resultsubmit.CompileOutputSchema(cmd.OutputSchema); err != nil {
 		return runtimetypes.ExecuteResult{}, executeRequestError(400, "invalid_request", err.Error(), "")
@@ -50,7 +53,10 @@ func (s *Service) Execute(ctx context.Context, cmd runtimetypes.ExecuteCommand) 
 		return runtimetypes.ExecuteResult{}, err
 	}
 
-	chatID := newChatID()
+	chatID := strings.TrimSpace(cmd.ChatID)
+	if chatID == "" {
+		chatID = newChatID()
+	}
 	if len(cmd.FileParts) > 0 {
 		if cmd.StoreFiles == nil {
 			return runtimetypes.ExecuteResult{}, fmt.Errorf("execute input files have no store")
@@ -75,6 +81,7 @@ func (s *Service) Execute(ctx context.Context, cmd runtimetypes.ExecuteCommand) 
 		OriginalQuery:   cmd.OriginalQuery,
 		RequestID:       strings.TrimSpace(cmd.RequestID),
 		ChatID:          chatID,
+		References:      cmd.References,
 		AgentKey:        agentKey,
 		Message:         cmd.Message,
 		AccessLevel:     cmd.AccessLevel,

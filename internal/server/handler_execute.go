@@ -17,7 +17,7 @@ import (
 // executeRequestPart is the multipart field that carries the JSON request.
 const executeRequestPart = "request"
 
-// handleExecute runs one task in a new Chat and answers with the accepted
+// handleExecute runs one task in a new or caller-selected Chat and answers with the accepted
 // result_submit. The caller waits for the whole Run; disconnecting cancels it.
 func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	command, err := s.decodeExecuteCommand(r)
@@ -71,6 +71,8 @@ func (s *Server) decodeExecuteCommand(r *http.Request) (runtimetypes.ExecuteComm
 	command := runtimetypes.ExecuteCommand{
 		OriginalQuery:   append([]byte(nil), body...),
 		RequestID:       req.RequestID,
+		ChatID:          req.ChatID,
+		References:      req.References,
 		AgentKey:        req.AgentKey,
 		Message:         req.Message,
 		AccessLevel:     req.AccessLevel,

@@ -3,13 +3,15 @@ package types
 import "encoding/json"
 
 // ExecuteCommand is one /api/execute call: a task message, its data and the
-// caller's output format, run once in a new Chat that must end with an
+// caller's output format, run once in a new or caller-selected Chat with an
 // accepted result_submit.
 type ExecuteCommand struct {
 	// OriginalQuery is the caller's request JSON, persisted verbatim.
 	OriginalQuery json.RawMessage
 
 	RequestID    string
+	ChatID       string
+	References   []Reference
 	AgentKey     string
 	Message      string
 	AccessLevel  string
