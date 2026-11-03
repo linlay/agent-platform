@@ -63,6 +63,8 @@ An `@chat/` file opens the way it does when the user clicks it in the conversati
 
 An HTML preview of either root is a live page: read, operate, capture and resize it with the surface tools, as for a webpage. It cannot navigate elsewhere, use network CDP methods, AWCP or saved logins. Other previews have an item surfaceId that can only be activated or closed. When a real host-visible HTTP(S) service exists, open that address instead.
 
+To check an HTML file you produced, open its `@workspace/...` or `@chat/...` URL here, obtain a current surfaceId, observe and use typed controls, then verify the result. For responsive layout, use `surface_viewport` and reset it afterward. A null surfaceId means registration is pending; read `workpanel_state` again. Do not launch a separate browser for a file this WorkPanel can show. Without a Desktop WorkPanel, a separately authorized browser must use a temporary profile outside the Chat directory; close that browser and remove only its own profile afterward. This is not a fallback for a denied Desktop tool.
+
 ## Closing
 
 To close one tab, pass its surfaceId from `workpanel_open`, `workpanel_state` or `surface_list` to `surface_close`. A URL or file name never identifies a tab. `workpanel_close` with `all: true` closes the whole panel. Closing a pinned or non-closable item fails. Closing the whole panel fails with `capability_denied` while protected items remain.

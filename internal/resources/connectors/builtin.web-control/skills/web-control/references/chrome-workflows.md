@@ -8,7 +8,7 @@ Use this with the browser authorized for the current Run. The observe/act/verify
 
 ## Connection, workspace continuity and Run leases
 
-For a Run bound to Chrome, Desktop reuses the live workspace it authorizes for that Run or establishes one from the authorization the user chose to remember. With remembering enabled, new Chrome Chats can continue the same authorized live workspace; without it, do not assume cross-Chat continuity. Attempt the authorized task without demanding another manual connection. The model does not supply connection credentials, a profile, workspace selector or endpoint. If the host reports `browser_connection_required`, follow its browser settings or Chat controls guidance, then continue in a new Run. After page work starts in WorkPanel, the Run cannot change to Chrome midway.
+For a Run bound to Chrome, Desktop reuses the live workspace it authorizes for that Run or establishes one from the authorization the user chose to remember. With remembering enabled, new Chrome Chats can continue the same authorized live workspace; without it, do not assume cross-Chat continuity. Attempt the authorized task without demanding another manual connection. The model does not supply connection credentials, a profile, workspace selector or endpoint. The first call can wait up to five minutes while the host guides connection, then continue the same call once connected; do not tell the user to resend while it is waiting. If the call finally returns `browser_connection_required`, report that result and follow the host's recovery guidance. After page work starts in WorkPanel, the Run cannot change to Chrome midway.
 
 On every new Run, including a follow-up, resend, new Chat or derived Chat, list the currently authorized pages and identify the intended live surface from host evidence. Reuse an available page instead of creating a duplicate. Read fresh observations and AWCP manuals; a previous Run's observationId/ref and manual binding are invalid even if copied into history. A true reconnect creates new page identities, so old surfaceIds cannot be restored by matching URLs. Sharing a browser workspace does not share current-Chat file access.
 
@@ -94,5 +94,13 @@ After the click, list captured files with `surface_downloads`, then save a compl
 If the list remains empty, report that no captured download is available. Do not infer a server bug, resubmit a download-producing transaction, scrape the user's Downloads folder or fetch the URL again through another transport.
 
 At completion, report the verified business result and any saved Chat references. Separate expected refusals, recovered actions and unfinished items. Screenshots are for requested visual evidence or targets semantic observations cannot identify; they do not replace ordinary state verification.
+
+## Screenshots and visual interpretation
+
+For a request to save or deliver a screenshot, call `surface_screenshot` and return its persistent Chat reference. This needs no `vision_recognize` call: capture, storage and delivery are separate from interpreting image content. Do not claim visual verification merely because a screenshot was saved.
+
+For appearance questions or a visual-only target that semantic observations cannot identify, capture a fresh viewport image and call `vision_recognize` with its referenceName when interpretation is needed. Match coordinates to that image's viewport CSS-pixel coordinate system and exact surface; full-page coordinates and coordinates from before scrolling or navigation are not valid. If recognition fails or does not identify the target, report the limitation or return to semantic reads; never guess a click location. Reuse an adequate current image instead of repeatedly capturing it.
+
+Ordinary fills, navigation, uploads, submissions and dialog outcomes should be verified from returned semantic observations or AWCP read results. A screenshot is not a substitute for reconciling an unknown write or diagnosing a tool/contract error. Neither a successful screenshot nor failed recognition changes the action's recorded outcome.
 
 When the user explicitly asks for a target at the bottom of a long page, focus observed page content or its scrollable region and use a typed End press, then observe the new viewport. Do not send End to an editable field or spend dozens of small scrolls reaching a known footer. For lazy-loaded lists and tasks requiring intermediate evidence, keep incremental scrolling and inspection.
