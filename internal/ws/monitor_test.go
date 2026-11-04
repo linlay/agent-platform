@@ -1,13 +1,16 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/observability"
 )
 
@@ -105,7 +108,7 @@ func TestHubMonitorRecordsRecentMessagesAndSanitizesPreview(t *testing.T) {
 	conn.recordOutboundMessage(PushFrame{Frame: FramePush, Type: "heartbeat", Data: map[string]any{"timestamp": 1}})
 	conn.recordOutboundMessage(PushFrame{Frame: FramePush, Type: "connected", Data: map[string]any{"sessionId": conn.SessionID(), "token": "secret-value"}})
 	raw := []byte(`{"frame":"request","type":"/api/agents","id":"req_1","payload":{"token":"secret-value","message":"` + strings.Repeat("x", 600) + `"}}`)
-	conn.recordInboundMessage(raw, RequestFrame{Frame: FrameRequest, Type: "/api/agents", ID: "req_1"}, "")
+	conn.recordInboundMessage(raw, RequestFrame{Frame: FrameRequest, Type: "/api/agents", ID: "req_1"}, "", false)
 
 	messages := hub.MonitorMessages(5, MonitorFilter{}).Messages
 	if len(messages) != 2 {
@@ -151,7 +154,7 @@ func TestMonitorRedactsTerminalInputPreview(t *testing.T) {
 			"terminalId": "term_1",
 			"data":       "secret-token-value",
 		}),
-	}, "")
+	}, "", false)
 
 	messages := hub.MonitorMessages(1, MonitorFilter{}).Messages
 	if len(messages) != 1 {
@@ -176,15 +179,111 @@ func TestMonitorOmitsBrowserFileUploadAndDownloadBytes(t *testing.T) {
 	}
 	for _, frame := range []string{FrameResponse, FrameStream, FrameError} {
 		raw, _ := json.Marshal(map[string]any{"frame": frame, "type": "desktop.cdp.call", "id": "file-download", "data": map[string]any{"method": "Surface.readDownload", "result": map[string]any{"mimeType": "text/plain", "data": private}}, "event": map[string]any{"chunk": private}})
-		preview, _ := monitorInboundPayloadPreview(raw, RequestFrame{Frame: frame, Type: "desktop.cdp.call", ID: "file-download"})
+		preview, _ := monitorInboundPayloadPreview(raw, RequestFrame{Frame: frame, Type: "desktop.cdp.call", ID: "file-download"}, true)
 		if strings.Contains(preview, private) || !strings.Contains(preview, "HIDDEN_TOKEN") || !strings.Contains(preview, "file-download") {
 			t.Fatalf("download frame leaked into monitor: %s", preview)
 		}
 	}
-	ordinary := []byte(`{"frame":"response","type":"/api/test","id":"ordinary","data":{"result":{"message":"ordinary diagnostic","data":"plain text"}}}`)
-	preview, _ := monitorInboundPayloadPreview(ordinary, RequestFrame{Frame: FrameResponse, Type: "/api/test", ID: "ordinary"})
-	if !strings.Contains(preview, "ordinary diagnostic") || !strings.Contains(preview, "plain text") {
-		t.Fatalf("ordinary response diagnostics were removed: %s", preview)
+	for _, frame := range []string{FrameResponse, FrameStream, FrameError} {
+		ordinary, _ := json.Marshal(map[string]any{"frame": frame, "type": "/api/test", "id": "ordinary", "data": map[string]any{
+			"method": "Surface.readDownload", "result": map[string]any{"mimeType": "text/plain", "sha256": "ordinary digest", "chunk": "ordinary chunk", "data": "plain text"},
+		}})
+		preview, truncated := monitorInboundPayloadPreview(ordinary, RequestFrame{Frame: frame, Type: "/api/test", ID: "ordinary"}, false)
+		want, wantTruncated := monitorPayloadPreview(ordinary)
+		if preview != want || truncated != wantTruncated {
+			t.Fatalf("ordinary diagnostics changed from the main preview behavior: %s", preview)
+		}
+	}
+}
+
+func TestMonitorBrowserFileScopeFollowsActualOutboundRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name, requestType, method string
+		cancel, hidden            bool
+	}{
+		{"download", "desktop.cdp.call", "Surface.readDownload", false, true},
+		{"upload", "desktop.cdp.call", "Surface.uploadFiles", false, true},
+		{"cancelled download", "desktop.cdp.call", "Surface.readDownload", true, true},
+		{"ordinary surface", "desktop.cdp.call", "Surface.getState", false, false},
+		{"ordinary request", "desktop.theme.get", "Surface.readDownload", false, false},
+		{"cancelled ordinary request", "desktop.theme.get", "Surface.readDownload", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hub, server, client, target := newClientRequestTestConnection(t)
+			defer server.Close()
+			defer client.Close()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			completed := make(chan error, 1)
+			delivered := make(chan contracts.ClientResponseFrame, 2)
+			go func() {
+				completed <- hub.InvokeClientRequest(ctx, target, contracts.ClientRequest{
+					ID: "monitor-transfer", Type: tc.requestType, Payload: map[string]any{"method": tc.method},
+				}, func(frame contracts.ClientResponseFrame) error { delivered <- frame; return nil })
+			}()
+			var request RequestFrame
+			if err := client.ReadJSON(&request); err != nil {
+				t.Fatal(err)
+			}
+			if tc.cancel {
+				cancel()
+				var cancelled PushFrame
+				if err := client.ReadJSON(&cancelled); err != nil {
+					t.Fatal(err)
+				}
+				if err := <-completed; !errors.Is(err, context.Canceled) {
+					t.Fatalf("cancellation failed: %v", err)
+				}
+			}
+			// Real desktop download chunks have no top-level type or operation.
+			stream := map[string]any{"frame": FrameStream, "id": request.ID, "streamId": "monitor-stream", "event": map[string]any{
+				"seq": 1, "type": "desktop.bridge.response.delta", "encoding": "base64", "chunk": "c3ludGhldGljLWJ5dGVz",
+			}}
+			if err := client.WriteJSON(stream); err != nil {
+				t.Fatal(err)
+			}
+			if err := client.WriteJSON(ResponseFrame{Frame: FrameResponse, Type: request.Type, ID: request.ID, Code: 0, Data: map[string]any{
+				"result": map[string]any{"mimeType": "text/plain", "sha256": "plain-digest", "data": "synthetic-body"},
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			if !tc.cancel {
+				if err := <-completed; err != nil {
+					t.Fatal(err)
+				}
+				if frame := <-delivered; !strings.Contains(string(frame.Event), "c3ludGhldGljLWJ5dGVz") {
+					t.Fatal("monitor redaction changed the delivered stream")
+				}
+			}
+			var messages []MonitorMessage
+			for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
+				messages = nil
+				for _, message := range hub.MonitorMessages(10, MonitorFilter{}).Messages {
+					if message.Direction == "in" && message.ID == request.ID {
+						messages = append(messages, message)
+					}
+				}
+				if len(messages) == 2 {
+					break
+				}
+				time.Sleep(time.Millisecond)
+			}
+			if len(messages) != 2 {
+				t.Fatalf("expected both inbound frames in monitor, got %d", len(messages))
+			}
+			for _, message := range messages {
+				body := "synthetic-body"
+				if message.Frame == FrameStream {
+					body = "c3ludGhldGljLWJ5dGVz"
+					if message.Type != "" {
+						t.Fatal("fixture must exercise a real stream without a type")
+					}
+				}
+				if strings.Contains(message.PayloadPreview, body) == tc.hidden || strings.Contains(message.PayloadPreview, "HIDDEN_TOKEN") != tc.hidden {
+					t.Fatalf("wrong browser-file scope: %s", message.PayloadPreview)
+				}
+			}
+		})
 	}
 }
 

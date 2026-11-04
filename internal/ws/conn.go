@@ -58,9 +58,15 @@ type DetachedStream struct {
 }
 
 type outboundRequest struct {
-	mu     sync.Mutex
-	ch     chan []byte
-	closed bool
+	mu                  sync.Mutex
+	ch                  chan []byte
+	closed              bool
+	browserFileTransfer bool
+}
+
+type ignoredOutboundRequest struct {
+	until               time.Time
+	browserFileTransfer bool
 }
 
 func newOutboundRequest(buffer int) *outboundRequest {
@@ -131,7 +137,7 @@ type Conn struct {
 	mu                      sync.Mutex
 	inflightRequests        map[string]struct{}
 	outboundRequests        map[string]*outboundRequest
-	ignoredOutboundRequests map[string]time.Time
+	ignoredOutboundRequests map[string]ignoredOutboundRequest
 	activeStreams           map[string]*streamEntry
 	cancelledStreams        map[string]struct{}
 	observingRuns           map[string]string
@@ -213,7 +219,7 @@ func NewConn(socket *gws.Conn, hub *Hub, cfg config.WebSocketConfig, auth AuthSe
 		auth:                    auth,
 		inflightRequests:        map[string]struct{}{},
 		outboundRequests:        map[string]*outboundRequest{},
-		ignoredOutboundRequests: map[string]time.Time{},
+		ignoredOutboundRequests: map[string]ignoredOutboundRequest{},
 		activeStreams:           map[string]*streamEntry{},
 		cancelledStreams:        map[string]struct{}{},
 		observingRuns:           map[string]string{},
@@ -389,13 +395,13 @@ func (c *Conn) Run(dispatch RouteHandler) {
 		c.lastInboundAt.Store(time.Now().UnixMilli())
 		var req RequestFrame
 		if err := json.Unmarshal(data, &req); err != nil {
-			c.recordInboundMessage(data, RequestFrame{}, "invalid json frame")
+			c.recordInboundMessage(data, RequestFrame{}, "invalid json frame", false)
 			c.SendError("", "invalid_request", 400, "invalid json frame", nil)
 			continue
 		}
 		if req.Frame != FrameRequest {
-			if c.deliverOutboundFrame(req.ID, data) {
-				c.recordInboundMessage(data, req, "")
+			if delivered, browserFileTransfer := c.deliverOutboundFrame(req.ID, data); delivered {
+				c.recordInboundMessage(data, req, "", browserFileTransfer)
 				continue
 			}
 			// Channel connections are silent from the platform side. Their peer
@@ -414,31 +420,31 @@ func (c *Conn) Run(dispatch RouteHandler) {
 					errText = "unexpected frame"
 					log.Printf("gateway-reverse: unexpected frame dropped: frame=%s type=%s id=%s", req.Frame, req.Type, req.ID)
 				}
-				c.recordInboundMessage(data, req, errText)
+				c.recordInboundMessage(data, req, errText, false)
 				continue
 			}
-			c.recordInboundMessage(data, req, "frame must be request")
+			c.recordInboundMessage(data, req, "frame must be request", false)
 			c.SendError(req.ID, "invalid_request", 400, "frame must be request", nil)
 			continue
 		}
 		if strings.TrimSpace(req.ID) == "" {
-			c.recordInboundMessage(data, req, "id is required")
+			c.recordInboundMessage(data, req, "id is required", false)
 			c.SendError("", "invalid_request", 400, "id is required", nil)
 			continue
 		}
 		if strings.TrimSpace(req.Type) == "" {
-			c.recordInboundMessage(data, req, "type is required")
+			c.recordInboundMessage(data, req, "type is required", false)
 			c.SendError(req.ID, "invalid_request", 400, "type is required", nil)
 			continue
 		}
 		if err := c.reserveRequest(req.ID); err != nil {
-			c.recordInboundMessage(data, req, err.Error())
+			c.recordInboundMessage(data, req, err.Error(), false)
 			if protoErr, ok := err.(*ProtocolError); ok {
 				c.SendProtocolError(req.ID, protoErr)
 			}
 			continue
 		}
-		c.recordInboundMessage(data, req, "")
+		c.recordInboundMessage(data, req, "", false)
 		go dispatch(c.Context(), c, req)
 	}
 }
@@ -457,9 +463,10 @@ func (c *Conn) OpenOutboundRequest(req RequestFrame) (<-chan []byte, func(), err
 		return nil, nil, fmt.Errorf("type is required")
 	}
 	outbound := newOutboundRequest(128)
+	outbound.browserFileTransfer = monitorBrowserFileMethod(req) != ""
 	c.mu.Lock()
 	c.pruneIgnoredOutboundRequestsLocked(time.Now())
-	if until, ignored := c.ignoredOutboundRequests[req.ID]; ignored && time.Now().Before(until) {
+	if ignored, exists := c.ignoredOutboundRequests[req.ID]; exists && time.Now().Before(ignored.until) {
 		c.mu.Unlock()
 		return nil, nil, fmt.Errorf("outbound request id is cooling down after cancellation")
 	}
@@ -486,21 +493,23 @@ func (c *Conn) SendFrame(frame any) bool {
 	})
 }
 
-func (c *Conn) deliverOutboundFrame(id string, data []byte) bool {
+func (c *Conn) deliverOutboundFrame(id string, data []byte) (bool, bool) {
 	if c == nil || strings.TrimSpace(id) == "" {
-		return false
+		return false, false
 	}
 	c.mu.Lock()
 	now := time.Now()
 	c.pruneIgnoredOutboundRequestsLocked(now)
 	key := strings.TrimSpace(id)
 	outbound := c.outboundRequests[key]
-	_, ignored := c.ignoredOutboundRequests[key]
+	ignored, isIgnored := c.ignoredOutboundRequests[key]
 	c.mu.Unlock()
 	if outbound == nil {
-		return ignored
+		return isIgnored, ignored.browserFileTransfer
 	}
-	return outbound.deliver(data, c.closed)
+	// Capture the trusted request scope before the consumer can finish and remove
+	// the pending entry; stream frames do not carry a request type or method.
+	return outbound.deliver(data, c.closed), outbound.browserFileTransfer
 }
 
 func (c *Conn) ignoreOutboundRequest(id string, ttl time.Duration) {
@@ -508,13 +517,19 @@ func (c *Conn) ignoreOutboundRequest(id string, ttl time.Duration) {
 		return
 	}
 	c.mu.Lock()
-	c.ignoredOutboundRequests[strings.TrimSpace(id)] = time.Now().Add(ttl)
+	key := strings.TrimSpace(id)
+	ignored := c.ignoredOutboundRequests[key]
+	ignored.until = time.Now().Add(ttl)
+	if outbound := c.outboundRequests[key]; outbound != nil {
+		ignored.browserFileTransfer = outbound.browserFileTransfer
+	}
+	c.ignoredOutboundRequests[key] = ignored
 	c.mu.Unlock()
 }
 
 func (c *Conn) pruneIgnoredOutboundRequestsLocked(now time.Time) {
-	for id, until := range c.ignoredOutboundRequests {
-		if !now.Before(until) {
+	for id, ignored := range c.ignoredOutboundRequests {
+		if !now.Before(ignored.until) {
 			delete(c.ignoredOutboundRequests, id)
 		}
 	}
