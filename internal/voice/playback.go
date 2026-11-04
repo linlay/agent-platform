@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"time"
+	"unicode/utf8"
 )
 
 func (s *session) speak(t *turn, text string, hint bool) error {
@@ -11,7 +12,7 @@ func (s *session) speak(t *turn, text string, hint bool) error {
 		t.speech.cancel()
 	}
 	ctx, cancel := context.WithCancel(t.ctx)
-	media := &speechTask{ctx: ctx, cancel: cancel, hint: hint}
+	media := &speechTask{ctx: ctx, cancel: cancel, hint: hint, started: time.Now(), textChars: utf8.RuneCountInString(text)}
 	t.speech = media
 	if !hint {
 		t.phase = "speaking"

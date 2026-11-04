@@ -14,6 +14,7 @@ import (
 
 	"agent-platform/internal/httpclient"
 	"agent-platform/internal/models"
+	"agent-platform/internal/observability"
 	"github.com/gorilla/websocket"
 )
 
@@ -135,6 +136,11 @@ func (s *dashScopeSocket) begin(ctx context.Context) (*websocket.Conn, func(bool
 			if ctx.Err() != nil {
 				return nil, nil, false, ctx.Err()
 			}
+			status := 0
+			if response != nil {
+				status = response.StatusCode
+			}
+			s.logConnectFailure(err, status, value)
 			return nil, nil, false, errors.New("voice provider websocket connection failed")
 		}
 		c.SetReadLimit(1 << 20)
@@ -152,6 +158,24 @@ func (s *dashScopeSocket) begin(ctx context.Context) (*websocket.Conn, func(bool
 		}
 		s.taskMu.Unlock()
 	}, reused, nil
+}
+
+func (s *dashScopeSocket) logConnectFailure(err error, status int, credential string) {
+	reason := err.Error()
+	// Remove exact credentials before generic redaction, and never log the endpoint.
+	for _, secret := range []string{credential, strings.TrimPrefix(credential, "Bearer "), s.provider.APIKey, s.endpoint} {
+		if secret != "" {
+			reason = strings.ReplaceAll(reason, secret, observability.HiddenToken)
+		}
+	}
+	runes := []rune(observability.SanitizeLog(reason))
+	if len(runes) > 1024 {
+		runes = append(runes[:1024], '…')
+	}
+	observability.Log("voice", map[string]any{
+		"stage": "ws_connect", "modelKey": s.model.Key, "protocol": s.model.Protocol,
+		"status": status, "reason": string(runes),
+	})
 }
 
 // start sends run-task and waits for task-started. Nothing of this task has

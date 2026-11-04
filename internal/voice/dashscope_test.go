@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"agent-platform/internal/models"
 	"github.com/gorilla/websocket"
@@ -90,6 +92,67 @@ func testTTS(t *testing.T, p models.ProviderDefinition) *TTSClient {
 	}
 	t.Cleanup(c.Close)
 	return c
+}
+
+func TestVoiceConnectionFailureDiagnostic(t *testing.T) {
+	var output bytes.Buffer
+	writer, flags, prefix := log.Writer(), log.Flags(), log.Prefix()
+	log.SetOutput(&output)
+	log.SetFlags(0)
+	log.SetPrefix("")
+	t.Cleanup(func() { log.SetOutput(writer); log.SetFlags(flags); log.SetPrefix(prefix) })
+	for _, cancelled := range []bool{false, true} {
+		output.Reset()
+		ctx, cancel := context.WithCancel(context.Background())
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if cancelled {
+				cancel()
+			}
+			http.Error(w, "private response body test-secret", http.StatusUnauthorized)
+		}))
+		client := testASR(t, models.ProviderDefinition{BaseURL: server.URL, APIKey: "test-secret"})
+		client.socket.model.Key = "asr-test"
+		_, err := client.Recognize(ctx, make(chan []byte), "manual", nil)
+		cancel()
+		server.Close()
+		if cancelled {
+			if !errors.Is(err, context.Canceled) || output.Len() != 0 {
+				t.Fatalf("cancellation logged as connection failure: %v %s", err, &output)
+			}
+			continue
+		}
+		if err == nil || err.Error() != "voice provider websocket connection failed" {
+			t.Fatalf("public error changed: %v", err)
+		}
+		var entry map[string]any
+		if err := json.Unmarshal(output.Bytes(), &entry); err != nil {
+			t.Fatalf("expected one structured diagnostic: %v", err)
+		}
+		if entry["stage"] != "ws_connect" || entry["status"] != float64(401) || entry["modelKey"] != "asr-test" || entry["reason"] != "websocket: bad handshake" {
+			t.Fatalf("missing connection context: %v", entry)
+		}
+		for _, forbidden := range []string{"test-secret", "private response body", server.URL, "Authorization"} {
+			if strings.Contains(output.String(), forbidden) {
+				t.Fatal("connection diagnostic exposed private data")
+			}
+		}
+	}
+	output.Reset()
+	socket := &dashScopeSocket{provider: models.ProviderDefinition{APIKey: "raw-config-key"}, endpoint: "wss://voice.test/private"}
+	socket.logConnectFailure(errors.New(`raw-config-key bare-login-token Bearer bare-login-token token=other-secret wss://voice.test/private TLS ALPN h2 `+strings.Repeat("长", 1500)), 0, "Bearer bare-login-token")
+	var entry map[string]any
+	if err := json.Unmarshal(output.Bytes(), &entry); err != nil {
+		t.Fatal(err)
+	}
+	reason, _ := entry["reason"].(string)
+	if !strings.Contains(reason, "TLS ALPN h2") || utf8.RuneCountInString(reason) > 1025 {
+		t.Fatal("diagnostic lost the cause or exceeded its bound")
+	}
+	for _, forbidden := range []string{"raw-config-key", "bare-login-token", "other-secret", socket.endpoint} {
+		if strings.Contains(output.String(), forbidden) {
+			t.Fatal("connection diagnostic exposed a credential or endpoint")
+		}
+	}
 }
 
 func TestASRManualTailRevisionsAndConnectionReuse(t *testing.T) {
@@ -197,6 +260,51 @@ func TestASREmptyAndMalformedPCM(t *testing.T) {
 				t.Fatalf("%q %v", text, err)
 			}
 		})
+	}
+}
+
+func TestASRWaitsThroughSilenceUntilCallerStops(t *testing.T) {
+	p := fakeVoice(t, func(c *websocket.Conn) {
+		start := readCommand(t, c, "run-task")
+		event(t, c, start.Header.ID, "task-started", nil)
+		_ = c.SetReadDeadline(time.Now().Add(15 * time.Second))
+		var finish testCommand
+		if err := c.ReadJSON(&finish); err != nil {
+			t.Error(err)
+			return
+		}
+		if finish.Header.Action != "finish-task" {
+			t.Error("missing normal finish")
+		}
+		event(t, c, start.Header.ID, "result-generated", map[string]any{"begin_time": 0, "text": "稍后才说话。", "sentence_end": true})
+		event(t, c, start.Header.ID, "task-finished", nil)
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	input := make(chan []byte)
+	timer := time.AfterFunc(11*time.Second, func() { close(input) })
+	defer timer.Stop()
+	text, err := testASR(t, p).Recognize(ctx, input, "manual", nil)
+	if err != nil || text != "稍后才说话。" {
+		t.Fatalf("silence ended a valid task: %q %v", text, err)
+	}
+}
+
+func TestASRStillBoundsFinalizationWithoutProviderEvents(t *testing.T) {
+	p := fakeVoice(t, func(c *websocket.Conn) {
+		start := readCommand(t, c, "run-task")
+		event(t, c, start.Header.ID, "task-started", nil)
+		readCommand(t, c, "finish-task")
+		_ = c.SetReadDeadline(time.Now().Add(15 * time.Second))
+		_, _, _ = c.ReadMessage() // Client must close the stalled provider task.
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	input := make(chan []byte)
+	close(input)
+	_, err := testASR(t, p).Recognize(ctx, input, "manual", nil)
+	if err == nil || err.Error() != "voice recognition finish timeout" {
+		t.Fatalf("unbounded finalization: %v", err)
 	}
 }
 

@@ -66,7 +66,9 @@ func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode str
 	go func() {
 		defer close(readDone)
 		for {
-			_, event, err := dashRead(conn, id, time.Now().Add(finishTimeout))
+			// Silence is valid while recording. The task context bounds recording;
+			// finishTimer below bounds the response after finish-task.
+			_, event, err := dashRead(conn, id, time.Time{})
 			select {
 			case events <- result{event, err}:
 			case <-readCtx.Done():
@@ -118,8 +120,6 @@ func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode str
 		}
 		return sendPCM(pcm)
 	}
-	noSpeech := time.NewTimer(10 * time.Second)
-	defer noSpeech.Stop()
 	var finishTimer *time.Timer
 	var finishedBy <-chan time.Time
 	defer func() {
@@ -141,10 +141,6 @@ func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode str
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
-		case <-noSpeech.C:
-			if len(finals) == 0 {
-				return "", errors.New("voice no speech timeout")
-			}
 		case <-finishedBy:
 			return "", errors.New("voice recognition finish timeout")
 		case pcm, ok := <-input:
