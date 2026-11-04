@@ -1,6 +1,8 @@
 package server
 
 import (
+	"agent-platform/internal/authn"
+
 	"agent-platform/internal/viewaction"
 	"agent-platform/internal/viewquery"
 	"agent-platform/internal/voice"
@@ -180,7 +182,7 @@ type Server struct {
 	documentPreview   *documentpreview.Service
 	router            *http.ServeMux
 	deps              Dependencies
-	authVerifier      *JWTVerifier
+	authVerifier      *authn.JWTVerifier
 	ticketService     *ResourceTicketService
 	wsHandler         *ws.Handler
 	terminals         *terminalpkg.Manager
@@ -257,7 +259,7 @@ func New(deps Dependencies) (*Server, error) {
 	if deps.DeferredAwaitings == nil {
 		deps.DeferredAwaitings = runstate.NewDeferredAwaitingStore()
 	}
-	authVerifier := NewJWTVerifier(deps.Config.Auth)
+	authVerifier := authn.NewJWTVerifier(deps.Config.Auth)
 	if deps.Config.Auth.Enabled {
 		if err := authVerifier.ValidateConfiguration(); err != nil {
 			return nil, fmt.Errorf("validate auth config: %w", err)

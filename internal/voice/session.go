@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"agent-platform/internal/speech"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/observability"
 	"agent-platform/internal/runtime/controlscope"
 	rt "agent-platform/internal/runtime/types"
 	"github.com/google/uuid"
@@ -27,12 +29,18 @@ type turn struct {
 	text     string
 	tailSeen bool
 	speech   *speechTask
+	started  time.Time
+	pcmBytes int
+	heard    bool
 }
 
 type speechTask struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	hint   bool
+	ctx       context.Context
+	cancel    context.CancelFunc
+	hint      bool
+	started   time.Time
+	pcmBytes  int
+	textChars int
 }
 
 // ownedRun records only this session's one blocking call and explicit cancel
@@ -64,6 +72,11 @@ type inbound struct {
 	err  error
 }
 
+const (
+	writeTimeout  = 5 * time.Second
+	finishTimeout = 10 * time.Second
+)
+
 type session struct {
 	service                 *Service
 	conn                    *websocket.Conn
@@ -71,10 +84,11 @@ type session struct {
 	ctx                     context.Context
 	cancel                  context.CancelFunc
 	chatID, agentKey, voice string
+	id                      string
 	primary                 bool
 	sampleRate              int
-	asr                     *ASRClient
-	tts                     *TTSClient
+	asr                     *speech.ASRClient
+	tts                     *speech.TTSClient
 	events                  chan sessionEvent
 	current                 *turn
 	running                 *ownedRun
@@ -96,7 +110,7 @@ func runSession(service *Service, conn *websocket.Conn, caller Caller) {
 			defer timer.Stop()
 		}
 	}
-	s := &session{service: service, conn: conn, caller: caller, ctx: ctx, cancel: cancel, events: make(chan sessionEvent, 16)}
+	s := &session{service: service, conn: conn, caller: caller, ctx: ctx, cancel: cancel, events: make(chan sessionEvent, 16), id: uuid.NewString()}
 	conn.SetReadLimit(16 << 10)
 	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	kind, data, err := conn.ReadMessage()
@@ -119,19 +133,19 @@ func runSession(service *Service, conn *websocket.Conn, caller Caller) {
 		_ = s.fail("voice_unavailable", "语音模型不可用")
 		return
 	}
-	s.asr, err = NewASRClient(am, ap, service.deps.Config.MaxSentenceSilenceMS)
+	s.asr, err = speech.NewASRClient(am, ap, service.deps.Config.MaxSentenceSilenceMS)
 	if err != nil {
 		_ = s.fail("voice_unavailable", "语音识别配置不可用")
 		return
 	}
 	defer s.asr.Close()
-	s.tts, err = NewTTSClient(tm, tp)
+	s.tts, err = speech.NewTTSClient(tm, tp)
 	if err != nil {
 		_ = s.fail("voice_unavailable", "语音合成配置不可用")
 		return
 	}
 	defer s.tts.Close()
-	if s.write(map[string]any{"type": "hello", "version": 1, "sessionId": uuid.NewString(), "agentKey": s.agentKey, "chatId": s.chatID, "audio": map[string]any{"output": audioFormat{Codec: "pcm_s16le", SampleRate: s.sampleRate, Channels: 1, FrameMS: 20}}}) != nil {
+	if s.write(map[string]any{"type": "hello", "version": 1, "sessionId": s.id, "agentKey": s.agentKey, "chatId": s.chatID, "audio": map[string]any{"output": audioFormat{Codec: "pcm_s16le", SampleRate: s.sampleRate, Channels: 1, FrameMS: 20}}}) != nil {
 		return
 	}
 	_ = conn.SetReadDeadline(time.Time{})
@@ -199,7 +213,8 @@ func (s *session) write(value any) error {
 }
 
 func (s *session) fail(code, msg string) error {
-	return s.write(map[string]any{"type": "error", "code": code, "msg": msg})
+	observability.Log("voice", map[string]any{"sessionId": s.id, "turn": s.nextTurn, "stage": "error", "code": code})
+	return s.write(map[string]any{"type": "error", "turn": s.nextTurn, "code": code, "msg": msg})
 }
 
 func (s *session) post(ctx context.Context, e sessionEvent) bool {
@@ -269,11 +284,13 @@ func (s *session) control(msg clientMessage) error {
 		s.invalidate()
 		s.nextTurn++
 		ctx, cancel := context.WithCancel(s.ctx)
-		t := &turn{number: s.nextTurn, ctx: ctx, cancel: cancel, audio: make(chan []byte, 100), phase: "listening"}
+		t := &turn{number: s.nextTurn, ctx: ctx, cancel: cancel, audio: make(chan []byte, 100), phase: "listening", started: time.Now()}
 		s.current = t
 		input := t.audio
 		s.service.start(func() {
-			text, err := s.asr.Recognize(ctx, input, msg.Mode, func(text string, stopping bool) {
+			asrCtx, cancelASR := context.WithTimeout(ctx, 60*time.Second)
+			defer cancelASR()
+			text, err := s.asr.Recognize(asrCtx, input, msg.Mode, func(text string, stopping bool) {
 				ack := make(chan error, 1)
 				if s.post(ctx, sessionEvent{kind: "partial", turn: t, text: text, stopping: stopping, ack: ack}) {
 					select {
@@ -281,7 +298,7 @@ func (s *session) control(msg clientMessage) error {
 					case <-ctx.Done():
 					}
 				}
-			})
+			}, nil)
 			s.post(ctx, sessionEvent{kind: "recognized", turn: t, text: text, err: err})
 		})
 		return nil
@@ -302,6 +319,7 @@ func (s *session) audio(pcm []byte) error {
 	t.tailSeen = len(pcm) < 640
 	select {
 	case t.audio <- pcm:
+		t.pcmBytes += len(pcm)
 		return nil
 	default:
 		s.invalidate()
@@ -524,16 +542,23 @@ func (s *session) event(e sessionEvent) error {
 		}
 		return errors.New("voice Run observation unavailable")
 	case "partial":
+		t.heard = t.heard || strings.TrimSpace(e.text) != ""
 		if e.stopping {
 			s.stopListening(t)
 		}
 		return s.write(map[string]any{"type": "stt", "turn": t.number, "text": e.text, "final": false})
 	case "recognized":
 		s.stopListening(t)
+		// Keep the existing 60s task bound. A silent interval with incoming
+		// audio is a normal empty turn, not a failed conversation or a Query.
+		if errors.Is(e.err, context.DeadlineExceeded) && !t.heard && t.pcmBytes > 0 {
+			e.err = nil
+		}
+		observability.Log("voice", map[string]any{"sessionId": s.id, "turn": t.number, "stage": "asr_end", "elapsedMs": time.Since(t.started).Milliseconds(), "audioMs": t.pcmBytes / 32, "heard": t.heard, "failed": e.err != nil})
 		if e.err != nil {
 			t.phase = "done"
 			code := "asr_failed"
-			for text, stable := range map[string]string{"recording limit": "recording_limit", "transcript limit": "transcript_limit", "no speech": "no_speech", "startup audio": "audio_overflow"} {
+			for text, stable := range map[string]string{"recording limit": "recording_limit", "transcript limit": "transcript_limit", "startup audio": "audio_overflow"} {
 				if strings.Contains(e.err.Error(), text) {
 					code = stable
 				}
@@ -542,7 +567,7 @@ func (s *session) event(e sessionEvent) error {
 		}
 		if strings.TrimSpace(e.text) == "" {
 			t.phase = "done"
-			return s.fail("no_speech", "没有识别到语音")
+			return s.write(map[string]any{"type": "stt", "turn": t.number, "text": "", "final": true})
 		}
 		t.text = e.text
 		t.phase = "running"
@@ -588,6 +613,7 @@ func (s *session) event(e sessionEvent) error {
 			return nil
 		}
 		_ = s.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+		e.speech.pcmBytes += len(e.pcm)
 		return s.conn.WriteMessage(websocket.BinaryMessage, e.pcm)
 	case "spoken":
 		if t.speech != e.speech || e.speech.ctx.Err() != nil {
@@ -597,6 +623,7 @@ func (s *session) event(e sessionEvent) error {
 		if e.err != nil {
 			reason = "error"
 		}
+		observability.Log("voice", map[string]any{"sessionId": s.id, "turn": t.number, "stage": "tts_end", "reason": reason, "elapsedMs": time.Since(e.speech.started).Milliseconds(), "audioMs": e.speech.pcmBytes * 1000 / (s.sampleRate * 2), "textChars": e.speech.textChars})
 		if err := s.write(map[string]any{"type": "tts", "turn": t.number, "state": "stop", "reason": reason}); err != nil {
 			return err
 		}

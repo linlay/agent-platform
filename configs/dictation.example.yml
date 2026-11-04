@@ -1,0 +1,19 @@
+# agent-dictation reads only these two registry definitions. Both are read-only.
+listen: ${DICTATION_LISTEN:127.0.0.1:11964}
+modelFile: ${DICTATION_MODEL_FILE}
+providerFile: ${DICTATION_PROVIDER_FILE}
+ssoIdTokenFile: ${DICTATION_SSO_ID_TOKEN_FILE}
+auth:
+  enabled: true
+  requireExpiry: true
+  localPublicKeyFile: ${DICTATION_PUBLIC_KEY_FILE:local-public-key.pem}
+  # For Web deployment, clear localPublicKeyFile and configure jwksURI instead.
+  jwksURI: ${DICTATION_JWKS_URI}
+  issuer: ${DICTATION_AUTH_ISSUER}
+  audience: ${DICTATION_AUTH_AUDIENCE}
+  allowedSubjects: []
+httpProxy:
+  mode: ${DICTATION_PROXY_MODE:auto}
+  system-refresh-interval: 15s
+  url: ${DICTATION_PROXY_URL}
+allowedOrigins: []

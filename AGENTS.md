@@ -56,7 +56,7 @@ cmd/agent-platform/main.go
 - `internal/platformcontrol` 维护平台控制操作，知识库管理工具直接调用 kbases.Service，来源审批、配置修订与幂等收据归库服务；libraryId 绑定对所有 mode 可选，配置后的存在性校验归管理入口，Run 启动按绑定而非 mode 校验。`runenvops` 是独立 run_env handler，`runenv` 保存进程内 Scope、revision、限额与幂等收据；`toolpolicy` 提供中立调度属性。
 - `internal/memory` 负责 Markdown 文件、revision 与查询，不持有知识索引；`memoryworker` 调度已完成 Chat、同步模型配置并调用 memx，不自行生成记忆文件，不依赖 Server。参见 [记忆系统](docs/记忆系统.md)。
 - `internal/kbases` 负责知识库定义、collection 来源、持久状态、目录监听和维护调度。`internal/kbx` 是知识库执行门面，使用受管 CLI 与 chunk/evidence 协议，Platform worker 按库 ID 管理监听、update/embed 和重启对账；不运行 kbx watch。`internal/knowledge` 保存中立的 capability 配置、DTO、工具处理器、路径过滤和引用发布契约，不持有索引、存储或进程管理，不得 import agent 或 catalog。`internal/agent/kbase` 保存专用 KBASE mode 规则。对外 KBASE mode、工具、REST 和 sidecar JSON 字段由这些模块提供。参见 [KBX 接入](docs/KBX接入.md)。
-- `internal/voice` 负责 DashScope ASR/TTS、v1 PCM 会话和有界媒体发送；由 App 装配，Server 仅提供 capabilities/ws 鉴权与升级。实时协议与文件型 speech_generate 分开，voice 默认关闭、PCM 直出，不依赖 server/llm/tools。WebClient v1 客户端与 Desktop 宿主代理已切到 Platform；zenmind-gateway 仍把 `/api/voice/` 转发到旧 voice-server，切换前不得宣称可经网关使用，真人/设备和真实部署验收也未完成。
+- `internal/speech` 维护唯一 DashScope ASR/TTS 实现；`internal/voice` 负责 v1 PCM 会话和有界媒体发送；由 App 装配，Server 仅提供 capabilities/ws 鉴权与升级。实时协议与文件型 speech_generate 分开，voice 默认关闭、PCM 直出，不依赖 server/llm/tools。WebClient v1 客户端与 Desktop 宿主代理已切到 Platform；zenmind-gateway 仍把 `/api/voice/` 转发到旧 voice-server，切换前不得宣称可经网关使用，真人/设备和真实部署验收也未完成。
 - `internal/config` 负责配置装载；`httpclient` 统一出站客户端与代理，不修改全局 Transport 或进程环境，内部服务直连；代理平台限制见 [HTTP 客户端与系统代理](docs/HTTP客户端与系统代理.md)。
 - `internal/stream` 负责中立事件、dispatcher、assembler、normalizer 与 EventBus，SSE writer 归 Server；`sandbox` 负责 Container Hub 执行与挂载；`ws`、`gateway` 负责 WebSocket 控制面与反向 gateway。
 
@@ -255,3 +255,5 @@ Agent 默认档位声明为 `accessConfig.default`（ask_for_approval/auto_appro
 
 
 请求权限 `default`（或省略）是后台默认选择器，不再是请求审批档位；具体权限统一为 ask_for_approval/auto_approve/full_access。普通 Query、execute、side query 与子执行器按目标 Agent 配置解析，未配置回退 ask_for_approval；Automation 的场景默认保持 ask_for_approval。Run、顶层 JSONL 决策与权限事件只使用具体值，原始 query 保留调用方 default/省略。旧历史 default 冻结决定及旧 Agent/策略配置按原请求审批语义读取，不能重算为当前 Agent 高默认。Composer 只有三个具体档位，未明确选择时发送 default 并显示后台解析档位，运行观察不变成显式选择。
+
+输入框听写由 `cmd/agent-dictation` 独立托管，只读取显式的模型/Provider 文件；共享 speech/authn/配置解析，不装配 Platform App 或 Runtime。服务、连接、配置和任务与语聊独立，见 [独立听写](docs/独立听写.md)。

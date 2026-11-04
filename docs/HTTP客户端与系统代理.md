@@ -83,6 +83,8 @@ Container Hub、Identity/JWKS 和 provider registration、健康检查使用专�
 
 客户端工厂共享连接池，克隆标准 Transport 并替换代理解析；不修改 `http.DefaultClient`、`http.DefaultTransport` 或 Platform 进程环境。MCP 按服务器克隆 Transport 时保留解析器、TLS 参数和连接超时覆盖。
 
+实时语音通过 `Factory.DialWebSocket` 复用解析器、拨号与证书校验。Gorilla 的 Upgrade 和 HTTPS 代理 CONNECT 均使用 HTTP/1.1，因此目标连接与代理隧道各自在局部 TLS 副本中限定 ALPN 为 `http/1.1`；普通 HTTP Transport 仍保留 HTTP/2。语音建连失败复用现有 observability 输出阶段、模型、状态码及有界脱敏原因，对外继续返回稳定错误，不记录凭据、请求头、响应正文或音频。
+
 工厂没有增加统一总超时。模型首响应与流空闲超时、Embedding 请求期限、MCP 工具期限以及各有限请求的原有总超时仍由原模块管理。刷新只影响后续请求；已有连接按所选代理分池，正在读取的 SSE 不会因刷新被取消。
 
 这次统一的是 Platform 自身的 HTTP。Gateway/Proxy 的 WebSocket 拨号、Agent Bash、外部 CLI/stdio MCP、Container 内进程及 Rust sidecar 自己发起的请求不继承这层代理解析。独立 `connector-manage` 命令仍按其原有部署参数工作，不加载 runtime YAML；它创建的 HTTP 客户端使用默认 `auto`，跳过 PAC/WPAD。

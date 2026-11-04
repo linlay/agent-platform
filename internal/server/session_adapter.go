@@ -1,6 +1,8 @@
 package server
 
 import (
+	"agent-platform/internal/authn"
+
 	"context"
 	"errors"
 	"time"
@@ -29,7 +31,7 @@ func (s *Server) buildCompactSession(ctx context.Context, req api.QueryRequest, 
 	return result, sessionRequestError(err)
 }
 
-func buildAuthIdentity(principal *Principal) *contracts.AuthIdentity {
+func buildAuthIdentity(principal *authn.Principal) *contracts.AuthIdentity {
 	if principal == nil {
 		return nil
 	}
@@ -38,10 +40,10 @@ func buildAuthIdentity(principal *Principal) *contracts.AuthIdentity {
 		DeviceID: firstStringClaim(principal.Claims, "deviceId", "device_id"),
 		Scope:    firstStringClaim(principal.Claims, "scope"),
 	}
-	if issuedAt := numericDate(principal.Claims["iat"]); issuedAt > 0 {
+	if issuedAt := authn.NumericDate(principal.Claims["iat"]); issuedAt > 0 {
 		identity.IssuedAt = time.Unix(issuedAt, 0).UTC().Format(time.RFC3339)
 	}
-	if expiresAt := numericDate(principal.Claims["exp"]); expiresAt > 0 {
+	if expiresAt := authn.NumericDate(principal.Claims["exp"]); expiresAt > 0 {
 		identity.ExpiresAt = time.Unix(expiresAt, 0).UTC().Format(time.RFC3339)
 	}
 	return identity

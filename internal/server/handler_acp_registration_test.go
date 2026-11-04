@@ -1,6 +1,8 @@
 package server
 
 import (
+	"agent-platform/internal/authn"
+
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,7 +18,7 @@ func TestDesktopACPRegistrationAuthority(t *testing.T) {
 	s := &Server{router: http.NewServeMux(), acpRegistrations: config.NewACPRegistrationStore(config.ACPSettingsConfig{SourcePath: path})}
 	s.routes()
 	body := `{"sourcePluginId":"codex-plugin","bridgeId":"codex","baseUrl":"http://127.0.0.1:17071"}`
-	for _, p := range []*Principal{nil, {Subject: "user", Claims: map[string]any{"scope": "web", "deviceId": "device"}}, {Subject: "user", Claims: map[string]any{"scope": "app"}}} {
+	for _, p := range []*authn.Principal{nil, {Subject: "user", Claims: map[string]any{"scope": "web", "deviceId": "device"}}, {Subject: "user", Claims: map[string]any{"scope": "app"}}} {
 		req := httptest.NewRequest(http.MethodPut, "/api/desktop/acp-bridges", strings.NewReader(body))
 		if p != nil {
 			req = req.WithContext(WithPrincipal(req.Context(), p))
@@ -30,7 +32,7 @@ func TestDesktopACPRegistrationAuthority(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("denied caller wrote config")
 	}
-	p := &Principal{Subject: "user", Claims: map[string]any{"scope": "app", "deviceId": "device"}}
+	p := &authn.Principal{Subject: "user", Claims: map[string]any{"scope": "app", "deviceId": "device"}}
 	for _, tc := range []struct {
 		method, body string
 		status       int

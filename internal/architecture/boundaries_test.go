@@ -19,6 +19,23 @@ func TestRuntimeNeverDependsOnServerTransport(t *testing.T) {
 	})
 }
 
+func TestDictationAndSpeechRemainIndependentOfConversationExecution(t *testing.T) {
+	root := repositoryRoot(t)
+	assertNoImports(t, root, []string{"cmd/agent-dictation", "internal/dictation", "internal/speech", "internal/authn"}, map[string]bool{
+		"agent-platform/internal/app":     true,
+		"agent-platform/internal/runtime": true,
+		"agent-platform/internal/server":  true,
+		"agent-platform/internal/agent":   true,
+		"agent-platform/internal/chat":    true,
+		"agent-platform/internal/voice":   true,
+		"agent-platform/internal/tools":   true,
+		"agent-platform/internal/llm":     true,
+	})
+	assertNoImports(t, root, []string{"internal/voice", "internal/speech", "internal/authn"}, map[string]bool{
+		"agent-platform/internal/dictation": true,
+	})
+}
+
 func TestServerDoesNotOwnManagedProxyExecution(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join(repositoryRoot(t), "internal/server/*.go"))
 	if err != nil {

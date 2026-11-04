@@ -1,6 +1,8 @@
 package server
 
 import (
+	"agent-platform/internal/authn"
+
 	"agent-platform/internal/api"
 	"context"
 	"encoding/json"
@@ -18,7 +20,7 @@ func TestAdminSkillCatalogAndSharedPins(t *testing.T) {
 	request := func(user, method, path, body string, status int) json.RawMessage {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
-		req = req.WithContext(WithPrincipal(context.Background(), &Principal{Subject: user}))
+		req = req.WithContext(WithPrincipal(context.Background(), &authn.Principal{Subject: user}))
 		rec := httptest.NewRecorder()
 		f.server.ServeHTTP(rec, req)
 		if rec.Code != status {

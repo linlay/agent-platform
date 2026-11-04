@@ -1,6 +1,8 @@
 package server
 
 import (
+	"agent-platform/internal/authn"
+
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -58,7 +60,7 @@ func TestWebAppHostStatusRequiresOwnerAndDoesNotClaimHosting(t *testing.T) {
 	s := webAppBoundaryServer()
 	for _, subject := range []string{"", "someone-else", "owner"} {
 		r := httptest.NewRequest(http.MethodGet, "https://demo.platform.example.com/api/admin/webapps/host", nil)
-		r = r.WithContext(WithPrincipal(r.Context(), &Principal{Subject: subject}))
+		r = r.WithContext(WithPrincipal(r.Context(), &authn.Principal{Subject: subject}))
 		w := httptest.NewRecorder()
 		s.handleWebAppHost(w, r)
 		if subject != "owner" {

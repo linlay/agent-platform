@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
 	rt "agent-platform/internal/runtime/types"
+	"agent-platform/internal/speech"
 	"github.com/gorilla/websocket"
 )
 
@@ -84,10 +85,10 @@ func (s *Service) readiness() string {
 	}
 	a, ap, t, tp, err := s.speechModels()
 	if err == nil {
-		_, err = newDashScopeSocket(a, ap, models.ModelTypeASR, models.ProtocolDashScopeASR)
+		_, err = speech.NewASRClient(a, ap, s.deps.Config.MaxSentenceSilenceMS)
 	}
 	if err == nil {
-		_, err = newDashScopeSocket(t, tp, models.ModelTypeTTS, models.ProtocolDashScopeRealtimeTTS)
+		_, err = speech.NewTTSClient(t, tp)
 	}
 	if err != nil {
 		return "voice_models_unavailable"

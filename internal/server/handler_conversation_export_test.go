@@ -1,6 +1,8 @@
 package server
 
 import (
+	"agent-platform/internal/authn"
+
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -336,7 +338,7 @@ func TestChatExportResourceAuthorityAndFailureReasons(t *testing.T) {
 	s.deps.Config.RuntimeMode = config.RuntimeModeDesktop
 	privateKey, publicKeyFile := writeTestJWTKeyPair(t, t.TempDir())
 	s.deps.Config.Auth.LocalPublicKeyFile = publicKeyFile
-	s.authVerifier = NewJWTVerifier(s.deps.Config.Auth)
+	s.authVerifier = authn.NewJWTVerifier(s.deps.Config.Auth)
 	s.router = http.NewServeMux()
 	s.routes()
 	app := mustSignRS256JWT(t, privateKey, map[string]any{"sub": "desktop", "scope": "app", "deviceId": "device"})

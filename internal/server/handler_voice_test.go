@@ -901,7 +901,7 @@ func TestVoicePendingTranscriptExpiresWithoutSubmitting(t *testing.T) {
 	release.Do(func() { close(runtime.gate) })
 }
 
-func TestVoiceInputFailuresNeverCreateQuery(t *testing.T) {
+func TestVoiceEmptyAndInvalidInputNeverCreateQuery(t *testing.T) {
 	for _, scenario := range []string{"empty", "odd PCM", "large PCM", "text limit", "startup overflow"} {
 		t.Run(scenario, func(t *testing.T) {
 			var calls atomic.Int32
@@ -934,18 +934,23 @@ func TestVoiceInputFailuresNeverCreateQuery(t *testing.T) {
 			}
 			for {
 				msg, _ := readVoice(t, c)
+				if scenario == "empty" && msg["type"] == "stt" && msg["final"] == true && msg["text"] == "" {
+					speakVoice(t, c)
+					next, _ := voiceUntil(t, c, "stt", "")
+					if next["turn"] != float64(2) || next["text"] != "" {
+						t.Fatal(next)
+					}
+					break
+				}
 				if msg["type"] == "error" {
 					want := "invalid_audio"
-					if scenario == "empty" {
-						want = "no_speech"
-					}
 					if scenario == "text limit" {
 						want = "transcript_limit"
 					}
 					if scenario == "startup overflow" {
 						want = "audio_overflow"
 					}
-					if msg["code"] != want {
+					if msg["code"] != want || msg["turn"] != float64(1) {
 						t.Fatal(msg)
 					}
 					break
@@ -955,6 +960,35 @@ func TestVoiceInputFailuresNeverCreateQuery(t *testing.T) {
 				t.Fatal("invalid input created Chat/Query/TTS")
 			}
 		})
+	}
+}
+
+func TestVoiceSilentTaskLimitKeepsSessionAndDoesNotCreateRun(t *testing.T) {
+	f := newTestFixture(t)
+	srv, p := enableVoiceFixture(t, f, nil)
+	c, chatID := dialVoice(t, srv, "", 16000)
+	if err := c.WriteJSON(map[string]any{"type": "listen", "state": "start", "mode": "auto"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.WriteMessage(websocket.BinaryMessage, make([]byte, 640)); err != nil {
+		t.Fatal(err)
+	}
+	// Exercise the actual 60s caller deadline; the provider emits no transcript.
+	_ = c.SetReadDeadline(time.Now().Add(65 * time.Second))
+	var empty map[string]any
+	if err := c.ReadJSON(&empty); err != nil {
+		t.Fatal(err)
+	}
+	if empty["type"] != "stt" || empty["final"] != true || empty["text"] != "" || empty["turn"] != float64(1) {
+		t.Fatal(empty)
+	}
+	if summary, err := f.chats.Summary(chatID); err != nil || summary != nil || p.tts.Load() != 0 {
+		t.Fatal("silence created Chat/Run/TTS")
+	}
+	speakVoice(t, c)
+	stop, _ := voiceUntil(t, c, "tts", "stop")
+	if stop["turn"] != float64(2) || stop["reason"] != "done" || len(queryLines(t, f, chatID)) != 1 {
+		t.Fatal("same session did not accept exactly one subsequent question", stop)
 	}
 }
 

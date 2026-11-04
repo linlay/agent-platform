@@ -1,6 +1,8 @@
 package server
 
 import (
+	"agent-platform/internal/authn"
+
 	"bufio"
 	"bytes"
 	"context"
@@ -346,7 +348,7 @@ func TestQueryChatSourceUsesPrincipalSubject(t *testing.T) {
 
 	body := bytes.NewBufferString(`{"chatId":"chat-source-principal","message":"hello","agentKey":"mock-agent"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", body)
-	req = req.WithContext(WithPrincipal(req.Context(), &Principal{Subject: "alice"}))
+	req = req.WithContext(WithPrincipal(req.Context(), &authn.Principal{Subject: "alice"}))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)

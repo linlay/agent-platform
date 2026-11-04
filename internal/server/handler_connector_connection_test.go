@@ -1,6 +1,8 @@
 package server
 
 import (
+	"agent-platform/internal/authn"
+
 	"encoding/json"
 	"net/http/httptest"
 	"os"
@@ -16,7 +18,7 @@ func TestConnectorConfigurationIsSharedAcrossPrincipals(t *testing.T) {
 	writeMCPConnectorForTest(t, f.server.deps.Config.Paths.EffectiveConnectorsCenterDir(), "demo")
 	call := func(owner, method, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
-		req = req.WithContext(WithPrincipal(req.Context(), &Principal{Subject: owner}))
+		req = req.WithContext(WithPrincipal(req.Context(), &authn.Principal{Subject: owner}))
 		r := httptest.NewRecorder()
 		f.server.ServeHTTP(r, req)
 		return r
@@ -91,7 +93,7 @@ func TestNoAuthConnectionHTTP(t *testing.T) {
 	}
 	call := func(method, path string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, nil)
-		req = req.WithContext(WithPrincipal(req.Context(), &Principal{Subject: "owner"}))
+		req = req.WithContext(WithPrincipal(req.Context(), &authn.Principal{Subject: "owner"}))
 		response := httptest.NewRecorder()
 		f.server.ServeHTTP(response, req)
 		return response

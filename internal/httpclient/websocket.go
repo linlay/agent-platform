@@ -32,7 +32,11 @@ func (f *Factory) webSocketDialer(ctx context.Context, rawURL string, timeout ti
 	d := &websocket.Dialer{HandshakeTimeout: timeout, NetDialContext: t.DialContext}
 	if t.TLSClientConfig != nil {
 		d.TLSClientConfig = t.TLSClientConfig.Clone()
+	} else {
+		d.TLSClientConfig = &tls.Config{}
 	}
+	// Gorilla sends an HTTP/1.1 Upgrade, even when the HTTP transport supports h2.
+	d.TLSClientConfig.NextProtos = []string{"http/1.1"}
 	if decision.Proxy != nil {
 		p := *decision.Proxy
 		// Gorilla's SOCKS5 sends hostnames to the proxy.
@@ -45,6 +49,8 @@ func (f *Factory) webSocketDialer(ctx context.Context, rawURL string, timeout ti
 				proxyTLS = t.TLSClientConfig.Clone()
 				proxyTLS.ServerName = p.Hostname()
 			}
+			// The outer TLS tunnel carries Gorilla's HTTP/1.1 CONNECT as well.
+			proxyTLS.NextProtos = []string{"http/1.1"}
 			if p.Port() == "" {
 				p.Host = net.JoinHostPort(p.Hostname(), "443")
 			}

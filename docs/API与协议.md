@@ -769,18 +769,18 @@ voice 默认关闭；未启用或模型未配置时 `enabled:false`，`reason` �
 | type | 字段 | 说明 |
 |---|---|---|
 | hello | version, sessionId, agentKey, chatId, audio.output{codec,sampleRate,channels:1,frameMs:20} | 握手成功 |
-| stt | turn, text, final | 识别中间结果与整句定稿；定稿后停止收音并提交 Query |
+| stt | turn, text, final | 识别中间结果与整句定稿；非空定稿后提交 Query，空定稿只结束本次识别，客户端可继续收听 |
 | run | turn, state:start/end, runId, chatId, finishReason? | start 与 end 之间显示思考中 |
 | awaiting | turn, runId, awaitingId, mode | Run 等待人工，随后朗读固定提示语 |
 | tts | turn, state:start/stop, text?, reason? | start 携带朗读全文，其后的二进制帧属于该轮；stop 的 reason 为 done/error，只表示音频发完，不代表客户端播完 |
 | abort | turn | 打断确认 |
-| error | code, msg | 见下方错误码 |
+| error | turn, code, msg | 见下方错误码；hello 前 turn 为 0，之后只作用于对应轮次 |
 
 服务端接受 listen start 时 turn 加 1，被拒绝的 listen start 不分配轮次。
 
 音频：
 
-- 上行只在收音阶段接受，按实时节奏发送；每帧 640 字节（20ms），仅最后一帧可更短且须为偶数字节，短帧后再发报 `invalid_audio`。单轮 PCM 最长 60 秒，识别文本最多 4000 字，10 秒内无识别结果按 `no_speech` 结束。
+- 上行只在收音阶段接受，按实时节奏发送；每帧 640 字节（20ms），仅最后一帧可更短且须为偶数字节，短帧后再发报 `invalid_audio`。单轮 PCM 与任务期限保留 60 秒，识别文本最多 4000 字。等待说话没有额外 10 秒限制；收到音频但整轮没有识别文字时，期限到达返回空定稿，不创建 Chat/Run。共用 ASR 由调用方控制任务期限，finish-task 后仍最多等待 10 秒。
 - 下行每帧 20ms，服务端按实时节奏发送，最多领先 `voice.downlink-lead-ms`；不做 ACK 流控，客户端自行起播缓冲。
 - 半双工：一次 listen 只产生一个定稿，收到 tts stop 并本地播完后再发 listen start。收音中重复的 start 忽略；轮次已进入运行、等待或朗读时返回 `turn_busy`。
 
@@ -791,7 +791,7 @@ voice 默认关闭；未启用或模型未配置时 `enabled:false`，`reason` �
 错误码：
 
 - hello 前：`invalid_request`（首帧不是合法 hello，或 Agent、Chat、音色、音频格式不符）、`voice_unavailable`（模型或配置不可用），发送后关闭连接。
-- hello 后，error 结束当前轮，连接保留：`no_speech`、`asr_failed`、`recording_limit`、`transcript_limit`、`invalid_audio`、`audio_overflow`、`chat_busy`、`chat_changed`、`run_failed`、`run_busy_timeout`、`awaiting_pending`、`tts_failed`。无法观察 Run（`run_failed`）或旧 Run 收尾超时（`run_busy_timeout`）时随后关闭连接。
+- hello 后，error 携带 turn，结束对应轮次，连接保留：`asr_failed`、`recording_limit`、`transcript_limit`、`invalid_audio`、`audio_overflow`、`chat_busy`、`chat_changed`、`run_failed`、`run_busy_timeout`、`awaiting_pending`、`tts_failed`。无法观察 Run（`run_failed`）或旧 Run 收尾超时（`run_busy_timeout`）时随后关闭连接。ASR 错误只影响识别阶段，不停止已进入播放阶段的回答；TTS 失败允许客户端播完已经收到的尾部音频。
 - `turn_busy` 与 `invalid_request` 只拒绝该条消息，不影响进行中的轮。awaiting 提示语合成失败只以 `tts stop(reason=error)` 表示，不发 error，本轮继续等待。
 
 时序示例：
@@ -1583,3 +1583,7 @@ owner 管理详情返回安装记录、Manifest、policy、用户配置及配置
 `/__desktop/bridge.js`、bootstrap/config 和 `actions/call` 归应用会话边界，SDK action POST 要求精确应用 Origin 与 X-WebApp-CSRF，响应使用 `{ok,action,result|error}`。该 envelope 与 owner 管理的 `{code,msg,data}` 分离。
 
 Node 通过固定 loopback 的 `/webapps/session` 和 `/webapps/actions/call` 使用绑定代次的应用能力凭证；前者只接受 bootstrap 凭证，后者只接受短期 action token，均拒绝浏览器 Origin。应用凭证不被平台 JWT 或连接器 HTTP grant 接口接受。连接器调用进程内中立 scope，不生成伪造 deviceId。精确 action 与可用性由 capabilities 回应，不开放通用 Desktop Action 转发。
+
+## 独立听写接口
+
+`/api/dictation/capabilities` 和 `/api/dictation/ws` 由独立 `agent-dictation` 提供，同源代理直接转发，不属于 Platform Server 路由。协议、认证及录音上限见 [独立听写](独立听写.md)。

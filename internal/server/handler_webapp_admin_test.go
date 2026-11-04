@@ -1,6 +1,8 @@
 package server
 
 import (
+	"agent-platform/internal/authn"
+
 	"archive/zip"
 	"bytes"
 	"encoding/json"
@@ -48,7 +50,7 @@ func adminCall(s *Server, method, path, body, subject, origin string) *httptest.
 	if origin != "" {
 		r.Header.Set("Origin", origin)
 	}
-	r = r.WithContext(WithPrincipal(r.Context(), &Principal{Subject: subject}))
+	r = r.WithContext(WithPrincipal(r.Context(), &authn.Principal{Subject: subject}))
 	w := httptest.NewRecorder()
 	s.handleWebAppAdmin(w, r)
 	return w
@@ -66,7 +68,7 @@ func TestWebAppManagementRequiresOwnerAndExactOrigin(t *testing.T) {
 		}
 	}
 	r := httptest.NewRequest("POST", "https://demo.platform.example.com/api/admin/webapps/install", strings.NewReader("{}"))
-	r = r.WithContext(WithPrincipal(r.Context(), &Principal{Subject: "owner"}))
+	r = r.WithContext(WithPrincipal(r.Context(), &authn.Principal{Subject: "owner"}))
 	w := httptest.NewRecorder()
 	s.handleWebAppAdmin(w, r)
 	if w.Code != 403 {
@@ -85,7 +87,7 @@ func TestWebAppManagementUploadReviewInstallAndDelete(t *testing.T) {
 	r := httptest.NewRequest("POST", "https://demo.platform.example.com/api/admin/webapps/uploads", &b)
 	r.Header.Set("Content-Type", "application/zip")
 	r.Header.Set("Authorization", "Bearer owner-token")
-	r = r.WithContext(WithPrincipal(r.Context(), &Principal{Subject: "owner"}))
+	r = r.WithContext(WithPrincipal(r.Context(), &authn.Principal{Subject: "owner"}))
 	w := httptest.NewRecorder()
 	s.handleWebAppAdmin(w, r)
 	if w.Code != 200 {

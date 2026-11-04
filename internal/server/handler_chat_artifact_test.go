@@ -1,6 +1,8 @@
 package server
 
 import (
+	"agent-platform/internal/authn"
+
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -69,7 +71,7 @@ func TestChatArtifactChecksPrincipalWithoutConnectorGrant(t *testing.T) {
 	}{{"", 401}, {"bob", 403}, {"alice", 200}} {
 		r := httptest.NewRequest("POST", "/api/chat/artifacts/list", strings.NewReader(`{"chatId":"owned-chat"}`))
 		if tc.subject != "" {
-			r = r.WithContext(WithPrincipal(context.Background(), &Principal{Subject: tc.subject}))
+			r = r.WithContext(WithPrincipal(context.Background(), &authn.Principal{Subject: tc.subject}))
 		}
 		w := httptest.NewRecorder()
 		s.handleChatArtifact(w, r)
@@ -106,7 +108,7 @@ func TestChatArtifactSourceRefReadHasNarrowDesktopAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &Server{deps: Dependencies{Chats: store}, chatResources: chatresource.NewService(store)}
-	request := func(route, body string, principal *Principal) *httptest.ResponseRecorder {
+	request := func(route, body string, principal *authn.Principal) *httptest.ResponseRecorder {
 		t.Helper()
 		r := httptest.NewRequest(http.MethodPost, route, strings.NewReader(body))
 		if principal != nil {
@@ -116,9 +118,9 @@ func TestChatArtifactSourceRefReadHasNarrowDesktopAuthority(t *testing.T) {
 		s.handleChatArtifact(w, r)
 		return w
 	}
-	owner := &Principal{Subject: "alice", Claims: map[string]any{"scope": "user"}}
-	app := &Principal{Subject: "desktop", Claims: map[string]any{"scope": "app", "device_id": "device-1"}}
-	other := &Principal{Subject: "bob", Claims: map[string]any{"scope": "user", "device_id": "device-1"}}
+	owner := &authn.Principal{Subject: "alice", Claims: map[string]any{"scope": "user"}}
+	app := &authn.Principal{Subject: "desktop", Claims: map[string]any{"scope": "app", "device_id": "device-1"}}
+	other := &authn.Principal{Subject: "bob", Claims: map[string]any{"scope": "user", "device_id": "device-1"}}
 
 	if rec := request("/api/chat/artifacts/read", `{"chatId":"`+chatID+`","artifactId":"artifact-1"}`, owner); rec.Code != http.StatusOK || rec.Body.String() != string(data) {
 		t.Fatalf("owner artifactId read status=%d body=%q", rec.Code, rec.Body.String())
@@ -129,13 +131,13 @@ func TestChatArtifactSourceRefReadHasNarrowDesktopAuthority(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name, route, body string
-		principal         *Principal
+		principal         *authn.Principal
 	}{
 		{name: "list", route: "/api/chat/artifacts/list", body: `{"chatId":"` + chatID + `"}`, principal: app},
 		{name: "get", route: "/api/chat/artifacts/get", body: `{"chatId":"` + chatID + `","artifactId":"artifact-1"}`, principal: app},
 		{name: "artifact id read", route: "/api/chat/artifacts/read", body: `{"chatId":"` + chatID + `","artifactId":"artifact-1"}`, principal: app},
 		{name: "ordinary principal", route: "/api/chat/artifacts/read", body: `{"chatId":"` + chatID + `","sourceRef":"` + sourceRef + `"}`, principal: other},
-		{name: "app without device", route: "/api/chat/artifacts/read", body: `{"chatId":"` + chatID + `","sourceRef":"` + sourceRef + `"}`, principal: &Principal{Subject: "desktop", Claims: map[string]any{"scope": "app"}}},
+		{name: "app without device", route: "/api/chat/artifacts/read", body: `{"chatId":"` + chatID + `","sourceRef":"` + sourceRef + `"}`, principal: &authn.Principal{Subject: "desktop", Claims: map[string]any{"scope": "app"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if rec := request(tc.route, tc.body, tc.principal); rec.Code != http.StatusForbidden {
@@ -159,7 +161,7 @@ func TestChatArtifactReadRequiresExactlyOneLocator(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &Server{deps: Dependencies{Chats: store}, chatResources: chatresource.NewService(store)}
-	principal := &Principal{Subject: "owner"}
+	principal := &authn.Principal{Subject: "owner"}
 	for _, body := range []string{
 		`{"chatId":"chat-artifact-locator"}`,
 		`{"chatId":"chat-artifact-locator","artifactId":"a","sourceRef":"artifacts/run-1/a.txt"}`,
