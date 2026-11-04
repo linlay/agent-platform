@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/authn"
-
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -184,7 +182,7 @@ func TestPrepareChatReferenceReloadsTrustedHistory(t *testing.T) {
 		t.Fatalf("append source answer: %v", err)
 	}
 	server := &Server{deps: Dependencies{Chats: store}}
-	ctx := WithPrincipal(context.Background(), &authn.Principal{Subject: "alice"})
+	ctx := WithPrincipal(context.Background(), &Principal{Subject: "alice"})
 
 	got, err := server.prepareChatReference(ctx, "chat-current", api.Reference{
 		Type: "chat",
@@ -217,7 +215,7 @@ func TestPrepareChatReferenceRejectsAnotherQueryPrincipal(t *testing.T) {
 		t.Fatalf("ensure source chat: %v", err)
 	}
 	server := &Server{deps: Dependencies{Chats: store}}
-	ctx := WithPrincipal(context.Background(), &authn.Principal{Subject: "bob"})
+	ctx := WithPrincipal(context.Background(), &Principal{Subject: "bob"})
 
 	_, err = server.prepareChatReference(ctx, "chat-current", api.Reference{
 		Type: "chat",

@@ -1,4 +1,4 @@
-package speech
+package voice
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 // (about four Chinese characters per second) well inside the audio cap, and
 // the task deadline outlasts the longest allowed playback.
 const (
-	MaxSynthesisRunes = 900
+	maxSynthesisRunes = 900
 	maxSynthesisAudio = 300 * time.Second
 )
 
@@ -33,7 +33,7 @@ func (c *TTSClient) Close() { c.socket.close() }
 // Synthesize sends the complete committed text once. The callback consumes PCM
 // synchronously, providing backpressure without buffering the whole response.
 func (c *TTSClient) Synthesize(ctx context.Context, text, voice string, sampleRate int, audio func([]byte) error) (err error) {
-	if text == "" || utf8.RuneCountInString(text) > MaxSynthesisRunes || voice == "" || audio == nil || (sampleRate != 16000 && sampleRate != 24000) {
+	if text == "" || utf8.RuneCountInString(text) > maxSynthesisRunes || voice == "" || audio == nil || (sampleRate != 16000 && sampleRate != 24000) {
 		return errors.New("invalid voice synthesis input")
 	}
 	ctx, cancel := context.WithTimeout(ctx, maxSynthesisAudio+time.Minute)

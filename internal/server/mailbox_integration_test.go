@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/authn"
-
 	"context"
 	"encoding/json"
 	"net/http"
@@ -217,14 +215,14 @@ func TestMailboxHTTPNeverListsOtherPrincipalsOrLetsThemRedeliver(t *testing.T) {
 		}
 	}
 	req := httptest.NewRequest(http.MethodGet, "/api/mails", nil)
-	req = req.WithContext(WithPrincipal(req.Context(), &authn.Principal{Subject: "alice"}))
+	req = req.WithContext(WithPrincipal(req.Context(), &Principal{Subject: "alice"}))
 	rec := httptest.NewRecorder()
 	f.server.handleMails(rec, req)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "secret-alice") || strings.Contains(rec.Body.String(), "secret-bob") || strings.Contains(rec.Body.String(), "secret-*") {
 		t.Fatalf("subject filter: %d %s", rec.Code, rec.Body.String())
 	}
 	action := httptest.NewRequest(http.MethodPost, "/api/mails/action", strings.NewReader(`{"mailId":"mail-bob","action":"redeliver"}`))
-	action = action.WithContext(WithPrincipal(action.Context(), &authn.Principal{Subject: "alice"}))
+	action = action.WithContext(WithPrincipal(action.Context(), &Principal{Subject: "alice"}))
 	denied := httptest.NewRecorder()
 	f.server.handleMailAction(denied, action)
 	if denied.Code != http.StatusForbidden {

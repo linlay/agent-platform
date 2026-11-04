@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/authn"
-
 	"net/http"
 	"strings"
 
@@ -18,7 +16,7 @@ func (s *Server) handleChatExportResource(w http.ResponseWriter, r *http.Request
 		writeAuthError(w)
 		return
 	}
-	if s.deps.Config.RuntimeMode != config.RuntimeModeDesktop || authn.StringClaim(p.Claims, "scope") != "app" || firstStringClaim(p.Claims, "deviceId", "device_id") == "" {
+	if s.deps.Config.RuntimeMode != config.RuntimeModeDesktop || stringClaim(p.Claims, "scope") != "app" || firstStringClaim(p.Claims, "deviceId", "device_id") == "" {
 		writeRequestError(w, &requestError{Code: "forbidden", Status: http.StatusForbidden})
 		return
 	}

@@ -1,7 +1,5 @@
 package voice
 
-import "agent-platform/internal/speech"
-
 import (
 	"strings"
 	"testing"
@@ -21,7 +19,7 @@ func TestSpeechTextOnlyRemovesPresentation(t *testing.T) {
 	if got != strings.Repeat("长", maxSpokenRunes)+spokenOverflow {
 		t.Fatal("long text changed beyond the explicit prefix limit")
 	}
-	if n := utf8.RuneCountInString(got); n > speech.MaxSynthesisRunes {
+	if n := utf8.RuneCountInString(got); n > maxSynthesisRunes {
 		t.Fatalf("spoken text %d runes exceeds synthesis input limit", n)
 	}
 }

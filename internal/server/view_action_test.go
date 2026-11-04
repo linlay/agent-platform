@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/authn"
-
 	"bytes"
 	"context"
 	"encoding/json"
@@ -65,7 +63,7 @@ func TestViewActionHTTPUsesLiveChatOwnershipAndPublishingRun(t *testing.T) {
 	post := func() *httptest.ResponseRecorder {
 		raw, _ := json.Marshal(body)
 		rec := httptest.NewRecorder()
-		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/view/invoke", bytes.NewReader(raw)).WithContext(WithPrincipal(context.Background(), &authn.Principal{Subject: "alice"})))
+		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/view/invoke", bytes.NewReader(raw)).WithContext(WithPrincipal(context.Background(), &Principal{Subject: "alice"})))
 		return rec
 	}
 	if rec := post(); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"invocationId":"once"`) {
@@ -91,7 +89,7 @@ func TestViewActionHTTPUsesLiveChatOwnershipAndPublishingRun(t *testing.T) {
 	raw, _ := json.Marshal(body)
 	var req ViewActionRequest
 	json.Unmarshal(raw, &req)
-	_, err = fixture.server.invokeView(WithPrincipal(context.Background(), &authn.Principal{Subject: "bob"}), req)
+	_, err = fixture.server.invokeView(WithPrincipal(context.Background(), &Principal{Subject: "bob"}), req)
 	if err == nil {
 		t.Fatal("foreign viewer allowed")
 	}

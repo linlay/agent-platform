@@ -125,7 +125,6 @@ docker-down:
 
 release:
 	$(MAKE) release-program VERSION=$(VERSION) ARCH=$(ARCH) $(PASS_PROGRAM_TARGETS) $(PASS_PROGRAM_TARGET_MATRIX)
-	$(MAKE) release-dictation VERSION=$(VERSION) ARCH=$(ARCH) $(PASS_PROGRAM_TARGETS) $(PASS_PROGRAM_TARGET_MATRIX)
 
 ifeq ($(OS),Windows_NT)
 release-program:
@@ -140,12 +139,3 @@ release-program-all:
 
 clean:
 	rm -rf dist/release
-
-.PHONY: release-dictation
-ifeq ($(OS),Windows_NT)
-release-dictation:
-	powershell -ExecutionPolicy Bypass -File scripts/release-dictation.ps1 $(PASS_VERSION_PS) -ARCH '$(ARCH)' $(PASS_PROGRAM_TARGETS_PS) $(PASS_PROGRAM_TARGET_MATRIX_PS)
-else
-release-dictation:
-	VERSION=$(VERSION) ARCH=$(ARCH) $(PASS_PROGRAM_TARGETS) $(PASS_PROGRAM_TARGET_MATRIX) bash scripts/release-dictation.sh
-endif

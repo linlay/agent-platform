@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/authn"
-
 	"context"
 	"encoding/json"
 	"net/http/httptest"
@@ -58,7 +56,7 @@ func TestKnowledgeSourceRequiresOwnedPublishedReference(t *testing.T) {
 		body, _ := json.Marshal(map[string]any{"chatId": "owned-chat", "sourceId": tc.id})
 		r := httptest.NewRequest("POST", "/api/chat/sources/read", strings.NewReader(string(body)))
 		if tc.subject != "" {
-			r = r.WithContext(WithPrincipal(context.Background(), &authn.Principal{Subject: tc.subject}))
+			r = r.WithContext(WithPrincipal(context.Background(), &Principal{Subject: tc.subject}))
 		}
 		w := httptest.NewRecorder()
 		s.handleKnowledgeSource(w, r)

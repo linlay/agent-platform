@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/authn"
-
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -38,7 +36,7 @@ func TestJWTVerifierInstanceBinding(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := authn.NewJWTVerifier(tc.cfg).Verify(mustSignRS256JWT(t, privateKey, tc.payload))
+			_, err := NewJWTVerifier(tc.cfg).Verify(mustSignRS256JWT(t, privateKey, tc.payload))
 			if tc.wantErr == "" {
 				if err != nil {
 					t.Fatalf("Verify: %v", err)

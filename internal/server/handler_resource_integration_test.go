@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/authn"
-
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -211,7 +209,7 @@ func TestAbsoluteResourceEnforcesWorkspaceChatOwnerAndTeamBoundaries(t *testing.
 		requestURL := "/api/resource?chatId=" + url.QueryEscape(requestChatID) + "&file=" + url.QueryEscape(path) + suffix
 		req := httptest.NewRequest(http.MethodGet, requestURL, nil)
 		if subject != "" {
-			req = req.WithContext(WithPrincipal(req.Context(), &authn.Principal{Subject: subject}))
+			req = req.WithContext(WithPrincipal(req.Context(), &Principal{Subject: subject}))
 		}
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, req)

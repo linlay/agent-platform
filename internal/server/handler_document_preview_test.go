@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/authn"
-
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -52,7 +50,7 @@ func TestPreviewResourceResolverPreservesChatReadPermissions(t *testing.T) {
 		}
 		for _, user := range []string{"alice", "bob"} {
 			req := httptest.NewRequest(http.MethodPost, "/api/document/preview", nil)
-			req = req.WithContext(WithPrincipal(req.Context(), &authn.Principal{Subject: user}))
+			req = req.WithContext(WithPrincipal(req.Context(), &Principal{Subject: user}))
 			_, err := f.server.resolvePreviewSource(req, documentpreview.Source{Kind: "chat-resource", ChatID: tc.id, RelativePath: "报告%.docx"})
 			if (err == nil) != (user == "alice") {
 				t.Fatalf("%s %s access error=%v", tc.id, user, err)
@@ -114,7 +112,7 @@ func TestPreviewArchivedResourceRetainsOwnerAuthorization(t *testing.T) {
 	}
 	for _, user := range []string{"alice", "bob"} {
 		req := httptest.NewRequest("POST", "/api/document/preview", nil)
-		req = req.WithContext(WithPrincipal(req.Context(), &authn.Principal{Subject: user}))
+		req = req.WithContext(WithPrincipal(req.Context(), &Principal{Subject: user}))
 		resolved, err := f.server.resolvePreviewSource(req, documentpreview.Source{Kind: "chat-resource", ChatID: id, RelativePath: "artifacts/report.xlsx"})
 		if (err == nil) != (user == "alice") {
 			t.Fatalf("%s access=%v", user, err)

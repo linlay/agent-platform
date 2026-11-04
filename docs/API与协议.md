@@ -1583,7 +1583,3 @@ owner 管理详情返回安装记录、Manifest、policy、用户配置及配置
 `/__desktop/bridge.js`、bootstrap/config 和 `actions/call` 归应用会话边界，SDK action POST 要求精确应用 Origin 与 X-WebApp-CSRF，响应使用 `{ok,action,result|error}`。该 envelope 与 owner 管理的 `{code,msg,data}` 分离。
 
 Node 通过固定 loopback 的 `/webapps/session` 和 `/webapps/actions/call` 使用绑定代次的应用能力凭证；前者只接受 bootstrap 凭证，后者只接受短期 action token，均拒绝浏览器 Origin。应用凭证不被平台 JWT 或连接器 HTTP grant 接口接受。连接器调用进程内中立 scope，不生成伪造 deviceId。精确 action 与可用性由 capabilities 回应，不开放通用 Desktop Action 转发。
-
-## 独立听写接口
-
-`/api/dictation/capabilities` 和 `/api/dictation/ws` 由独立 `agent-dictation` 提供，同源代理直接转发，不属于 Platform Server 路由。协议、认证及录音上限见 [独立听写](独立听写.md)。

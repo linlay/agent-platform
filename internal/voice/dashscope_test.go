@@ -1,4 +1,4 @@
-package speech
+package voice
 
 import (
 	"bytes"
@@ -112,7 +112,7 @@ func TestVoiceConnectionFailureDiagnostic(t *testing.T) {
 		}))
 		client := testASR(t, models.ProviderDefinition{BaseURL: server.URL, APIKey: "test-secret"})
 		client.socket.model.Key = "asr-test"
-		_, err := client.Recognize(ctx, make(chan []byte), "manual", nil, nil)
+		_, err := client.Recognize(ctx, make(chan []byte), "manual", nil)
 		cancel()
 		server.Close()
 		if cancelled {
@@ -206,7 +206,7 @@ func TestASRManualTailRevisionsAndConnectionReuse(t *testing.T) {
 		input <- []byte{8, 9}
 		close(input)
 		var partials []string
-		text, err := c.Recognize(context.Background(), input, "manual", func(text string, _ bool) { partials = append(partials, text) }, nil)
+		text, err := c.Recognize(context.Background(), input, "manual", func(text string, _ bool) { partials = append(partials, text) })
 		if err != nil || text != "第一句。第二句。" || len(partials) != 3 {
 			t.Fatalf("%q %v %v", text, err, partials)
 		}
@@ -231,7 +231,7 @@ func TestASRAutoFinishesAndCollectsInflightTail(t *testing.T) {
 		event(t, c, id, "result-generated", map[string]any{"begin_time": 200, "text": "尾句。", "sentence_end": true})
 		event(t, c, id, "task-finished", nil)
 	})
-	text, err := testASR(t, p).Recognize(context.Background(), input, "auto", nil, nil)
+	text, err := testASR(t, p).Recognize(context.Background(), input, "auto", nil)
 	if err != nil || text != "一句。尾句。" {
 		t.Fatalf("%q %v", text, err)
 	}
@@ -255,7 +255,7 @@ func TestASREmptyAndMalformedPCM(t *testing.T) {
 				input <- []byte{1}
 			}
 			close(input)
-			text, err := testASR(t, p).Recognize(context.Background(), input, "manual", nil, nil)
+			text, err := testASR(t, p).Recognize(context.Background(), input, "manual", nil)
 			if text != "" || (err != nil) != invalid {
 				t.Fatalf("%q %v", text, err)
 			}
@@ -284,7 +284,7 @@ func TestASRWaitsThroughSilenceUntilCallerStops(t *testing.T) {
 	input := make(chan []byte)
 	timer := time.AfterFunc(11*time.Second, func() { close(input) })
 	defer timer.Stop()
-	text, err := testASR(t, p).Recognize(ctx, input, "manual", nil, nil)
+	text, err := testASR(t, p).Recognize(ctx, input, "manual", nil)
 	if err != nil || text != "稍后才说话。" {
 		t.Fatalf("silence ended a valid task: %q %v", text, err)
 	}
@@ -302,7 +302,7 @@ func TestASRStillBoundsFinalizationWithoutProviderEvents(t *testing.T) {
 	defer cancel()
 	input := make(chan []byte)
 	close(input)
-	_, err := testASR(t, p).Recognize(ctx, input, "manual", nil, nil)
+	_, err := testASR(t, p).Recognize(ctx, input, "manual", nil)
 	if err == nil || err.Error() != "voice recognition finish timeout" {
 		t.Fatalf("unbounded finalization: %v", err)
 	}
@@ -415,7 +415,7 @@ func TestASRStartupOverflowAndCancellation(t *testing.T) {
 					input <- make([]byte, 640)
 				}
 			}
-			_, err := testASR(t, p).Recognize(ctx, input, "manual", nil, nil)
+			_, err := testASR(t, p).Recognize(ctx, input, "manual", nil)
 			if err == nil {
 				t.Fatal("missing failure")
 			}
@@ -444,7 +444,7 @@ func TestVoiceEndpointAndAuthRejection(t *testing.T) {
 	c := testASR(t, p)
 	input := make(chan []byte)
 	close(input)
-	_, err = c.Recognize(context.Background(), input, "manual", nil, nil)
+	_, err = c.Recognize(context.Background(), input, "manual", nil)
 	if err == nil || strings.Contains(err.Error(), "secret") {
 		t.Fatalf("credential leak %v", err)
 	}
@@ -484,7 +484,7 @@ func TestReusedSocketClosedWhileIdleReconnectsOnce(t *testing.T) {
 		input := make(chan []byte, 1)
 		input <- make([]byte, 640)
 		close(input)
-		if text, err := a.Recognize(context.Background(), input, "manual", nil, nil); err != nil || text != "一句。" {
+		if text, err := a.Recognize(context.Background(), input, "manual", nil); err != nil || text != "一句。" {
 			t.Fatalf("ASR turn %d: %q %v", i, text, err)
 		}
 		if err := s.Synthesize(context.Background(), "正文", "voice", 16000, func([]byte) error { return nil }); err != nil {

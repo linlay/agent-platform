@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"agent-platform/internal/authn"
 	"agent-platform/internal/observability"
+	"agent-platform/internal/ws"
 )
 
 func (s *Server) handleCORS(w http.ResponseWriter, r *http.Request) bool {
@@ -71,7 +71,7 @@ func (s *Server) withPrincipal(r *http.Request, w http.ResponseWriter) *http.Req
 		token = strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
 	} else {
 		if r.URL.Path == "/api/voice/ws" {
-			token, _ = authn.BearerSubprotocol(r)
+			token, _ = ws.BearerSubprotocol(r)
 		}
 		if token == "" {
 			if cookie, err := r.Cookie("access_token"); err == nil {

@@ -1,7 +1,5 @@
 package ws
 
-import "agent-platform/internal/authn"
-
 import (
 	"context"
 	"encoding/json"
@@ -209,7 +207,7 @@ func extractToken(r *http.Request) (string, string, error) {
 	if r == nil {
 		return "", "", errors.New("request is required")
 	}
-	if token, protocol := authn.BearerSubprotocol(r); token != "" {
+	if token, protocol := BearerSubprotocol(r); token != "" {
 		return token, protocol, nil
 	}
 	if authorization := strings.TrimSpace(r.Header.Get("Authorization")); strings.HasPrefix(authorization, "Bearer ") {
@@ -222,6 +220,18 @@ func extractToken(r *http.Request) (string, string, error) {
 		return "", "", errors.New("missing token")
 	}
 	return token, "", nil
+}
+
+// BearerSubprotocol is shared with the media WS HTTP authentication boundary.
+// It deliberately does not extract URL query credentials.
+func BearerSubprotocol(r *http.Request) (string, string) {
+	for _, protocol := range gws.Subprotocols(r) {
+		trimmed := strings.TrimSpace(protocol)
+		if strings.HasPrefix(trimmed, "bearer.") && len(trimmed) > len("bearer.") {
+			return strings.TrimPrefix(trimmed, "bearer."), trimmed
+		}
+	}
+	return "", ""
 }
 
 func wsRequestBaseURL(r *http.Request) string {

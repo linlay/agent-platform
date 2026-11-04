@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/authn"
-
 	"context"
 	"encoding/json"
 	"net/http/httptest"
@@ -27,7 +25,7 @@ func TestConnectorOrderHTTPUserIsolationAndValidation(t *testing.T) {
 	request := func(user, method, body string, status int) api.ConnectorOrderResponse {
 		t.Helper()
 		req := httptest.NewRequest(method, "/api/connectors/order?userKey=someone-else", strings.NewReader(body))
-		req = req.WithContext(WithPrincipal(context.Background(), &authn.Principal{Subject: user}))
+		req = req.WithContext(WithPrincipal(context.Background(), &Principal{Subject: user}))
 		recorder := httptest.NewRecorder()
 		fixture.server.ServeHTTP(recorder, req)
 		if recorder.Code != status {

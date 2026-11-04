@@ -973,7 +973,7 @@ func TestVoiceSilentTaskLimitKeepsSessionAndDoesNotCreateRun(t *testing.T) {
 	if err := c.WriteMessage(websocket.BinaryMessage, make([]byte, 640)); err != nil {
 		t.Fatal(err)
 	}
-	// Exercise the actual 60s caller deadline; the provider emits no transcript.
+	// Exercise the actual 60s recognition deadline; the provider emits no transcript.
 	_ = c.SetReadDeadline(time.Now().Add(65 * time.Second))
 	var empty map[string]any
 	if err := c.ReadJSON(&empty); err != nil {

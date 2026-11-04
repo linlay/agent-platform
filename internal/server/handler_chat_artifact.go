@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/authn"
-
 	"context"
 	"errors"
 	"mime"
@@ -64,7 +62,7 @@ func (s *Server) handleChatArtifact(w http.ResponseWriter, r *http.Request) {
 	}
 	desktopSourceRefRead := r.URL.Path == "/api/chat/artifacts/read" && req.SourceRef != "" && req.ArtifactID == "" &&
 		s.deps.Config.RuntimeMode == config.RuntimeModeDesktop && p != nil && strings.TrimSpace(p.Subject) != "" &&
-		authn.StringClaim(p.Claims, "scope") == "app" && firstStringClaim(p.Claims, "deviceId", "device_id") != ""
+		stringClaim(p.Claims, "scope") == "app" && firstStringClaim(p.Claims, "deviceId", "device_id") != ""
 	summary, err := s.deps.Chats.Summary(req.ChatID)
 	if err != nil || summary == nil || (!desktopSourceRefRead && !queryPrincipalCanReferenceChat(r.Context(), *summary)) {
 		writeRequestError(w, &requestError{Code: "chat_access_denied", Status: http.StatusForbidden})

@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/authn"
-
 	"context"
 	"net/http/httptest"
 	"testing"
@@ -11,7 +9,7 @@ import (
 func TestWebClientTargetFromHTTPRequestUsesSurfaceAndAuthenticatedBoundary(t *testing.T) {
 	request := httptest.NewRequest("POST", "/api/query?detail=detailed", nil)
 	request.Header.Set(webClientSurfaceIDHeader, " surface-1 ")
-	request = request.WithContext(WithPrincipal(context.Background(), &authn.Principal{
+	request = request.WithContext(WithPrincipal(context.Background(), &Principal{
 		Subject: "user-1",
 		Claims:  map[string]any{"deviceId": "device-1"},
 	}))
@@ -27,7 +25,7 @@ func TestWebClientTargetFromHTTPRequestUsesSurfaceAndAuthenticatedBoundary(t *te
 
 func TestWebClientTargetFromHTTPRequestRequiresSurface(t *testing.T) {
 	request := httptest.NewRequest("POST", "/api/query?detail=detailed", nil)
-	request = request.WithContext(WithPrincipal(context.Background(), &authn.Principal{
+	request = request.WithContext(WithPrincipal(context.Background(), &Principal{
 		Subject: "user-1",
 		Claims:  map[string]any{"deviceId": "device-1"},
 	}))
@@ -39,7 +37,7 @@ func TestWebClientTargetFromHTTPRequestRequiresSurface(t *testing.T) {
 func TestWebClientTargetFromHTTPRequestRequiresDeviceBoundary(t *testing.T) {
 	request := httptest.NewRequest("POST", "/api/query?detail=detailed", nil)
 	request.Header.Set(webClientSurfaceIDHeader, "surface-1")
-	request = request.WithContext(WithPrincipal(context.Background(), &authn.Principal{Subject: "user-1"}))
+	request = request.WithContext(WithPrincipal(context.Background(), &Principal{Subject: "user-1"}))
 	if target := webClientTargetFromHTTPRequest(request); !target.IsZero() {
 		t.Fatalf("expected no target without authenticated device boundary: %#v", target)
 	}
@@ -60,7 +58,7 @@ func TestWebClientTargetFromHTTPRequestPrefersAuthenticatedDeviceClaim(t *testin
 	request := httptest.NewRequest("POST", "/api/query?detail=detailed", nil)
 	request.Header.Set(webClientDeviceIDHeader, "device-header")
 	request.Header.Set(webClientSurfaceIDHeader, "surface-1")
-	request = request.WithContext(WithPrincipal(context.Background(), &authn.Principal{
+	request = request.WithContext(WithPrincipal(context.Background(), &Principal{
 		Subject: "user-1",
 		Claims:  map[string]any{"deviceId": "device-claim"},
 	}))

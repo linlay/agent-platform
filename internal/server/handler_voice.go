@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/authn"
 	"agent-platform/internal/voice"
+	"agent-platform/internal/ws"
 	"github.com/gorilla/websocket"
 )
 
@@ -36,7 +36,7 @@ func (s *Server) handleVoiceWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	header := http.Header{}
-	if _, protocol := authn.BearerSubprotocol(r); protocol != "" {
+	if _, protocol := ws.BearerSubprotocol(r); protocol != "" {
 		header.Set("Sec-WebSocket-Protocol", protocol)
 	}
 	upgrader := websocket.Upgrader{CheckOrigin: s.voiceOriginAllowed}

@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/authn"
-
 	"context"
 	"errors"
 	"net/http"
@@ -18,7 +16,7 @@ import (
 // no caller application identity is accepted from the payload.
 func connectorAuthoritySubject(r *http.Request) (string, error) {
 	p := PrincipalFromContext(r.Context())
-	if p == nil || strings.TrimSpace(p.Subject) == "" || authn.StringClaim(p.Claims, "scope") != "app" || firstStringClaim(p.Claims, "deviceId", "device_id") == "" {
+	if p == nil || strings.TrimSpace(p.Subject) == "" || stringClaim(p.Claims, "scope") != "app" || firstStringClaim(p.Claims, "deviceId", "device_id") == "" {
 		return "", connectorops.ErrDenied
 	}
 	return p.Subject, nil

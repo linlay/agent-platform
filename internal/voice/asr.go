@@ -1,4 +1,4 @@
-package speech
+package voice
 
 import (
 	"context"
@@ -34,13 +34,15 @@ func (c *ASRClient) Close() { c.socket.close() }
 // Recognize consumes realtime PCM. Closing audio is manual stop; auto drains
 // already accepted frames on its first sentence final. Only task-finished makes
 // the returned transcript final. partial is never a Query trigger.
-func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode string, partial func(string, bool), ready func() error) (text string, err error) {
+func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode string, partial func(string, bool)) (text string, err error) {
 	if cap(audio)*640 > maxStartupPCM {
 		return "", errors.New("voice startup audio overflow")
 	}
 	if mode != "auto" && mode != "manual" {
 		return "", errors.New("invalid voice listening mode")
 	}
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
 	defer func() {
 		if ctx.Err() != nil {
 			err = ctx.Err()
@@ -54,11 +56,6 @@ func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode str
 	}
 	success := false
 	defer func() { end(success) }()
-	if ready != nil {
-		if err = ready(); err != nil {
-			return "", err
-		}
-	}
 	type result struct {
 		event *dashScopeEvent
 		err   error
@@ -69,7 +66,7 @@ func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode str
 	go func() {
 		defer close(readDone)
 		for {
-			// Silence is valid while recording. The caller bounds the task;
+			// Silence is valid while recording. The task context bounds recording;
 			// finishTimer below bounds the response after finish-task.
 			_, event, err := dashRead(conn, id, time.Time{})
 			select {

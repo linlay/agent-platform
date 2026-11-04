@@ -1,7 +1,6 @@
 package voice
 
 import (
-	"agent-platform/internal/speech"
 	"context"
 	"encoding/json"
 	"errors"
@@ -72,11 +71,6 @@ type inbound struct {
 	err  error
 }
 
-const (
-	writeTimeout  = 5 * time.Second
-	finishTimeout = 10 * time.Second
-)
-
 type session struct {
 	service                 *Service
 	conn                    *websocket.Conn
@@ -87,8 +81,8 @@ type session struct {
 	id                      string
 	primary                 bool
 	sampleRate              int
-	asr                     *speech.ASRClient
-	tts                     *speech.TTSClient
+	asr                     *ASRClient
+	tts                     *TTSClient
 	events                  chan sessionEvent
 	current                 *turn
 	running                 *ownedRun
@@ -133,13 +127,13 @@ func runSession(service *Service, conn *websocket.Conn, caller Caller) {
 		_ = s.fail("voice_unavailable", "语音模型不可用")
 		return
 	}
-	s.asr, err = speech.NewASRClient(am, ap, service.deps.Config.MaxSentenceSilenceMS)
+	s.asr, err = NewASRClient(am, ap, service.deps.Config.MaxSentenceSilenceMS)
 	if err != nil {
 		_ = s.fail("voice_unavailable", "语音识别配置不可用")
 		return
 	}
 	defer s.asr.Close()
-	s.tts, err = speech.NewTTSClient(tm, tp)
+	s.tts, err = NewTTSClient(tm, tp)
 	if err != nil {
 		_ = s.fail("voice_unavailable", "语音合成配置不可用")
 		return
@@ -288,9 +282,7 @@ func (s *session) control(msg clientMessage) error {
 		s.current = t
 		input := t.audio
 		s.service.start(func() {
-			asrCtx, cancelASR := context.WithTimeout(ctx, 60*time.Second)
-			defer cancelASR()
-			text, err := s.asr.Recognize(asrCtx, input, msg.Mode, func(text string, stopping bool) {
+			text, err := s.asr.Recognize(ctx, input, msg.Mode, func(text string, stopping bool) {
 				ack := make(chan error, 1)
 				if s.post(ctx, sessionEvent{kind: "partial", turn: t, text: text, stopping: stopping, ack: ack}) {
 					select {
@@ -298,7 +290,7 @@ func (s *session) control(msg clientMessage) error {
 					case <-ctx.Done():
 					}
 				}
-			}, nil)
+			})
 			s.post(ctx, sessionEvent{kind: "recognized", turn: t, text: text, err: err})
 		})
 		return nil

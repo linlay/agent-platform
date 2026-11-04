@@ -21,7 +21,6 @@
 
 ## API、模型与网络
 
-- [独立听写](独立听写.md)：独立程序、只读配置、WS 协议和两端托管边界。
 - [API 与协议](API与协议.md)：HTTP、WebSocket、事件与资源接口。
 - [真流式和 H2A](真流式和H2A.md)：SSE、attach、回放与缓冲。
 - [Responses 协议](Responses协议.md)：模型请求、推理历史与错误诊断。

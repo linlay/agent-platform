@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/authn"
-
 	"errors"
 	"net/http"
 	"strings"
@@ -17,7 +15,7 @@ func (s *Server) handleDesktopACPBridges(w http.ResponseWriter, r *http.Request)
 	// Plugin identity is asserted by the authenticated Desktop host, never by a
 	// browser scope or an ACP plugin's direct unauthenticated HTTP request.
 	p := PrincipalFromContext(r.Context())
-	if p == nil || strings.TrimSpace(p.Subject) == "" || authn.StringClaim(p.Claims, "scope") != "app" || firstStringClaim(p.Claims, "deviceId", "device_id") == "" {
+	if p == nil || strings.TrimSpace(p.Subject) == "" || stringClaim(p.Claims, "scope") != "app" || firstStringClaim(p.Claims, "deviceId", "device_id") == "" {
 		writeRequestError(w, &requestError{Code: "acp_registration_denied", Status: 403})
 		return
 	}

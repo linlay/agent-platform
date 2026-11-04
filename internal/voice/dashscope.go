@@ -1,5 +1,5 @@
-// Package speech implements provider speech protocols without conversation orchestration.
-package speech
+// Package voice owns realtime speech media and the voice session protocol.
+package voice
 
 import (
 	"context"

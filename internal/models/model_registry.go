@@ -656,64 +656,53 @@ func loadProviders(dir, ssoIdTokenFile string) (map[string]ProviderDefinition, e
 		if entry.IsDir() || !shouldLoadRuntimeName(name) || (!strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml")) {
 			continue
 		}
-		definition, err := LoadProviderFile(filepath.Join(dir, name), ssoIdTokenFile)
+		tree, err := config.LoadYAMLTree(filepath.Join(dir, name))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("load provider %s: %w", entry.Name(), err)
 		}
-		if definition.Key != "" {
-			result[definition.Key] = definition
+		values, _ := tree.(map[string]any)
+		key := strings.TrimSpace(stringNode(values["key"]))
+		if key == "" {
+			continue
+		}
+		baseURL := resolveProviderBaseURL(values)
+		apiKey := strings.TrimSpace(stringNode(values["apiKey"]))
+		protocols, err := loadProviderProtocols(values, baseURL)
+		if err != nil {
+			return nil, fmt.Errorf("load provider %s: %w", entry.Name(), err)
+		}
+		if _, exists := values["memory"]; exists {
+			return nil, fmt.Errorf("load provider %s: memory is no longer supported; remove this field (KBASE uses embedding models)", entry.Name())
+		}
+		requestIDHeader, err := ParseRequestIDHeader(values["requestIdHeader"])
+		if err != nil {
+			return nil, fmt.Errorf("load provider %s: %w", entry.Name(), err)
+		}
+		embeddingConfig := loadProviderEmbedding(values)
+		if _, legacy := values["useAccessToken"]; legacy {
+			return nil, fmt.Errorf("load provider %s: useAccessToken was replaced by useSsoIdToken; run deploy migration", entry.Name())
+		}
+		useSsoIdToken := parseTruthy(stringNode(values["useSsoIdToken"]))
+		providerTokenFile := ""
+		if useSsoIdToken {
+			// apiKey is ignored so a stale registered key can never shadow the login identity.
+			apiKey = ""
+			providerTokenFile = ssoIdTokenFile
+		}
+		result[key] = ProviderDefinition{
+			Key:             key,
+			BaseURL:         baseURL,
+			APIKey:          apiKey,
+			UseSsoIdToken:   useSsoIdToken,
+			SsoIdTokenFile:  providerTokenFile,
+			DefaultModel:    strings.TrimSpace(stringNode(values["defaultModel"])),
+			EndpointPath:    resolveProviderEndpointPath(values, baseURL, "OPENAI"),
+			RequestIDHeader: requestIDHeader,
+			Protocols:       protocols,
+			Embedding:       embeddingConfig,
 		}
 	}
 	return result, nil
-}
-
-// LoadProviderFile decodes one definition without scanning unrelated registry entries.
-func LoadProviderFile(path, ssoIdTokenFile string) (ProviderDefinition, error) {
-	tree, err := config.LoadYAMLTree(path)
-	if err != nil {
-		return ProviderDefinition{}, fmt.Errorf("load provider %s: %w", filepath.Base(path), err)
-	}
-	values, _ := tree.(map[string]any)
-	key := strings.TrimSpace(stringNode(values["key"]))
-	if key == "" {
-		return ProviderDefinition{}, nil
-	}
-	baseURL := resolveProviderBaseURL(values)
-	apiKey := strings.TrimSpace(stringNode(values["apiKey"]))
-	protocols, err := loadProviderProtocols(values, baseURL)
-	if err != nil {
-		return ProviderDefinition{}, fmt.Errorf("load provider %s: %w", filepath.Base(path), err)
-	}
-	if _, exists := values["memory"]; exists {
-		return ProviderDefinition{}, fmt.Errorf("load provider %s: memory is no longer supported; remove this field (KBASE uses embedding models)", filepath.Base(path))
-	}
-	requestIDHeader, err := ParseRequestIDHeader(values["requestIdHeader"])
-	if err != nil {
-		return ProviderDefinition{}, fmt.Errorf("load provider %s: %w", filepath.Base(path), err)
-	}
-	embeddingConfig := loadProviderEmbedding(values)
-	if _, legacy := values["useAccessToken"]; legacy {
-		return ProviderDefinition{}, fmt.Errorf("load provider %s: useAccessToken was replaced by useSsoIdToken; run deploy migration", filepath.Base(path))
-	}
-	useSsoIdToken := parseTruthy(stringNode(values["useSsoIdToken"]))
-	providerTokenFile := ""
-	if useSsoIdToken {
-		// apiKey is ignored so a stale registered key can never shadow the login identity.
-		apiKey = ""
-		providerTokenFile = ssoIdTokenFile
-	}
-	return ProviderDefinition{
-		Key:             key,
-		BaseURL:         baseURL,
-		APIKey:          apiKey,
-		UseSsoIdToken:   useSsoIdToken,
-		SsoIdTokenFile:  providerTokenFile,
-		DefaultModel:    strings.TrimSpace(stringNode(values["defaultModel"])),
-		EndpointPath:    resolveProviderEndpointPath(values, baseURL, "OPENAI"),
-		RequestIDHeader: requestIDHeader,
-		Protocols:       protocols,
-		Embedding:       embeddingConfig,
-	}, nil
 }
 
 func loadProviderEmbedding(values map[string]any) ProviderEmbeddingConfig {
@@ -863,101 +852,90 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 		if entry.IsDir() || !shouldLoadRuntimeName(name) || (!strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml")) {
 			continue
 		}
-		definition, err := LoadModelFile(filepath.Join(dir, name))
+		tree, err := config.LoadYAMLTree(filepath.Join(dir, name))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("load model %s: %w", entry.Name(), err)
 		}
-		if definition.Key != "" {
-			result[definition.Key] = definition
+		values, _ := tree.(map[string]any)
+		key := strings.TrimSpace(stringNode(values["key"]))
+		if key == "" {
+			continue
 		}
+		modelType, ok := NormalizeModelType(stringNode(values["type"]))
+		if !ok {
+			return nil, fmt.Errorf("load model %s: invalid type %q: %s", entry.Name(), stringNode(values["type"]), InvalidModelTypeMessage(stringNode(values["type"])))
+		}
+		protocol := strings.ToUpper(strings.TrimSpace(stringNode(values["protocol"])))
+		if IsACPPassthroughProtocol(protocol) && modelType != ModelTypeChat {
+			return nil, fmt.Errorf("load model %s: ACP_PASSTHROUGH is only supported for type: chat", entry.Name())
+		}
+		if err := ValidateModelTypeProtocol(modelType, protocol); err != nil {
+			return nil, fmt.Errorf("load model %s: %w", entry.Name(), err)
+		}
+		pricing := ParseModelPricing(values["pricing"])
+		if err := ValidateModelPricing(pricing, modelType); err != nil {
+			return nil, fmt.Errorf("load model %s: %w", entry.Name(), err)
+		}
+		reasoningEffortMapping, err := ParseReasoningEffortMapping(values["reasoningEffortMapping"], modelType, protocol)
+		if err != nil {
+			return nil, fmt.Errorf("load model %s: %w", entry.Name(), err)
+		}
+		if protocol == "" || protocol == "OPENAI" {
+			if _, err := ParseOpenAIResponseCompat(values["compat"]); err != nil {
+				return nil, fmt.Errorf("load model %s: %w", entry.Name(), err)
+			}
+		}
+		if err := ValidatePlatformOwnedCompat(protocol, values["compat"]); err != nil {
+			return nil, fmt.Errorf("load model %s: %w", entry.Name(), err)
+		}
+		keepRecent := contracts.AnyIntNode(values["l1KeepRecentRounds"])
+		if raw, exists := values["l1KeepRecentRounds"]; exists && (keepRecent < 5 || keepRecent > 10 || fmt.Sprint(raw) != fmt.Sprint(keepRecent)) {
+			return nil, fmt.Errorf("model %s: l1KeepRecentRounds must be an integer from 5 to 10", key)
+		}
+		maxOutput := contracts.AnyIntNode(values["maxOutputTokens"])
+		if raw, exists := values["maxOutputTokens"]; exists && (maxOutput <= 0 || fmt.Sprint(raw) != fmt.Sprint(maxOutput)) {
+			return nil, fmt.Errorf("model %s: maxOutputTokens must be a positive integer", key)
+		}
+		model := ModelDefinition{
+			L1KeepRecentRounds:     keepRecent,
+			Key:                    key,
+			Name:                   strings.TrimSpace(stringNode(values["name"])),
+			Icon:                   strings.TrimSpace(stringNode(values["icon"])),
+			Provider:               strings.TrimSpace(stringNode(values["provider"])),
+			Type:                   modelType,
+			Protocol:               protocol,
+			ModelID:                strings.TrimSpace(stringNode(values["modelId"])),
+			IsFunction:             parseTruthy(stringNode(values["isFunction"])),
+			IsReasoner:             parseTruthy(stringNode(values["isReasoner"])),
+			IsVision:               parseTruthyDefault(values["isVision"], false),
+			ContextWindow:          contracts.AnyIntNode(values["maxInputTokens"]),
+			MaxOutputTokens:        maxOutput,
+			Timeout:                intNode(values["timeout"]),
+			Pricing:                pricing,
+			Headers:                stringMapNode(values["headers"]),
+			Compat:                 contracts.CloneAnyMap(contracts.AnyMapNode(values["compat"])),
+			ReasoningEfforts:       stringSliceNode(values["reasoningEfforts"]),
+			ReasoningEffortMapping: reasoningEffortMapping,
+			ServiceTiers:           stringSliceNode(values["serviceTiers"]),
+			Embedding:              loadModelEmbedding(values["embedding"]),
+			Reranker:               ModelRerankerConfig{EndpointPath: strings.TrimSpace(stringNode(contracts.AnyMapNode(values["reranker"])["endpointPath"]))},
+			Image:                  loadModelImage(values["image"]),
+		}
+		if modelType == ModelTypeImage {
+			imageValues := contracts.AnyMapNode(values["image"])
+			if _, exists := imageValues["endpointPath"]; exists {
+				return nil, fmt.Errorf("load model %s: image.endpointPath is no longer supported; configure image.generation.endpointPath", entry.Name())
+			}
+			if _, exists := imageValues["endpoint-path"]; exists {
+				return nil, fmt.Errorf("load model %s: image.endpoint-path is no longer supported; configure image.generation.endpointPath", entry.Name())
+			}
+			if err := ValidateModelImageConfig(model.Image); err != nil {
+				return nil, fmt.Errorf("load model %s: image: %w", entry.Name(), err)
+			}
+		}
+		result[key] = model
 	}
 	return result, nil
-}
-
-// LoadModelFile decodes one definition without scanning unrelated registry entries.
-func LoadModelFile(path string) (ModelDefinition, error) {
-	tree, err := config.LoadYAMLTree(path)
-	if err != nil {
-		return ModelDefinition{}, fmt.Errorf("load model %s: %w", filepath.Base(path), err)
-	}
-	values, _ := tree.(map[string]any)
-	key := strings.TrimSpace(stringNode(values["key"]))
-	if key == "" {
-		return ModelDefinition{}, nil
-	}
-	modelType, ok := NormalizeModelType(stringNode(values["type"]))
-	if !ok {
-		return ModelDefinition{}, fmt.Errorf("load model %s: invalid type %q: %s", filepath.Base(path), stringNode(values["type"]), InvalidModelTypeMessage(stringNode(values["type"])))
-	}
-	protocol := strings.ToUpper(strings.TrimSpace(stringNode(values["protocol"])))
-	if IsACPPassthroughProtocol(protocol) && modelType != ModelTypeChat {
-		return ModelDefinition{}, fmt.Errorf("load model %s: ACP_PASSTHROUGH is only supported for type: chat", filepath.Base(path))
-	}
-	if err := ValidateModelTypeProtocol(modelType, protocol); err != nil {
-		return ModelDefinition{}, fmt.Errorf("load model %s: %w", filepath.Base(path), err)
-	}
-	pricing := ParseModelPricing(values["pricing"])
-	if err := ValidateModelPricing(pricing, modelType); err != nil {
-		return ModelDefinition{}, fmt.Errorf("load model %s: %w", filepath.Base(path), err)
-	}
-	reasoningEffortMapping, err := ParseReasoningEffortMapping(values["reasoningEffortMapping"], modelType, protocol)
-	if err != nil {
-		return ModelDefinition{}, fmt.Errorf("load model %s: %w", filepath.Base(path), err)
-	}
-	if protocol == "" || protocol == "OPENAI" {
-		if _, err := ParseOpenAIResponseCompat(values["compat"]); err != nil {
-			return ModelDefinition{}, fmt.Errorf("load model %s: %w", filepath.Base(path), err)
-		}
-	}
-	if err := ValidatePlatformOwnedCompat(protocol, values["compat"]); err != nil {
-		return ModelDefinition{}, fmt.Errorf("load model %s: %w", filepath.Base(path), err)
-	}
-	keepRecent := contracts.AnyIntNode(values["l1KeepRecentRounds"])
-	if raw, exists := values["l1KeepRecentRounds"]; exists && (keepRecent < 5 || keepRecent > 10 || fmt.Sprint(raw) != fmt.Sprint(keepRecent)) {
-		return ModelDefinition{}, fmt.Errorf("model %s: l1KeepRecentRounds must be an integer from 5 to 10", key)
-	}
-	maxOutput := contracts.AnyIntNode(values["maxOutputTokens"])
-	if raw, exists := values["maxOutputTokens"]; exists && (maxOutput <= 0 || fmt.Sprint(raw) != fmt.Sprint(maxOutput)) {
-		return ModelDefinition{}, fmt.Errorf("model %s: maxOutputTokens must be a positive integer", key)
-	}
-	model := ModelDefinition{
-		L1KeepRecentRounds:     keepRecent,
-		Key:                    key,
-		Name:                   strings.TrimSpace(stringNode(values["name"])),
-		Icon:                   strings.TrimSpace(stringNode(values["icon"])),
-		Provider:               strings.TrimSpace(stringNode(values["provider"])),
-		Type:                   modelType,
-		Protocol:               protocol,
-		ModelID:                strings.TrimSpace(stringNode(values["modelId"])),
-		IsFunction:             parseTruthy(stringNode(values["isFunction"])),
-		IsReasoner:             parseTruthy(stringNode(values["isReasoner"])),
-		IsVision:               parseTruthyDefault(values["isVision"], false),
-		ContextWindow:          contracts.AnyIntNode(values["maxInputTokens"]),
-		MaxOutputTokens:        maxOutput,
-		Timeout:                intNode(values["timeout"]),
-		Pricing:                pricing,
-		Headers:                stringMapNode(values["headers"]),
-		Compat:                 contracts.CloneAnyMap(contracts.AnyMapNode(values["compat"])),
-		ReasoningEfforts:       stringSliceNode(values["reasoningEfforts"]),
-		ReasoningEffortMapping: reasoningEffortMapping,
-		ServiceTiers:           stringSliceNode(values["serviceTiers"]),
-		Embedding:              loadModelEmbedding(values["embedding"]),
-		Reranker:               ModelRerankerConfig{EndpointPath: strings.TrimSpace(stringNode(contracts.AnyMapNode(values["reranker"])["endpointPath"]))},
-		Image:                  loadModelImage(values["image"]),
-	}
-	if modelType == ModelTypeImage {
-		imageValues := contracts.AnyMapNode(values["image"])
-		if _, exists := imageValues["endpointPath"]; exists {
-			return ModelDefinition{}, fmt.Errorf("load model %s: image.endpointPath is no longer supported; configure image.generation.endpointPath", filepath.Base(path))
-		}
-		if _, exists := imageValues["endpoint-path"]; exists {
-			return ModelDefinition{}, fmt.Errorf("load model %s: image.endpoint-path is no longer supported; configure image.generation.endpointPath", filepath.Base(path))
-		}
-		if err := ValidateModelImageConfig(model.Image); err != nil {
-			return ModelDefinition{}, fmt.Errorf("load model %s: image: %w", filepath.Base(path), err)
-		}
-	}
-	return model, nil
 }
 
 func loadModelEmbedding(raw any) ModelEmbeddingConfig {

@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/authn"
-
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -39,7 +37,7 @@ func TestTrustedConnectorAuthReusesExistingState(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &Server{connectorAuth: manager}
-	principal := &authn.Principal{Subject: "desktop-app", Claims: map[string]any{"scope": "app", "device_id": "device"}}
+	principal := &Principal{Subject: "desktop-app", Claims: map[string]any{"scope": "app", "device_id": "device"}}
 	call := func(method string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "/api/connectors/auth?id=demo", nil)
 		r = r.WithContext(WithPrincipal(r.Context(), principal))
@@ -64,7 +62,7 @@ func TestTrustedConnectorAuthReusesExistingState(t *testing.T) {
 
 func TestConnectorExecutionGrantRequiresAuthorityAndCannotSelectOwner(t *testing.T) {
 	server := &Server{connectorGrants: connectorops.NewGrants(context.Background())}
-	call := func(p *authn.Principal, body string) *httptest.ResponseRecorder {
+	call := func(p *Principal, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "/api/connectors/execution/grants", strings.NewReader(body))
 		if p != nil {
 			r = r.WithContext(WithPrincipal(r.Context(), p))
@@ -73,12 +71,12 @@ func TestConnectorExecutionGrantRequiresAuthorityAndCannotSelectOwner(t *testing
 		server.handleConnectorExecutionGrant(w, r)
 		return w
 	}
-	for _, p := range []*authn.Principal{nil, {Subject: "", Claims: map[string]any{"scope": "app", "device_id": "device"}}, {Subject: "desktop-app", Claims: map[string]any{"scope": "app"}}, {Subject: "desktop-app", Claims: map[string]any{"scope": "user", "device_id": "device"}}} {
+	for _, p := range []*Principal{nil, {Subject: "", Claims: map[string]any{"scope": "app", "device_id": "device"}}, {Subject: "desktop-app", Claims: map[string]any{"scope": "app"}}, {Subject: "desktop-app", Claims: map[string]any{"scope": "user", "device_id": "device"}}} {
 		if w := call(p, `{"idempotencyNamespace":"calendar","operations":{}}`); w.Code != 403 {
 			t.Fatal("accepted unauthenticated or non-app host", w.Body.String())
 		}
 	}
-	principal := &authn.Principal{Subject: "desktop-app", Claims: map[string]any{"scope": "app", "device_id": "device"}}
+	principal := &Principal{Subject: "desktop-app", Claims: map[string]any{"scope": "app", "device_id": "device"}}
 	if w := call(principal, `{"idempotencyNamespace":"calendar","subject":"bob","operations":{}}`); w.Code != 400 {
 		t.Fatal("owner accepted from payload")
 	}
@@ -110,7 +108,7 @@ func TestConnectorExecutionGrantRejectsApplicationModel(t *testing.T) {
 		`{"version":3,"idempotencyNamespace":"stable","execution":[],"subject":"other"}`,
 	} {
 		r := httptest.NewRequest("POST", "/api/connectors/execution/grants", strings.NewReader(body))
-		r = r.WithContext(WithPrincipal(r.Context(), &authn.Principal{Subject: "authority", Claims: map[string]any{"scope": "app", "device_id": "device"}}))
+		r = r.WithContext(WithPrincipal(r.Context(), &Principal{Subject: "authority", Claims: map[string]any{"scope": "app", "device_id": "device"}}))
 		w := httptest.NewRecorder()
 		s.handleConnectorExecutionGrant(w, r)
 		if w.Code != 400 && w.Code != 409 {
@@ -120,7 +118,7 @@ func TestConnectorExecutionGrantRejectsApplicationModel(t *testing.T) {
 }
 
 func TestExecutionAuthenticationRouting(t *testing.T) {
-	s := &Server{router: http.NewServeMux(), authVerifier: authn.NewJWTVerifier(config.AuthConfig{}), connectorGrants: connectorops.NewGrants(t.Context())} // Auth.Enabled=false must not bypass authentication.
+	s := &Server{router: http.NewServeMux(), authVerifier: NewJWTVerifier(config.AuthConfig{}), connectorGrants: connectorops.NewGrants(t.Context())} // Auth.Enabled=false must not bypass authentication.
 	s.routes()
 	for _, path := range []string{"/api/connectors/execution/grants", "/api/connectors/auth", "/api/connectors/auth/cancel", "/api/chat/artifacts/list", "/api/chat/artifacts/get", "/api/chat/artifacts/read"} {
 		for _, authorization := range []string{"", "Bearer cxg_restricted", "Bearer wap_retired"} {

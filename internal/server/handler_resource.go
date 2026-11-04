@@ -1,8 +1,6 @@
 package server
 
 import (
-	"agent-platform/internal/authn"
-
 	"bufio"
 	"context"
 	"crypto/sha256"
@@ -219,7 +217,7 @@ func (s *Server) resolveResourcePath(chatID string, relativePath string, origina
 	return s.deps.Archives.ResolveResource(chatID, relativePath)
 }
 
-func (s *Server) principalCanAccessResourceChat(principal *authn.Principal, chatID string) bool {
+func (s *Server) principalCanAccessResourceChat(principal *Principal, chatID string) bool {
 	if principal == nil || strings.TrimSpace(principal.Subject) == "" {
 		return true
 	}
