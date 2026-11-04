@@ -8,7 +8,6 @@ import (
 	"io"
 	"strings"
 	"sync"
-	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
@@ -688,7 +687,7 @@ func (r *ToolRouter) invokeWithPolicy(ctx context.Context, toolName string, exec
 		}
 	}
 	retryCount := 0
-	timeout := 30 * time.Second
+	timeout := defaultToolCallTimeout
 	if budget.Tool.Timeout > 0 {
 		timeout = toolTimeout(budget.Tool)
 	}
@@ -699,6 +698,12 @@ func (r *ToolRouter) invokeWithPolicy(ctx context.Context, toolName string, exec
 	// change the requested wait. The parent Run cancellation still applies.
 	if toolName == "wait" {
 		timeout, retryCount = 0, 0
+	}
+	// Web control applies the per-call timeout to each attempt itself, so a Run
+	// can stay suspended while the user connects the browser it needs. The
+	// router still keeps an overall ceiling instead of leaving the call untimed.
+	if isWebControlTool(toolName) {
+		timeout = webControlCallLimit(timeout)
 	}
 	var lastErr error
 	for attempt := 0; attempt <= retryCount; attempt++ {

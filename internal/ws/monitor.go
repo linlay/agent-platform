@@ -540,12 +540,12 @@ func (c *Conn) monitorRuntimeDetails() monitorRuntimeDetails {
 	}
 }
 
-func (c *Conn) recordInboundMessage(raw []byte, req RequestFrame, errorText string) {
+func (c *Conn) recordInboundMessage(raw []byte, req RequestFrame, errorText string, browserFileTransfer bool) {
 	if c == nil || c.hub == nil || monitorSkipFrame(req.Frame, req.Type) {
 		return
 	}
 	source, deviceID := c.monitorClientMetadata()
-	preview, truncated := monitorInboundPayloadPreview(raw, req)
+	preview, truncated := monitorInboundPayloadPreview(raw, req, browserFileTransfer)
 	c.hub.recordMonitorMessage(MonitorMessage{
 		Timestamp:      time.Now().UnixMilli(),
 		SessionID:      c.SessionID(),
@@ -562,7 +562,16 @@ func (c *Conn) recordInboundMessage(raw []byte, req RequestFrame, errorText stri
 	})
 }
 
-func monitorInboundPayloadPreview(raw []byte, req RequestFrame) (string, bool) {
+func monitorInboundPayloadPreview(raw []byte, req RequestFrame, browserFileTransfer bool) (string, bool) {
+	if browserFileTransfer && (req.Frame == FrameResponse || req.Frame == FrameStream || req.Frame == FrameError) {
+		// Truncating base64 would still leak file bytes. Omit binary fields while
+		// retaining other request diagnostics, even when they use the same field names.
+		var decoded any
+		if json.Unmarshal(raw, &decoded) == nil && monitorOmitBrowserFileData(decoded) {
+			data, _ := json.Marshal(decoded)
+			return monitorPayloadPreview(data)
+		}
+	}
 	if req.Frame == FrameRequest && req.Type == "/api/terminal/input" {
 		var payload struct {
 			TerminalID string `json:"terminalId"`
@@ -585,6 +594,47 @@ func monitorInboundPayloadPreview(raw []byte, req RequestFrame) (string, bool) {
 		return monitorPayloadPreview(data)
 	}
 	return monitorPayloadPreview(raw)
+}
+
+func monitorOmitBrowserFileData(raw any) bool {
+	changed := false
+	switch node := raw.(type) {
+	case map[string]any:
+		for field, value := range node {
+			_, text := value.(string)
+			if text && (field == "chunk" || field == "data") {
+				node[field] = observability.HiddenToken
+				changed = true
+			} else if monitorOmitBrowserFileData(value) {
+				changed = true
+			}
+		}
+	case []any:
+		for _, value := range node {
+			if monitorOmitBrowserFileData(value) {
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
+// Read only the operation declared by a trusted outbound request. Incoming frame
+// fields cannot turn unrelated API diagnostics into browser-file transfers.
+func monitorBrowserFileMethod(req RequestFrame) string {
+	if req.Type != "desktop.cdp.call" {
+		return ""
+	}
+	var payload struct {
+		Method string `json:"method"`
+	}
+	if json.Unmarshal(req.Payload, &payload) != nil {
+		return ""
+	}
+	if payload.Method == "Surface.uploadFiles" || payload.Method == "Surface.readDownload" {
+		return payload.Method
+	}
+	return ""
 }
 
 func (c *Conn) recordOutboundMessage(frame any) {
@@ -631,6 +681,17 @@ func monitorMessageFromOutboundFrame(sessionID string, source string, deviceID s
 
 func monitorOutboundPreviewBytes(frame any) ([]byte, error) {
 	switch value := frame.(type) {
+	case RequestFrame:
+		if method := monitorBrowserFileMethod(value); method == "Surface.uploadFiles" {
+			return json.Marshal(struct {
+				Frame       string `json:"frame"`
+				Type        string `json:"type"`
+				ID          string `json:"id"`
+				Method      string `json:"method"`
+				DataOmitted bool   `json:"dataOmitted"`
+			}{value.Frame, value.Type, value.ID, method, true})
+		}
+		return json.Marshal(value)
 	case ResponseFrame:
 		return json.Marshal(struct {
 			Frame string `json:"frame"`

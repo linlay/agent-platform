@@ -139,29 +139,17 @@ WorkPanel 的每个 Tab 都有一个 surfaceId，Desktop 在 `getState`、`openL
 
 ## 网页控制工具的文件参数
 
-`surface_cdp` 可直接传入 `params` 对象，也可通过 `paramsFile` 读取参数文件。两者互斥（包括显式传入 `params: null`）；都省略时保持无参数调用。
-
-```json
-{
-  "surfaceId": "实际 surfaceId",
-  "method": "DOM.querySelector",
-  "paramsFile": "params.json"
-}
-```
-
-`params.json` 只保存 `params` 内容，不包含外层 `method`、`surfaceId` 等请求字段。
-
-`surface_evaluate` 的 `expression` 与 `expressionFile` 互斥；`expressionFile` 指向一个 UTF-8 JavaScript 文件，内容整体作为表达式，用于内联放不下的大脚本。
+`awcp_invoke` 可直接传入 `revision/action/args`，也可通过 `paramsFile` 读取只含这三个字段的 UTF-8 JSON 文件，两者互斥。网页控制不再提供模型脚本（`surface_evaluate`）与原始 CDP（`surface_cdp`）工具，WorkPanel 与 Chrome 使用同一组类型化页面操作。
 
 相对路径按本次执行 Workspace 解析；没有 Workspace 时返回 `workspace_unavailable`，不回退到 Platform 进程目录。也支持 `@workspace`、`@chat`、`@temp` 等通用路径别名，以及经授权的绝对路径；Container 执行路径使用现有映射解析为 Host 路径。文件读取复用 AccessPolicy 和文件预审批，越权读取进入 HITL，批准后继续执行；canonical 路径校验与临时根逃逸阻断仍生效。
 
-`paramsFile` 必须是 UTF-8 编码的单个 JSON 对象，拒绝目录、设备等非普通文件、空内容、`null`、数组、JSON 后的额外内容及非法 JSON；`expressionFile` 必须是非空 UTF-8 文本。读取上限复用 `configs/tools.yml -> file-tools.max-read-bytes`（默认 1 MiB），超限报错，不截断。路径、读取、JSON 或大小校验失败时均不向 Desktop 发送请求。
+`paramsFile` 必须是 UTF-8 编码的单个 JSON 对象，拒绝目录、设备等非普通文件、空内容、`null`、数组、JSON 后的额外内容及非法 JSON。读取上限复用 `configs/tools.yml -> file-tools.max-read-bytes`（默认 1 MiB），超限报错，不截断。路径、读取、JSON 或大小校验失败时均不向 Desktop 发送请求。
 
-Platform 读取后保留原始 JSON 类型并发送 `params`，不再将字符串布尔值静默转换；`paramsFile`、`expressionFile` 路径不进入 `desktop.cdp.call` payload。Desktop CDP 协议和页面目标授权保持现有契约。
+Platform 读取后保留原始 JSON 类型并发送 `params`，不再将字符串布尔值静默转换；`paramsFile` 路径不进入 `desktop.awcp.invoke` payload。Desktop CDP 协议和页面目标授权保持现有契约。
 
 ## Desktop 反向 Provider
 
-平台控制连接器提供 9 个静态工具，各自 action 枚举固定；看板连接器 `builtin.kanban-control` 独立提供 `desktop_kanban` 的 6 个动作；知识库检索连接器 `builtin.kbase-control` 提供 4 个只读的固定参数工具；任务管理连接器 `builtin.task-control` 提供 8 个工具（6 个 Chat、2 个 Automation），其中四个 Chat 执行工具使用直接参数，其余使用 action/args；网页连接器提供 15 个固定参数工具。Desktop 动作在内部映射到原有反向请求，注册表由 internal/connector/control_actions.go 维护。详见 [平台控制连接器](Platform控制工具设计.md)。
+平台控制连接器提供 9 个静态工具，各自 action 枚举固定；看板连接器 `builtin.kanban-control` 独立提供 `desktop_kanban` 的 6 个动作；知识库检索连接器 `builtin.kbase-control` 提供 4 个只读的固定参数工具；任务管理连接器 `builtin.task-control` 提供 8 个工具（6 个 Chat、2 个 Automation），其中四个 Chat 执行工具使用直接参数，其余使用 action/args；网页连接器提供 22 个固定参数工具。Desktop 动作在内部映射到原有反向请求，注册表由 internal/connector/control_actions.go 维护。详见 [平台控制连接器](Platform控制工具设计.md)。
 
 `platform_inspect.checkConnector` 是显式的 HTTP MCP 诊断动作，参数 `connectorId` 与可选 `component`（默认 main），仅普通 native 主 Run 可调用。检查使用保存的连接器配置和内部凭据、独立短期 MCP SDK 会话，分别返回包校验、授权发现（仅 mcp 模式缺少授权时）、初始化/协商版本、分页工具发现结果，远端阶段限时 30 秒。它不依赖 Agent 挂载、不改变运行时工具目录，也不执行业务工具或启动 stdio/CLI；支持 none/mcp/token（`oauth` 作为 `mcp` 别名读取）。需授权模式下，缺少授权、401 或明确的 insufficient_scope 返回 authorization_required 与现有详情页路径；mcp 授权发现失败时返回 failed 与 `authorization.code`，因为此时登录无法开始，用户登录后另轮回读和重试；no_auth 下的认证拒绝返回 authentication_mismatch，普通 403 返回 permission_denied，后续超时和网络失败保留真实分类。检查有意按只读诊断免审批，但会携带对应凭据联网，未增加网络目标白名单或内网隔离，完整权限边界见 [平台控制连接器](Platform控制工具设计.md)。查询连接器源码的授权快照和 runtimeStatus 保持本地/缓存读取，不隐式联网；HTTP 200/401 本身不能代替 MCP 协议验收。
 
@@ -259,11 +247,11 @@ Desktop 拥有按方法的参数预检和目标授权；Platform 不复制 Chrom
 
 ## 整合点击能力
 
-已挂载 `builtin.web-control` 的 Agent 通过 `surface_click` 使用整合点击能力：`surfaceId` 选择页面，`selector` 或 `x`/`y`、可选 `waitFor` 直接作为工具参数。它映射为一次 `desktop.cdp.call` 的 `Input.click`，复用可信 Run 来源和现有页面/WorkPanel 授权，不增加网络入口。`Input.click` 由 Desktop 编排，不直接转发给 Chromium。
+已挂载 `builtin.web-control` 的 Agent 通过 `surface_click` 使用整合点击能力：`surfaceId` 选择页面，`selector` 或 `x`/`y`、可选 `waitFor` 直接作为工具参数。旧定位方式映射为一次 `desktop.cdp.call` 的 `Input.click`；语义引用方式传入同一观察返回的 `ref + observationId`，映射为 `Surface.click`。三种定位互斥。两条路径复用可信 Run 来源和页面授权，不增加网络入口；方法由 Desktop 编排，不直接转发给 Chromium。
 
 Desktop 校验 selector 与 x/y 互斥、数值/布尔类型及有界超时；模型不构造按下/释放事件、不写参数文件。Desktop 执行唯一定位、滚动和命中检查、真实左键单击、可选的后置条件观察。`waitFor` 完全可省略，此时只证明输入完成。等待超时、取消、导航和输入结果不确定分别保留动作阶段，不自动重放点击。Windows/macOS 均使用 Chromium CSS 视口坐标，不做宿主 DPI 换算。
 
-工具参数使用标准 CSS `selector` 或数字 `x/y`，二者互斥；可选整数 `timeoutMs` 为 100–10000，默认 3000。可选 `waitFor` 支持 visible/hidden（selector）、value（selector 与字符串 value）、checked（selector 与布尔 checked）、url（仅字符串 value）条件。Desktop 的执行结果区分 `action.outcome` 与 `conditionMatched`。工具结果外层成功只证明协议成功，不能代替页面/业务成功。底层输入事件仍可经 `surface_cdp` 发送，但正常点击不再拆为多次模型调用。Desktop 与 Platform 需配套更新；旧 Desktop 拒绝新方法时明确报告版本能力缺失，不把它当成点击失败后重试。
+旧定位方式使用标准 CSS `selector` 或数字 `x/y`；语义引用方式另可传整数 `timeoutMs`，范围 100–10000、默认 3000，旧模型工具参数范围保持不变。可选 `waitFor` 支持 visible/hidden（selector）、value（selector 与字符串 value）、checked（selector 与布尔 checked）、url（仅字符串 value）条件。Desktop 的执行结果区分 `action.outcome` 与 `conditionMatched`。工具结果外层成功只证明协议成功，不能代替页面/业务成功。WorkPanel 与 Chrome 的点击、交互和滚动结果都附带跟随观察。Desktop 与 Platform 需配套更新；旧 Desktop 拒绝新方法时明确报告版本能力缺失，不把它当成点击失败后重试。
 
 ## Desktop Action 错误诊断
 
@@ -279,7 +267,19 @@ Platform 对 WebApp 指定路径字段复用当前 Session 的 `@chat` 与 `@wor
 
 每个网页是一个独立 Surface，由 `surfaceId` 标识；导航和刷新保留身份，关闭重开使旧身份失效。网页控制工具以 `surface_list` 发现本次 Run 已授权的网页，`surface_state` 省略 `surfaceId` 时读取所属应用的当前页；所有页面操作只使用 `surfaceId`。Desktop 协议中的 `containerId` 与 WorkPanel 条目 ID 不出现在模型工具的参数和结果里。`surface_*` 工具在 Platform 内映射为 `desktop.cdp.call` 的 Surface.list / Surface.getCurrent / Surface.getState / Surface.goBack / Surface.close 等 Desktop 方法和受限 Chromium 方法，由 Desktop 定位到精确 webContents 后执行。
 
-普通 Chat 用 `workpanel_open` 打开网址，返回 `surfaceId` 与状态；这是打开新页面的唯一入口，Website 内的多个标签在 `surface_list` 中是多个独立 Surface。Website/WebApp Copilot 沿用所属应用 Run grant。发现与操作使用相同授权范围，后台页面不因隐藏失效，其他 Chat、文件预览与任意应用不可借此访问。`awcp_manual` / `awcp_invoke` 接受可选 `surfaceId`，只能在已有应用 grant 内选页；省略时沿用该应用活动页，不改变页面桥权限。Platform、Desktop 与技能必须配套发布。
+普通 Chat 用 `workpanel_open` 在右侧 WorkPanel 打开网址并返回 `surfaceId` 与状态；`surface_open {url}` 按本 Run 的浏览器打开 HTTP(S) 网页，未显式选择时使用 WorkPanel，明确选择 Chrome 时才进入获授权的外部工作区。参数仅含 URL，不接受 surfaceId 或浏览器连接参数；Chrome 连接或页面操作失败不会触发跨环境回退。Desktop 管理用户已授权的 live Chrome 工作区；用户开启记住授权时，新 Chrome Chat 可以延续同一 live 工作区与页面，但每个 Run 都要通过自身 canonical Chat/根 owner 的独立租约。backend 与工作区在首次页面请求时固定，已开始页面操作的 WorkPanel Run 不能中途切到 Chrome；记住设置不授权模型修改 source、选择其他工作区或任意 Chrome 标签。没有可用连接时，Desktop 可按用户记住的设置授权懒连接，或要求用户在设置及 Chat 控件中恢复。Platform 不建立或迁移连接，不猜已有标签、profile 或调试端口。宿主连接恢复失败保留为 `browser_connection_required`；网页导航失败则按 `details.clientErrorType` 中的宿主安全码和消息诊断，不能据此要求用户重新授权 Chrome 或盲目重开网页。普通 Chat 的发现和状态结果含 `provider: workpanel | chrome`；其他应用既有 grant 路径保持兼容。
+
+连接等待采用有总期限的可取消长轮询。Desktop 立即返回 pending 时，Platform 只等待两次轮询开始之间最短间隔的剩余部分，避免忙循环；已完成正常长轮询时不额外固定等待。连接成功、失败或取消立即收口，等待本身不重放网页动作。
+
+Chrome 工作区连续性不等于 Run 连续性。重问、新 Chat 与派生 Chat 的新 Run 均重新发现当前获授权页面并取得新观察及 AWCP 手册；历史中的 surface/ref/manual 不构成授权，真实断连重连不复活旧 Surface 身份。同一工作区同时只由一个 Run 实际控制，交接前必须取消并排空旧请求；忙碌时等待或由用户通过宿主接管，不以新 Chat、新连接或 transport 回退规避租约。取消不回滚已经派发的业务操作，未知写入先回读而不重放。浏览器工作区共享不扩大项目 Workspace、Chat 文件与凭据的权限。
+
+`surface_observe {surfaceId,maxTextLength?,maxElements?,viewportOnly?}` 通过 `Surface.observe` 读取语义快照，业务结果为 `{surfaceId,provider,observationId,url,title,text,elements}`，元素含 `ref/role/name` 及可选 `value/tag` 等属性。`surface_click` 与 `surface_element` 的 `ref + observationId` 必须一起提供，分别映射为 `Surface.click` 与 `Surface.interact`，不能与旧选择器/坐标混用；`Surface.interact` 接收 `action/value?/values?/key?`。引用校验和有效期归 Desktop 当前页面与 Run，Platform 不保存快照或将其注入 system prompt。旧 `surface_element` 选择器模式继续走 `desktop.web.interactElement`。观察可通过只读执行策略，开页、点击和填写仍是 mutation；有效工具挂载、Run 排除和 planning 配置继续生效。
+
+Chrome mutation 结果保留原动作 outcome，并默认附带新的 nested observation；模型直接使用其 observationId/ref 继续，观察失败只附 observationError，不能把原动作改报失败或自动重放。原生 alert/confirm/prompt 使用 surface_dialog 和当前观察中的 dialogId 明确处理，不授予浏览器站点权限、验证码或扩展授权能力。扩展动作在 Desktop 按 provider 限制为 Chrome，不能落入 WorkPanel 旧脚本动作。
+
+surface_upload 仅读取当前 Chat 已存在的公开文件引用，经 canonical AccessPolicy 与 os.Root 再次限制在 Chat 内；最多 8 文件，单个与合计均 4 MiB，私下转换为 Surface.uploadFiles 的 files[{name,mimeType,data}]，模型与日志不持有 data。上传总量受 Desktop 单帧 8 MiB 限制，不扩大通用 WebSocket 上限。surface_downloads 的 list/save 分别映射 Surface.getDownloads/Surface.readDownload；save 利用既有 64 MiB 分块 collector，验证单文件 4 MiB 上限、size 与 SHA-256，600 权限、临时文件 fsync 后原子不覆盖发布到当前 Chat，再把字节替换为 referenceName/url/size/sha 元数据。Chat 内工具私有收据绑定页面和 downloadId；重复 save 先核验已存文件的大小与 SHA-256，复用同一引用，不重读浏览器或再次下载，文件被修改则保留并报告冲突。完整持久化成功后才发送私有 `Surface.releaseDownload({downloadId,sha256})` 回收宿主副本，ACK 失败返回 `saved:true,cleanupPending:true`，不把成功保存改报失败；宿主按当前 Run 已观察的下载身份及 SHA-256 校验回收，释放后不占保留名额。worker 只暂存最多 8 条/合计 16 MiB，列表可额外携带一条明确的 file_transfer_limit 拒绝回执，不算第九个保留文件，断连前应保存，不扫描用户 Downloads。`surface_click.captureDownload` 是可选布尔值，默认 false；仅显式 true 时为此次点击启用 Chat 导入。Chrome 只导入声明 Content-Length 不超过 4 MiB 且没有 Content-Encoding/Transfer-Encoding 的原始 HTTP(S) attachment 响应；未知长度、压缩或超限响应保留原生下载，不终止、不二次请求。WorkPanel 也仅在显式标志下有界捕获原生下载。文件桥接 request/response/stream 的 monitor 预览省略字节。
+
+Chrome 与 WorkPanel 提供相同的 AWCP 业务能力与语义观察、引用操作、页面生命周期、截图、受控按键/多选/滚动、原生网页弹窗和文件传递；两者都不提供模型脚本或原始 CDP。AWCP 沿用同一手册、章节和 invoke 信封，不增加动态工具或模型脚本入口。普通 Chat 必须传入精确 `surfaceId` 并通过原 canonical Run 门禁，再由 Desktop 按冻结的 backend 路由；Chrome 的宿主失败、取消或页面拒绝不能回退到 WorkPanel。业务优先使用匹配的 AWCP 章节；协议缺失、有效目录没有匹配动作或任务明确允许标准界面操作时，才使用相应标准工具，未知写入结果不能转成点击重放。引用是标准操作的主要定位方式；具有当前页面证据的 CSS/坐标兼容入口仍可达，不绕过页面/Run 身份校验。WorkPanel 保留既有 Chat 归属和选择器能力；Website/WebApp Copilot 的所属应用 Run grant 不变。Chrome 发现与操作仅限当前 Run 的获授权工作区，后台页面不因隐藏失效，工作区之外的标签、文件预览和任意应用不能借此访问。`awcp_manual` / `awcp_invoke` 仅在已有应用 grant 内可以省略 `surfaceId` 沿用该应用活动页，不改变页面桥权限。截图以当前 Chat 的 `referenceName` 交付；仅保存或交付截图不调用 `vision_recognize`，需要理解画面或视觉定位时才使用该识别链路，不把保存成功当成已完成视觉确认，也不把 MCP 图片直接当成主模型多模态结果。Platform 二进制、内嵌工具及技能与 Desktop 必须配套发布，新工具在新 Run 生效，不修改部署配置或已安装的运行包缓存。
 
 ### Desktop 确认期限与取消
 
@@ -366,7 +366,7 @@ activityArgs: [description, filePath]
 | file_grep / regex | caseInsensitive、lineNumbers、multiline / caseInsensitive |
 | workpanel_open / workpanel_close | reload / all |
 | surface_viewport | mobile、reset |
-| surface_navigate / surface_screenshot / surface_evaluate | ignoreCache / fullPage / awaitPromise |
+| surface_navigate / surface_screenshot / surface_observe | ignoreCache / fullPage / viewportOnly |
 | ask_user_question | questions[].allowFreeText、questions[].options[].recommended |
 | chat_query / chat_manage | 各 action 声明的 archived、pinned |
 | desktop_site / site.setPinned | args.pinned |

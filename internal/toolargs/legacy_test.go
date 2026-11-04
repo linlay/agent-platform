@@ -62,7 +62,6 @@ func TestCanonicalAndOpaqueArgumentsPass(t *testing.T) {
 		{"image_generate", `{"images":[{"sourceType":"referenceName","value":"image.png"}],"mask":{"sourceType":"filePath","value":"@chat/mask.png","mode":"white_edit"},"responseFormat":"b64_json"}`},
 		{"vision_recognize", `{"images":[{"referenceName":"image.png"}],"outputFormat":"text"}`},
 		{"awcp_invoke", `{"revision":"r","action":"orders.read","args":{"file_path":"opaque"}}`},
-		{"surface_cdp", `{"method":"DOM.querySelector","params":{"node_id":1}}`},
 		{"desktop_action", `{"args":{"source_type":"opaque"}}`},
 		{"mcp_external", `{"file_path":"opaque","response_format":"url"}`},
 	} {
