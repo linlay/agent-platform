@@ -18,6 +18,8 @@ type ASRClient struct {
 	silenceMS int
 }
 
+var errRecordingLimit = errors.New("voice recording limit exceeded")
+
 func NewASRClient(model models.ModelDefinition, provider models.ProviderDefinition, silenceMS int) (*ASRClient, error) {
 	if silenceMS < 200 || silenceMS > 6000 {
 		return nil, errors.New("invalid voice sentence silence")
@@ -49,8 +51,9 @@ func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode str
 		}
 	}()
 	id := uuid.NewString()
-	// Audio stays buffered in the channel until task-started.
-	conn, end, err := c.socket.start(ctx, id, map[string]any{"task_group": "audio", "task": "asr", "function": "recognition", "model": c.socket.model.ModelID, "input": map[string]any{}, "parameters": map[string]any{"format": "pcm", "sample_rate": 16000, "semantic_punctuation_enabled": false, "max_sentence_silence": c.silenceMS}})
+	// Audio stays buffered until task-started. Provider heartbeat keeps silent
+	// PCM valid while the local recording bounds still limit each task.
+	conn, end, err := c.socket.start(ctx, id, map[string]any{"task_group": "audio", "task": "asr", "function": "recognition", "model": c.socket.model.ModelID, "input": map[string]any{}, "parameters": map[string]any{"format": "pcm", "sample_rate": 16000, "semantic_punctuation_enabled": false, "max_sentence_silence": c.silenceMS, "heartbeat": true}})
 	if err != nil {
 		return "", err
 	}
@@ -116,7 +119,7 @@ func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode str
 		}
 		totalBytes += len(pcm)
 		if totalBytes > maxRecordingPCM {
-			return errors.New("voice recording limit exceeded")
+			return errRecordingLimit
 		}
 		return sendPCM(pcm)
 	}

@@ -53,6 +53,7 @@ type voiceTestProvider struct {
 	pcmBytes   atomic.Int32
 	transcript atomic.Value
 	autoFinal  atomic.Bool
+	partial    atomic.Bool
 	holdStart  atomic.Bool
 	failTTS    atomic.Bool
 }
@@ -104,6 +105,11 @@ func voiceProvider(t *testing.T) (*httptest.Server, *voiceTestProvider) {
 					}
 					if kind == websocket.BinaryMessage {
 						p.pcmBytes.Add(int32(len(data)))
+						if p.partial.CompareAndSwap(true, false) {
+							if emit("result-generated", map[string]any{"begin_time": 0, "text": p.transcript.Load().(string), "sentence_end": false}) != nil {
+								return
+							}
+						}
 						if p.pcmBytes.Load() >= 642 && p.autoFinal.CompareAndSwap(true, false) {
 							if emit("result-generated", map[string]any{"begin_time": 0, "text": p.transcript.Load().(string), "sentence_end": true}) != nil {
 								return
@@ -989,6 +995,62 @@ func TestVoiceSilentTaskLimitKeepsSessionAndDoesNotCreateRun(t *testing.T) {
 	stop, _ := voiceUntil(t, c, "tts", "stop")
 	if stop["turn"] != float64(2) || stop["reason"] != "done" || len(queryLines(t, f, chatID)) != 1 {
 		t.Fatal("same session did not accept exactly one subsequent question", stop)
+	}
+}
+
+func TestVoiceAudioLimitKeepsSilentSessionButRejectsUnfinishedSpeech(t *testing.T) {
+	for _, heard := range []bool{false, true} {
+		t.Run(fmt.Sprintf("heard=%t", heard), func(t *testing.T) {
+			f := newTestFixture(t)
+			srv, p := enableVoiceFixture(t, f, nil)
+			p.partial.Store(heard)
+			c, chatID := dialVoice(t, srv, "", 16000)
+			if err := c.WriteJSON(map[string]any{"type": "listen", "state": "start", "mode": "auto"}); err != nil {
+				t.Fatal(err)
+			}
+			// Deliver 60.020s of PCM ahead of the wall-clock deadline, as browser
+			// callback batches can do at the recording boundary. Pace by provider
+			// consumption so this does not exercise the separate startup buffer limit.
+			deadline := time.Now().Add(10 * time.Second)
+			for frame := 1; frame <= 3001; frame++ {
+				if err := c.WriteMessage(websocket.BinaryMessage, make([]byte, 640)); err != nil {
+					t.Fatal(err)
+				}
+				if frame == 1 && heard {
+					partial, _ := voiceUntil(t, c, "stt", "")
+					if partial["final"] != false || partial["text"] == "" {
+						t.Fatal("missing unfinished speech", partial)
+					}
+				}
+				if frame%50 == 0 {
+					for p.pcmBytes.Load() < int32(frame*640) {
+						if time.Now().After(deadline) {
+							t.Fatal("provider stopped consuming PCM")
+						}
+						time.Sleep(time.Millisecond)
+					}
+				}
+			}
+			result, _ := readVoice(t, c)
+			if heard {
+				if result["type"] != "error" || result["code"] != "recording_limit" {
+					t.Fatal("unfinished speech was silently discarded", result)
+				}
+			} else if result["type"] != "stt" || result["final"] != true || result["text"] != "" {
+				t.Fatal("silent audio limit became an error", result)
+			}
+			if result["turn"] != float64(1) || p.pcmBytes.Load() != 1920000 {
+				t.Fatal("recording limit or turn isolation changed", result, p.pcmBytes.Load())
+			}
+			if summary, err := f.chats.Summary(chatID); err != nil || summary != nil || p.tts.Load() != 0 {
+				t.Fatal("audio limit created Chat/Run/TTS")
+			}
+			speakVoice(t, c)
+			stop, _ := voiceUntil(t, c, "tts", "stop")
+			if stop["turn"] != float64(2) || stop["reason"] != "done" || len(queryLines(t, f, chatID)) != 1 {
+				t.Fatal("same session did not accept exactly one subsequent question", stop)
+			}
+		})
 	}
 }
 

@@ -290,6 +290,49 @@ func TestASRWaitsThroughSilenceUntilCallerStops(t *testing.T) {
 	}
 }
 
+func TestASRSilentAudioHeartbeatThenSpeech(t *testing.T) {
+	for _, mode := range []string{"auto", "manual"} {
+		t.Run(mode, func(t *testing.T) {
+			p := fakeVoice(t, func(c *websocket.Conn) {
+				start := readCommand(t, c, "run-task")
+				id := start.Header.ID
+				event(t, c, id, "task-started", nil)
+				kind, pcm, err := c.ReadMessage()
+				if err != nil || kind != websocket.BinaryMessage || !bytes.Equal(pcm, make([]byte, 640)) {
+					t.Error("expected a silent PCM frame", err)
+					return
+				}
+				// Paraformer times out on continuous silence unless heartbeat is enabled.
+				if start.Payload.Parameters["heartbeat"] != true {
+					event(t, c, id, "task-failed", nil)
+					return
+				}
+				for i := 0; i < 3; i++ {
+					event(t, c, id, "result-generated", map[string]any{"heartbeat": true, "text": "heartbeat", "sentence_end": true})
+				}
+				event(t, c, id, "result-generated", map[string]any{"begin_time": 1000, "text": "稍后才说话。", "sentence_end": true})
+				readCommand(t, c, "finish-task")
+				event(t, c, id, "task-finished", nil)
+			})
+			input := make(chan []byte, 1)
+			input <- make([]byte, 640)
+			partials := 0
+			text, err := testASR(t, p).Recognize(context.Background(), input, mode, func(text string, stopping bool) {
+				partials++
+				if text != "稍后才说话。" || stopping != (mode == "auto") {
+					t.Error("heartbeat leaked into recognition or changed stop behavior", text, stopping)
+				}
+				if mode == "manual" && partials == 1 {
+					close(input)
+				}
+			})
+			if err != nil || text != "稍后才说话。" || partials != 1 {
+				t.Fatalf("silence prevented subsequent speech: text=%q partials=%d err=%v", text, partials, err)
+			}
+		})
+	}
+}
+
 func TestASRStillBoundsFinalizationWithoutProviderEvents(t *testing.T) {
 	p := fakeVoice(t, func(c *websocket.Conn) {
 		start := readCommand(t, c, "run-task")
