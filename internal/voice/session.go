@@ -541,9 +541,10 @@ func (s *session) event(e sessionEvent) error {
 		return s.write(map[string]any{"type": "stt", "turn": t.number, "text": e.text, "final": false})
 	case "recognized":
 		s.stopListening(t)
-		// Keep the existing 60s task bound. A silent interval with incoming
-		// audio is a normal empty turn, not a failed conversation or a Query.
-		if errors.Is(e.err, context.DeadlineExceeded) && !t.heard && t.pcmBytes > 0 {
+		// Either 60s bound can win: buffered PCM can hit its byte limit before
+		// the wall-clock deadline. Both end a silent turn without a Query.
+		atRecordingLimit := errors.Is(e.err, context.DeadlineExceeded) || errors.Is(e.err, errRecordingLimit)
+		if atRecordingLimit && !t.heard && t.pcmBytes > 0 {
 			e.err = nil
 		}
 		observability.Log("voice", map[string]any{"sessionId": s.id, "turn": t.number, "stage": "asr_end", "elapsedMs": time.Since(t.started).Milliseconds(), "audioMs": t.pcmBytes / 32, "heard": t.heard, "failed": e.err != nil})
