@@ -259,6 +259,11 @@ func (s *llmRunStream) openPendingModelCall() error {
 	if err := s.waitModelRetry(); err != nil || len(s.pending) > 0 {
 		return err
 	}
+	if !s.initialModelWaitingPublished && !s.summaryCall && s.session.SubTaskID == "" {
+		s.initialModelWaitingPublished = true
+		s.pending = append(s.pending, DeltaRunActivity{TaskID: s.modelActivityTaskID(), ChatID: s.session.ChatID, Kind: ActivityModelWaiting})
+		return nil
+	}
 	requestSentAt := time.Now()
 	call.attemptStartedAt = requestSentAt
 	trace := s.newChatTrace(call.runSeq, call.prepared, call.effectiveToolChoice)

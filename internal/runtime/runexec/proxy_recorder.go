@@ -195,6 +195,14 @@ func PublishProxyLiveEvent(eventBus *stream.RunEventBus, recorder *ProxyEventRec
 		assignProxySyntheticSeq(&snapshot, seq, event.Seq)
 		publishProxyEventData(eventBus, recorder, snapshot)
 	}
+	// ACP owns its progress messages and may ignore Platform display levels.
+	// Retain its message as opaque internal state for delivery and attach.
+	if stream.IsProgressActivity(event.Type, event.Payload) {
+		if _, internal := event.Payload["activity"]; !internal {
+			event.Payload = contracts.CloneMap(event.Payload)
+			event.Payload["activity"] = map[string]any{"kind": "forwarded", "text": event.String("message")}
+		}
+	}
 	var activities []stream.StreamEvent
 	if recorder != nil {
 		var keep bool
@@ -219,6 +227,10 @@ func PublishProxyLiveEvent(eventBus *stream.RunEventBus, recorder *ProxyEventRec
 
 func assignProxyEventSeq(event *stream.EventData, seq *int64) {
 	if event == nil || seq == nil {
+		return
+	}
+	if stream.IsProgressActivity(event.Type, event.Payload) {
+		event.Seq = 0
 		return
 	}
 	if event.Seq <= 0 || event.Seq <= *seq {

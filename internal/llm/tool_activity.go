@@ -21,8 +21,8 @@ const announceTextLimit = 120
 // non-empty argument its definition lists in activityArgs.
 func (m *DeltaMapper) runActivity(value DeltaRunActivity) map[string]any {
 	switch value.Kind {
-	case ActivityThinking:
-		return map[string]any{"kind": ActivityThinking}
+	case ActivityThinking, ActivityModelWaiting:
+		return map[string]any{"kind": value.Kind}
 	case ActivityToolRun:
 	default:
 		return nil

@@ -310,7 +310,9 @@ func (a *StreamEventAssembler) emit(events []StreamEvent) []EventEmission {
 		normalized := a.normalizer.IsVisible(event)
 		visible := normalized && IsClientVisibleEventData(event.Data())
 		var derived []StreamEvent
-		if visible {
+		if visible || event.Type == "tool.start" {
+			// Even a hidden tool is an effective model response; only clear the
+			// waiting line, without publishing the tool identity.
 			var keep bool
 			keep, derived = a.activities.Track(event.Type, event.Payload)
 			if !keep {

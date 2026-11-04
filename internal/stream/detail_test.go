@@ -21,9 +21,9 @@ func TestDetailLevelActivities(t *testing.T) {
 	if DetailSimple.Allows("run.activity", progress) || !DetailSimple.Allows("run.activity", retry) {
 		t.Fatal("simple must hide automatic progress and deliver retries")
 	}
-	// detailed is a superset: one detailed stream serves viewers of either level.
-	if !DetailDetailed.Allows("run.activity", progress) || !DetailDetailed.Allows("run.activity", retry) {
-		t.Fatal("detailed must receive every activity")
+	// Detailed activity selection belongs to the server, not the viewer.
+	if DetailDetailed.Allows("run.activity", progress) || !DetailDetailed.Allows("run.activity", retry) {
+		t.Fatal("detailed must hide automatic progress and deliver retries")
 	}
 }
 

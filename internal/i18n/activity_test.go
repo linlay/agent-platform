@@ -13,6 +13,9 @@ func TestActivityMessageRendersViewerLocale(t *testing.T) {
 		want     string
 	}{
 		{LocaleZhCN, map[string]any{"kind": "thinking"}, "正在思考"},
+		{LocaleZhCN, map[string]any{"kind": "model_waiting"}, "等待模型响应"},
+		{LocaleEN, map[string]any{"kind": "model_waiting"}, "Waiting for model response…"},
+		{LocaleZhCN, map[string]any{"kind": "model_waiting", "finished": true}, ""},
 		{LocaleEN, map[string]any{"kind": "thinking"}, "Thinking…"},
 		{LocaleZhCN, map[string]any{"kind": "reasoning", "reasoningId": ""}, "正在思考"},
 		{LocaleEN, map[string]any{"kind": "reasoning", "reasoningId": ""}, "Thinking…"},
@@ -63,9 +66,9 @@ func TestRetryActivityMessage(t *testing.T) {
 }
 
 func TestLocalizeActivityPayloadDropsTemplate(t *testing.T) {
-	source := map[string]any{"runId": "r", "message": "Thinking…", "activity": map[string]any{"kind": "thinking"}}
+	source := map[string]any{"runId": "r", "kind": "thinking", "initial": true, "message": "Thinking…", "activity": map[string]any{"kind": "thinking"}}
 	out := LocalizeEventPayload(LocaleZhCN, "run.activity", source)
-	if out["message"] != "正在思考" || out["activity"] != nil {
+	if out["message"] != "正在思考" || out["activity"] != nil || out["kind"] != nil || out["initial"] != nil {
 		t.Fatalf("unexpected localized activity %#v", out)
 	}
 	if source["activity"] == nil || source["message"] != "Thinking…" {

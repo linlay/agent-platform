@@ -11,9 +11,8 @@ import (
 // older one of the same scope; an empty message clears it while the user
 // reads visible output (content or a plan), and a Run terminal event clears
 // them all. Progress activities carry an internal "activity" template that
-// the output boundary renders in the viewer's locale, plus its kind at the
-// top level so a viewer or broker can tell an announcement apart after
-// rendering; a model retry carries "retry" instead.
+// the output boundary renders in the viewer's locale. Classification stays
+// internal; public activities expose only the message and optional retry.
 
 // ActivityKindAnnounce is a progress activity the model published through an
 // announcing tool: what the Run does next, in the model's own words.
@@ -80,7 +79,7 @@ func IsRetryActivity(eventType string, payload map[string]any) bool {
 
 // IsAnnounceActivity reports a progress activity that announces next steps.
 func IsAnnounceActivity(eventType string, payload map[string]any) bool {
-	return IsProgressActivity(eventType, payload) && activityKind(payload) == ActivityKindAnnounce
+	return IsProgressActivity(eventType, payload) && (activityKind(payload) == ActivityKindAnnounce || activityKind(payload) == "forwarded")
 }
 
 // activityKind reads the kind from the template, or from the top level of an
@@ -148,10 +147,13 @@ func (t *ActivityTracker) Track(eventType string, payload map[string]any) (bool,
 		}
 	}
 	var activity map[string]any
+	if (eventType == "tool.start" || eventType == "reasoning.start") && anyString(t.last[taskID]["kind"]) == "model_waiting" && t.last[taskID]["finished"] != true {
+		activity = map[string]any{"kind": "model_waiting", "finished": true}
+	}
 	if eventType == "awaiting.answer" {
 		activity = t.beforeAwait[taskID]
 		delete(t.beforeAwait, taskID)
-	} else {
+	} else if activity == nil {
 		activity = derivedActivity(eventType, payload)
 	}
 	if activity == nil {

@@ -68,8 +68,8 @@ func TestQueryDefaultsToSimpleDetail(t *testing.T) {
 			if message["seq"] != float64(0) || message["activity"] != nil || message["phase"] != nil {
 				t.Fatalf("unexpected simple activity %#v", message)
 			}
-			if message["kind"] != "idle" && !(message["kind"] == "thinking" && message["initial"] == true && len(activities) == 0) {
-				t.Fatalf("simple leaked automatic activity %#v", message)
+			if message["kind"] != nil || message["initial"] != nil {
+				t.Fatalf("activity leaked internal metadata %#v", message)
 			}
 			activities = append(activities, message["message"].(string))
 			continue
@@ -203,7 +203,7 @@ func TestConfiguredAgentDetailAcrossHTTPAndWS(t *testing.T) {
 		sawTool := false
 		runID := ""
 		for _, event := range decodeSSEMessages(t, rec.Body.String()) {
-			if tc.detailed && event["type"] == "run.activity" && event["kind"] == "thinking" {
+			if event["type"] == "run.activity" && event["kind"] != nil {
 				t.Fatalf("detailed received simulated thinking: %#v", event)
 			}
 			if event["type"] == "tool.start" {
@@ -317,5 +317,34 @@ func TestChatReadDetailFollowsActiveRun(t *testing.T) {
 	}
 	if got := chatReadDetail(api.ChatDetailResponse{}, stream.DetailDetailed); got != stream.DetailDetailed {
 		t.Fatalf("idle Chat read at %q, want the requested detailed", got)
+	}
+}
+
+func TestDetailedQueryShowsModelWaitingOnlyOnceAcrossToolLoop(t *testing.T) {
+	fixture := newDatetimeToolLoopFixture(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", strings.NewReader(`{"message":"time"}`))
+	req.Header.Set("Accept-Language", "zh-CN")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("query: %d %s", rec.Code, rec.Body.String())
+	}
+	waits := 0
+	for _, event := range decodeSSEMessages(t, rec.Body.String()) {
+		if event["type"] != "run.activity" {
+			continue
+		}
+		if event["kind"] != nil || event["initial"] != nil {
+			t.Fatalf("activity leaked internal metadata: %#v", event)
+		}
+		if event["message"] != "" {
+			if event["message"] != "等待模型响应" || event["seq"] != float64(0) {
+				t.Fatalf("invalid wait: %#v", event)
+			}
+			waits++
+		}
+	}
+	if waits != 1 {
+		t.Fatalf("want exactly one initial wait across the tool loop, got %d", waits)
 	}
 }

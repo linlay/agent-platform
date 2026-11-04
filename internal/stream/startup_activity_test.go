@@ -26,7 +26,7 @@ func TestStartupActivityOnlyInSimpleBootstrap(t *testing.T) {
 				if locale == i18n.LocaleZhCN {
 					want = "正在" + label
 				}
-				if rendered["message"] != want || !DetailSimple.Allows(e.Type, rendered) || DetailDetailed.Allows(e.Type, rendered) {
+				if rendered["message"] != want || rendered["kind"] != nil || rendered["initial"] != nil || rendered["activity"] != nil {
 					t.Fatalf("localized startup: %#v", rendered)
 				}
 			}

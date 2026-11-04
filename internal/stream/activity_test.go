@@ -267,3 +267,36 @@ func TestActivityTrackerKeepsRepeatedDerivedActivity(t *testing.T) {
 		}
 	}
 }
+
+func TestModelWaitingEndsOnFirstEffectiveResponse(t *testing.T) {
+	for _, response := range []string{"reasoning.start", "content.start", "planning.start", "tool.start"} {
+		tracker := NewActivityTracker("run", "chat")
+		waiting := newActivityEvent("run", "chat", "", map[string]any{"kind": "model_waiting"})
+		tracker.Track(waiting.Type, waiting.Payload)
+		if DetailSimple.Allows(waiting.Type, waiting.Payload) || !DetailDetailed.Allows(waiting.Type, waiting.Payload) {
+			t.Fatal("waiting must only reach detailed")
+		}
+		_, events := tracker.Track(response, map[string]any{})
+		if len(events) != 1 {
+			t.Fatalf("%s did not replace waiting: %#v", response, events)
+		}
+		if response == "tool.start" || response == "reasoning.start" {
+			if events[0].Payload["message"] != "" || DetailSimple.Allows(events[0].Type, events[0].Payload) {
+				t.Fatalf("effective response must clear only detailed wait: %#v", events)
+			}
+		} else if activityKind(events[0].Payload) == "model_waiting" {
+			t.Fatalf("waiting survived %s", response)
+		}
+	}
+}
+
+func TestHiddenToolResponseClearsModelWaitingWithoutToolIdentity(t *testing.T) {
+	a := NewAssembler(StreamRequest{RunID: "run", ChatID: "chat"})
+	a.RegisterHiddenTools("secret")
+	a.emit([]StreamEvent{newActivityEvent("run", "chat", "", map[string]any{"kind": "model_waiting"})})
+	emissions := a.emit([]StreamEvent{NewEvent("tool.start", map[string]any{"toolId": "t", "toolName": "secret"})})
+	visible := visibleEmissionEvents(emissions)
+	if len(visible) != 1 || visible[0].Type != "run.activity" || visible[0].Payload["message"] != "" || visible[0].Payload["toolName"] != nil {
+		t.Fatalf("hidden tool wait clear: %#v", visible)
+	}
+}

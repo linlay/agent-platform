@@ -599,21 +599,23 @@ TEAM 总控的普通工具与 reasoning 沿普通 Agent 事件链路；内部 `a
 | `content.*`（含 `content.view`、`content.snapshot`） | ✓ | ✓ |
 | `planning.*`、`plan.create/update`、`artifact.publish`、`source.publish` | ✓ | ✓ |
 | `awaiting.ask/answer` | ✓ | ✓ |
-| 公示与清除 `run.activity`（`kind` 为 `announce` 或 `idle`） | ✓ | ✓ |
-| 启动占位 `run.activity`（`kind: thinking`、`initial: true`） | ✓ | — |
-| 真实过程推导的其他进度 `run.activity`（reasoning、普通工具调用等） | — | ✓ |
+| 公示与清除 `run.activity` | ✓ | ✓ |
+| 首次启动提示 `run.activity` | ✓ | — |
+| 首次模型等待 `run.activity` | — | ✓ |
+| 内部推导的其他活动（reasoning、普通工具调用等） | — | —（由细节事件展示） |
 | 重试 `run.activity`（带 `retry`） | ✓ | ✓ |
 | `run.access_level.changed`、`context.compact.*`、`usage.snapshot` | ✓ | ✓ |
 | `tool.wait`、`tool.wait.update`、wait 的 `tool.result` | ✓ | ✓ |
 | `reasoning.*`、其他 `tool.*`、`debug.llmChat`、`memory.*` 及其他类型 | — | ✓ |
 
-simple（精简）保留通知与状态同步：权限变更、上下文压缩、工具等待及其完成、实时用量、公示及清除和重试活动均下发，不能因展示精简而丢失通知。自动思考、普通工具调用等进度活动，以及思考正文和普通工具参数、结果等过程详情由白名单过滤。提问和审批本身仍通过 `awaiting.ask/answer` 正常展示。detailed（详细）展示真实过程，不生成或接收启动占位；客户端的详细视图忽略进度活动，因为细节事件本身已经展示了进度。simple 与 detailed 均实时下发 `usage.snapshot`，终态仍可读取 `run.complete/cancel/error` 的 `usage.run` 与 `usage.chat`：其中 `toolCallCount`、`llmChatCompletionCount` 固定输出（含 0），另有 `promptTokens`、`completionTokens`、`completionTokensDetails.reasoningTokens`、`estimatedCost` 等。`/api/chat` 只按等级过滤 `events`，`runs[].usage` 与顶层 `usage` 不受影响。Proxy 上游查询固定请求 `detailed`，由本地按查看者等级过滤；gateway 与 Desktop 透传客户端的 `detail`，省略时跟随 Agent。
+simple（精简）保留通知与状态同步：权限变更、上下文压缩、工具等待及其完成、实时用量、公示及清除和重试活动均下发，不能因展示精简而丢失通知。自动思考、普通工具调用等进度活动，以及思考正文和普通工具参数、结果等过程详情由白名单过滤。提问和审批本身仍通过 `awaiting.ask/answer` 正常展示。detailed（详细）展示真实过程，不生成或接收启动占位；后端只向 detailed 下发首次模型等待及清空消息，其他进度由细节事件本身展示。simple 与 detailed 均实时下发 `usage.snapshot`，终态仍可读取 `run.complete/cancel/error` 的 `usage.run` 与 `usage.chat`：其中 `toolCallCount`、`llmChatCompletionCount` 固定输出（含 0），另有 `promptTokens`、`completionTokens`、`completionTokensDetails.reasoningTokens`、`estimatedCost` 等。`/api/chat` 只按等级过滤 `events`，`runs[].usage` 与顶层 `usage` 不受影响。ACP/Proxy 的上游请求保持既有方式，不能依赖 ACP 遵守 Platform 展示档位；外部活动 message 作为已成形的消息转发，不按文案猜测内部类型，保存与重连时也按不透明消息处理；gateway 与 Desktop 透传客户端的 `detail`，省略时跟随 Agent。
 
-`run.activity` 用一句话说明 Run（或带 `taskId` 的子任务）现在在做什么。字段只有 `runId`、`chatId`、可选 `taskId`、`message`，启动占位另带 `initial: true`，进度活动另带 `kind`（`thinking`、`reasoning`、`tool_run`、`announce`、`subtask`、`awaiting`、`compacting`、`idle`），重试时另带 `retry`；`message` 按查看者语言渲染（HTTP 用请求语言、WS 用连接当前语言）。同一 `(runId, taskId)` 新的一条替换旧的一条；`message` 为空（`kind:"idle"`）表示该 scope 当前没有活动（用户正在看正文或计划），客户端隐藏活动行；`task.complete/cancel/error` 清除该子任务的活动，Run 终止事件清除全部。
+`run.activity` 用一句话说明 Run（或带 `taskId` 的子任务）现在在做什么。公开业务字段只有 `runId`、`chatId`、可选 `taskId`、`message`，重试时另带 `retry`；不下发 `kind`、`initial` 或内部文案模板。后端先用内部分类按档位筛选，再按查看者语言渲染（HTTP 用请求语言、WS 用连接当前语言）。前端只显示 message，不按分类或文案二次过滤。同一 `(runId, taskId)` 新消息替换旧消息，空 message 清除该 scope 的活动；任务终态清除对应活动，Run 终态清除全部。
 
-- 启动占位：simple 的新 Run 在 `run.start` 后立即发出一条 `kind: thinking`、`initial: true` 的 `run.activity`，从既有思考 label 池按随机 Run ID 选取文案，重连及不同观察者保持同一选择，并在输出边界按查看者语言渲染。不定时轮换，不在工具循环后重复生成；续接同一 Run 不重新生成。detailed 不生成也不下发此占位，WebClient 不再本地合成 thinking。
+- 启动占位：simple 的新 Run 在 `run.start` 后立即发出一条 `run.activity` 启动提示，从既有思考 label 池按随机 Run ID 选取文案，重连及不同观察者保持同一选择，并在输出边界按查看者语言渲染。不定时轮换，不在工具循环后重复生成；续接同一 Run 不重新生成。detailed 不生成也不下发此占位，WebClient 不再本地合成 thinking。
+- 模型等待（仅 detailed，内部类型为 model_waiting）：每个根 Run 仅在首次发起 Provider 请求前发送一次“等待模型响应”；工具循环、重试、Responses 恢复、压缩模型和子任务不再次发送，对应真实请求状态，不使用随机思考标签。首个 reasoning、正文、计划或工具调用开始时替换或清空；心跳、用量和空数据不清除。工具参数尚在流入时不保留等待提示。simple 过滤此活动，继续沿用启动占位和公示。
 - 真实进度活动（detailed 接收，simple 只接收公示及清除）：不再在每轮模型请求开始时生成通用“正在思考”；`reasoning.start` 时为“正在”加该段的 `reasoningLabel`（英文为 `reasoningLabel…`），不读取推理正文；`content.start` 与 `planning.start` 发出 `message` 为空的活动以清空活动行，正文本身就是进度；每个模型回合在参数完整后（`tool.end` 时、审批之前）至多发一条工具活动，覆盖审批等待和整批执行，`tool.start` 与执行开始不再单独发：本回合有公示工具（`action_announce`）时为公示，否则为第一个工具的“工具 label：说明”，说明取工具定义 `activityArgs` 中第一个非空参数，没有则为“正在调用「工具 label」”；`task.start` 在父级显示“正在委派子任务「taskName」”；`awaiting.ask` 按 mode 显示“等待你审批 / 回答 / 填写表单 / 确认计划”，`awaiting.answer` 后恢复等待前的那条活动；`context.compact.start` 为“正在整理上下文”。相同文案仍下发，由客户端决定是否刷新展示；`clientVisible:false` 工具不产生活动，公示除外：公示是模型写给用户的话，不是工具本身的展示。
-- 公示（`kind:"announce"`）：`message` 是模型用用户语言写的一句话（下一步要做什么），原样展示、不翻译。simple 下持续显示到下一条公示、开始输出正文或计划（`idle`）或 Run 终止；不再设置保持秒数，旧 `announce-hold-seconds` 配置拒绝加载。detailed 的其他进度正常生成和下发，不被公示压住。
+- 公示（内部类型 announce）：`message` 是模型用用户语言写的一句话（下一步要做什么），原样展示、不翻译。simple 下持续显示到下一条公示、开始输出正文或计划（空 message）或 Run 终止；不再设置保持秒数，旧 `announce-hold-seconds` 配置拒绝加载。detailed 的其他进度正常生成和下发，不被公示压住。
 - attach 时服务端分别保存每个 scope 的最后一条启动占位、公示或清除，以及当前完整进度；先补发公示状态，再补发不同的当前活动。simple 收到最近的启动占位、公示或清除；detailed 不接收启动占位，仍接收真实进度活动。清除状态在后续自动进度出现后仍保留，重连不恢复已清除的旧公示。
 - 进度活动不占公共序号：`seq` 为 0，不进入 attach 回放日志、不落盘；attach 时服务端为每个仍在活动的 scope 补发当前那一条（同样 `seq` 为 0）。因此 detailed 的公共 `seq` 保持连续（忽略 `seq` 为 0 的事件）；simple 因过滤会出现跳号，客户端不能把跳号当作丢事件。
 - 重试活动（simple 与 detailed 均接收）：模型请求可恢复重试时发出，`retry` 含 `runSeq`（模型轮次）、`attempt`（含首次请求）、`maxAttempts`、`reason`、`error`（公共结构化错误）、`timeoutSeconds`、`elapsedMs`，普通重试另带 `delayMs` 与 `retryAt`（epoch ms），客户端显示序号为 `attempt-1` / `maxAttempts-1`；等待前先发出，等待支持取消。两档均收到重试通知，重试耗尽后均收到终止 `run.error`。

@@ -741,7 +741,7 @@ func TestModelRetryRetriesProviderTimeoutBeforeVisibleOutput(t *testing.T) {
 	if protocol.openCount != 2 {
 		t.Fatalf("expected 2 provider attempts, got %d", protocol.openCount)
 	}
-	if !reflect.DeepEqual(statuses, []string{"retrying"}) {
+	if !reflect.DeepEqual(statuses, []string{"model_waiting", "retrying"}) {
 		t.Fatalf("unexpected activity statuses %#v", statuses)
 	}
 	if content != "ok" {
@@ -861,7 +861,7 @@ func TestModelRetryEmitsFailedWhenAttemptsExhausted(t *testing.T) {
 
 	var statuses []string
 	var finalErr error
-	for i := 0; i < 16; i++ {
+	for i := 0; i < 24; i++ {
 		delta, err := stream.Next()
 		if err != nil {
 			finalErr = err
@@ -884,7 +884,7 @@ func TestModelRetryEmitsFailedWhenAttemptsExhausted(t *testing.T) {
 	if protocol.openCount != 4 {
 		t.Fatalf("expected 4 provider attempts, got %d", protocol.openCount)
 	}
-	want := []string{"retrying", "retrying", "retrying"}
+	want := []string{"model_waiting", "retrying", "retrying", "retrying"}
 	if !reflect.DeepEqual(statuses, want) {
 		t.Fatalf("statuses=%#v want %#v", statuses, want)
 	}
@@ -6515,5 +6515,55 @@ func TestFinishCurrentTurnShowsAnnouncementOverFirstTool(t *testing.T) {
 	}
 	if len(activities) != 1 || activities[0].ToolID != "tool_2" {
 		t.Fatalf("the turn must show only the announcement, got %#v", activities)
+	}
+}
+
+func TestModelWaitingPublishedBeforeProviderRequest(t *testing.T) {
+	protocol := &retryProtocolStub{outcomes: []retryProtocolOutcome{{chunk: "ok"}}}
+	stream := newRetryTestStream(protocol, 0)
+	if err := stream.prepareNextTurn(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 8; i++ {
+		delta, err := stream.Next()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if activity, ok := delta.(contracts.DeltaRunActivity); ok {
+			if activity.Kind != contracts.ActivityModelWaiting || protocol.openCount != 0 {
+				t.Fatalf("wait not published before request: %#v, opens %d", activity, protocol.openCount)
+			}
+			return
+		}
+	}
+	t.Fatal("no model waiting activity")
+}
+
+func TestModelWaitingNotPublishedForSubtaskOrCompaction(t *testing.T) {
+	for _, scope := range []string{"subtask", "compaction"} {
+		t.Run(scope, func(t *testing.T) {
+			protocol := &retryProtocolStub{outcomes: []retryProtocolOutcome{{chunk: "ok"}}}
+			stream := newRetryTestStream(protocol, 0)
+			if err := stream.prepareNextTurn(); err != nil {
+				t.Fatal(err)
+			}
+			if scope == "subtask" {
+				stream.session.SubTaskID = "task-1"
+			} else {
+				stream.summaryCall = true
+			}
+			for i := 0; i < 8; i++ {
+				delta, err := stream.Next()
+				if errors.Is(err, io.EOF) {
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if activity, ok := delta.(contracts.DeltaRunActivity); ok && activity.Kind == contracts.ActivityModelWaiting {
+					t.Fatalf("%s emitted initial waiting", scope)
+				}
+			}
+		})
 	}
 }

@@ -212,3 +212,33 @@ func TestProxyStartupActivityOnlyForSummary(t *testing.T) {
 		}
 	}
 }
+
+func TestProxyOpaqueActivitySurvivesBothLevelsAndAttachWithoutClassification(t *testing.T) {
+	for _, detail := range []stream.DetailLevel{stream.DetailSimple, stream.DetailDetailed} {
+		req := runtimetypes.QueryCommand{RunID: "run", ChatID: "chat", Detail: detail}
+		recorder := &ProxyEventRecorder{activities: stream.NewActivityTracker(req.RunID, req.ChatID), detail: detail}
+		bus := stream.NewRunEventBus(100, 0, nil)
+		var seq int64 = 7
+		for _, message := range []string{"ACP progress", ""} {
+			event, err := PublishProxyLiveEvent(bus, recorder, req, &seq, stream.EventData{Type: "run.activity", Timestamp: 1_700_000_000_000, Payload: map[string]any{"message": message}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if event.Seq != 0 || seq != 7 || !detail.Allows(event.Type, event.Payload) {
+				t.Fatalf("opaque activity dropped or took cursor: %#v, %d", event, seq)
+			}
+			observer, err := bus.Subscribe(7)
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case snapshot := <-observer.Events:
+				if snapshot.String("message") != message || !detail.Allows(snapshot.Type, snapshot.Payload) {
+					t.Fatalf("bad attach: %#v", snapshot)
+				}
+			default:
+				t.Fatalf("%s missing attach message %q", detail, message)
+			}
+		}
+	}
+}

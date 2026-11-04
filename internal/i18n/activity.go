@@ -12,8 +12,9 @@ import (
 type activityText struct{ en, zhCN string }
 
 var activityTexts = map[string]activityText{
-	"thinking":   {"Thinking…", "正在思考"},
-	"compacting": {"Organizing context…", "正在整理上下文"},
+	"model_waiting": {"Waiting for model response…", "等待模型响应"},
+	"thinking":      {"Thinking…", "正在思考"},
+	"compacting":    {"Organizing context…", "正在整理上下文"},
 }
 
 var awaitingTexts = map[string]activityText{
@@ -38,6 +39,11 @@ func ActivityMessage(locale string, activity map[string]any) string {
 	zh := ResolveLocale(locale) == LocaleZhCN
 	kind, _ := activity["kind"].(string)
 	switch kind {
+	case "model_waiting":
+		if activity["finished"] == true {
+			return ""
+		}
+		return activityTexts["model_waiting"].in(locale)
 	case "thinking", "reasoning":
 		reasoningID, _ := activity["reasoningId"].(string)
 		if kind == "thinking" {
@@ -51,7 +57,7 @@ func ActivityMessage(locale string, activity map[string]any) string {
 			return "正在" + label
 		}
 		return label + "…"
-	case "announce":
+	case "announce", "forwarded":
 		// The model wrote it in the user's language; it is shown as is.
 		text, _ := activity["text"].(string)
 		return text
@@ -157,6 +163,8 @@ func activityNumber(value any) float64 {
 // internal template.
 func localizeActivityPayload(locale string, payload map[string]any) map[string]any {
 	out := cloneMap(payload)
+	delete(out, "kind")
+	delete(out, "initial")
 	if activity, ok := out["activity"].(map[string]any); ok {
 		out["message"] = ActivityMessage(locale, activity)
 		delete(out, "activity")

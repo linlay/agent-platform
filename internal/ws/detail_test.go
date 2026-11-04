@@ -65,3 +65,27 @@ func TestSimpleStreamDeliversStateNotifications(t *testing.T) {
 		t.Fatalf("missing terminal frame: %#v", message.frame)
 	}
 }
+
+func TestStreamActivityRemovesInternalClassification(t *testing.T) {
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 8, MaxObservesPerConn: 2}, AuthSession{})
+	if _, err := conn.ReserveStream("wait-request", "wait-run"); err != nil {
+		t.Fatal(err)
+	}
+	events := make(chan stream.EventData, 2)
+	conn.StartStreamForward("wait-request", &stream.Observer{Events: events}, stream.DetailDetailed, stream.DetailDetailed)
+	events <- stream.NewEvent("run.activity", map[string]any{
+		"runId": "wait-run", "kind": "model_waiting", "initial": true,
+		"activity": map[string]any{"kind": "model_waiting"},
+	}).Data()
+	events <- stream.NewEvent("run.complete", map[string]any{"runId": "wait-run"}).Data()
+	close(events)
+	message := mustReadQueuedMessage(t, conn.writeQueue)
+	frame, ok := message.frame.(StreamFrame)
+	if !ok || frame.Event == nil {
+		t.Fatalf("missing activity frame: %#v", message.frame)
+	}
+	payload := frame.Event.Payload
+	if payload["kind"] != nil || payload["initial"] != nil || payload["activity"] != nil || payload["message"] == "" {
+		t.Fatalf("classification leaked: %#v", payload)
+	}
+}

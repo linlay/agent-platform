@@ -12,10 +12,9 @@ import "strings"
 //     questions — plus state notifications, usage, waits, announcements and retries.
 //     One startup placeholder is simple-only. Automatic progress, reasoning
 //     bodies and ordinary tool call details stay behind.
-//   - detailed: real process events, progress and retry activities included, so one
-//     detailed stream can serve viewers of every level (a Proxy records its
-//     upstream in detailed and filters locally). A detailed view ignores
-//     progress activities; the detail events already show them.
+//   - detailed: real process events and retries, plus the initial model wait
+//     and clears. Activity selection happens here before internal metadata
+//     is removed; viewers display the resulting messages without classification.
 type DetailLevel string
 
 const (
@@ -74,11 +73,15 @@ func (level DetailLevel) Allows(eventType string, payload map[string]any) bool {
 	}
 	switch level {
 	case DetailDetailed:
+		if IsProgressActivity(eventType, payload) {
+			kind := activityKind(payload)
+			return kind == "model_waiting" || kind == "idle" || kind == "forwarded"
+		}
 		return true
 	default:
 		if IsProgressActivity(eventType, payload) {
 			kind := activityKind(payload)
-			return kind == ActivityKindAnnounce || kind == "idle"
+			return kind == ActivityKindAnnounce || kind == "idle" || kind == "forwarded"
 		}
 		// Wait completion closes the interactive wait card even when ordinary
 		// tool results are hidden by simple delivery.
