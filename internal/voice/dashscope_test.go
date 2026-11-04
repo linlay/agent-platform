@@ -390,6 +390,68 @@ func TestTTSStreamingFormatsAndReuse(t *testing.T) {
 	}
 }
 
+func TestSpeechSegments(t *testing.T) {
+	for _, tc := range []struct {
+		text string
+		want []string
+	}{
+		{"第一句。第二句！“引用。”结尾", []string{"第一句。", "第二句！", "“引用。”", "结尾"}},
+		{"版本 3.5 已发布. Next one?! Yes", []string{"版本 3.5 已发布.", "Next one?!", "Yes"}},
+		{"  \t ", nil},
+		{strings.Repeat("长", maxSegmentRunes-10) + "，" + strings.Repeat("句", maxSegmentRunes-10) + "。", []string{strings.Repeat("长", maxSegmentRunes-10) + "，", strings.Repeat("句", maxSegmentRunes-10) + "。"}},
+		{strings.Repeat("长", 2*maxSegmentRunes+10), []string{strings.Repeat("长", maxSegmentRunes), strings.Repeat("长", maxSegmentRunes), strings.Repeat("长", 10)}},
+	} {
+		got := speechSegments(tc.text)
+		if strings.Join(got, "|") != strings.Join(tc.want, "|") {
+			t.Errorf("%q: got %q", tc.text, got)
+		}
+	}
+	// A whole spoken reply keeps every rune and no segment reaches the
+	// provider's per-segment audio bound.
+	reply := speechText("深圳今天天气\n\n- 天气：多云转阵雨\n- 气温：26℃ 到 32℃，体感闷热\n- 湿度：约 80%\n- 降雨：午后到傍晚可能有雷阵雨，局部雨势较大\n- 未来两天：明天与今天相近，后天雨水减少，气温略降\n\n" + strings.Repeat("城市 ", 60) + "\n\n深圳目前偏热，今天可能有阵雨，出门备把伞，穿着以清爽为主。")
+	segments := speechSegments(reply)
+	if strings.Join(strings.Fields(strings.Join(segments, "")), "") != strings.Join(strings.Fields(reply), "") || len(segments) < 3 {
+		t.Fatalf("segments lost text: %q", segments)
+	}
+	for _, s := range segments {
+		if utf8.RuneCountInString(s) > maxSegmentRunes {
+			t.Fatalf("segment has %d runes: %q", utf8.RuneCountInString(s), s)
+		}
+	}
+}
+
+func TestTTSSendsEachSegmentInOneTask(t *testing.T) {
+	text := "第一句。" + strings.Repeat("长", maxSegmentRunes+20) + "。深圳目前偏热，出门备把伞。"
+	p := fakeVoice(t, func(c *websocket.Conn) {
+		id := readCommand(t, c, "run-task").Header.ID
+		event(t, c, id, "task-started", nil)
+		var got []string
+		for {
+			_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+			var cmd testCommand
+			if err := c.ReadJSON(&cmd); err != nil {
+				t.Error(err)
+				return
+			}
+			if cmd.Header.ID != id {
+				t.Error("segment sent outside the task")
+			}
+			if cmd.Header.Action == "finish-task" {
+				break
+			}
+			got = append(got, cmd.Payload.Input.Text)
+		}
+		if strings.Join(got, "|") != strings.Join(speechSegments(text), "|") || strings.Join(got, "") != text || len(got) != 4 {
+			t.Errorf("continue-task texts %q", got)
+		}
+		_ = c.WriteMessage(websocket.BinaryMessage, []byte{1, 2})
+		event(t, c, id, "task-finished", nil)
+	})
+	if err := testTTS(t, p).Synthesize(context.Background(), text, "voice", 24000, func([]byte) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTTSFailureCancellationAndBackpressure(t *testing.T) {
 	for _, mode := range []string{"failed", "cancel", "callback", "unaligned", "start timeout"} {
 		t.Run(mode, func(t *testing.T) {

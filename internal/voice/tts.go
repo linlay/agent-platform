@@ -3,7 +3,9 @@ package voice
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"agent-platform/internal/models"
@@ -18,6 +20,57 @@ const (
 	maxSynthesisAudio = 300 * time.Second
 )
 
+// CosyVoice bounds the audio of one provider segment and drops the excess while
+// sentence-end and task-finished still report the whole text. One continue-task
+// carrying a whole reply becomes one segment (2026-11-04, cosyvoice-v3-flash:
+// 155–255 rune replies all stopped at exactly 33.44s), so text is sent one
+// sentence per continue-task and an overlong sentence is split at a pause. The
+// cap matches the provider's own streaming segments; 80-rune unpunctuated
+// lists already garbled words.
+const maxSegmentRunes = 50
+
+const (
+	sentenceEnds    = "。！？；…!?;"
+	sentenceClosers = "”’」』）)\"'"
+	segmentPauses   = "，、：,:"
+)
+
+func speechSegments(text string) []string {
+	runes := []rune(text)
+	var segments []string
+	add := func(r []rune) {
+		if s := strings.TrimSpace(string(r)); s != "" {
+			segments = append(segments, s)
+		}
+	}
+	start, pause := 0, -1
+	for i := 0; i < len(runes); i++ {
+		end := -1
+		r := runes[i]
+		switch {
+		case strings.ContainsRune(sentenceEnds, r) || r == '.' && (i+1 == len(runes) || unicode.IsSpace(runes[i+1])):
+			end = i + 1
+			for end < len(runes) && strings.ContainsRune(sentenceEnds+sentenceClosers, runes[end]) {
+				end++
+			}
+		case strings.ContainsRune(segmentPauses, r) || unicode.IsSpace(r):
+			pause = i + 1
+		}
+		if end < 0 && i+1-start >= maxSegmentRunes {
+			end = i + 1
+			if pause > start {
+				end = pause
+			}
+		}
+		if end > 0 {
+			add(runes[start:end])
+			start, pause, i = end, -1, end-1
+		}
+	}
+	add(runes[start:])
+	return segments
+}
+
 type TTSClient struct{ socket *dashScopeSocket }
 
 func NewTTSClient(model models.ModelDefinition, provider models.ProviderDefinition) (*TTSClient, error) {
@@ -30,10 +83,12 @@ func NewTTSClient(model models.ModelDefinition, provider models.ProviderDefiniti
 
 func (c *TTSClient) Close() { c.socket.close() }
 
-// Synthesize sends the complete committed text once. The callback consumes PCM
-// synchronously, providing backpressure without buffering the whole response.
+// Synthesize sends the complete committed text in one task, segment by
+// segment. The callback consumes PCM synchronously, providing backpressure
+// without buffering the whole response.
 func (c *TTSClient) Synthesize(ctx context.Context, text, voice string, sampleRate int, audio func([]byte) error) (err error) {
-	if text == "" || utf8.RuneCountInString(text) > maxSynthesisRunes || voice == "" || audio == nil || (sampleRate != 16000 && sampleRate != 24000) {
+	segments := speechSegments(text)
+	if len(segments) == 0 || utf8.RuneCountInString(text) > maxSynthesisRunes || voice == "" || audio == nil || (sampleRate != 16000 && sampleRate != 24000) {
 		return errors.New("invalid voice synthesis input")
 	}
 	ctx, cancel := context.WithTimeout(ctx, maxSynthesisAudio+time.Minute)
@@ -50,8 +105,10 @@ func (c *TTSClient) Synthesize(ctx context.Context, text, voice string, sampleRa
 	}
 	success := false
 	defer func() { end(success) }()
-	if err = dashCommand(conn, id, "continue-task", map[string]any{"input": map[string]any{"text": text}}); err != nil {
-		return err
+	for _, segment := range segments {
+		if err = dashCommand(conn, id, "continue-task", map[string]any{"input": map[string]any{"text": segment}}); err != nil {
+			return err
+		}
 	}
 	if err = dashCommand(conn, id, "finish-task", map[string]any{"input": map[string]any{}}); err != nil {
 		return err

@@ -132,15 +132,22 @@ func voiceProvider(t *testing.T) (*httptest.Server, *voiceTestProvider) {
 				}
 			} else if start.Payload.Task == "tts" {
 				p.tts.Add(1)
-				var text, finish voiceTestCommand
-				if c.ReadJSON(&text) != nil || c.ReadJSON(&finish) != nil {
-					return
+				var text strings.Builder
+				for {
+					var cmd voiceTestCommand
+					if c.ReadJSON(&cmd) != nil {
+						return
+					}
+					if cmd.Header.Action == "finish-task" && text.Len() > 0 {
+						break
+					}
+					if cmd.Header.Action != "continue-task" {
+						t.Error("wrong TTS task sequence")
+						return
+					}
+					text.WriteString(cmd.Payload.Input.Text)
 				}
-				if text.Header.Action != "continue-task" || finish.Header.Action != "finish-task" {
-					t.Error("wrong TTS task sequence")
-					return
-				}
-				p.texts <- text.Payload.Input.Text
+				p.texts <- text.String()
 				if p.failTTS.CompareAndSwap(true, false) {
 					if emit("task-failed", nil) != nil {
 						return
