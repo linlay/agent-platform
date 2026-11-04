@@ -47,7 +47,7 @@ Call `surface_click` with that object only when saving is within the user's task
 
 | Control or situation | Approach |
 | --- | --- |
-| Text field | `fill` replaces the value; `type` adds text incrementally. Verify the returned non-sensitive value. |
+| Text field | `fill` replaces the value; `type` adds text incrementally. Verify the returned non-sensitive value. A successful `fill` of an input or textarea already confirms its exact value, including values longer than the 2048-character observation limit. |
 | Native select | Use exact observed `options[].value`. For `multiple:true`, use `values:[...]`; do not infer values from labels. |
 | Checkbox or switch | Prefer `check`/`uncheck` to toggling. A preselected checkbox must remain selected when asked to ensure it is checked. |
 | Custom combobox | Open it, inspect the new options, then click an option or use the documented supported keys. Do not treat it as a native select. |

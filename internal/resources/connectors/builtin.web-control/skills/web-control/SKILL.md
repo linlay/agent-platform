@@ -20,7 +20,7 @@ If selection fails, stop and report the failure. Never ignore a failed selection
 
 1. Open a trusted HTTP(S) URL with `surface_open`, or use `surface_list` for an existing authorized page. Never invent addresses; use user-provided addresses, trusted tool results or host-visible services started for this task. A URL or title is not a page identity: keep the returned `surfaceId` and `provider`.
 2. Use `surface_observe`, or the fresh nested `observation` returned by an action. Identify the control from its role, name and state; pass its current `observationId` and `ref` together on that same page.
-3. Execute dependent `surface_click`, `surface_element` and `surface_scroll` actions sequentially. Verify the expected field value, saved state or business result from the new observation, and obtain the next reference. Re-observe only when necessary; use bounded scrolling and viewport observations for truncated pages.
+3. Execute dependent `surface_click`, `surface_element` and `surface_scroll` actions sequentially. Verify the expected field value, saved state or business result from the new observation, and obtain the next reference. A successful `fill` of an input or textarea already confirms its exact value; observations omit values over 2048 characters. Re-observe only when necessary; use bounded scrolling and viewport observations for truncated pages.
 
 Use `surface_state` for URL/title, `surface_navigate` for navigation, and `surface_activate`/`surface_close` for one exact page. `workpanel_close` closes the whole panel only when requested. `surface_login` and `surface_viewport` are WorkPanel-only and subject to the page's capabilities.
 
