@@ -4,7 +4,7 @@ i18n:
     label: "Set Page Viewport"
   zh-CN:
     label: "网页视口"
-description: "Emulate a device viewport on a page, or reset it. Read the web-control skill before use."
+description: "Emulate or reset a WorkPanel page viewport; unsupported in Chrome. Read the web-control skill before use."
 clientVisible: true
 inputSchema:
   type: object
