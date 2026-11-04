@@ -758,7 +758,9 @@ function Convert-ProgramSsoProviderConfig {
     $temporary = $file.FullName + '.sso.' + [Guid]::NewGuid().ToString('N')
     try {
       [IO.File]::WriteAllText($temporary, [regex]::Replace($content, '(?m)^([ \t]*)useAccessToken([ \t]*:)', '${1}useSsoIdToken${2}'), [Text.UTF8Encoding]::new($false))
-      [IO.File]::Replace($temporary, $file.FullName, $null)
+      # PowerShell converts $null to an empty string for this .NET string argument.
+      # Pass a real null backup path so File.Replace remains atomic on Windows.
+      [IO.File]::Replace($temporary, $file.FullName, [System.Management.Automation.Language.NullString]::Value)
     } finally { if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force } }
   }
 }

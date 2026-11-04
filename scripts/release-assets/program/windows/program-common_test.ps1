@@ -216,10 +216,18 @@ try {
   $providers = Join-Path $migrationRoot 'registries/providers'
   New-Item -ItemType Directory -Force -Path $providers | Out-Null
   $providerFile = Join-Path $providers 'login.yml'
+  $nestedProviders = Join-Path $providers 'nested providers'
+  New-Item -ItemType Directory -Force -Path $nestedProviders | Out-Null
+  $nestedProviderFile = Join-Path $nestedProviders 'employee login.yaml'
+  $nestedContent = "key: nested`r`n  useAccessToken : false # preserve comment`r`n"
+  [IO.File]::WriteAllText($nestedProviderFile, $nestedContent)
   [IO.File]::WriteAllText($providerFile, "key: employee`nuseAccessToken: true`napiKey: unchanged`n")
   Convert-ProgramSsoProviderConfig
   $expected = "key: employee`nuseSsoIdToken: true`napiKey: unchanged`n"
   if ([IO.File]::ReadAllText($providerFile) -ne $expected) { throw 'Provider SSO migration changed unrelated content' }
+  $nestedExpected = $nestedContent.Replace('useAccessToken', 'useSsoIdToken')
+  if ([IO.File]::ReadAllText($nestedProviderFile) -cne $nestedExpected) { throw 'Nested YAML provider migration changed unrelated content' }
+  if (@(Get-ChildItem -LiteralPath $providers -Recurse -File -Filter '*.sso.*').Count -ne 0) { throw 'Provider SSO migration left temporary files' }
   Convert-ProgramSsoProviderConfig
   if ([IO.File]::ReadAllText($providerFile) -ne $expected) { throw 'Provider SSO migration is not idempotent' }
   [IO.File]::WriteAllText($providerFile, "useAccessToken: true`nuseSsoIdToken: false`n")
