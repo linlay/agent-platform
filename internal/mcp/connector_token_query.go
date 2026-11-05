@@ -76,7 +76,16 @@ func (t tokenQueryTransport) RoundTrip(req *http.Request) (*http.Response, error
 		if err != nil || strings.ContainsAny(value, "\r\n\x00") {
 			return nil, fmt.Errorf("connector requires valid credentials")
 		}
-		clone.Header.Set(key, value)
+		// The explicit two-field Basic template is encoded only at the wire boundary.
+		// Existing templates containing a pre-encoded token remain unchanged.
+		if strings.EqualFold(key, "Authorization") && template == "Basic ${USERNAME}:${PASSWORD}" {
+			if strings.Contains(credentials["USERNAME"], ":") {
+				return nil, fmt.Errorf("HTTP Basic username cannot contain a colon")
+			}
+			clone.SetBasicAuth(credentials["USERNAME"], credentials["PASSWORD"])
+		} else {
+			clone.Header.Set(key, value)
+		}
 	}
 	target := *req.URL
 	target.RawQuery = query.Encode()
