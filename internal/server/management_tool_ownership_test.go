@@ -24,12 +24,12 @@ func TestManagementIndependentToolsExcludeConnectorOwnership(t *testing.T) {
 			t.Fatalf("connector tool leaked: %+v", tool)
 		}
 	}
-	names := []string{"chat_start", "chat_get_status", "chat_interrupt", "chat_steer", "chat_query", "desktop_shell", "mcp_demo_read", "bash", "file_read", "custom"}
+	names := []string{"chat_send", "chat_get_status", "chat_interrupt", "chat_send", "chat_query", "desktop_shell", "mcp_demo_read", "bash", "file_read", "custom"}
 	got := s.independentAgentToolNames(names)
 	if !reflect.DeepEqual(got, []string{"bash", "file_read", "custom"}) {
 		t.Fatalf("tools: %v", got)
 	}
-	detail, err := s.withAdminAgentPrivateSkills(api.AdminAgentDetailResponse{ToolBindings: []api.AgentToolBinding{{Name: "chat_start"}, {Name: "file_read"}}})
+	detail, err := s.withAdminAgentPrivateSkills(api.AdminAgentDetailResponse{ToolBindings: []api.AgentToolBinding{{Name: "chat_send"}, {Name: "file_read"}}})
 	if err != nil || len(detail.ToolBindings) != 1 || detail.ToolBindings[0].Name != "file_read" {
 		t.Fatalf("detail: %+v, %v", detail, err)
 	}
@@ -76,7 +76,7 @@ func TestConnectorCatalogIncludesHiddenChatToolDescriptions(t *testing.T) {
 				continue
 			}
 			found = true
-			if len(c.Tools) != 11 {
+			if len(c.Tools) != 9 {
 				t.Fatalf("task tools: %+v", c.Tools)
 			}
 			for _, tool := range c.Tools {
@@ -95,8 +95,8 @@ func TestAdminAgentSaveResponseExcludesConnectorTools(t *testing.T) {
 	f := setupAdminRegistriesFixture(t)
 	rec := httptest.NewRecorder()
 	f.server.writeAdminAgentSaveResponse(rec, api.AgentDetailResponse{
-		Key: "mock-agent", Tools: []string{"chat_start", "file_read"},
-		Definition: map[string]any{"toolConfig": map[string]any{"tools": []string{"chat_start", "file_read"}}},
+		Key: "mock-agent", Tools: []string{"chat_send", "file_read"},
+		Definition: map[string]any{"toolConfig": map[string]any{"tools": []string{"chat_send", "file_read"}}},
 	}, nil)
 	var body api.ApiResponse[api.AdminAgentSaveResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
@@ -119,7 +119,7 @@ func TestAdminAgentSaveResponseExcludesConnectorTools(t *testing.T) {
 			t.Fatalf("connector binding leaked: %+v", binding)
 		}
 	}
-	if !strings.Contains(rec.Body.String(), `"tools":["chat_start","file_read"]`) {
+	if !strings.Contains(rec.Body.String(), `"tools":["chat_send","file_read"]`) {
 		t.Fatalf("raw definition changed: %s", rec.Body.String())
 	}
 }

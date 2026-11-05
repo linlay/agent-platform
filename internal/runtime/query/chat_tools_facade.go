@@ -2,17 +2,14 @@ package query
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
-	"agent-platform/internal/runtime/controlscope"
 	"agent-platform/internal/runtime/runstate"
 	sessionbuild "agent-platform/internal/runtime/session"
-	runtimetypes "agent-platform/internal/runtime/types"
 )
 
 func runOwnerMatchesChat(summary *chat.Summary, agentKey string) bool {
@@ -21,24 +18,6 @@ func runOwnerMatchesChat(summary *chat.Summary, agentKey string) bool {
 	}
 
 	return strings.TrimSpace(summary.AgentKey) == agentKey
-}
-
-func mapRunStatusError(err *statusError) error {
-	if err == nil {
-		return nil
-	}
-	code := strings.TrimSpace(err.Code)
-	if code == "" {
-		switch err.Status {
-		case 404:
-			code = "run_not_found"
-		case 403:
-			code = "run_not_owned"
-		default:
-			code = "invalid_request"
-		}
-	}
-	return runToolError(code, err.Message)
 }
 
 func (s *Service) GetRunStatus(runID string) (contracts.RunSnapshot, error) {
@@ -52,13 +31,13 @@ type runAccessLevelAcceptor interface {
 	AcceptAtRunAccessLevel(runID string, accept func(accessLevel string, version int64) error) (bool, error)
 }
 
-// PrepareRunStart validates a chat_start request and resolves its permission
+// PrepareRunStart validates a new-Chat mail request and resolves its permission
 // against the parent Run's live level. It is read-only: it creates no Chat,
 // registers no Run and holds no reservation or catalog lease, so it is safe to
 // call before a human review of unbounded duration.
 func (s *Service) PrepareRunStart(ctx context.Context, request contracts.RunStartRequest) (contracts.RunStartPlan, error) {
 	if err := ctx.Err(); err != nil {
-		return contracts.RunStartPlan{}, runNotStarted(runToolError("chat_start_cancelled", err.Error()))
+		return contracts.RunStartPlan{}, runNotStarted(runToolError("mail_acceptance_cancelled", err.Error()))
 	}
 	fail := func(code string, message string) (contracts.RunStartPlan, error) {
 		return contracts.RunStartPlan{}, runNotStarted(runToolError(code, message))
@@ -76,7 +55,7 @@ func (s *Service) PrepareRunStart(ctx context.Context, request contracts.RunStar
 	}
 	for _, id := range queryinput.ResourceIDs(request.References, "chat") {
 		if request.Origin.Subject == "" && id != request.Origin.ChatID && !request.ReferenceReadScope.CanReadChat(id) {
-			return fail("chat_reference_forbidden", "chat_start cannot grant access to an unreferenced Chat")
+			return fail("chat_reference_forbidden", "chat_send cannot grant access to an unreferenced Chat")
 		}
 	}
 	agentKey := request.AgentKey
@@ -107,7 +86,7 @@ func (s *Service) PrepareRunStart(ctx context.Context, request contracts.RunStar
 	}
 	parentRunID := strings.TrimSpace(request.Origin.RunID)
 	if parentRunID == "" {
-		return fail("run_context_required", "chat_start requires a parent runId")
+		return fail("run_context_required", "chat_send requires a parent runId")
 	}
 	// Always read the live control state: neither model input nor the parent
 	// session snapshot may decide the permission baseline.
@@ -125,178 +104,6 @@ func (s *Service) PrepareRunStart(ctx context.Context, request contracts.RunStar
 	return plan, nil
 }
 
-// acceptRunStart checks explicit selection against the parent live level.
-// The target default was frozen by admission and is independent of the parent.
-// Nothing has been created when authorization fails.
-func (s *Service) acceptRunStart(ctx context.Context, request contracts.RunStartRequest, plan contracts.RunStartPlan) (acceptedRunStart, error) {
-	accepted := acceptedRunStart{source: plan.AccessSource}
-	accept := func(parentLevel string, version int64) error {
-		if err := ctx.Err(); err != nil {
-			return runToolError("chat_start_cancelled", err.Error())
-		}
-		parentLevel = sessionbuild.NormalizedAccessLevel(parentLevel)
-		if err := contracts.ValidateExplicitRunAccess(request.AccessLevel, parentLevel); err != nil {
-			return err
-		}
-		accepted.parentAccessLevel, accepted.parentAccessVersion = parentLevel, version
-		accepted.accessLevel = plan.AccessLevel
-		return nil
-	}
-	acceptor, ok := s.deps.Runs.(runAccessLevelAcceptor)
-	if !ok {
-		return acceptedRunStart{}, runNotStarted(runToolError("run_start_authorization_unavailable", "the Run manager cannot authorize chat_start atomically"))
-	}
-	active, err := acceptor.AcceptAtRunAccessLevel(strings.TrimSpace(request.Origin.RunID), accept)
-	if err != nil {
-		return acceptedRunStart{}, runNotStarted(err)
-	}
-	if !active {
-		return acceptedRunStart{}, runNotStarted(runToolError("run_parent_not_active", "the calling Run is no longer active"))
-	}
-	return accepted, nil
-}
-
-// acceptedRunStart is the permission baseline observed at the acceptance point.
-type acceptedRunStart struct {
-	source              string
-	parentAccessLevel   string
-	parentAccessVersion int64
-	accessLevel         string
-}
-
-func (s *Service) StartRun(ctx context.Context, request contracts.RunStartRequest) (contracts.RunSnapshot, error) {
-	request, err := contracts.NormalizeRunStartRequest(request)
-	if err != nil {
-		return contracts.RunSnapshot{}, runNotStarted(err)
-	}
-	plan, err := s.PrepareRunStart(ctx, request)
-	if err != nil {
-		return contracts.RunSnapshot{}, err
-	}
-	agentKey := strings.TrimSpace(request.AgentKey)
-	parentRunID := strings.TrimSpace(request.Origin.RunID)
-	req := runtimetypes.QueryCommand{
-		ChatID:   strings.TrimSpace(request.ChatID),
-		AgentKey: agentKey,
-		Origin: &queryinput.Origin{
-			Type: queryinput.OriginAgent, AgentKey: strings.TrimSpace(request.Origin.AgentKey),
-			ChatID: strings.TrimSpace(request.Origin.ChatID), RunID: parentRunID, ToolID: strings.TrimSpace(request.Origin.ToolID),
-		},
-		Message:         strings.TrimSpace(request.Message),
-		AccessLevel:     plan.AccessLevel,
-		References:      append([]queryinput.Reference(nil), request.References...),
-		InitialChatName: strings.TrimSpace(request.ChatName),
-		// The target's interactionConfig limits user selection only; model
-		// validity, permission review and reference authorization still apply.
-		SkipInteractionPolicy: true,
-		ChatSource:            queryinput.ChatSourceRunQueryPrefix + normalizeChatSourcePart(request.Origin.AgentKey),
-	}
-	if request.Input != nil {
-		if input, err := json.Marshal(request.Input); err == nil {
-			req.OriginalQuery = input
-		}
-	}
-	if modelKey, effort := strings.TrimSpace(request.ModelKey), strings.TrimSpace(request.ReasoningEffort); modelKey != "" || effort != "" {
-		req.Model = &runtimetypes.QueryModelOptions{Key: modelKey, ReasoningEffort: effort}
-	}
-	// The new Run's lifetime is detached from the caller, but it retains the
-	// trusted parent's connection scope. Caller cancellation is still honored
-	// until the start is accepted. RunOrigin describes derivation separately
-	// from transport/lane.
-	runCtx := s.backgroundCtx
-	scope, err := s.runControlScopes().Load(parentRunID)
-	if err != nil || (scope.Transport != "http" && scope.Transport != "ws") {
-		return contracts.RunSnapshot{}, runNotStarted(runToolError("run_control_identity_unavailable", "cannot inherit parent run transport"))
-	}
-	runCtx = controlscope.WithContext(runCtx, scope)
-	runCtx = runtimetypes.WithChatSource(runCtx, req.ChatSource)
-	if subject := strings.TrimSpace(request.Origin.Subject); subject != "" {
-		runCtx = runtimetypes.WithIdentity(runCtx, &contracts.AuthIdentity{Subject: subject})
-	}
-	locale := ""
-	parentQuery, err := s.deps.Chats.LoadRunQuery(request.Origin.ChatID, parentRunID)
-	if err != nil {
-		return contracts.RunSnapshot{}, runNotStarted(err)
-	}
-	if parentQuery != nil {
-		locale = parentQuery.Locale
-	}
-	// Target admission runs before the approval is spent, so a rejected target
-	// never burns a human approval. It creates no Chat.
-	admission, err := s.PrepareQueryAdmissionRequest(runCtx, req, true, locale, "")
-	if err != nil {
-		return contracts.RunSnapshot{}, runNotStarted(mapRunAdmissionError(err, agentKey))
-	}
-	level, source, _ := contracts.ResolveInitialAccessLevel(request.AccessLevel, admission.AgentDef.AccessConfig)
-	if admission.AgentDef.RuntimeRevision != plan.TargetRevision || level != plan.AccessLevel || source != plan.AccessSource {
-		releaseQuery(admission.Release)
-		return contracts.RunSnapshot{}, runNotStarted(&contracts.RunToolError{Code: "run_start_target_changed", Retryable: true, Message: "target Agent changed during admission; retry the invocation"})
-	}
-	admission.StrictOwner = true
-	accepted, err := s.acceptRunStart(ctx, request, plan)
-	if err != nil {
-		releaseQuery(admission.Release)
-		return contracts.RunSnapshot{}, err
-	}
-	// Accepted: from here the approval is spent and is never restored.
-	prepared, err := s.CompleteQueryPreparation(runCtx, admission, nil)
-	if err != nil {
-		return contracts.RunSnapshot{}, runNotStarted(mapRunAdmissionError(err, agentKey))
-	}
-	origin := request.Origin
-	prepared.Session.RunOrigin = &origin
-	permission := map[string]any{
-		"parentAccessLevel":   accepted.parentAccessLevel,
-		"parentAccessVersion": accepted.parentAccessVersion,
-		"accessLevel":         accepted.accessLevel,
-		"source":              accepted.source,
-		"agentKey":            agentKey,
-		"agentRevision":       plan.TargetRevision,
-		"requestDigest":       plan.RequestDigest,
-	}
-	if plan.RequestedAccessLevel != "" {
-		permission["requestedAccessLevel"] = plan.RequestedAccessLevel
-	}
-	prepared.Req.AccessGrant = permission
-	prepared.Execution = &queryExecutionOptions{
-		StepLineStore:   s.deps.Chats,
-		CompletionStore: s.deps.Chats,
-	}
-
-	registered, statusErr := s.RegisterPreparedQuery(runCtx, prepared)
-	if statusErr != nil {
-		releaseQuery(prepared.Release)
-		return contracts.RunSnapshot{}, runNotStarted(mapRunStatusError(statusErr))
-	}
-	// A derived Run is one hop beyond its parent, so chat_start cannot reset
-	// the mailbox hop count.
-	registered.Control.RaiseMailHop(s.MailRunHop(parentRunID) + 1)
-	eventBus, ok := s.deps.Runs.EventBus(prepared.Req.RunID)
-	if !ok {
-		releaseQuery(prepared.Release)
-		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.Req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
-		s.FinishRegisteredQuery(prepared, registered)
-		return contracts.RunSnapshot{}, runNotStarted(runToolError("internal_error", "run event bus unavailable"))
-	}
-
-	if sessionbuild.IsProxyRoutedAgent(prepared.AgentDef) {
-		s.deps.Proxy.Start(prepared, registered, eventBus, false)
-	} else {
-		s.startPreparedLocalRun(prepared, registered, eventBus)
-	}
-	snapshot, err := s.GetRunStatus(prepared.Req.RunID)
-	if err != nil {
-		// The Run was handed to its executor; only its status read failed.
-		return contracts.RunSnapshot{}, &contracts.RunToolError{
-			Code: "run_start_outcome_unknown", ExecutionState: "unknown",
-			RunID: prepared.Req.RunID, ChatID: prepared.Req.ChatID,
-			Message: "the Run was started but its status could not be confirmed; check it with chat_get_status before starting anything again",
-		}
-	}
-	return snapshot, nil
-}
-
-// runNotStarted marks a failure that happened before any Run was started.
 func runNotStarted(err error) error {
 	if err == nil {
 		return nil
@@ -309,17 +116,6 @@ func runNotStarted(err error) error {
 		typed.ExecutionState = "not_started"
 	}
 	return typed
-}
-
-func mapRunAdmissionError(err error, agentKey string) error {
-	var statusErr *statusError
-	if !errors.As(err, &statusErr) {
-		return err
-	}
-	if strings.Contains(strings.ToLower(statusErr.Message), "agent not found") && agentKey != "" {
-		return runToolError("agent_not_found", statusErr.Message)
-	}
-	return mapRunStatusError(statusErr)
 }
 
 func runToolError(code string, message string) error {

@@ -36,66 +36,6 @@ func (s *Service) MailRunHop(runID string) int {
 	return 0
 }
 
-func (s *Service) MailOpenedChats(agentKey, subject string, items []map[string]any) ([]map[string]any, error) {
-	seen := map[string]bool{}
-	for _, item := range items {
-		id, _ := item["chatId"].(string)
-		seen[id] = true
-	}
-	summaries, err := s.deps.Chats.ListChats("", "")
-	if err != nil {
-		return nil, err
-	}
-	for _, summary := range summaries {
-		if seen[summary.ChatID] || !strings.HasPrefix(summary.Source, "run-query:") || !s.mailChatOwned(summary, subject, map[string]bool{}) {
-			continue
-		}
-		content, err := s.deps.Chats.LoadJSONLContent(summary.ChatID)
-		if err != nil {
-			return nil, err
-		}
-		scan := bufio.NewScanner(strings.NewReader(content))
-		scan.Buffer(make([]byte, 65536), 64<<20)
-		for scan.Scan() {
-			var row map[string]any
-			if json.Unmarshal(scan.Bytes(), &row) != nil || row["_type"] != "query" {
-				continue
-			}
-			origin := queryinput.OriginFromPayload(row["origin"])
-			if origin != nil && origin.Type == queryinput.OriginAgent && origin.AgentKey == agentKey {
-				items = append(items, map[string]any{"chatId": summary.ChatID, "agentKey": summary.AgentKey})
-				seen[summary.ChatID] = true
-			}
-			break
-		}
-		if err := scan.Err(); err != nil {
-			return nil, err
-		}
-	}
-	out := []map[string]any{}
-	for _, item := range items {
-		id, _ := item["chatId"].(string)
-		summary, err := s.deps.Chats.Summary(id)
-		if err != nil {
-			return nil, err
-		}
-		if summary == nil {
-			continue
-		}
-		active, found, err := s.deps.Runs.ActiveRunForChat(id)
-		if err != nil {
-			return nil, err
-		}
-		item["chatName"] = summary.ChatName
-		item["active"] = found
-		if found {
-			item["activeRun"] = active
-		}
-		out = append(out, item)
-	}
-	return out, nil
-}
-
 // Generated correspondence starts the receiving Agent's own Run; it does not
 // inherit the sender's access level or require the sender to remain alive.
 func (s *Service) MailDefaultAccess(agentKey string) (mailbox.Grant, error) {
@@ -477,7 +417,7 @@ func (s *Service) DeliverMail(ctx context.Context, m mailbox.Mail, scope control
 	if m.Delivery == "inserted" {
 		body := s.mailbox.Body(m)
 		req := queryinput.SteerRequest{ChatID: m.ToChatID, RunID: m.RunID, SteerID: m.SteerID, AgentKey: m.ToAgentKey, Message: body, References: refs, Origin: origin, Mail: m.Metadata()}
-		req.ModelMessage = s.mailbox.Header(m.ID) + body
+		req.ModelMessage = m.Header + body
 		if response, statusErr, ok := s.deps.Proxy.Steer(req); ok {
 			if statusErr != nil {
 				return mailbox.DeliveryResult{Unknown: statusErr.OutcomeUnknown, Rejected: !statusErr.OutcomeUnknown}, statusErr
@@ -493,7 +433,7 @@ func (s *Service) DeliverMail(ctx context.Context, m mailbox.Mail, scope control
 	body := s.mailbox.Body(m)
 	input, _ := json.Marshal(map[string]any{"message": body, "references": refs})
 	cmd := runtimetypes.QueryCommand{RunID: m.RunID, ChatID: m.ToChatID, AgentKey: m.ToAgentKey, Message: body, References: refs, Origin: origin, Mail: m.Metadata(), AccessLevel: m.AccessLevel, AccessGrant: m.AccessGrant, Model: m.Model, OriginalQuery: input, SkipInteractionPolicy: true, Identity: &contracts.AuthIdentity{Subject: m.Subject}}
-	cmd.ModelMessage = s.mailbox.Header(m.ID) + body
+	cmd.ModelMessage = m.Header + body
 	ctx = controlscope.WithContext(s.backgroundCtx, scope)
 	_, err := s.StartQuery(ctx, cmd)
 	if err != nil {
@@ -555,7 +495,6 @@ func (s *Service) bindMailboxSession(req runtimetypes.QueryCommand, session *con
 	if req.Mail == nil && (req.Origin == nil || req.Origin.Type == queryinput.OriginUser) {
 		session.UserChatReferences = queryinput.ResourceIDs(req.References, "chat")
 	}
-	session.MailHeaders = s.mailbox.Header
 	// Only a letter derives the Run from its sender. A reply, notification or
 	// ask wakes the receiving Chat's own Agent, which keeps its Chat tools and
 	// gives the sender no control over the Run.

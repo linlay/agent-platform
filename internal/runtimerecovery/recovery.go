@@ -15,7 +15,6 @@ import (
 
 	"agent-platform/internal/automation"
 	"agent-platform/internal/chat"
-	"agent-platform/internal/mailbox"
 )
 
 const SupportedVersion = "0.5.30"
@@ -118,9 +117,6 @@ func Run(options Options) (Result, error) {
 		}
 	}
 	if err := chat.ValidateRecovery(filepath.Join(source, "chats")); err != nil {
-		return result, err
-	}
-	if err := mailbox.ValidateRecovery(filepath.Join(source, "chats")); err != nil {
 		return result, err
 	}
 	if err := automation.ValidateRecovery(filepath.Join(source, "automations")); err != nil {

@@ -216,7 +216,8 @@ func responseLocale(w http.ResponseWriter) string {
 
 func localizeStreamEventData(locale string, event stream.EventData) stream.EventData {
 	event.Payload = i18n.LocalizeEventPayload(locale, event.Type, event.Payload)
-	return event
+
+	return stream.PublicEvent(event)
 }
 
 func decodeJSON(r *http.Request, target any) error {

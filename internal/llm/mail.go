@@ -1,28 +1,23 @@
 package llm
 
 import (
-	"agent-platform/internal/contracts"
 	"strings"
 )
 
 // Headers are materialized on a copy at the model boundary, never written into
 // the caller's query or the persisted current-message snapshot.
-func mailModelInput(raw map[string]any, id string, session contracts.QuerySession) map[string]any {
-	if session.MailHeaders == nil || raw["role"] != "user" {
+func mailModelInput(raw map[string]any, id string, header string) map[string]any {
+	if header == "" || raw["role"] != "user" {
 		return raw
 	}
-	header := session.MailHeaders(id)
-	if header == "" {
-		return raw
-	}
-	if raw["_mailHeader"] == header {
+	if raw["_mailDecorated"] == true {
 		return raw
 	}
 	result := make(map[string]any, len(raw))
 	for k, v := range raw {
 		result[k] = v
 	}
-	result["_mailId"], result["_mailHeader"] = id, header
+	result["_mailId"], result["_mailHeader"], result["_mailDecorated"] = id, header, true
 	switch body := raw["content"].(type) {
 	case string:
 		result["content"] = header + body

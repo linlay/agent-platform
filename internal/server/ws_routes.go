@@ -328,8 +328,9 @@ func (s *Server) wsModelOptions(_ context.Context, conn *ws.Conn, req ws.Request
 	conn.CompleteRequest(req.ID)
 }
 
-func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+func (s *Server) wsChats(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
+		OpenedBy     string          `json:"openedBy"`
 		LastRunID    string          `json:"lastRunId"`
 		AgentKey     string          `json:"agentKey"`
 		Mode         string          `json:"mode"`
@@ -383,7 +384,7 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	response, listErr := s.listChatSummariesWithPinned(payload.LastRunID, payload.AgentKey, modes, limit, pinned, primary, hasWorkspace)
+	response, listErr := s.listChatSummariesWithPinned(payload.LastRunID, payload.AgentKey, modes, limit, pinned, primary, hasWorkspace, payload.OpenedBy, mailSubject(ctx))
 	if listErr != nil {
 		if isTimeContractViolation(listErr) {
 			sendTimeContractViolation(conn, req.ID, listErr)

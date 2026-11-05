@@ -10,7 +10,7 @@ import (
 )
 
 func TestChatStartSchemaOptionalFieldsSurviveProtocols(t *testing.T) {
-	data, err := resources.ToolFS.ReadFile("tools/chat_start.yml")
+	data, err := resources.ToolFS.ReadFile("tools/chat_send.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +20,7 @@ func TestChatStartSchemaOptionalFieldsSurviveProtocols(t *testing.T) {
 	}
 	root := tree.(map[string]any)
 	schema := root["inputSchema"].(map[string]any)
-	specs := toOpenAIToolSpecs([]api.ToolDetailResponse{{Name: "chat_start", Parameters: schema}})
+	specs := toOpenAIToolSpecs([]api.ToolDetailResponse{{Name: "chat_send", Parameters: schema}})
 	assertSerializedToolSchemaRoots(t, "openai", map[string]any{"tools": openAIToolSpecsToAny(specs)}, "parameters")
 	assertSerializedToolSchemaRoots(t, "anthropic", map[string]any{"tools": toAnthropicToolSpecs(specs)}, "input_schema")
 	for _, payload := range []any{specs[0].Function.Parameters, toAnthropicToolSpecs(specs)[0]["input_schema"]} {
@@ -38,10 +38,10 @@ func TestChatStartSchemaOptionalFieldsSurviveProtocols(t *testing.T) {
 		}
 		properties := result["properties"].(map[string]any)
 		if _, ok := properties["teamId"]; ok {
-			t.Fatal("chat_start still advertises teamId")
+			t.Fatal("chat_send still advertises teamId")
 		}
 		if _, ok := properties["agentKey"]; !ok {
-			t.Fatal("chat_start is missing optional agentKey")
+			t.Fatal("chat_send is missing optional agentKey")
 		}
 
 		enum, ok := properties["accessLevel"].(map[string]any)["enum"].([]any)

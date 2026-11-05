@@ -441,3 +441,23 @@ func mustReadEvent(t *testing.T, events <-chan stream.EventData) stream.EventDat
 		return stream.EventData{}
 	}
 }
+
+func TestBatchActiveRunsMatchesChatScopeAndCompletion(t *testing.T) {
+	m := NewManager()
+	for _, session := range []contracts.QuerySession{{RunID: "main", ChatID: "c"}, {RunID: "side", ChatID: "c", RunScopeID: "side:c"}, {RunID: "ended", ChatID: "done"}} {
+		m.Register(context.Background(), session)
+	}
+	defer m.Finish("main")
+	defer m.Finish("side")
+	m.Finish("ended")
+	runs, conflicts := m.ActiveRunsForChats([]string{"c", "done"})
+	if len(conflicts) != 0 || len(runs) != 1 || runs["c"].RunID != "main" {
+		t.Fatal(runs, conflicts)
+	}
+	m.Register(context.Background(), contracts.QuerySession{RunID: "second", ChatID: "c"})
+	defer m.Finish("second")
+	_, conflicts = m.ActiveRunsForChats([]string{"c"})
+	if conflicts["c"] == nil || len(conflicts["c"].RunIDs) != 2 {
+		t.Fatal(conflicts)
+	}
+}

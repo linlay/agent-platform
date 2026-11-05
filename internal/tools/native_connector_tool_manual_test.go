@@ -41,10 +41,8 @@ var nativeToolManualChapters = map[string]nativeToolManualChapter{
 	"desktop_webapp":       {file: "references/webapp.md"},
 	"desktop_service":      {file: "references/control-center.md"},
 	"desktop_market":       {file: "references/market.md"},
-	"chat_start":           {file: "references/run.md", marker: "## chat_start"},
 	"chat_get_status":      {file: "references/run.md", marker: "## chat_get_status"},
 	"chat_interrupt":       {file: "references/run.md", marker: "## chat_interrupt"},
-	"chat_steer":           {file: "references/run.md", marker: "## chat_steer"},
 	"chat_query":           {file: "references/chat.md"},
 	"chat_manage":          {file: "references/chat.md"},
 	"automation_query":     {file: "references/automation.md"},
@@ -196,7 +194,7 @@ func TestNativeConnectorManualCoverageDetectsOmissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct{ tool, name, field string }{
-		{"chat_start", "references", "references"},
+		{"chat_send", "references", "references"},
 		{"surface_navigate", "ignoreCache", "ignoreCache"},
 		{"automation_manage", "hidden", "args.query.hidden"},
 	} {

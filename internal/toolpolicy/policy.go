@@ -26,6 +26,7 @@ var builtinReadOnlyTools = map[string]struct{}{
 }
 
 var alwaysDeniedTools = map[string]struct{}{
+	"chat_send": {}, "chat_notify": {}, "chat_submit": {},
 	"bash":                    {},
 	"bash_sandbox":            {},
 	"_sandbox_bash_":          {},
@@ -36,9 +37,7 @@ var alwaysDeniedTools = map[string]struct{}{
 	"plan_update_task":        {},
 	"finalize_planning":       {},
 	"agent_invoke":            {},
-	"chat_start":              {},
 	"chat_interrupt":          {},
-	"chat_steer":              {},
 	"artifact_publish":        {},
 	"image_generate":          {},
 	"speech_generate":         {},

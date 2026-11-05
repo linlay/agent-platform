@@ -8,8 +8,6 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
-	"agent-platform/internal/runops"
-	runtimequery "agent-platform/internal/runtime/query"
 	"agent-platform/internal/runtime/runstate"
 	"agent-platform/internal/stream"
 	runtimetools "agent-platform/internal/tools"
@@ -40,7 +38,7 @@ func TestWaitSteerContinuesSameRun(t *testing.T) {
 		batch, agent bool
 	}{
 		{"human_serial", false, false}, {"human_batch", true, false},
-		{"chat_steer_serial", false, true}, {"chat_steer_batch", true, true},
+		{"chat_send_serial", false, true}, {"chat_send_batch", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			batch := tc.batch
@@ -101,19 +99,13 @@ func TestWaitSteerContinuesSameRun(t *testing.T) {
 			goals := []string{"change direction"}
 			if tc.agent {
 				goals = append(goals, "second goal")
-				caller := QuerySession{RunID: "caller", ChatID: "caller-chat", AgentKey: "caller", Subject: "alice", RunOwner: AgentRunOwner("caller")}
-				_, parent, _ := runs.Register(ctx, caller)
-				defer runs.Finish("caller")
-				handler := runops.NewToolHandler(runtimequery.NewService(runtimequery.Dependencies{Runs: runs}), runs)
-				for _, goal := range goals {
-					result, err := handler.Invoke(ctx, runops.SteerToolName, map[string]any{"runId": "run-sleep", "message": goal}, &ExecutionContext{Session: caller, RunControl: parent, CurrentToolID: goal})
-					if err != nil || result.Error != "" || result.Structured["accepted"] != true {
-						t.Fatalf("chat_steer: %#v %v", result, err)
-					}
-				}
-			} else if !control.EnqueueSteer(api.SteerRequest{RunID: "run-sleep", Message: goals[0]}) {
-				t.Fatal("steer rejected")
 			}
+			for _, goal := range goals {
+				if !control.EnqueueSteer(api.SteerRequest{RunID: "run-sleep", Message: goal}) {
+					t.Fatal("steer rejected")
+				}
+			}
+
 			consume()
 
 			results := 0

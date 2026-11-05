@@ -4,13 +4,13 @@ Use chat_query and chat_manage in an ordinary native main root Run with builtin.
 
 ## Queries
 
-- opened: `{}` lists Chats opened by the calling Agent and subject through mailbox or legacy chat_start. Includes chatId, agentKey, current active/activeRun and available mail provenance; it grants no history-read or Run-control permission.
+- opened: `{}` lists unarchived work Chats explicitly created by chat_send newChat:true for the calling Agent and subject in the current process. Uses the same summary query as /api/chats?openedBy; no legacy or JSONL scan; it grants no history-read or Run-control permission.
 
 - current: `{}` returns current summary and active Run state.
 - list: `{scope?:"agent"|"instance", archived?, pinned?, limit?, cursor?}`. Default scope is current Agent. limit is 1–100 (default 20). Follow nextCursor even when a page is empty. Ordering is stable Chat ID order, independent of UI pins/manual sorting.
 - search: `{query, scope?, chatId?, archived?, limit?, cursor?}` searches visible user/assistant text; returns up to 500-character snippets around matches. Follow nextCursor when incomplete; skippedChatIds identifies histories above the 8 MiB per-Chat scan limit. These are not proof of no matches.
 - read: `{chatId, view:"summary"|"messages", archived?, limit?, cursor?}`. Messages exclude internal reasoning, system prompts and tool payloads. Long messages continue with offset/continued and nextCursor. Keep other query arguments unchanged. Restart if history changed.
-- models: `{}` lists the registered chat models as `items` with `modelKey`, `name`, `provider`, `modelId`, `isReasoner`, `reasoningEfforts`, `isVision` and `contextWindow`. Use `modelKey` as the chat_start modelKey. An ACP-backed target accepts only the models its bridge offers, which this list does not describe.
+- models: `{}` lists the registered chat models as `items` with `modelKey`, `name`, `provider`, `modelId`, `isReasoner`, `reasoningEfforts`, `isVision` and `contextWindow`. Use `modelKey` as the chat_send modelKey. An ACP-backed target accepts only the models its bridge offers, which this list does not describe.
 - artifacts: `{chatId?, runId?, limit?, cursor?}` lists published artifact metadata through the existing authenticated Chat resource service. Follow nextCursor; no file body is returned.
 
 ## Management

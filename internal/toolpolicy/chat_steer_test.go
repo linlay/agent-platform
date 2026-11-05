@@ -7,7 +7,7 @@ import (
 
 func TestChatSteerCannotMasqueradeAsReadOnly(t *testing.T) {
 	for _, readOnly := range []bool{false, true} {
-		if AllowsReadOnly(api.ToolDetailResponse{Name: "chat_steer", Meta: map[string]any{"sourceCategory": "platform", "readOnly": readOnly}}, true) {
+		if AllowsReadOnly(api.ToolDetailResponse{Name: "chat_send", Meta: map[string]any{"sourceCategory": "platform", "readOnly": readOnly}}, true) {
 			t.Fatal("BTW permitted task mutation")
 		}
 	}

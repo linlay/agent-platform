@@ -203,7 +203,8 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		for _, raw := range mergeRawMessagesByMsgID(session.HistoryMessages) {
 			raw = e.materializeHistorySteer(raw, session, model.IsVision)
 			if id, ok := raw["_mailId"].(string); ok {
-				raw = mailModelInput(raw, id, session)
+				header, _ := raw["_mailHeader"].(string)
+				raw = mailModelInput(raw, id, header)
 			}
 			msg := rawMessageToOpenAI(raw, preserveReasoning)
 			if msg.Role != "" {
@@ -218,7 +219,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		pinnedMessageStart = len(messages)
 		for _, raw := range currentMessages {
 			if session.Mail != nil {
-				raw = mailModelInput(raw, session.Mail.ID, session)
+				raw = mailModelInput(raw, session.Mail.ID, session.Mail.Header)
 			}
 			msg := rawMessageToOpenAI(raw, preserveReasoning)
 			if msg.Role != "" {

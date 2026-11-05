@@ -2,7 +2,6 @@ package mailbox
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -15,7 +14,6 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/runtime/controlscope"
-	"agent-platform/internal/sqlitecontract"
 	"agent-platform/internal/stream"
 )
 
@@ -45,78 +43,38 @@ func TestUnreleasedMailSchemaKeepsVersionOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	if m, err := reopened.Get("preserved"); err != nil || m.Message != "work" {
+	if m, err := reopened.Get("preserved"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("current V1 did not reopen: %#v %v", m, err)
 	}
 }
 
-func TestVersionTwoMailDatabaseRejectedWithoutDowngradingData(t *testing.T) {
+func TestStartupResetsOldSchemaAndSidecars(t *testing.T) {
 	root := t.TempDir()
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.WriteFile(filepath.Join(root, "mail.db"+suffix), []byte("old development data"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	store, err := Open(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
-	put(t, store, sample("preserved-v2", Letter, Queued))
-	// Simulate the previous development build: identical DDL, V2 marker.
-	if _, err := store.db.Exec("PRAGMA user_version=2"); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if reopened, err := Open(root); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
-		if reopened != nil {
-			reopened.Close()
-		}
-		t.Fatalf("V2 database was silently accepted or downgraded: %v", err)
-	}
-	db, err := sql.Open("sqlite", filepath.Join(root, "mail.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	var version int
-	var message string
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 2 {
-		t.Fatalf("rejected V2 marker changed: version=%d err=%v", version, err)
-	}
-	if err := db.QueryRow("SELECT MESSAGE_ FROM MAILS WHERE MAIL_ID_='preserved-v2'").Scan(&message); err != nil || message != "work" {
-		t.Fatalf("rejected V2 data changed: message=%q err=%v", message, err)
+	defer store.Close()
+	n, err := store.Count(Filter{AllSubjects: true})
+	if err != nil || n != 0 {
+		t.Fatal(n, err)
 	}
 }
-
-func TestLegacyMailSchemaRejectedWithoutChangingData(t *testing.T) {
-	root := t.TempDir()
-	db, err := sql.Open("sqlite", filepath.Join(root, "mail.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(`CREATE TABLE mails (id TEXT PRIMARY KEY, message TEXT); INSERT INTO mails VALUES ('old','keep me'); PRAGMA application_id=0x41504D4C; PRAGMA user_version=1;`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if store, err := Open(root); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
-		if store != nil {
-			store.Close()
+func TestStartupRejectsNonRegularDatabase(t *testing.T) {
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		root := t.TempDir()
+		if err := os.Mkdir(filepath.Join(root, "mail.db"+suffix), 0700); err != nil {
+			t.Fatal(err)
 		}
-		t.Fatalf("old schema accepted: %v", err)
-	}
-	db, err = sql.Open("sqlite", filepath.Join(root, "mail.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	var text string
-	var version int
-	if err = db.QueryRow("SELECT message FROM mails WHERE id='old'").Scan(&text); err != nil || text != "keep me" {
-		t.Fatal(text, err)
-	}
-	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 1 {
-		t.Fatal(version, err)
+		if store, err := Open(root); err == nil {
+			store.Close()
+			t.Fatal("non regular path accepted")
+		}
 	}
 }
 
@@ -126,6 +84,7 @@ func TestRetentionClearsBodiesButPreservesReceiptsRelationsAndChatFiles(t *testi
 	old := at.AddDate(0, 0, -31).UnixMilli()
 	letter := sample("old-letter", Letter, Done)
 	letter.OpenedChat = true
+	letter.NewChat = true
 	letter.AnsweredBy = "old-reply"
 	letter.TerminalAt = old
 	letter.Input = json.RawMessage(`{"message":"private"}`)
@@ -177,7 +136,7 @@ func TestRetentionClearsBodiesButPreservesReceiptsRelationsAndChatFiles(t *testi
 	if err != nil || len(rows) != 1 || rows[0].ID != letter.ID {
 		t.Fatalf("opening relationship lost: %#v %v", rows, err)
 	}
-	if !strings.Contains(s.Header(reply.ID), letter.ID) || !strings.Contains(s.Header(ask.ID), letter.ID) {
+	if !strings.Contains(s.renderHeader(reply), letter.ID) || !strings.Contains(s.renderHeader(ask), letter.ID) {
 		t.Fatal("envelope relations disappeared with body")
 	}
 	replay, inserted, err := s.Store.Accept(letter)
@@ -221,7 +180,7 @@ func TestDeletedWorkerReplyDeliversFromReceivingCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	reply, err = s.Store.Get(reply.ID)
-	if err != nil || reply.Status != Queued || reply.PurgedAt != 0 || reply.FromChatDeletedAt == 0 || reply.Message != "finished report" || len(reply.Files) != 1 {
+	if err != nil || reply.Status != Queued || reply.PurgedAt != 0 || reply.FromChatClosedAt == 0 || reply.Message != "finished report" || len(reply.Files) != 1 {
 		t.Fatalf("reply lost: %#v %v", reply, err)
 	}
 	p.mu.Lock()

@@ -9,10 +9,10 @@ import (
 )
 
 func TestNativeConnectorToolsFollowFrozenMount(t *testing.T) {
-	tools := []string{"chat_start", "automation_manage", "desktop_kanban", "desktop_shell", "workpanel_open", "surface_click", "awcp_invoke"}
+	tools := []string{"chat_send", "automation_manage", "desktop_kanban", "desktop_shell", "workpanel_open", "surface_click", "awcp_invoke"}
 	for id, want := range map[string]map[string]string{
 		connector.KanbanControlConnectorID:   {"desktop_kanban": connector.KanbanControlConnectorID},
-		connector.TaskControlConnectorID:     {"chat_start": connector.TaskControlConnectorID, "automation_manage": connector.TaskControlConnectorID},
+		connector.TaskControlConnectorID:     {"chat_send": connector.TaskControlConnectorID, "automation_manage": connector.TaskControlConnectorID},
 		connector.PlatformControlConnectorID: {"desktop_shell": connector.PlatformControlConnectorID},
 		connector.WebControlConnectorID:      {"workpanel_open": connector.WebControlConnectorID, "surface_click": connector.WebControlConnectorID, "awcp_invoke": connector.WebControlConnectorID},
 	} {

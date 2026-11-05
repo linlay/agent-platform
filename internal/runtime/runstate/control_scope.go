@@ -28,7 +28,7 @@ func (m *Manager) RunControlScope(runID string) (controlscope.Scope, bool) {
 	return scope, ok
 }
 
-// RecordedRunOrigin returns the chat_start caller of a Run after the Run
+// RecordedRunOrigin returns the opening-letter sender of a Run after the Run
 // itself was released, so its creator can still read the outcome.
 func (m *Manager) RecordedRunOrigin(runID string) *contracts.RunOrigin {
 	m.mu.Lock()

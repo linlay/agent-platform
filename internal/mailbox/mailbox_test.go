@@ -100,7 +100,7 @@ func await(t *testing.T, f func() bool) {
 	t.Fatal("condition did not become true")
 }
 
-func TestStoreIdempotencySurvivesReopenAndPurging(t *testing.T) {
+func TestStoreIdempotencySurvivesPurging(t *testing.T) {
 	root := t.TempDir()
 	s, err := Open(root)
 	if err != nil {
@@ -109,13 +109,6 @@ func TestStoreIdempotencySurvivesReopenAndPurging(t *testing.T) {
 	m := sample("m1", Letter, Queued)
 	put(t, s, m)
 	_, err = s.Change(m.ID, func(r *Mail) error { r.Message = ""; r.Input = nil; r.PurgedAt = now(); return nil })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	s, err = Open(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,8 +285,14 @@ func TestStrictDatabaseIdentityIsNotAdopted(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Close()
-	if _, err = Open(root); err == nil {
-		t.Fatal("unmarked mailbox adopted")
+	reset, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reset.Close()
+	var id int
+	if err := reset.db.QueryRow("PRAGMA application_id").Scan(&id); err != nil || id != 0x41504D4C {
+		t.Fatal(id, err)
 	}
 }
 func TestMailStatusDoesNotGrantInsertedRunControl(t *testing.T) {

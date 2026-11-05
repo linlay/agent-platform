@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -109,38 +108,6 @@ func TestAgentDefaultAccessAdmissionPreservesRawInput(t *testing.T) {
 	}
 }
 
-func TestChatStartTargetDefaultCanExceedParentAndRemainsIndependent(t *testing.T) {
-	fixture := accessDefaultFixture(t, "full_access")
-	bindTestRunControl(t, fixture.server, "parent", "ws", "desktop")
-	_, parent, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{RunID: "parent", ChatID: "parent-chat", AgentKey: "mock-agent", AccessLevel: "ask_for_approval"})
-	defer fixture.runs.Finish("parent")
-	req := contracts.RunStartRequest{AgentKey: "mock-agent", Message: "task", Input: map[string]any{"agentKey": "mock-agent", "message": "task"}, Origin: contracts.RunOrigin{AgentKey: "mock-agent", RunID: "parent", ToolID: "default-call"}}
-	started, err := fixture.server.StartRun(context.Background(), req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if started.AccessLevel != "full_access" {
-		t.Fatalf("target default was capped: %+v", started)
-	}
-	parent.UpdateAccessLevel("auto_approve")
-	waitRunTerminal(t, fixture.server, started.RunID)
-	line, err := fixture.chats.LoadRunQuery(started.ChatID, started.RunID)
-	if err != nil || line.AccessGrant["source"] != "agent_default" || line.AccessGrant["parentAccessLevel"] != "ask_for_approval" {
-		t.Fatalf("audit=%+v err=%v", line, err)
-	}
-	if _, exists := line.Query["accessLevel"]; exists {
-		t.Fatal("resolved permission polluted original query")
-	}
-	req.AccessLevel = "full_access"
-	_, err = fixture.server.StartRun(context.Background(), req)
-	var typed *contracts.RunToolError
-	if !errors.As(err, &typed) || typed.Code != "run_start_access_level_exceeded" {
-		t.Fatalf("explicit escalation accepted: %v", err)
-	}
-}
-
-// Generated correspondence must resolve the receiving Agent independently of
-// the worker's original grant, and retain it across catalog changes/restarts.
 func TestGeneratedMailboxAccessFrozenFromReceivingAgent(t *testing.T) {
 	f := accessDefaultFixture(t, "full_access")
 	store, err := mailbox.Open(f.cfg.Paths.ChatsDir)

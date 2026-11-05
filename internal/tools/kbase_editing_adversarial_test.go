@@ -298,7 +298,7 @@ func TestKBaseAdversarialUnmountedToolsCannotBeInjectedInEitherStage(t *testing.
 				"artifact_publish",
 				"desktop_action",
 				"memory_search",
-				"chat_start",
+				"chat_send",
 				"agent_invoke",
 			} {
 				t.Run(toolName, func(t *testing.T) {

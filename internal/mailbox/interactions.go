@@ -223,11 +223,6 @@ func (s *Service) OpenedChats(agentKey, subject string) ([]map[string]any, error
 		seen[m.ToChatID] = true
 		out = append(out, map[string]any{"chatId": m.ToChatID, "agentKey": m.ToAgentKey, "mailId": m.ID, "runId": m.RunID, "status": m.Status})
 	}
-	if reader, ok := s.port.(interface {
-		MailOpenedChats(string, string, []map[string]any) ([]map[string]any, error)
-	}); ok {
-		return reader.MailOpenedChats(agentKey, subject, out)
-	}
 	return out, nil
 }
 
@@ -240,11 +235,11 @@ func (s *Service) PurgeChat(chatID string) error {
 	}
 	for _, m := range rows {
 		current, err := s.change(m.ID, func(row *Mail) error {
-			if row.FromChatID == chatID && row.FromChatDeletedAt == 0 {
-				row.FromChatDeletedAt = now()
+			if row.FromChatID == chatID && row.FromChatClosedAt == 0 {
+				row.FromChatClosedAt = now()
 			}
-			if row.ToChatID == chatID && row.ToChatDeletedAt == 0 {
-				row.ToChatDeletedAt = now()
+			if row.ToChatID == chatID && row.ToChatClosedAt == 0 {
+				row.ToChatClosedAt = now()
 			}
 			return nil
 		})

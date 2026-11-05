@@ -17,7 +17,7 @@ import (
 const schema = `CREATE TABLE MAILS (
  MAIL_ID_ TEXT PRIMARY KEY, KIND_ TEXT NOT NULL, STATUS_ TEXT NOT NULL,
  CREATED_AT_ INTEGER NOT NULL, UPDATED_AT_ INTEGER NOT NULL,
- TO_AGENT_KEY_ TEXT NOT NULL, TO_CHAT_ID_ TEXT NOT NULL, OPENED_CHAT_ INTEGER NOT NULL DEFAULT 0,
+ TO_AGENT_KEY_ TEXT NOT NULL, TO_CHAT_ID_ TEXT NOT NULL, OPENED_CHAT_ INTEGER NOT NULL DEFAULT 0, NEW_CHAT_ INTEGER NOT NULL DEFAULT 0,
  ORIGIN_TYPE_ TEXT NOT NULL, FROM_AGENT_KEY_ TEXT NOT NULL DEFAULT '', FROM_CHAT_ID_ TEXT NOT NULL DEFAULT '',
  FROM_RUN_ID_ TEXT NOT NULL DEFAULT '', FROM_TOOL_ID_ TEXT NOT NULL DEFAULT '', SUBJECT_ TEXT NOT NULL DEFAULT '',
  INPUT_ TEXT, MESSAGE_ TEXT NOT NULL DEFAULT '', REFERENCES_ TEXT, FILES_ TEXT, BODY_PURGED_AT_ INTEGER NOT NULL DEFAULT 0,
@@ -28,7 +28,7 @@ const schema = `CREATE TABLE MAILS (
  DELIVERY_ TEXT NOT NULL DEFAULT '', RUN_ID_ TEXT NOT NULL DEFAULT '', STEER_ID_ TEXT NOT NULL DEFAULT '',
  ATTEMPTS_ INTEGER NOT NULL DEFAULT 0, CONSUMED_AT_ INTEGER NOT NULL DEFAULT 0,
  RESUME_PHASE_ TEXT NOT NULL DEFAULT '', EVIDENCE_ TEXT NOT NULL DEFAULT '', ERROR_ TEXT,
- TERMINAL_AT_ INTEGER NOT NULL DEFAULT 0, FROM_CHAT_DELETED_AT_ INTEGER NOT NULL DEFAULT 0, TO_CHAT_DELETED_AT_ INTEGER NOT NULL DEFAULT 0
+ TERMINAL_AT_ INTEGER NOT NULL DEFAULT 0, FROM_CHAT_CLOSED_AT_ INTEGER NOT NULL DEFAULT 0, TO_CHAT_CLOSED_AT_ INTEGER NOT NULL DEFAULT 0
 );
 CREATE UNIQUE INDEX IDX_MAILS_IDEM_ ON MAILS(FROM_RUN_ID_,FROM_TOOL_ID_) WHERE FROM_TOOL_ID_ <> '';
 CREATE UNIQUE INDEX IDX_MAILS_REPLY_ ON MAILS(REPLY_KEY_) WHERE KIND_ = 'reply';
@@ -40,11 +40,11 @@ CREATE INDEX IDX_MAILS_STATUS_ ON MAILS(STATUS_);
 CREATE INDEX IDX_MAILS_ANSWERED_ ON MAILS(ANSWERED_BY_MAIL_ID_);
 CREATE INDEX IDX_MAILS_TERMINAL_ ON MAILS(TERMINAL_AT_,BODY_PURGED_AT_);`
 
-const columns = `MAIL_ID_,KIND_,STATUS_,CREATED_AT_,UPDATED_AT_,TO_AGENT_KEY_,TO_CHAT_ID_,OPENED_CHAT_,
+const columns = `MAIL_ID_,KIND_,STATUS_,CREATED_AT_,UPDATED_AT_,TO_AGENT_KEY_,TO_CHAT_ID_,OPENED_CHAT_,NEW_CHAT_,
 ORIGIN_TYPE_,FROM_AGENT_KEY_,FROM_CHAT_ID_,FROM_RUN_ID_,FROM_TOOL_ID_,SUBJECT_,
 INPUT_,MESSAGE_,REFERENCES_,FILES_,BODY_PURGED_AT_,HOP_,ACCESS_LEVEL_,ACCESS_GRANT_,MODEL_,REQUEST_DIGEST_,
 ANSWERED_BY_MAIL_ID_,REPLY_KEY_,REPLY_OF_RUN_ID_,OUTCOME_,AWAITING_ID_,AWAITING_MODE_,AWAITING_SOURCE_,PARENT_MAIL_ID_,
-DELIVERY_,RUN_ID_,STEER_ID_,ATTEMPTS_,CONSUMED_AT_,RESUME_PHASE_,EVIDENCE_,ERROR_,TERMINAL_AT_,FROM_CHAT_DELETED_AT_,TO_CHAT_DELETED_AT_`
+DELIVERY_,RUN_ID_,STEER_ID_,ATTEMPTS_,CONSUMED_AT_,RESUME_PHASE_,EVIDENCE_,ERROR_,TERMINAL_AT_,FROM_CHAT_CLOSED_AT_,TO_CHAT_CLOSED_AT_`
 
 var ErrNotFound = errors.New("mail_not_found")
 var errStale = errors.New("stale mail callback")
@@ -59,6 +59,23 @@ func Open(root string) (*Store, error) {
 		return nil, err
 	}
 	path := filepath.Join(root, "mail.db")
+	// TODO(chats-db-v2): remove this reset when MAILS moves into chats.db.
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		name := path + suffix
+		info, err := os.Lstat(name)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("mailbox reset: not a regular file: %s", name)
+		}
+		if err := os.Remove(name); err != nil {
+			return nil, fmt.Errorf("mailbox reset: %w", err)
+		}
+	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
@@ -79,11 +96,11 @@ func Open(root string) (*Store, error) {
 func (s *Store) Close() error { return s.db.Close() }
 func jsonText(v any) string   { b, _ := json.Marshal(v); return string(b) }
 func values(m Mail) []any {
-	return []any{m.ID, m.Kind, m.Status, m.CreatedAt, m.UpdatedAt, m.ToAgentKey, m.ToChatID, m.OpenedChat,
+	return []any{m.ID, m.Kind, m.Status, m.CreatedAt, m.UpdatedAt, m.ToAgentKey, m.ToChatID, m.OpenedChat, m.NewChat,
 		m.OriginType, m.FromAgentKey, m.FromChatID, m.FromRunID, m.FromToolID, m.Subject,
 		string(m.Input), m.Message, jsonText(m.References), jsonText(m.Files), m.PurgedAt, m.Hop, m.AccessLevel, jsonText(m.AccessGrant), jsonText(m.Model), m.RequestDigest,
 		m.AnsweredBy, m.ReplyKey, m.ReplyOfRun, m.Outcome, m.AwaitingID, m.AwaitingMode, m.AwaitingSource, m.ParentID,
-		m.Delivery, m.RunID, m.SteerID, m.Attempts, m.ConsumedAt, m.ResumePhase, m.Evidence, jsonText(m.Error), m.TerminalAt, m.FromChatDeletedAt, m.ToChatDeletedAt}
+		m.Delivery, m.RunID, m.SteerID, m.Attempts, m.ConsumedAt, m.ResumePhase, m.Evidence, jsonText(m.Error), m.TerminalAt, m.FromChatClosedAt, m.ToChatClosedAt}
 }
 
 type scanner interface{ Scan(...any) error }
@@ -91,11 +108,11 @@ type scanner interface{ Scan(...any) error }
 func scan(row scanner) (Mail, error) {
 	var m Mail
 	var input, refs, files, grant, model, errData sql.NullString
-	err := row.Scan(&m.ID, &m.Kind, &m.Status, &m.CreatedAt, &m.UpdatedAt, &m.ToAgentKey, &m.ToChatID, &m.OpenedChat,
+	err := row.Scan(&m.ID, &m.Kind, &m.Status, &m.CreatedAt, &m.UpdatedAt, &m.ToAgentKey, &m.ToChatID, &m.OpenedChat, &m.NewChat,
 		&m.OriginType, &m.FromAgentKey, &m.FromChatID, &m.FromRunID, &m.FromToolID, &m.Subject,
 		&input, &m.Message, &refs, &files, &m.PurgedAt, &m.Hop, &m.AccessLevel, &grant, &model, &m.RequestDigest,
 		&m.AnsweredBy, &m.ReplyKey, &m.ReplyOfRun, &m.Outcome, &m.AwaitingID, &m.AwaitingMode, &m.AwaitingSource, &m.ParentID,
-		&m.Delivery, &m.RunID, &m.SteerID, &m.Attempts, &m.ConsumedAt, &m.ResumePhase, &m.Evidence, &errData, &m.TerminalAt, &m.FromChatDeletedAt, &m.ToChatDeletedAt)
+		&m.Delivery, &m.RunID, &m.SteerID, &m.Attempts, &m.ConsumedAt, &m.ResumePhase, &m.Evidence, &errData, &m.TerminalAt, &m.FromChatClosedAt, &m.ToChatClosedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return m, ErrNotFound
 	}
@@ -197,10 +214,10 @@ func (s *Store) OwnsRun(runID, agentKey, subject string) (bool, error) {
 	return s.exists("RUN_ID_=? AND KIND_='letter' AND DELIVERY_='started' AND FROM_AGENT_KEY_=? AND SUBJECT_=?", runID, agentKey, subject)
 }
 func (s *Store) OpenedBy(chatID, agentKey, subject string) (bool, error) {
-	return s.exists("TO_CHAT_ID_=? AND OPENED_CHAT_=1 AND FROM_AGENT_KEY_=? AND SUBJECT_=? AND TO_CHAT_DELETED_AT_=0", chatID, agentKey, subject)
+	return s.exists("TO_CHAT_ID_=? AND OPENED_CHAT_=1 AND FROM_AGENT_KEY_=? AND SUBJECT_=? AND TO_CHAT_CLOSED_AT_=0", chatID, agentKey, subject)
 }
 func (s *Store) OpenedChats(agentKey, subject string) ([]Mail, error) {
-	return s.query("FROM_AGENT_KEY_=? AND SUBJECT_=? AND OPENED_CHAT_=1 AND TO_CHAT_DELETED_AT_=0", agentKey, subject)
+	return s.query("FROM_AGENT_KEY_=? AND SUBJECT_=? AND NEW_CHAT_=1", agentKey, subject)
 }
 func (s *Store) ForChat(chatID string) ([]Mail, error) {
 	return s.query("FROM_CHAT_ID_=? OR TO_CHAT_ID_=?", chatID, chatID)
@@ -270,7 +287,7 @@ func (s *Store) Change(id string, change func(*Mail) error) (Mail, error) {
 	}
 	return m, tx.Commit()
 }
-func (s *Store) List(f Filter) ([]Mail, error) {
+func mailWhere(f Filter) (string, []any) {
 	where, args := []string{"1=1"}, []any{}
 	for _, v := range []struct{ col, value string }{{"TO_AGENT_KEY_", f.AgentKey}, {"TO_CHAT_ID_", f.ChatID}, {"KIND_", string(f.Kind)}, {"STATUS_", string(f.Status)}} {
 		if v.value != "" {
@@ -282,6 +299,16 @@ func (s *Store) List(f Filter) ([]Mail, error) {
 		where = append(where, "SUBJECT_=?")
 		args = append(args, f.Subject)
 	}
+	return strings.Join(where, " AND "), args
+}
+func (s *Store) Count(f Filter) (int, error) {
+	where, args := mailWhere(f)
+	var n int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM MAILS WHERE "+where, args...).Scan(&n)
+	return n, err
+}
+func (s *Store) List(f Filter) ([]Mail, error) {
+	where, args := mailWhere(f)
 	limit := f.Limit
 	if limit <= 0 || limit > 1000 {
 		limit = 100
@@ -292,7 +319,7 @@ func (s *Store) List(f Filter) ([]Mail, error) {
 	if f.NewestFirst {
 		order = "CREATED_AT_ DESC,MAIL_ID_ DESC"
 	}
-	rows, err := s.db.Query("SELECT "+columns+" FROM MAILS WHERE "+strings.Join(where, " AND ")+" ORDER BY "+order+" LIMIT ? OFFSET ?", args...)
+	rows, err := s.db.Query("SELECT "+columns+" FROM MAILS WHERE "+where+" ORDER BY "+order+" LIMIT ? OFFSET ?", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -331,7 +358,7 @@ func (s *Store) Complete(replies []Mail, letters []Mail, failed bool) ([]Mail, [
 		if err != nil {
 			return nil, nil, err
 		}
-		if current.Terminal() || current.AnsweredBy != "" || current.FromChatDeletedAt != 0 {
+		if current.Terminal() || current.AnsweredBy != "" || current.FromChatClosedAt != 0 {
 			continue
 		}
 		current.Error = snapshot.Error
@@ -347,8 +374,8 @@ func (s *Store) Complete(replies []Mail, letters []Mail, failed bool) ([]Mail, [
 			}
 			if r.ReplyKey == key {
 				eligible = true
-				r.FromChatDeletedAt = m.ToChatDeletedAt
-				r.ToChatDeletedAt = m.FromChatDeletedAt
+				r.FromChatClosedAt = m.ToChatClosedAt
+				r.ToChatClosedAt = m.FromChatClosedAt
 				break
 			}
 		}

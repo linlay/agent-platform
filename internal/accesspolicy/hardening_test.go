@@ -52,3 +52,25 @@ func TestDesktopSecretsHardBlockAcrossLevels(t *testing.T) {
 		}
 	}
 }
+
+func TestMailDatabaseHardBlockAcrossLevels(t *testing.T) {
+	s := policyFixture(t)
+	root := t.TempDir()
+	cfg := config.Config{Paths: config.PathsConfig{ChatsDir: root}}
+	s.ProtectedPaths = PlatformProtectedPaths(cfg)
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
+		s.AccessLevel = level
+		for _, name := range []string{"mail.db", "mail.db-wal", "mail.db-shm"} {
+			path := filepath.Join(root, name)
+			if err := os.WriteFile(path, []byte("frozen permissions"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			for _, mode := range []AccessMode{ReadAccess, WriteAccess} {
+				plan, err := BuildPathPlan(config.DefaultAccessPolicyConfig(), s, mode, path)
+				if err != nil || !plan.Blocked() {
+					t.Fatal(level, mode, name, plan, err)
+				}
+			}
+		}
+	}
+}

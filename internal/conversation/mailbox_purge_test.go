@@ -63,3 +63,27 @@ func TestDeleteArchiveAlsoPurgesItsMail(t *testing.T) {
 		t.Fatal(exists, err)
 	}
 }
+
+func TestArchiveClosesMailAndIgnoresHookFailure(t *testing.T) {
+	root := t.TempDir()
+	active, err := chat.NewFileStoreAtStartup(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer active.Close()
+	archive, err := chat.NewArchiveStoreAtStartup(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := active.EnsureChatWithSourceAndMode("close", "worker", "work", "query:user", "GENERAL"); err != nil {
+		t.Fatal(err)
+	}
+	controlAppendRun(t, active, "close", "r", "finished")
+	s := NewService(active, archive, chat.NewArchiver(active, archive), nil)
+	called := 0
+	s.MailboxPurge = func(id string) error { called++; return errors.New("temporary") }
+	results, err := s.ArchiveChats([]string{"close"})
+	if err != nil || len(results) != 1 || !results[0].Success || called != 1 {
+		t.Fatal(results, called, err)
+	}
+}

@@ -82,10 +82,8 @@ var requiredBuiltinToolNames = []string{
 	"ask_user_question",
 	"ask_user_form",
 	"agent_invoke",
-	"chat_start",
 	"chat_get_status",
 	"chat_interrupt",
-	"chat_steer",
 }
 
 func LoadEmbeddedToolDefinitions() ([]api.ToolDetailResponse, error) {

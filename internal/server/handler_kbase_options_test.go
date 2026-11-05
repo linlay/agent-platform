@@ -155,7 +155,7 @@ func TestKBaseOptionsHTTPWSAndQueryAdmission(t *testing.T) {
 	if _, err = f.server.prepareQueryAdmissionRequest(context.Background(), request, false, "", ""); err == nil {
 		t.Fatal("disabled nonempty selection accepted")
 	}
-	// chat_start is not gated by the entry switch, through admission and the
+	// chat_send is not gated by the entry switch, through admission and the
 	// session build alike, while an unreadable library is still refused.
 	command := trustedQueryCommand(context.Background(), request)
 	command.SkipInteractionPolicy = true

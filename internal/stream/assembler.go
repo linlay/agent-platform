@@ -40,7 +40,7 @@ type StreamRequest struct {
 	Lane   string
 	SideID string
 	Origin *queryinput.Origin
-	// AccessGrant audits how a chat_start Run obtained its access level.
+	// AccessGrant audits how a mail-started Run obtained its access level.
 	AccessGrant map[string]any
 	// PlanRunID links a Run started by approving a plan to its planning Run.
 	PlanRunID string

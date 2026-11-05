@@ -47,12 +47,12 @@ func (s *Server) chatWorkspaceFilter(hasWorkspace *bool) *chat.AgentKeyFilter {
 	return filter
 }
 
-func (s *Server) listChatSummariesWithPinned(lastRunID string, agentKey string, agentModes []string, limit int, pinned *bool, primary *bool, hasWorkspace *bool) ([]api.ChatSummaryResponse, error) {
+func (s *Server) listChatSummariesWithPinned(lastRunID string, agentKey string, agentModes []string, limit int, pinned *bool, primary *bool, hasWorkspace *bool, opened ...string) ([]api.ChatSummaryResponse, error) {
 	var items []chat.Summary
 	var err error
-	if filter := s.chatWorkspaceFilter(hasWorkspace); filter != nil || primary != nil {
+	if filter := s.chatWorkspaceFilter(hasWorkspace); filter != nil || primary != nil || len(opened) > 0 && opened[0] != "" {
 		items, err = s.conversationService().ListSummariesWithOptions(chat.ListOptions{
-			LastRunID: lastRunID, AgentKey: agentKey, AgentModes: agentModes, Limit: limit, Pinned: pinned, Primary: primary, AgentKeyFilter: filter,
+			OpenedBy: firstOpened(opened, 0), Subject: firstOpened(opened, 1), LastRunID: lastRunID, AgentKey: agentKey, AgentModes: agentModes, Limit: limit, Pinned: pinned, Primary: primary, AgentKeyFilter: filter,
 		})
 	} else {
 		items, err = s.conversationService().ListSummariesWithPinned(lastRunID, agentKey, agentModes, limit, pinned)
@@ -424,7 +424,7 @@ func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
-	response, err := s.listChatSummariesWithPinned(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), modes, limit, pinned, primary, hasWorkspace)
+	response, err := s.listChatSummariesWithPinned(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), modes, limit, pinned, primary, hasWorkspace, r.URL.Query().Get("openedBy"), mailSubject(r.Context()))
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)
@@ -549,4 +549,17 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, api.Success(s.buildMarkReadResponse(summary, agentUnreadCount)))
 	s.broadcastChatReadState("chat.read", summary, agentUnreadCount)
+}
+
+func firstOpened(values []string, i int) string {
+	if len(values) > i {
+		return values[i]
+	}
+	return ""
+}
+func mailSubject(ctx context.Context) string {
+	if p := PrincipalFromContext(ctx); p != nil {
+		return p.Subject
+	}
+	return ""
 }

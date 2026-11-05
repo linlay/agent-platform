@@ -40,7 +40,7 @@ var currentSteerLineFields = map[string]struct{}{
 }
 
 var currentSteerPayloadFields = map[string]struct{}{
-	"mailId": {}, "mailKind": {}, "mailAttempt": {}, "mailHop": {}, "outcome": {},
+	"mailHeader": {}, "mailId": {}, "mailKind": {}, "mailAttempt": {}, "mailHop": {}, "outcome": {},
 	"origin": {},
 	// TODO(steer-origin): steer lines written before the origin rename.
 	"source":     {},

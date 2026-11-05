@@ -116,9 +116,9 @@ Platform 从 runtime.yml 读取默认模型选择，并允许 library.yml 的 mo
 
 省略设置使用默认值；显式空白、null、错误类型、不支持的语言、未知或残缺占位符均报错。已有配置文件 YAML 损坏会阻止启动。目录字段由运行时在模板之后追加，说明固定为英文；模板不负责目录布局。是否注入环境段仍由 Agent 的 `contextConfig.tags` 中是否包含 `system` 控制。
 
-Desktop 的全局语言仍通过连接握手和 `/api/locale` 同步，不增加任何业务请求字段。新的 Native Run 从当前客户端语言生成提示词；无语言头的 HTTP 请求和 Automation 使用上述默认值。子智能体、Team 成员及 `chat_start` 继承父 Run 的提示词语言。CODER/KBASE/TEAM 的 `language_preference` 与环境段使用同一归一化语言。
+Desktop 的全局语言仍通过连接握手和 `/api/locale` 同步，不增加任何业务请求字段。新的 Native Run 从当前客户端语言生成提示词；无语言头的 HTTP 请求和 Automation 使用上述默认值。内联子智能体与 Team 成员继承父 Run 的提示词语言；Mailbox 开出的独立 Run 按投递入口解析语言，不从发信 Run 继承提示词。CODER/KBASE/TEAM 的 `language_preference` 与环境段使用同一归一化语言。
 
-Run 首次准备的语言写入该 Run 在 Chat JSONL 中 `query` 行的顶层 `locale` 字段，与 `system` 并列，不属于 `query` 对象，因此不随 `request.query` 回放给客户端。普通工具循环复用已生成的消息；同进程同 Run 的 submit 和跨设备重连读取该字段，不按提交客户端语言重新渲染；创建新的执行 Run 或 `chat_start` 子 Run 时继承源 Run 的语言。环境模板与各阶段 system-init 不再单独落盘：已使用的阶段保存在 JSONL 的 `system` 快照中，尚未使用的阶段在恢复时按当前配置与 Agent 定义渲染，与工具、模型的恢复规则一致。没有 `locale` 字段的旧 Run 沿用提交方语言或默认语言，不改写历史数据。旧的 `<StateDir>/run-prompts/` 目录不再读取或写入，可手动删除。
+Run 首次准备的语言写入该 Run 在 Chat JSONL 中 `query` 行的顶层 `locale` 字段，与 `system` 并列，不属于 `query` 对象，因此不随 `request.query` 回放给客户端。普通工具循环复用已生成的消息；同进程同 Run 的 submit 和跨设备重连读取该字段，不按提交客户端语言重新渲染；批准计划创建的执行 Run 继承规划 Run 的语言，Mailbox 投递仍按独立新 Run 解析。环境模板与各阶段 system-init 不再单独落盘：已使用的阶段保存在 JSONL 的 `system` 快照中，尚未使用的阶段在恢复时按当前配置与 Agent 定义渲染，与工具、模型的恢复规则一致。没有 `locale` 字段的旧 Run 沿用提交方语言或默认语言，不改写历史数据。旧的 `<StateDir>/run-prompts/` 目录不再读取或写入，可手动删除。
 
 新 Run 仍通过既有 system-init 内容比较决定是否复用。指纹覆盖实际渲染内容、工具和请求配置；语言相同但模板、上下文等内容变化也会产生新版本。历史回放与导出使用精确 systemRef；遇到旧数据中同一引用对应不同内容时明确报错，不猜测版本。
 

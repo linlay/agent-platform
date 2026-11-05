@@ -14,17 +14,16 @@ import (
 	"agent-platform/internal/runtimeskills"
 )
 
-func TestAppMailboxOptIn(t *testing.T) {
+func TestAppMailboxAlwaysOpen(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		settings string
 		existing bool
 		enabled  bool
 	}{
-		{name: "default"},
-		{name: "disabled", settings: "mail:\n  enabled: false\n"},
-		{name: "disabled preserves existing database", settings: "mail:\n  enabled: false\n", existing: true},
-		{name: "enabled", settings: "mail:\n  enabled: true\n", enabled: true},
+		{name: "default", enabled: true},
+
+		{name: "resets existing database", existing: true, enabled: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -95,7 +94,7 @@ func TestAppMailboxOptIn(t *testing.T) {
 					t.Fatalf("disabled mailbox created database files: %v %v", matches, err)
 				}
 			} else if tc.existing {
-				if data, err := os.ReadFile(mailPath); err != nil || string(data) != oldDatabase {
+				if data, err := os.ReadFile(mailPath); err != nil || string(data) == oldDatabase {
 					t.Fatalf("disabled mailbox changed existing database: %q %v", data, err)
 				}
 			} else if _, err := os.Stat(mailPath); err != nil {

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-	"sync"
 
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/mailbox"
@@ -14,48 +13,30 @@ import (
 )
 
 const (
-	StartToolName     = "chat_start"
 	StatusToolName    = "chat_get_status"
 	InterruptToolName = "chat_interrupt"
-	SteerToolName     = "chat_steer"
 )
-
-type idempotentStart struct {
-	done          chan struct{}
-	requestDigest string
-	runID         string
-	snapshot      contracts.RunSnapshot
-	err           error
-}
 
 type ToolHandler struct {
 	mailbox *mailbox.Service
 	service Runtime
 	runs    contracts.RunManager
-
-	mu          sync.Mutex
-	idempotency map[string]*idempotentStart
-	steers      map[string]*idempotentSteer
 }
 
 type Runtime interface {
-	StartRun(context.Context, contracts.RunStartRequest) (contracts.RunSnapshot, error)
 	GetRunStatus(string) (contracts.RunSnapshot, error)
 	Interrupt(context.Context, runtimetypes.InterruptCommand) (runtimetypes.InterruptResult, error)
-	Steer(context.Context, runtimetypes.SteerCommand) (runtimetypes.SteerResult, error)
 }
 
 func NewToolHandler(service Runtime, runs contracts.RunManager) *ToolHandler {
 	return &ToolHandler{
-		service:     service,
-		runs:        runs,
-		idempotency: map[string]*idempotentStart{},
-		steers:      map[string]*idempotentSteer{},
+		service: service,
+		runs:    runs,
 	}
 }
 
 func (h *ToolHandler) ToolNames() []string {
-	return []string{StartToolName, StatusToolName, InterruptToolName, SteerToolName, "chat_send", "chat_notify", "chat_submit"}
+	return []string{StatusToolName, InterruptToolName, "chat_send", "chat_notify", "chat_submit"}
 }
 
 func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
@@ -67,16 +48,12 @@ func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[stri
 		return *errResult, nil
 	}
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
-	case StartToolName:
-		return h.query(ctx, args, origin, execCtx)
 	case StatusToolName:
 		return h.status(args, origin)
 	case InterruptToolName:
 		return h.interrupt(ctx, args, origin)
-	case SteerToolName:
-		return h.steer(ctx, args, origin, execCtx.RunControl)
 	default:
-		return errorResult("invalid_tool", "tool must be chat_start, chat_get_status, chat_interrupt, or chat_steer"), nil
+		return errorResult("invalid_tool", "unknown Chat tool"), nil
 	}
 }
 
@@ -87,7 +64,7 @@ func (h *ToolHandler) callerOrigin(execCtx *contracts.ExecutionContext) (contrac
 	}
 	session := execCtx.Session
 	if session.RunOrigin != nil {
-		result := errorResult("run_chaining_not_allowed", "a run created by chat_start cannot call Chat tools; return the request to an ordinary main Agent Run of the initiating Agent to query, start, interrupt or steer its owned runs; changing runId cannot remove this restriction")
+		result := errorResult("run_chaining_not_allowed", "a run opened by a letter cannot control other Runs; ask the initiating Agent")
 		return contracts.RunOrigin{}, &result
 	}
 	owner := contracts.ResolveRunOwner(session.RunOwner)
@@ -105,10 +82,6 @@ func (h *ToolHandler) callerOrigin(execCtx *contracts.ExecutionContext) (contrac
 		RunID:    strings.TrimSpace(session.RunID),
 		ToolID:   strings.TrimSpace(execCtx.CurrentToolID),
 	}, nil
-}
-
-func startKey(origin contracts.RunOrigin) string {
-	return origin.RunID + "\x00" + origin.ToolID
 }
 
 func startRequest(args map[string]any, origin contracts.RunOrigin, execCtx *contracts.ExecutionContext) (contracts.RunStartRequest, error) {
@@ -136,53 +109,6 @@ func startRequest(args map[string]any, origin contracts.RunOrigin, execCtx *cont
 		return request, &contracts.RunToolError{Code: "run_context_required", Message: "query requires parent runId and toolId"}
 	}
 	return contracts.NormalizeRunStartRequest(request)
-}
-
-func (h *ToolHandler) query(
-	ctx context.Context,
-	args map[string]any,
-	origin contracts.RunOrigin,
-	execCtx *contracts.ExecutionContext,
-) (contracts.ToolExecutionResult, error) {
-	request, parseErr := startRequest(args, origin, execCtx)
-	if parseErr != nil {
-		return resultFromError(parseErr), nil
-	}
-	key := startKey(origin)
-	requestDigest := contracts.RunStartRequestDigest(request)
-	start, leader := h.beginIdempotentStart(key, requestDigest)
-	if start.requestDigest != requestDigest {
-		return resultFromError(&contracts.RunToolError{Code: "idempotency_conflict", ExecutionState: "not_started",
-			Message: "this tool call already started a run with different arguments"}), nil
-	}
-	if !leader {
-		select {
-		case <-ctx.Done():
-			return errorResult("chat_start_cancelled", ctx.Err().Error()), nil
-		case <-start.done:
-		}
-		// An unconfirmed start is reconciled against the recorded Run and is
-		// never started again.
-		if start.runID == "" {
-			return resultFromError(start.err), nil
-		}
-		snapshot, err := h.service.GetRunStatus(start.runID)
-		if err != nil {
-			if start.err != nil {
-				return resultFromError(start.err), nil
-			}
-			snapshot = start.snapshot
-		}
-		return successResult("query", true, "accepted", snapshot), nil
-	}
-
-	snapshot, err := h.service.StartRun(ctx, request)
-	h.finishIdempotentStart(key, start, snapshot, err)
-	if err != nil {
-		return resultFromError(err), nil
-	}
-	h.cleanupIdempotencyWithParent(key, start, execCtx.RunControl)
-	return successResult("query", true, "accepted", snapshot), nil
 }
 
 func (h *ToolHandler) status(args map[string]any, origin contracts.RunOrigin) (contracts.ToolExecutionResult, error) {
@@ -255,80 +181,8 @@ func (h *ToolHandler) requireOwnedRun(runID string, origin contracts.RunOrigin) 
 		result := resultFromError(err)
 		return &result
 	}
-	result := errorResult("run_not_owned", "run was not created by chat_start for this caller and subject")
+	result := errorResult("run_not_owned", "run was not opened by a letter for this caller and subject")
 	return &result
-}
-
-func (h *ToolHandler) beginIdempotentStart(key string, requestDigest string) (*idempotentStart, bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.cleanupIdempotencyLocked()
-	if existing, ok := h.idempotency[key]; ok {
-		return existing, false
-	}
-	start := &idempotentStart{done: make(chan struct{}), requestDigest: requestDigest}
-	h.idempotency[key] = start
-	return start, true
-}
-
-func (h *ToolHandler) finishIdempotentStart(key string, start *idempotentStart, snapshot contracts.RunSnapshot, err error) {
-	h.mu.Lock()
-	start.snapshot = snapshot
-	start.runID = snapshot.RunID
-	start.err = err
-	if err != nil {
-		// Only a start that definitely did not happen may be attempted again.
-		// An unconfirmed start keeps its record so retries reconcile instead.
-		var typed *contracts.RunToolError
-		if errors.As(err, &typed) && typed.ExecutionState == "unknown" {
-			start.runID = typed.RunID
-		} else {
-			delete(h.idempotency, key)
-		}
-	}
-	close(start.done)
-	h.mu.Unlock()
-}
-
-func (h *ToolHandler) cleanupIdempotencyLocked() {
-	if h.runs == nil {
-		return
-	}
-	parentDone := func(key string) bool {
-		parentRunID, _, _ := strings.Cut(key, "\x00")
-		status, ok := h.runs.RunStatus(parentRunID)
-		return !ok || status.CompletedAt != 0
-	}
-	for key := range h.idempotency {
-		if parentDone(key) {
-			delete(h.idempotency, key)
-		}
-	}
-	for key, receipt := range h.steers {
-		// Keep an in-flight receipt until its result is published so concurrent
-		// replays cannot become a second send during caller shutdown.
-		select {
-		case <-receipt.done:
-			if parentDone(key) {
-				delete(h.steers, key)
-			}
-		default:
-		}
-	}
-}
-
-func (h *ToolHandler) cleanupIdempotencyWithParent(key string, start *idempotentStart, parentControl *contracts.RunControl) {
-	if parentControl == nil {
-		return
-	}
-	go func() {
-		<-parentControl.Context().Done()
-		h.mu.Lock()
-		if h.idempotency[key] == start {
-			delete(h.idempotency, key)
-		}
-		h.mu.Unlock()
-	}()
 }
 
 func successResult(action string, accepted bool, status string, run contracts.RunSnapshot) contracts.ToolExecutionResult {

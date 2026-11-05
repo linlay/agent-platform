@@ -46,7 +46,7 @@ inputSchema:
               - file.modifiedAfter
               - connector.authorizationTerminal
           runId:
-            description: Target Run created by chat_start.
+            description: Target Run opened by a letter.
             type: string
           filePath:
             description: Readable file path in the current execution scope.

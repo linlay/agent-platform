@@ -41,7 +41,7 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	if !byName["agent_invoke"] {
 		t.Fatal("expected agent_invoke builtin tool definition")
 	}
-	for _, name := range []string{"chat_start", "chat_get_status", "chat_interrupt", "chat_steer"} {
+	for _, name := range []string{"chat_get_status", "chat_interrupt"} {
 		if !byName[name] {
 			t.Fatalf("expected %s builtin tool definition", name)
 		}
@@ -187,7 +187,7 @@ func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 			t.Fatalf("%s required = %#v, want [runId]", def.Name, required)
 		}
 	}
-	for _, name := range []string{"chat_start", "chat_get_status", "chat_interrupt", "chat_steer"} {
+	for _, name := range []string{"chat_get_status", "chat_interrupt"} {
 		if !found[name] {
 			t.Fatalf("embedded %s definition is unavailable", name)
 		}
@@ -262,7 +262,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 		}
 	}
 	for _, hiddenName := range []string{
-		"agent_delegate", "chat_start", "chat_get_status", "chat_interrupt", "chat_steer", "_session_search_", "_skill_candidate_list_", "_skill_candidate_write_",
+		"agent_delegate", "chat_get_status", "chat_interrupt", "_session_search_", "_skill_candidate_list_", "_skill_candidate_write_",
 		"memory_timeline", "memory_update", "memory_write", "memory_read", "memory_promote", "memory_search", "memory_consolidate", "memory_forget",
 	} {
 		if visibleNames[hiddenName] {

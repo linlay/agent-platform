@@ -51,7 +51,7 @@ func parseQueryArguments(args map[string]any) (contracts.RunStartRequest, error)
 			request.References = refs
 
 		default:
-			message := fmt.Sprintf("unknown chat_start argument %q", key)
+			message := fmt.Sprintf("unknown chat_send argument %q", key)
 			if key == "taskName" {
 				message += "; use chatName for a new Chat"
 			}

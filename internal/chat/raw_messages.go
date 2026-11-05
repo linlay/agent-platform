@@ -161,6 +161,7 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 					msg["runId"] = runID
 					if id, ok := line["mailId"].(string); ok && id != "" {
 						msg["_mailId"] = id
+						msg["_mailHeader"] = line["mailHeader"]
 					}
 				}
 				messages = append(messages, msg)
@@ -187,6 +188,7 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 					msg["runId"] = runID
 					if id, ok := line["mailId"].(string); ok && id != "" {
 						msg["_mailId"] = id
+						msg["_mailHeader"] = line["mailHeader"]
 					}
 					messages = append(messages, msg)
 				}
@@ -266,6 +268,7 @@ func teamMemberRawMessagesFromJSONLLines(lines []map[string]any, memberAgentKey 
 				msg["runId"] = runID
 				if id, ok := line["mailId"].(string); ok && id != "" {
 					msg["_mailId"] = id
+					msg["_mailHeader"] = line["mailHeader"]
 				}
 				messages = append(messages, msg)
 			}
@@ -328,6 +331,7 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 					msg["runId"] = runID
 					if id, ok := line["mailId"].(string); ok && id != "" {
 						msg["_mailId"] = id
+						msg["_mailHeader"] = line["mailHeader"]
 					}
 				}
 				messages = append(messages, msg)
@@ -342,6 +346,7 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 				msg["runId"] = runID
 				if id, ok := line["mailId"].(string); ok && id != "" {
 					msg["_mailId"] = id
+					msg["_mailHeader"] = line["mailHeader"]
 				}
 				messages = append(messages, msg)
 			}
@@ -391,6 +396,7 @@ func normalizedStepMessages(line map[string]any, runID string) []map[string]any 
 		msg["runId"] = runID
 		if id, ok := line["mailId"].(string); ok && id != "" {
 			msg["_mailId"] = id
+			msg["_mailHeader"] = line["mailHeader"]
 		}
 		role, _ := msg["role"].(string)
 		if role == "user" || role == "assistant" || role == "tool" {

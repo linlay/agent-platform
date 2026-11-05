@@ -36,6 +36,11 @@ func PlatformProtectedPaths(cfg config.Config) []string {
 	if strings.TrimSpace(cfg.WebAppsCodeDir()) != "" {
 		paths = append(paths, cfg.WebAppsCodeDir())
 	}
+	if cfg.Paths.ChatsDir != "" {
+		for _, name := range []string{"mail.db", "mail.db-wal", "mail.db-shm"} {
+			paths = append(paths, filepath.Join(cfg.Paths.ChatsDir, name))
+		}
+	}
 	return paths
 }
 

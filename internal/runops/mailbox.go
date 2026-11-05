@@ -21,9 +21,6 @@ func (h *ToolHandler) mailCaller(exec *contracts.ExecutionContext) (contracts.Ru
 	if s.SubTaskID != "" || s.AgentKey == "" || owner.AgentKey != s.AgentKey || (s.RunScopeID != "" && s.RunScopeID != s.ChatID) {
 		return contracts.RunOrigin{}, mailError("run_caller_not_allowed", "mail tools are only available to a main Agent root Run")
 	}
-	if h.mailbox == nil {
-		return contracts.RunOrigin{}, mailError("mail_unavailable", "mailbox is unavailable")
-	}
 	return contracts.RunOrigin{AgentKey: s.AgentKey, Subject: s.Subject, ChatID: s.ChatID, RunID: s.RunID, ToolID: exec.CurrentToolID}, nil
 }
 func mailError(code, message string) *contracts.ToolExecutionResult {
@@ -148,9 +145,6 @@ func (h *ToolHandler) invokeMail(ctx context.Context, tool string, args map[stri
 func (h *ToolHandler) mailStatus(args map[string]any, origin contracts.RunOrigin) (contracts.ToolExecutionResult, error) {
 	if err := toolinput.Validate(args, map[string]string{"mailId": "s!"}, ""); err != nil {
 		return resultFromError(err), nil
-	}
-	if h.mailbox == nil {
-		return errorResult("mail_unavailable", "mailbox unavailable"), nil
 	}
 	m, err := h.mailbox.Owned(contracts.AnyStringNode(args["mailId"]), origin.AgentKey, origin.Subject)
 	if err != nil {

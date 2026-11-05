@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
@@ -35,6 +36,8 @@ type Service struct {
 	prepared         map[string]*preparedMail
 	stop             chan struct{}
 	retentionStarted bool
+	retries          map[string]*time.Timer
+	retryDelay       map[string]time.Duration
 }
 
 // chatLock is dropped when no dispatch for its Chat is pending.
@@ -54,7 +57,7 @@ func New(ctx context.Context, store *Store, root string, maxHops int, notificati
 	if maxHops <= 0 {
 		maxHops = 4
 	}
-	return &Service{Store: store, root: root, maxHops: maxHops, ctx: ctx, chatLocks: map[string]*chatLock{}, scopes: map[string]controlscope.Scope{}, notifications: notifications, stop: make(chan struct{})}
+	return &Service{Store: store, root: root, maxHops: maxHops, ctx: ctx, chatLocks: map[string]*chatLock{}, scopes: map[string]controlscope.Scope{}, notifications: notifications, stop: make(chan struct{}), retries: map[string]*time.Timer{}, retryDelay: map[string]time.Duration{}}
 }
 func (s *Service) Bind(port Port) { s.port = port }
 func NewID(prefix string) string {
@@ -72,6 +75,9 @@ func (s *Service) Close() error {
 	}
 	s.closed = true
 	close(s.stop)
+	for _, timer := range s.retries {
+		timer.Stop()
+	}
 	s.mu.Unlock()
 	s.wg.Wait()
 	return s.Store.Close()
@@ -142,7 +148,7 @@ func (s *Service) changed(m Mail) {
 		s.dropScope(m.ID)
 	}
 	if s.notifications != nil {
-		s.notifications.Broadcast("mail.updated", map[string]any{"mailId": m.ID, "kind": m.Kind, "status": m.Status, "delivery": m.Delivery, "toAgentKey": m.ToAgentKey, "toChatId": m.ToChatID, "runId": m.RunID})
+		s.notifications.Broadcast("mail.updated", map[string]any{"mailId": m.ID, "kind": m.Kind, "status": m.Status, "delivery": m.Delivery, "fromAgentKey": m.FromAgentKey, "fromChatId": m.FromChatID, "toAgentKey": m.ToAgentKey, "toChatId": m.ToChatID, "runId": m.RunID})
 	}
 }
 func (s *Service) all(f Filter) ([]Mail, error) {
@@ -206,7 +212,7 @@ func (s *Service) Send(ctx context.Context, req Request) (Receipt, error) {
 	if err != nil {
 		return Receipt{}, err
 	}
-	m := Mail{ID: id, Kind: Letter, Status: Accepting, CreatedAt: now(), UpdatedAt: now(), ToAgentKey: prepared.Request.AgentKey, ToChatID: prepared.ChatID, OpenedChat: prepared.OpenedChat,
+	m := Mail{ID: id, Kind: Letter, Status: Accepting, CreatedAt: now(), UpdatedAt: now(), ToAgentKey: prepared.Request.AgentKey, ToChatID: prepared.ChatID, OpenedChat: prepared.OpenedChat, NewChat: req.NewChat,
 		OriginType: "agent", FromAgentKey: req.Start.Origin.AgentKey, FromChatID: req.Start.Origin.ChatID, FromRunID: req.Start.Origin.RunID, FromToolID: req.Start.Origin.ToolID, Subject: req.Start.Origin.Subject,
 		Input: input, Message: req.Start.Message, References: prepared.Request.References, Files: files, Hop: req.Hop + 1, RequestDigest: d}
 	if prepared.Request.ModelKey != "" || prepared.Request.ReasoningEffort != "" {
@@ -241,7 +247,7 @@ func (s *Service) finishAcceptance(ctx context.Context, m Mail) error {
 	if m.Status != Accepting {
 		return nil
 	}
-	if m.ToChatDeletedAt != 0 {
+	if m.ToChatClosedAt != 0 {
 		return failure("chat_deleted", "receiving Chat was deleted")
 	}
 	if err := s.port.EnsureMailChat(ctx, &m); err != nil {
@@ -259,7 +265,7 @@ func (s *Service) finishAcceptance(ctx context.Context, m Mail) error {
 		return err
 	}
 	_, err = s.change(m.ID, func(row *Mail) error {
-		if row.Status != Accepting || row.ToChatDeletedAt != 0 {
+		if row.Status != Accepting || row.ToChatClosedAt != 0 {
 			return errStale
 		}
 		row.ToChatID, row.OpenedChat = m.ToChatID, m.OpenedChat
@@ -310,7 +316,7 @@ func (s *Service) Kick(chatID string) {
 		}
 		s.mu.Unlock()
 		if err != nil {
-			log.Printf("[mailbox] dispatch chat=%s: %v", chatID, err)
+			s.retry(chatID, err)
 		}
 	}()
 }
@@ -328,7 +334,7 @@ func (s *Service) dispatch(chatID string) error {
 			// A queued row was never handed to a Run in this attempt. Only a
 			// person can supply a delivery identity again.
 			_, err = s.change(m.ID, func(row *Mail) error {
-				if row.Status != Queued || row.ToChatDeletedAt != 0 {
+				if row.Status != Queued || row.ToChatClosedAt != 0 {
 					return errStale
 				}
 				row.ResumePhase = Queued
@@ -352,6 +358,7 @@ func (s *Service) dispatch(chatID string) error {
 			continue
 		}
 		if target.Queue {
+			s.resetRetry(chatID)
 			return nil
 		}
 		if e = s.verifyFiles(m); e != nil {
@@ -362,7 +369,7 @@ func (s *Service) dispatch(chatID string) error {
 			continue
 		}
 		m, e = s.change(m.ID, func(row *Mail) error {
-			if row.Status != Queued || row.ToChatDeletedAt != 0 {
+			if row.Status != Queued || row.ToChatClosedAt != 0 {
 				return errStale
 			}
 			row.Status = Inflight
@@ -382,6 +389,7 @@ func (s *Service) dispatch(chatID string) error {
 		if e != nil {
 			return e
 		}
+		m.Header = s.renderHeader(m)
 		result, e := s.port.DeliverMail(s.ctx, m, scope)
 		if result.Rejected {
 			s.fail(m, e)
@@ -411,9 +419,13 @@ func (s *Service) dispatch(chatID string) error {
 			if changeErr != nil && !errors.Is(changeErr, errStale) {
 				return changeErr
 			}
+			if e == nil && !result.Unknown {
+				e = errors.New("delivery not accepted")
+			}
 			return e
 		}
 	}
+	s.resetRetry(chatID)
 	return nil
 }
 func (s *Service) Consumed(input *queryinput.MailInput, runID string) error {
@@ -495,7 +507,7 @@ func (s *Service) Action(ctx context.Context, id, action, subject string, scope 
 		return m, failure("mail_state_conflict", "only suspended mail can be redelivered or discarded")
 	}
 	if action == "redeliver" {
-		if m.ToChatDeletedAt != 0 {
+		if m.ToChatClosedAt != 0 {
 			return m, failure("chat_deleted", "receiving Chat was deleted")
 		}
 		if m.AccessLevel == "" {
@@ -510,7 +522,7 @@ func (s *Service) Action(ctx context.Context, id, action, subject string, scope 
 		s.setScope(id, scope)
 	}
 	m, err = s.change(id, func(row *Mail) error {
-		if row.Status != Suspended || action == "redeliver" && (row.ToChatDeletedAt != 0 || row.PurgedAt != 0) {
+		if row.Status != Suspended || action == "redeliver" && (row.ToChatClosedAt != 0 || row.PurgedAt != 0) {
 			return failure("mail_state_conflict", "mail state changed")
 		}
 		if action == "discard" {
@@ -547,12 +559,8 @@ func (s *Service) Action(ctx context.Context, id, action, subject string, scope 
 	return s.Store.Get(id)
 }
 
-// Header is generated at the model boundary and never persisted.
-func (s *Service) Header(id string) string {
-	m, err := s.Store.Get(id)
-	if err != nil {
-		return ""
-	}
+// renderHeader freezes correspondence provenance for JSONL.
+func (s *Service) renderHeader(m Mail) string {
 	name := strings.ToUpper(string(m.Kind[:1])) + string(m.Kind[1:])
 	sender := "chat " + m.FromChatID
 	if m.Kind == Ask {
@@ -656,7 +664,7 @@ func (s *Service) settle(replies, letters []Mail, failed bool) error {
 func (s *Service) newReply(m Mail, key, runID, text, outcome string) Mail {
 	r := Mail{ID: NewID("mail"), Kind: Reply, Status: Queued, CreatedAt: now(), UpdatedAt: now(), ToAgentKey: m.FromAgentKey, ToChatID: m.FromChatID,
 		OriginType: "agent", FromAgentKey: m.ToAgentKey, FromChatID: m.ToChatID, FromRunID: runID, Subject: m.Subject, Message: text, Hop: m.Hop + 1, ReplyKey: key, ReplyOfRun: runID, Outcome: outcome,
-		FromChatDeletedAt: m.ToChatDeletedAt, ToChatDeletedAt: m.FromChatDeletedAt}
+		FromChatClosedAt: m.ToChatClosedAt, ToChatClosedAt: m.FromChatClosedAt}
 	grant, err := s.port.MailDefaultAccess(r.ToAgentKey)
 	if err != nil {
 		// Keep the result even if the receiving Agent has been removed.

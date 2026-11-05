@@ -35,7 +35,7 @@ func TestDelegatedApprovalCannotRelaxUnknownShellHumanReview(t *testing.T) {
 
 func TestMailEnvelopeIsModelOnly(t *testing.T) {
 	raw := map[string]any{"role": "user", "content": "original input"}
-	session := contracts.QuerySession{MailHeaders: func(string) string { return "[Letter mail_1]\n" }}
+	session := "[Letter mail_1]\n"
 	decorated := mailModelInput(raw, "mail_1", session)
 	if raw["content"] != "original input" || decorated["content"] != "[Letter mail_1]\noriginal input" {
 		t.Fatalf("%#v %#v", raw, decorated)
@@ -64,7 +64,7 @@ func TestPublicSubmitCannotForgeDelegation(t *testing.T) {
 			t.Fatal("forged trusted submit metadata decoded", field)
 		}
 	}
-	if !strings.Contains(mailModelInput(map[string]any{"role": "user", "content": "x"}, "m", contracts.QuerySession{MailHeaders: func(string) string { return "[Letter m]" }})["content"].(string), "Letter") {
+	if !strings.Contains(mailModelInput(map[string]any{"role": "user", "content": "x"}, "m", "[Letter m]")["content"].(string), "Letter") {
 		t.Fatal("envelope missing")
 	}
 }
@@ -91,19 +91,19 @@ func TestDelegatedToolApprovalReevaluatesLiveLevel(t *testing.T) {
 	}
 }
 
-func TestMailEnvelopeNeverPersistsInCompactionSnapshots(t *testing.T) {
-	session := contracts.QuerySession{MailHeaders: func(string) string { return "[Letter m]\n" }}
+func TestMailEnvelopePersistsAsMetadataInCompactionSnapshots(t *testing.T) {
+	session := "[Letter m]\n"
 	for _, body := range []any{"original", []any{map[string]any{"type": "text", "text": "original"}, map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64,x"}}}} {
 		input := mailModelInput(map[string]any{"role": "user", "content": body}, "m", session)
 		model := rawMessageToOpenAI(input, false)
 		checkpoint := modelMessagesToMaps([]openAIMessage{model})
 		encoded, _ := json.Marshal(checkpoint)
-		if strings.Contains(string(encoded), "[Letter") || checkpoint[0]["_mailId"] != "m" {
-			t.Fatalf("envelope leaked into checkpoint %s", encoded)
+		if checkpoint[0]["_mailHeader"] == "" || checkpoint[0]["_mailId"] != "m" {
+			t.Fatalf("envelope metadata missing from checkpoint %s", encoded)
 		}
 		traced, _ := json.Marshal(rawMessageFromOpenAIMessage(model))
-		if strings.Contains(string(traced), "[Letter") {
-			t.Fatalf("envelope leaked into raw snapshot %s", traced)
+		if !strings.Contains(string(traced), "[Letter") {
+			t.Fatalf("envelope metadata missing from raw snapshot %s", traced)
 		}
 		restored := mailModelInput(checkpoint[0], "m", session)
 		restored = mailModelInput(restored, "m", session)

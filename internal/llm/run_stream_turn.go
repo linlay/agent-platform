@@ -935,9 +935,7 @@ func (s *llmRunStream) appendSteers(steers []api.SteerRequest) {
 			input := openAIMessage{Role: "user", Content: message["content"], OriginSteerKey: steerKey}
 			if steer.Mail != nil {
 				input.MailID = steer.Mail.ID
-				if s.session.MailHeaders != nil {
-					input.MailHeader = s.session.MailHeaders(steer.Mail.ID)
-				}
+				input.MailHeader = steer.Mail.Header
 			}
 			s.messages = append(s.messages, input)
 		}

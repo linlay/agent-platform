@@ -4,6 +4,8 @@ All mail addresses are Chats. A letter is durable work; a notify is interim info
 
 ## chat_send
 
+Routing: a user request to open/create a new or separate conversation, dialogue, chat, 会话 or 对话 means chat_send with newChat:true, not agent_invoke. Omitting both newChat and chatId addresses the primary Chat and does not open a separate conversation.
+
 `{message, agentKey?, chatId?, newChat?, chatName?, modelKey?, reasoningEffort?, accessLevel?, references?, files?}`.
 
 - message: required non-empty task text. agentKey defaults to the current Agent. Another task uses newChat:true; supplements use the existing chatId. chatId and newChat are exclusive. Omitting both addresses the target Agent primary Chat, creating it only if missing.
@@ -13,9 +15,9 @@ All mail addresses are Chats. A letter is durable work; a notify is interim info
 - Returns mailId, chatId, delivery and optional runId. Same runId+toolId with the same arguments reuses the receipt; changing arguments conflicts. Accepted is not consumed. Track with chat_get_status {mailId}; delivery=inserted grants no control of the recipient Run.
 - Idle Chat starts a Run; running Chat receives a steer; planning, compaction and deferred waits queue. Question/approval/form waits are not answered by mail.
 - Every Run sends its full final answer once per sender Chat, covering all letters it consumed. Mail has no inReplyTo/reply parameter. For another independent unit of work, open a new Chat.
-- After dispatching work, call ordinary wait without run.terminal conditions. A letter-started Run cannot call legacy chat_start/chat_steer/chat_get_status/chat_interrupt or wait on run.terminal; it can send new mail. Mail wakes ordinary wait with reason=mail; continue processing the mail.
+- After dispatching work, call ordinary wait without run.terminal conditions. A letter-started Run cannot call chat_get_status/chat_interrupt or wait on run.terminal; it can send new mail. Mail wakes ordinary wait with reason=mail; continue processing the mail.
 - Hop increases once when sending. At mail_hop_limit stop sending and return results to the user; final replies remain automatic. Only root main Runs including TEAM coordinators may use mail tools; child tasks and BTW cannot.
-- Restart suspends unfinished letters and undelivered replies. Only a human may redeliver or discard them after reviewing execution evidence and the frozen access level.
+- Before chats-db-v2, every restart clears mail.db; unfinished work will not reply and must be requested again by the user. Human redelivery or discard remains available for runtime suspension after reviewing evidence and the frozen access level.
 
 ## chat_notify
 
@@ -32,4 +34,4 @@ Approval capability follows awaiting_source, not presentation mode: a tool revie
 
 ## 邮件清理与删除
 
-平台生成的回信、通知、请示按收件 Agent 的默认权限创建，后续不因默认配置变化而重算。终态邮件默认 30 天后清除正文、请示快照与附件元数据，保留幂等和会话关系；挂起邮件不按保留期清理。删除工作会话不撤回已保存的回信及收件侧附件副本；收件会话删除后不能再向它投递。已发布到聊天历史的附件副本按该 Chat 生命周期保留。
+平台生成的回信、通知、请示按收件 Agent 的默认权限创建，后续不因默认配置变化而重算。终态邮件默认 30 天后清除正文、请示快照与附件元数据，保留幂等和会话关系；挂起邮件不按保留期清理。删除工作会话不撤回已保存的回信及收件侧附件副本；收件会话删除或归档时关闭 mail，恢复归档不恢复旧 mail；已受理的出站回信继续投递。已发布到聊天历史的附件副本按该 Chat 生命周期保留。

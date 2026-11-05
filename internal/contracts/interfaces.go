@@ -333,14 +333,12 @@ type RunLimits struct {
 }
 
 type QuerySession struct {
-	Mail               *queryinput.MailInput `json:"-"`
-	UserChatReferences []string              `json:"-"`
-	// MailHeaders is bound by Runtime and used only at the model boundary.
-	MailHeaders       func(string) string                `json:"-"`
-	RuntimeEvent      func(stream.EventData)             `json:"-"`
-	RuntimeComplete   func(string, string, string, bool) `json:"-"`
-	RuntimeIdle       func()                             `json:"-"`
-	InteractionConfig *interaction.Config
+	Mail               *queryinput.MailInput              `json:"-"`
+	UserChatReferences []string                           `json:"-"`
+	RuntimeEvent       func(stream.EventData)             `json:"-"`
+	RuntimeComplete    func(string, string, string, bool) `json:"-"`
+	RuntimeIdle        func()                             `json:"-"`
+	InteractionConfig  *interaction.Config
 	// ResolveView freezes a mounted presentation in this Chat before publication.
 	// It is installed by the session producer, never supplied by query clients.
 	ResolveView func(context.Context, view.Reference, string) (view.Reference, error) `json:"-"`
@@ -812,7 +810,7 @@ type RunStatusInfo struct {
 }
 
 // RunOrigin is the trusted runtime identity attached to a detached run
-// created by chat_start. Subject participates in ownership checks but is not
+// opened by a letter. Subject participates in ownership checks but is not
 // persisted into request.query audit metadata.
 type RunOrigin struct {
 	AgentKey string
@@ -834,7 +832,7 @@ type RunStartRequest struct {
 	ModelKey        string
 	ReasoningEffort string
 	Origin          RunOrigin
-	// Input is the chat_start tool arguments exactly as the calling Agent wrote them.
+	// Input is the chat_send tool arguments exactly as the calling Agent wrote them.
 	Input map[string]any `json:"-"`
 }
 

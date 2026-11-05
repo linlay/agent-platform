@@ -58,9 +58,6 @@ func (s *Server) PrepareRunStart(ctx context.Context, request contracts.RunStart
 	return testQueryService(s).PrepareRunStart(ctx, request)
 }
 
-func (s *Server) StartRun(ctx context.Context, request contracts.RunStartRequest) (contracts.RunSnapshot, error) {
-	return testQueryService(s).StartRun(ctx, request)
-}
 func (s *Server) GetRunStatus(runID string) (contracts.RunSnapshot, error) {
 	return testQueryService(s).GetRunStatus(runID)
 }

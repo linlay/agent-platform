@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -11,10 +12,6 @@ import (
 )
 
 func (s *Server) handleMails(w http.ResponseWriter, r *http.Request) {
-	if s.deps.Mailbox == nil {
-		writeJSON(w, 503, api.Failure(503, "mailbox unavailable"))
-		return
-	}
 	subject := ""
 	if p := PrincipalFromContext(r.Context()); p != nil {
 		subject = p.Subject
@@ -22,18 +19,36 @@ func (s *Server) handleMails(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
-	rows, err := s.deps.Mailbox.Store.List(mailbox.Filter{NewestFirst: true, AgentKey: q.Get("agentKey"), ChatID: q.Get("chatId"), Kind: mailbox.Kind(q.Get("kind")), Status: mailbox.Status(q.Get("status")), Subject: subject, Limit: limit, Offset: offset})
+	filter := mailbox.Filter{NewestFirst: true, AgentKey: q.Get("agentKey"), ChatID: q.Get("chatId"), Kind: mailbox.Kind(q.Get("kind")), Status: mailbox.Status(q.Get("status")), Subject: subject, Limit: limit, Offset: offset}
+	rows, err := s.deps.Mailbox.Store.List(filter)
 	if err != nil {
 		writeJSON(w, 500, api.Failure(500, "failed to read mailbox"))
 		return
 	}
-	writeJSON(w, 200, api.Success(map[string]any{"mails": rows}))
-}
-func (s *Server) handleMailAction(w http.ResponseWriter, r *http.Request) {
-	if s.deps.Mailbox == nil {
-		writeJSON(w, 503, api.Failure(503, "mailbox unavailable"))
+	total, err := s.deps.Mailbox.Store.Count(filter)
+	if err != nil {
+		writeJSON(w, 500, api.Failure(500, "failed to count mailbox"))
 		return
 	}
+	summaries := make([]map[string]any, 0, len(rows))
+	for _, m := range rows {
+		b, _ := json.Marshal(m)
+		var row map[string]any
+		_ = json.Unmarshal(b, &row)
+		delete(row, "input")
+		delete(row, "accessGrant")
+		delete(row, "files")
+		delete(row, "references")
+		text := []rune(s.deps.Mailbox.Body(m))
+		if len(text) > 200 {
+			text = text[:200]
+		}
+		row["message"] = string(text)
+		summaries = append(summaries, row)
+	}
+	writeJSON(w, 200, api.Success(map[string]any{"mails": summaries, "total": total}))
+}
+func (s *Server) handleMailAction(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		MailID string `json:"mailId"`
 		Action string `json:"action"`
@@ -63,5 +78,29 @@ func (s *Server) handleMailAction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, code, api.Failure(code, err.Error()))
 		return
 	}
+	writeJSON(w, 200, api.Success(m))
+}
+
+func (s *Server) handleMailDetail(w http.ResponseWriter, r *http.Request) {
+	m, err := s.deps.Mailbox.Store.Get(r.URL.Query().Get("mailId"))
+	if err != nil {
+		writeJSON(w, 404, api.Failure(404, "mail not found"))
+		return
+	}
+	subject := ""
+	if p := PrincipalFromContext(r.Context()); p != nil {
+		subject = p.Subject
+	}
+	if m.Subject != subject {
+		writeJSON(w, 404, api.Failure(404, "mail not found"))
+		return
+	}
+	if s.deps.Registry != nil {
+		if def, ok := s.deps.Registry.AgentDefinition(m.FromAgentKey); ok {
+			m.FromAgentName = def.Name
+		}
+	}
+	m.Input = nil
+	m.AccessGrant = nil
 	writeJSON(w, 200, api.Success(m))
 }

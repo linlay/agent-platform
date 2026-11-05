@@ -845,6 +845,7 @@ func (c *Conn) sendStreamEvent(requestID string, event stream.EventData) bool {
 		return false
 	}
 	event.Payload = i18n.LocalizeEventPayload(c.Locale(), event.Type, event.Payload)
+	event = stream.PublicEvent(event)
 	// Stream frames bypass SendResponse/SendPush, so validate the exact wire
 	// representation before it reaches the writer. This keeps a bad upstream
 	// timestamp from turning into a JSON-marshal failure that silently closes

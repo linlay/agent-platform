@@ -120,6 +120,7 @@ func rawMessageFromOpenAIMessage(message openAIMessage) map[string]any {
 	raw := map[string]any{"role": role}
 	if message.MailID != "" {
 		raw["_mailId"] = message.MailID
+		raw["_mailHeader"] = message.MailHeader
 	}
 	if content, ok := message.Content.(string); ok && strings.TrimSpace(content) != "" {
 		raw["content"] = content

@@ -50,8 +50,8 @@ func (s *Service) Maintain(at time.Time, days int, exists func(string) (bool, er
 	}
 	if exists != nil {
 		// Read only distinct addresses, not every retained message body.
-		ids, err := s.Store.retentionIDs(`SELECT FROM_CHAT_ID_ FROM MAILS WHERE FROM_CHAT_ID_<>'' AND FROM_CHAT_DELETED_AT_=0
-            UNION SELECT TO_CHAT_ID_ FROM MAILS WHERE TO_CHAT_DELETED_AT_=0 AND NOT
+		ids, err := s.Store.retentionIDs(`SELECT FROM_CHAT_ID_ FROM MAILS WHERE FROM_CHAT_ID_<>'' AND FROM_CHAT_CLOSED_AT_=0
+            UNION SELECT TO_CHAT_ID_ FROM MAILS WHERE TO_CHAT_CLOSED_AT_=0 AND NOT
             (OPENED_CHAT_=1 AND (STATUS_='accepting' OR STATUS_='suspended' AND RESUME_PHASE_='accepting'))`)
 		if err != nil {
 			return err
@@ -113,7 +113,7 @@ func clearBody(m *Mail, at int64) {
 func (s *Store) deleteOrphans() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.Exec("DELETE FROM MAILS WHERE FROM_CHAT_DELETED_AT_>0 AND TO_CHAT_DELETED_AT_>0 AND TERMINAL_AT_>0")
+	_, err := s.db.Exec("DELETE FROM MAILS WHERE FROM_CHAT_CLOSED_AT_>0 AND TO_CHAT_CLOSED_AT_>0 AND TERMINAL_AT_>0")
 	return err
 }
 

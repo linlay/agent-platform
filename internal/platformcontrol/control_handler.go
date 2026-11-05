@@ -574,10 +574,7 @@ func (h *ToolHandler) chatQuery(action string, p map[string]any, e *contracts.Ex
 	case "list":
 		return h.conversations.ControlList(c, p)
 	case "opened":
-		if h.conversations.MailboxOpened == nil {
-			return nil, fmt.Errorf("mailbox unavailable")
-		}
-		items, err := h.conversations.MailboxOpened(c.AgentKey, c.Subject)
+		items, err := h.conversations.ControlOpened(c)
 		return map[string]any{"chats": items}, err
 	case "read":
 		return h.conversations.ControlRead(c, p)
@@ -662,7 +659,7 @@ func (h *ToolHandler) inspect(action string, p map[string]any, e *contracts.Exec
 	return map[string]any{"tool": tool, "mounted": mounted, "allowed": allowed}, nil
 }
 
-// chatStartModels lists the registered chat models a chat_start modelKey may name.
+// chatStartModels lists the registered chat models a chat_send modelKey may name.
 func (h *ToolHandler) chatStartModels() (any, error) {
 	if h.models == nil {
 		return nil, fmt.Errorf("models unavailable")

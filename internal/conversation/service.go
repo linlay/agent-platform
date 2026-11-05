@@ -35,7 +35,7 @@ func NewService(chats chat.Store, archives *chat.ArchiveStore, archiver *chat.Ar
 }
 
 // DeleteChat reports only the Chat deletion. Mail cleanup is best effort: the
-// Chat is already gone, and a restart suspends any mail it left behind.
+// Chat is already gone; mail cleanup errors must not undo that mutation.
 func (s *Service) DeleteChat(chatID string) error {
 	if err := s.Chats.DeleteChat(chatID); err != nil {
 		return err
@@ -64,6 +64,20 @@ func (s *Service) ListSummariesWithOptions(options chat.ListOptions) ([]chat.Sum
 	store, ok := s.Chats.(chat.PinnedListStore)
 	if !ok {
 		return nil, errors.New("chat list filtering is not supported")
+	}
+	if options.OpenedBy != "" {
+		options.ChatIDs = []string{}
+		if s.MailboxOpened != nil {
+			rows, err := s.MailboxOpened(options.OpenedBy, options.Subject)
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range rows {
+				if id, ok := row["chatId"].(string); ok {
+					options.ChatIDs = append(options.ChatIDs, id)
+				}
+			}
+		}
 	}
 	return store.ListChatsWithOptions(options)
 }
@@ -152,6 +166,11 @@ func (s *Service) archiveChats(chatIDs []string) ([]ArchiveResult, error) {
 				continue
 			}
 			return nil, err
+		}
+		if s.MailboxPurge != nil {
+			if err := s.MailboxPurge(chatID); err != nil {
+				log.Printf("[mailbox] close archived chat %s: %v", chatID, err)
+			}
 		}
 		result.Success = true
 		if s.Archives != nil {

@@ -14,42 +14,6 @@ import (
 	"agent-platform/internal/ws"
 )
 
-func TestChatStartInheritsParentConnectionWithoutCancellation(t *testing.T) {
-	for _, scope := range []controlscope.Scope{
-		{Transport: "ws", Lane: "main", Subject: "app", Boundary: "desktop"},
-		{Transport: "ws", Lane: "btw", Subject: "app", Boundary: "desktop"},
-		{Transport: "http", Lane: "main", Subject: "app"},
-	} {
-		t.Run(scope.Transport+"/"+scope.Lane, func(t *testing.T) {
-			fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
-				writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`, `[DONE]`)
-			}, testFixtureOptions{notifications: ws.NewHub()})
-			if err := fixture.server.runControlScopes().Bind("parent", scope); err != nil {
-				t.Fatal(err)
-			}
-			registerTestParentRun(t, fixture, "parent")
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			started, err := fixture.server.StartRun(ctx, contracts.RunStartRequest{
-				AgentKey: "mock-agent", Message: "independent task",
-				Origin: contracts.RunOrigin{AgentKey: "zenmi", RunID: "parent", ToolID: "call"},
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			cancel()
-			got, err := fixture.server.runControlScopes().Load(started.RunID)
-			if err != nil || got != scope {
-				t.Fatalf("scope=%#v want=%#v err=%v", got, scope, err)
-			}
-			done := waitRunTerminal(t, fixture.server, started.RunID)
-			if done.Status != "completed" {
-				t.Fatalf("parent cancellation propagated: %#v", done)
-			}
-		})
-	}
-}
-
 func TestHITLSubmitAcrossCreationScopes(t *testing.T) {
 	for _, origin := range []controlscope.Scope{
 		{Transport: "ws", Lane: "explain", Subject: "app", Boundary: "desktop-device"},
@@ -144,23 +108,6 @@ func TestHITLSubmitStillRequiresAuthentication(t *testing.T) {
 			server.ServeHTTP(rec, req)
 			if rec.Code != http.StatusUnauthorized {
 				t.Fatalf("missing authentication: %d %s", rec.Code, rec.Body.String())
-			}
-		})
-	}
-}
-
-func TestChatStartRejectsMissingOrInvalidParentTransport(t *testing.T) {
-	for _, transport := range []string{"missing", "", "internal"} {
-		t.Run(transport, func(t *testing.T) {
-			fixture := newTestFixture(t)
-			if transport != "missing" {
-				if err := fixture.server.runControlScopes().Bind("parent", controlscope.Scope{Transport: transport}); err != nil {
-					t.Fatal(err)
-				}
-			}
-			started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{AgentKey: "mock-agent", Message: "must not start", Origin: contracts.RunOrigin{RunID: "parent", ToolID: "call"}})
-			if err == nil || started.RunID != "" {
-				t.Fatalf("created without parent transport: %#v %v", started, err)
 			}
 		})
 	}

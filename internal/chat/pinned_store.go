@@ -30,6 +30,9 @@ type PinnedStore interface {
 }
 
 type ListOptions struct {
+	ChatIDs   []string // nil means no membership filter; empty matches nothing
+	OpenedBy  string
+	Subject   string
 	OwnerOnly bool
 	LastRunID string
 	AgentKey  string

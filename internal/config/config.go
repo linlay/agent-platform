@@ -86,7 +86,6 @@ type LoadOptions struct {
 }
 
 type MailConfig struct {
-	Enabled       bool
 	MaxHops       int
 	RetentionDays int
 }
@@ -890,7 +889,7 @@ func DefaultPlanningModeConfig() PlanningModeConfig {
 		ExcludeTools: []string{
 			"bash", "bash_sandbox", "file_write", "file_edit", "artifact_publish", "image_generate", "speech_generate",
 			"plan_add_tasks", "plan_update_task",
-			"agent_invoke", "chat_send", "chat_notify", "chat_submit", "chat_start", "chat_interrupt", "chat_steer", "chat_manage",
+			"agent_invoke", "chat_send", "chat_notify", "chat_submit", "chat_interrupt", "chat_manage",
 			"automation_manage", "catalog_manage", "run_env", "ask_user_form", "result_submit",
 		},
 		ExecuteExcludeTools: []string{"ask_user_question", "ask_user_form"},

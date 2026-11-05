@@ -1,8 +1,6 @@
 package server
 
 import (
-	"errors"
-
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
@@ -114,20 +112,23 @@ func (s *Server) mapChatSummariesWithActiveRuns(items []chat.Summary) ([]api.Cha
 	if s.deps.Runs == nil {
 		return response, nil
 	}
+	ids := make([]string, 0, len(response))
+	for _, row := range response {
+		ids = append(ids, row.ChatID)
+	}
+	runs, conflicts, err := s.conversationService().ActiveRunsForChats(ids)
+	if err != nil {
+		return nil, err
+	}
 	for i := range response {
-		activeRun, ok, err := s.conversationService().ActiveRun(response[i].ChatID)
-		if err != nil {
-			var conflictErr *contracts.ActiveRunConflictError
-			if errors.As(err, &conflictErr) {
-				response[i].Error = activeRunConflictInfo(conflictErr)
-				continue
-			}
-			return nil, err
-		}
-		if ok {
-			response[i].ActiveRun = toAPIActiveRunInfo(activeRun)
+		id := response[i].ChatID
+		if conflict := conflicts[id]; conflict != nil {
+			response[i].Error = activeRunConflictInfo(conflict)
+		} else if run, ok := runs[id]; ok {
+			response[i].ActiveRun = toAPIActiveRunInfo(run)
 		}
 	}
+
 	return response, nil
 }
 

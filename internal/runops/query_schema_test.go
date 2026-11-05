@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-func TestChatStartSchemaKeepsNewArgumentsOptional(t *testing.T) {
-	data, err := resources.ToolFS.ReadFile("tools/chat_start.yml")
+func TestChatSendSchemaKeepsNewArgumentsOptional(t *testing.T) {
+	data, err := resources.ToolFS.ReadFile("tools/chat_send.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,10 +23,10 @@ func TestChatStartSchemaKeepsNewArgumentsOptional(t *testing.T) {
 	}
 	properties := schema["properties"].(map[string]any)
 	if _, ok := properties["teamId"]; ok {
-		t.Fatal("chat_start still advertises teamId")
+		t.Fatal("chat_send still advertises teamId")
 	}
 	if _, ok := properties["agentKey"]; !ok {
-		t.Fatal("chat_start is missing optional agentKey")
+		t.Fatal("chat_send is missing optional agentKey")
 	}
 
 	for _, key := range []string{"accessLevel", "references", "chatName", "modelKey", "reasoningEffort"} {

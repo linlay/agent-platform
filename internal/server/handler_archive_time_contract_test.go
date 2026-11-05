@@ -13,8 +13,6 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/ws"
-
-	_ "modernc.org/sqlite"
 )
 
 func TestArchiveTimeContractViolationsReturn422OverHTTPAndWS(t *testing.T) {

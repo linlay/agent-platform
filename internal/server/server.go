@@ -70,7 +70,6 @@ type QueryRuntime interface {
 	FinishRegisteredQuery(prepared runtimetypes.PreparedQuery, registered runtimetypes.RegisteredRun)
 
 	ExecuteQuery(context.Context, runtimetypes.QueryCommand, runtimetypes.EventSink) (runtimetypes.QueryResult, error)
-	StartRun(context.Context, contracts.RunStartRequest) (contracts.RunSnapshot, error)
 	GetRunStatus(string) (contracts.RunSnapshot, error)
 
 	ExecuteQueryWithHooks(context.Context, runtimetypes.QueryCommand, runtimetypes.QueryHooks) (runtimetypes.QueryResult, error)

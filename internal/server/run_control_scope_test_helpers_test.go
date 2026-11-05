@@ -57,7 +57,7 @@ func wsTestControlResponse(t testing.TB, serverURL, route string, payload any) [
 	}
 }
 
-// registerTestParentRun makes runID an active Run so chat_start can read its
+// registerTestParentRun makes runID an active Run so chat_send can read its
 // live access level, as the calling Run always is in production.
 func registerTestParentRun(t testing.TB, fixture testFixture, runID string) *contracts.RunControl {
 	t.Helper()

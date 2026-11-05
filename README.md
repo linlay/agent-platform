@@ -4,7 +4,7 @@
 
 原生 `ANTHROPIC` 模型的显式思考配置统一使用 `thinking.type: adaptive`、`thinking.display: summarized` 与 `output_config.effort`，并读取模型级 `maxOutputTokens` 作为默认输出预算与能力上限，见 [Anthropic 自适应思考](docs/配置化说明.md#anthropic-自适应思考)。
 
-本仓库是 `agent-platform` 的 Go 版运行时实现，配置使用 Go 代码默认值、`configs/*.yml` 和环境变量 allowlist／启动参数，支持目录驱动的 agents / skills catalog、带成员委派能力的 TEAM Agent、`chat_start` / `chat_get_status` / `chat_interrupt` Chat 会话工具组、`builtin.platform-control` 平台控制连接器、JWT 鉴权、resource ticket、chat 文件落盘、可配置的 memx Memory、Container Hub sandbox、受管 KBX 知识库读取与 Platform 目录监听维护，以及最小 OpenAI 协议模型与统一 tool loop。
+本仓库是 `agent-platform` 的 Go 版运行时实现，配置使用 Go 代码默认值、`configs/*.yml` 和环境变量 allowlist／启动参数，支持目录驱动的 agents / skills catalog、带成员委派能力的 TEAM Agent、`chat_send` / `chat_get_status` / `chat_interrupt` Chat 会话工具组、`builtin.platform-control` 平台控制连接器、JWT 鉴权、resource ticket、chat 文件落盘、可配置的 memx Memory、Container Hub sandbox、受管 KBX 知识库读取与 Platform 目录监听维护，以及最小 OpenAI 协议模型与统一 tool loop。
 
 > 项目事实、架构与开发约束见 [AGENTS.md](./AGENTS.md)，补充说明见 [docs/](./docs)。
 
@@ -302,7 +302,7 @@ teamConfig:
 
 TEAM 是普通 Agent，统一用 `agentKey` 调用，可直接回答、使用工具或委派。总控与成员在准入时一起冻结版本和租约；成员无效时整个请求返回 503。规划、Skills、Workspace 和 Memory 沿普通 Agent 契约，权限按执行者计算。详见 [智能体配置](docs/智能体配置说明.md#team-agent-配置) 和 [子智能体调度](docs/子智能体调度.md)。
 
-普通主 Agent 可通过 `builtin.task-control` 挂载 `chat_start`、`chat_get_status`、`chat_interrupt`，用于发起、查询和中断标准独立 Agent 根 run。它们与 `agent_invoke` 不同：不复用父 `chatId/runId`，query 在目标 run 注册后立即返回，父 run 中断不取消目标；后续控制只允许同一调用 Agent 与 subject 操作自己通过 `chat_start` 创建的 run。目标不使用候选白名单，目标只通过精确 catalog `agentKey` 选择；省略 `agentKey` 时服务端从可信调用上下文使用当前 Agent，目标使用精确 Agent key。目标 run 禁止再次调用任一 Chat 工具。只传 `message` 即使用当前 Agent 和当前 Run 的有效模型与推理强度；可选 `modelKey/reasoningEffort` 按字段覆盖，目标为当前 Agent 时省略的字段继承当前 Run（关闭思考为 `NONE`，续聊同样适用），指定其他 Agent 时不继承、使用目标自己的模型与默认思考强度，通过同一连接器的 `chat_query models` 查询本地 chat 模型；支持可选 `accessLevel/references/chatName`；省略时继承父 Run 受理当时的 access level，显式同级或降级直接启动，显式高于父 Run 当前档位必须由用户在父 Chat 中人工批准本次启动（不提供免审开关），显式新 Chat 名称与 `chatId` 互斥；状态返回当前档位与等待摘要。中文“会话”和“对话”都指 Chat；要求新开会话／对话时调用 `chat_start` 并省略 `chatId`，未指定目标时可省略 `agentKey`。完整契约见 [子智能体调度](./docs/子智能体调度.md)。
+普通 Native 主 Agent 挂载 builtin.task-control 后使用 chat_send 派活或补充：新开会话必须 newChat:true，已有工作用 chatId，两者都省略时寄往目标主要对话。平台自动决定开 Run、插入或排队，并将完整最终结果回信；chat_notify 发中途消息，chat_submit 代答请示。chat_get_status/chat_interrupt 只控制由自己 letter started 开出的 Run，信派生 Run 保留控制链限制。省略档位取目标 Agent 默认，显式高于父当前档位拒绝；模型与思考继承仅在新开自己的分身时发生。详情见 [Mailbox](docs/Mailbox.md)。
 
 原生连接器由 `connector.json` 的 `type: native` 和连接器 ID 对应的源码工具表装配，不使用 `native.json`。`builtin.platform-control` 提供平台治理能力；`run_env` 独立提供当前普通 native root Run 的 list/set/unset/update/explain，由通过 preset 或 Agent 显式声明挂载，分发示例列入全局 preset-tools，可通过 excludeTools 排除。动态值仅影响后续命令、不继承到子任务或其他 Run。旧 platform-control 配置段已移除。详见 [Run 环境工具](docs/Run环境工具.md)。
 
@@ -362,7 +362,7 @@ Container Hub 使用严格双根协议，基础挂载包括：
 
 `configs/runtime.example.yml` 的 `container-hub` 节展开 `base-url`、默认 environment 和运行策略默认值；代码默认值仍作为未配置时的兜底。除 `AP_CONTAINER_HUB_BASE_URL` 外，Container Hub token、environment id、超时和 sandbox 策略统一写入 `container-hub.*`，用于对接 `agent-container-hub` 的 `AUTH_TOKEN` Bearer 鉴权。
 
-`contextConfig.tags` 按 Agent 选择运行时上下文。旧 `agents` 标签和 `contextConfig.agents` 已忽略并显示一条非阻断管理告警，不再注入候选摘要。显式挂载 `builtin.platform-control` 的 Agent 可通过 `catalog_query.list` 按需发现 Agent；不改变 Chat 工具和子调用权限，`chat_start` 仍可使用当前 `Agent Identity.key` 创建自己的独立会话子任务。详见 [智能体配置](./docs/智能体配置说明.md#agent-发现与旧候选配置)。
+`contextConfig.tags` 按 Agent 选择运行时上下文。旧 `agents` 标签和 `contextConfig.agents` 已忽略并显示一条非阻断管理告警，不再注入候选摘要。显式挂载 `builtin.platform-control` 的 Agent 可通过 `catalog_query.list` 按需发现 Agent；不改变 Chat 工具和子调用权限，`chat_send` 仍可使用当前 `Agent Identity.key` 创建自己的独立会话子任务。详见 [智能体配置](./docs/智能体配置说明.md#agent-发现与旧候选配置)。
 
 `sandbox` 不再属于 `context tags`。只要 agent 声明了 `runtimeConfig.environmentId`，运行时就会自动注入 sandbox context。
 
@@ -435,7 +435,7 @@ docker compose logs -f
 
 知识库配置位于 kbases/<id>/library.yml，索引位于持久的 ru-kbases/<id>/，不可随 ru-agents 清空。一个库可含多个 collection、被多个 Agent 共用；来源过滤和切块由库统一配置。collection description 不触发索引重建；旧 editable 字段已删除，库定义不授予来源目录文件权限。有引用的库禁止删除。知识库服务按库配置自动生成和维护索引，见 [知识库](docs/知识库.md)。
 
-`builtin.task-control`（任务管理）独立提供六个 Chat 工具和两个 Automation 工具，含 `chat_steer` 运行目标调整；`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
+`builtin.task-control`（任务管理）独立提供七个 Chat 工具和两个 Automation 工具，信件补充统一使用 chat_send；`builtin.platform-control` 不再提供会话和自动化工具。任务管理不包含 Desktop 看板或网页控制；迁移与权限边界见 [连接器](docs/连接器.md#task-control-任务管理)。
 
 平台管理与自动化的操作说明由相应内置连接器 Skill 承载，包含自动化时间/Cron 工作流、YAML 维护及 Provider/Model/外部连接器配置参考，不需要额外挂载外部 platform-admin 或 platform-automation Skill。自动化更新、时区和审批契约见 [自动化](docs/自动化.md#task-control-管理工具)。
 

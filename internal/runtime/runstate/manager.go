@@ -814,3 +814,31 @@ func (m *Manager) RunInteractionConfig(runID string) (interaction.Config, bool) 
 	}
 	return *state.interactionConfig, true
 }
+
+func (m *Manager) ActiveRunsForChats(ids []string) (map[string]contracts.RunStatusInfo, map[string]*contracts.ActiveRunConflictError) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	wanted := map[string]bool{}
+	for _, id := range ids {
+		wanted[id] = true
+	}
+	result := map[string]contracts.RunStatusInfo{}
+	conflicts := map[string]*contracts.ActiveRunConflictError{}
+	for _, state := range m.runs {
+		if state == nil || state.eventBus == nil || !state.completedAt.IsZero() || !wanted[state.run.ChatID] || activeRunScopeID(state.run) != state.run.ChatID {
+			continue
+		}
+		info := runStatusInfoFromManagedRun(state)
+		if old, ok := result[info.ChatID]; ok {
+			c := conflicts[info.ChatID]
+			if c == nil {
+				c = &contracts.ActiveRunConflictError{ChatID: info.ChatID, RunIDs: []string{old.RunID}}
+				conflicts[info.ChatID] = c
+			}
+			c.RunIDs = append(c.RunIDs, info.RunID)
+		} else {
+			result[info.ChatID] = info
+		}
+	}
+	return result, conflicts
+}

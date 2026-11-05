@@ -502,6 +502,13 @@ func chatListWhere(options ListOptions) (string, []any) {
 	where := ""
 	var args []any
 
+	if options.ChatIDs != nil {
+		if len(options.ChatIDs) == 0 {
+			where += " AND 1=0"
+		} else {
+			where, args = appendChatIDsClause(where, args, options.ChatIDs)
+		}
+	}
 	if agentKey != "" || options.OwnerOnly {
 		where += " AND AGENT_KEY_=?"
 		args = append(args, agentKey)

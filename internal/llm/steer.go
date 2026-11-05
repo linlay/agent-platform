@@ -56,7 +56,7 @@ func (e *LLMAgentEngine) steerPreparer(session contracts.QuerySession, vision bo
 		}
 		input := map[string]any{"role": "user", "content": querymessages.BuildContentWithImageBlocks(text, refs, blocks, inputOptions)}
 		if req.Mail != nil {
-			input = mailModelInput(input, req.Mail.ID, session)
+			input = mailModelInput(input, req.Mail.ID, req.Mail.Header)
 		}
 		req.PreparedMessages = []map[string]any{input}
 		return req, nil
@@ -122,10 +122,10 @@ func (e *LLMAgentEngine) materializeHistorySteer(raw map[string]any, session con
 		}
 	}
 	text := steer.Message
-	mailID := ""
-	if source, ok := input.(map[string]any); ok && session.MailHeaders != nil {
+	mailID, mailHeader := "", ""
+	if source, ok := input.(map[string]any); ok {
 		if mail := queryinput.MailFromPayload(source); mail != nil {
-			mailID = mail.ID
+			mailID, mailHeader = mail.ID, mail.Header
 		}
 	}
 	if len(unavailable) > 0 {
@@ -151,7 +151,7 @@ func (e *LLMAgentEngine) materializeHistorySteer(raw map[string]any, session con
 	}
 	result["content"] = querymessages.BuildContentWithImageBlocks(text, refs, blocks, options)
 	if mailID != "" {
-		result = mailModelInput(result, mailID, session)
+		result = mailModelInput(result, mailID, mailHeader)
 	}
 	return result
 }

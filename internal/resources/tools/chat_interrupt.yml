@@ -4,7 +4,7 @@ i18n:
     label: "Interrupt Chat Run"
   zh-CN:
     label: "中断会话运行"
-description: "Interrupt an independent run started by chat_start. Read the task-control skill before use."
+description: "Interrupt an independent run opened by a letter. Read the task-control skill before use."
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -14,7 +14,7 @@ inputSchema:
     runId:
       type: string
       minLength: 1
-      description: "Required. Run ID returned by chat_start."
+      description: "Required. Run ID returned by chat_send with delivery=started."
     message:
       type: string
       description: "Interrupt reason."

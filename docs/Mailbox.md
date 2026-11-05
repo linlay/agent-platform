@@ -11,17 +11,6 @@ Mailbox 负责会话之间的往来。每条记录叫 mail，按 `kind` 分四�
 
 mail 都寄给 Chat，不寄给 Run；寄给 Agent 就是寄给它的主要对话。工具参数见 task-control 的 [Mailbox 手册](../internal/resources/connectors/builtin.task-control/skills/task-control/references/mailbox.md)，后续计划见 [plans/mailbox-next.md](../plans/mailbox-next.md)。
 
-## 启用与关闭
-
-Mailbox 默认关闭，在 `configs/runtime.yml` 中显式启用，重启后生效：
-
-```yaml
-mail:
-  enabled: true
-```
-
-设置 `mail.enabled: false` 或省略该项即可关闭。关闭时不打开或创建 `mail.db`，不绑定 Mailbox 运行时钩子，不执行邮件恢复或保留期清理；已有数据库保持原样。邮件 HTTP 接口返回 503，`chat_send`、`chat_notify`、`chat_submit` 及邮件状态查询返回 `mail_unavailable`；普通 `chat_start`、`chat_steer` 等会话控制继续可用。启用后才校验已有数据库的 schema。
-
 ## chats.db 与 mail.db
 
 两个库都在 `AP_RUNTIME_CHATS_DIR` 下，职责不同：chats.db 记录 Chat 本身，mail.db 记录 mail 的投递过程。
@@ -30,13 +19,13 @@ mail:
 |---|---|---|
 | 表 | `CHATS`（每个 Chat 一行摘要）、`RUNS`（已结束的 Run） | `MAILS`（每条 mail 一行） |
 | 事实源 | Chat 内容在 `<chatId>.jsonl`，chats.db 是它的摘要索引 | mail 正文、附件清单、等待项快照、投递状态、回信关系 |
-| 存在条件 | 始终存在 | 仅在 `mail.enabled: true` 时存在 |
+| 存在条件 | 始终存在 | 始终存在；并库前每次启动删除后新建 |
 | 身份 | `APCH`，chat-v1，`user_version=1` | `APML`，mail-v1，`user_version=1`（未上线基线） |
-| 归档 | Chat 移入 `archive/archive.db` | 不移动；归档不算删除 |
+| 归档 | Chat 移入 `archive/archive.db` | 不移动；归档与删除都触发关闭 mail |
 
 **引用是单向的。** mail.db 通过 ID 指向 Chat 和 Run（`FROM_CHAT_ID_`、`TO_CHAT_ID_`、`FROM_RUN_ID_`、`RUN_ID_`、`REPLY_OF_RUN_ID_`），chats.db 不保存任何 mailId。mail 在收件 Chat 中留下两样东西，二者都属于 Chat：
 
-- JSONL 的 query/steer 行：顶层带 `mailId`、`mailKind`、`mailAttempt`、`mailHop`（回信另有 `outcome`），正文存在该行的 `query` 或 `steer` 中。这一行就是"已消费"的证据。
+- JSONL 的 query/steer 行：顶层带 `mailId`、`mailHeader`、`mailKind`、`mailAttempt`、`mailHop`（回信另有 `outcome`），正文存在该行的 `query` 或 `steer` 中。这一行就是"已消费"的证据。
 - 附件副本 `<chatId>/mail/<mailId>/`，随 Chat 的生命周期保留。
 
 **谁写谁。** mailbox 不直接写 chats.db 或 JSONL：建 Chat、开 Run、插入都通过 Runtime 的入口完成，由 Runtime 落盘。Chat 一侧不写 mail.db，只通过钩子通知 mailbox：Runtime 的 Run 结束、消费、会话空闲、等待项产生与解决，以及 conversation 的删除钩子。
@@ -44,20 +33,20 @@ mail:
 **没有跨库事务，以 Chat 为准对账。**
 
 - 先写 mail.db，再改动 Chat。受理时先写 `accepting` 并预留 chatId，再建 Chat，然后转为 `queued`；投递时先在事务中占位 `inflight`，再调用 Runtime，回调按 attempt 核对。
-- 重启时扫描收件 JSONL，出现过该 mailId 的补记为已消费。
+- 并库后恢复代码扫描收件 JSONL，出现过该 mailId 的补记为已消费；当前启动清库后没有待扫描的 mail。
 - 保留期任务逐个检查 mail.db 引用的 chatId 是否仍在 chats.db 或 archive.db 中，不在就补做删除处理。
-- Chat 删除会驱动 mail 清理，反之不成立：mail 从不删除或修改 Chat。
+- Chat 删除和归档会驱动 mail 清理，反之不成立：mail 从不删除或修改 Chat。
 
 **归属与"谁开出的"。**
 
 - Chat 属于哪个用户只看 chats.db。mailbox 建的 Chat 与用户自己建的一样，都是 `SOURCE_ = query:<subject>`；旧 `chat_start` 建的 Chat 来源为 `run-query:`，沿 JSONL 首条 query 的 `origin` 追溯到父 Chat。判断归属不读 mail.db。
-- "哪个 Agent 开出了这个 Chat"目前不在 chats.db 中。mailbox 开出的 Chat 只能从 mail.db 中 `OPENED_CHAT_ = 1` 那封信的 `FROM_AGENT_KEY_`、`FROM_CHAT_ID_` 得知；旧 `chat_start` 开出的记录在 JSONL 首条 query 的 `origin` 中。仅看 chats.db，mailbox 开出的 Chat 与用户自己建的无法区分。
+- "哪个 Agent 开出了这个 Chat"目前不在 chats.db 中。工作会话的创建关系从 mail.db 中 `NEW_CHAT_ = 1` 那封信的 `FROM_AGENT_KEY_`、`FROM_CHAT_ID_` 得知；旧 `chat_start` 开出的记录在 JSONL 首条 query 的 `origin` 中。仅看 chats.db，mailbox 开出的 Chat 与用户自己建的无法区分。
 - `OPENED_CHAT_` 的本义是"这封信受理时需要建 Chat"，用于受理重放。补建的主要对话也记为 1，所以它不等于"派出去的工作会话"。
 
 **规则。**
 
-- chats.db 不依赖 mail.db。mail 关闭时，Chat 的创建、列表、归属、归档和删除照常工作。
-- Chat 回放和 `/api/chats` 不读 mail.db。只有组装模型输入时，才按行上的 mailId 读 mail.db 生成信封头；mail 关闭时不加信封头。
+- chats.db 不依赖 mail.db。Chat 的创建、归属、归档和删除不依赖 mail 账本。
+- Chat 回放从 JSONL 读取信封来源；普通列表不读 mail.db，openedBy 筛选先从 mail.db 读取创建关系，再在 chats.db 筛选。模型输入的信封头读取 JSONL 的 mailHeader，不回查 mail.db。
 - Chat 自身的属性放 chats.db 与 JSONL；投递过程、回信关系和证据放 mail.db。两库只用 ID 关联，不做跨库事务或 JOIN；需要同时用到两边的数据时，由应用层分别读取。
 
 ## 地址
@@ -99,7 +88,7 @@ mail:
 - 插入后 Run 已结束仍未消费，或确定未发出：退回 `queued`。为信开出的 Run 没读到信就结束时，信转为 `failed`，避免反复开 Run。
 - 结果未知：信和回信转为 `suspended`（证据 `unknown`），即时消息和请示转为 `withdrawn`。
 - 投递复核得到确定结论（目标 Agent、会话、归属、引用、模型或附件不再成立）时，信转为 `failed` 并寄回失败回信，回信转为挂起，即时消息和请示撤回。
-- 读盘、关停等临时错误保持 `queued`，等待同一会话的下一次触发；没有自动重试，一直没有触发就等到重启后挂起。
+- 读盘、关停等临时错误保持 `queued`，按会话自动退避重试，5 秒起、翻倍至最多 5 分钟，同一会话只有一个计时器；未知结果仍挂起，不自动重发。
 
 ## 信与回信
 
@@ -149,7 +138,7 @@ mail:
 
 跳数表示这件事离用户最近一次亲口说话隔了多远，用于防止 Agent 之间无休止地派活、通知和请示。
 
-1. 用户、Automation、`/api/execute` 的输入为 0 跳；`chat_start` 开出的 Run 为父 Run 当前跳数 + 1。
+1. 用户、Automation、`/api/execute` 的输入为 0 跳。
 2. Run 发出的 mail（包括平台代它生成的回信）记为 Run 当前跳数 + 1，存于 `HOP_`。
 3. Run 的当前跳数：收到用户直接输入时归 0；收到 mail 时取 `max(当前, mail.hop)`；被上级 `chat_submit` 答复时取 `max(当前, 上级当前 + 1)`。只在发出时加一，接收时不加。
 4. 达到上限后，`chat_send`、`chat_notify` 返回 `mail_hop_limit`，请示不再上报、只等用户；回信照常寄出，`chat_submit` 不受限制。
@@ -181,7 +170,7 @@ mail:
 
 **发信方的控制权**由 `delivery` 决定：只有 `started` 的 letter 允许发信方查询和中断该 Run；`inserted` 只能查询这封信本身。回信、即时消息、请示开出的 Run 不授予对方任何控制。
 
-**调用方限制。** 只有主 Agent 根 Run（含 TEAM 总控）能调用 `chat_send`、`chat_notify`、`chat_submit`；BTW、`agent_invoke` 子任务和 Team 成员不能调用，规划 Run 默认排除这三个工具。由信开出的 Run 调用 `chat_start`、`chat_steer`、`chat_get_status`、`chat_interrupt`，或使用 `wait` 的 `run.terminal` 条件，仍返回 `run_chaining_not_allowed`，派完活应使用不带条件的普通 `wait` 等回信唤醒。回信、即时消息、请示唤醒的是收件会话自己的 Run，这些工具照常可用。
+**调用方限制。** 只有主 Agent 根 Run（含 TEAM 总控）能调用 `chat_send`、`chat_notify`、`chat_submit`；BTW、`agent_invoke` 子任务和 Team 成员不能调用，规划 Run 默认排除这三个工具。由信开出的 Run 调用 `chat_get_status`、`chat_interrupt`，或使用 `wait` 的 `run.terminal` 条件，仍返回 `run_chaining_not_allowed`，派完活应使用不带条件的普通 `wait` 等回信唤醒。回信、即时消息、请示唤醒的是收件会话自己的 Run，这些工具照常可用。
 
 ## 文件
 
@@ -198,7 +187,9 @@ mail:
 
 ## 重启与人工重投
 
-重启不自动投递，也不自动开 Run：
+并入 chats.db 前，每次启动删除 mail.db、-wal、-shm 后新建，旧 mail 不恢复、不挂起、不重投；非普通文件或删除失败拒绝启动（TODO(chats-db-v2)）。在途派活不再回信，用户需在主聊天重新发起。发信 Agent 仍可按历史 JSONL 首条 query 的 origin 地址资格回退寄往以前开出的会话。
+
+以下恢复与人工重投代码保留，运行期挂起仍可人工操作；并库后持久恢复重新生效：
 
 - 信：`accepting`、`queued`、`inflight`、`delivered` 转为 `suspended`。
 - 回信：`queued`、`inflight` 转为 `suspended`；已 `delivered` 的回信是终态，永不再投。
@@ -216,13 +207,13 @@ mail:
 
 ## 删除、归档与保留期
 
-**删除。** 任一端会话被删除时，分别记录 `FROM_CHAT_DELETED_AT_` 或 `TO_CHAT_DELETED_AT_`：
+**删除。** 任一端会话被删除时，分别记录 `FROM_CHAT_CLOSED_AT_` 或 `TO_CHAT_CLOSED_AT_`：
 
 - 寄往被删会话的：未完成的信转为 `failed` 并生成唯一失败回信，未消费的回信丢弃，未送达的即时消息和请示撤回；清理这些行的正文、引用和附件元数据。
 - 被删会话发出的：已受理的回信照常投递，使用收件侧的附件副本；未完成的信转为 `failed`（不寄失败回信），即时消息和请示撤回。
 - 两端均已删除且邮件为终态时删除该行。删除已归档的 Chat 同样触发清理。
 
-**归档。** 归档不算删除，不清理正文。投递复核把已归档会话视为不存在，因此触发投递时，寄往它的信转为 `failed` 并寄回失败回信，回信挂起，即时消息和请示撤回。但已归档会话不再产生投递触发，归档时已在排队的 mail 会一直停到重启后挂起；归档时的主动状态转换尚未实现。
+**归档。** 归档成功调用与删除相同的关闭钩子；失败只记日志。未完成的信失败并回信，未消费回信丢弃，即时消息与请示撤回；已受理的出站回信继续投递。恢复归档不恢复 mail。
 
 **保留期。** `mail.retention-days` 默认 30（正整数，最大 365000），启动后执行一次，此后每 24 小时执行：
 
@@ -235,7 +226,7 @@ mail:
 
 `MAILS` 的建表与索引以 [store.go](../internal/mailbox/store.go) 为事实源：表名大写，字段为大写下划线加尾部 `_`，索引以 `IDX_` 开头，与 chats.db 风格一致；Go DTO 和 HTTP JSON 字段名保持原协议。关系字段为 `PARENT_MAIL_ID_`（即时消息、请示所属的信）、`ANSWERED_BY_MAIL_ID_`（回答这封信的回信）、`REPLY_OF_RUN_ID_`（回信来自的 Run）。
 
-Mailbox 尚未上线，当前结构作为 schema V1 基线，开发期结构调整不递增版本号。旧开发库（包括此前开发构建写出的 V2）会被严格校验拒绝，并保留原版本标记和数据；程序不迁移、删除或自动重建，开发环境需停服后显式备份并重建 `mail.db`。chats.db 与 Chat 资源不因此重建。该规则仅适用于尚未发布的 Mailbox 基线，不作为已发布存储的通用降级策略。
+Mailbox 尚未上线，schema 保持 V1，结构直接调整 DDL；并库前每次启动清空，application_id/user_version 只作身份标记。不迁移旧 mail 库，不影响 chats.db。
 
 | kind | 正常终态 | 其他终态 |
 |---|---|---|
@@ -251,7 +242,7 @@ accepting ──▶ queued ──开 Run─────────────�
                 │  └─插入──▶ inflight ──被消费──▶ delivered(inserted) ───┤
                 │              └─未消费/未发出──▶ queued                 └─Run 结束──▶ done（回信）
                 ├─复核失败 / 会话删除──▶ failed（寄回失败回信）
-                └─重启 / 远端未知──▶ suspended ──重投──▶ 从挂起前阶段继续 ──▶ queued
+                └─远端未知（并库后含重启）──▶ suspended ──重投──▶ 从挂起前阶段继续 ──▶ queued
                                               └─丢弃──▶ discarded
 ```
 
@@ -259,7 +250,7 @@ accepting ──▶ queued ──开 Run─────────────�
 
 ## 模型输入：信封头
 
-来自 Agent 的内容在正文前加一行英文信封头，用户消息不加。信封头不落盘，每次组装模型输入时按行上的 mailId 从 mail.db 生成；正文到期清理后，信封仍保留。首词即 kind；有附件时，信封头下方列出附件路径，然后是正文。
+来自 Agent 的内容在正文前加一行英文信封头，用户消息不加。投递时生成信封头，写入 JSONL query/steer 的 mailHeader，与 mailId 并列；历史和压缩快照保存 _mailHeader，模型组装直接读取，回放不下发这个内部字段。删库或正文清理后信封仍保留。首词即 kind；有附件时，信封头下方列出附件路径，然后是正文。
 
 ```
 [Letter M1 from agent "lead" (chat c_100). Your final answer in this run will be sent back as the reply.]
@@ -289,7 +280,7 @@ Answer with chat_submit runId="r_22" awaitingId="q_7", or ask the user if unsure
 | `chat_get_status` | 支持 `mailId`；只有 `started` 的信附带 Run 状态 |
 | `chat_interrupt` | 接受 `started` 信开出的 Run |
 | `chat_query` | `action: "opened"` 列出本 Agent 开出的会话及其 active/activeRun |
-| `chat_start`、`chat_steer` | 保留，说明中写"优先用 `chat_send`" |
+
 
 - `GET /api/mails?agentKey=&chatId=&kind=&status=&limit=&offset=`：只返回当前 subject 的 mail；挂起的信和回信附带 `evidence` 与 `error`。
 - `POST /api/mails/action {mailId, action: redeliver|discard}`：只处理挂起的 letter/reply，校验当前 subject。
@@ -297,3 +288,9 @@ Answer with chat_submit runId="r_22" awaitingId="q_7", or ask the user if unsure
 - `request.query`、`request.steer` 与 JSONL 带 `mailId`、`mailKind`、`mailAttempt`、`mailHop`，回信另有 `outcome`；代答的 submit 带平台生成的 `origin`、`accessGrant`。这些字段由平台生成，公共输入不得伪造。
 
 相邻 WebClient 的收件箱和时间线消费上述协议。
+
+## 工作会话与收件箱
+
+`NEW_CHAT_` 只记录 chat_send newChat:true 创建关系；补建主要聊天仍用 OPENED_CHAT_ 重放受理，NEW_CHAT_ 为 0。GET /api/chats?openedBy=A 可与 agentKey=B 取交集，HTTP 与主 WS 使用相同应用服务；subject 来自可信上下文。查询不读取 JSONL，Run 状态按本页 ID 批量补齐。普通 wait 不算等待处理。重启后工作列表为空，旧聊天仍保留在历史中。
+
+GET /api/mails 返回 mails 摘要与 total，message 最多 200 字，不返回 input/accessGrant/附件；GET /api/mails/detail?mailId= 返回当前用户的全文、附件和请示等待项快照。WebClient 侧栏收件箱显示挂起数量；主聊天下显示工作会话，请示卡片可跳转分身或以用户身份调用 /api/submit，保留等待项、冻结操作与所有权校验。并发作答只有一次成功。上级代答展示来源与审批档位，实时与回放读取相同事件。

@@ -85,7 +85,7 @@ func (r *Route) DecorateSteerEvent(event stream.EventData) stream.EventData {
 	if origin != nil {
 		payload["origin"] = origin.Payload()
 	}
-	for _, key := range []string{"mailId", "mailKind", "mailAttempt", "mailHop", "outcome"} {
+	for _, key := range []string{"mailHeader", "mailId", "mailKind", "mailAttempt", "mailHop", "outcome"} {
 		delete(payload, key)
 	}
 	if mail != nil {

@@ -173,7 +173,7 @@ func TestExactToolReviewIgnoresAccessLevelChange(t *testing.T) {
 	ctx := context.Background()
 	session := QuerySession{RunID: "run", ChatID: "chat", AgentKey: "caller", AccessLevel: AccessLevelAutoApprove}
 	s := &llmRunStream{ctx: ctx, session: session, engine: &LLMAgentEngine{tools: executor}, runControl: NewRunControl(ctx, "run"), execCtx: &ExecutionContext{Session: session, AccessLevel: AccessLevelAutoApprove}}
-	call := &preparedToolInvocation{toolID: "call", toolName: "chat_start", args: map[string]any{"accessLevel": AccessLevelFullAccess}}
+	call := &preparedToolInvocation{toolID: "call", toolName: "chat_send", args: map[string]any{"accessLevel": AccessLevelFullAccess}}
 	if handled, err := s.handleToolApprovalBeforeInvoke(call); err != nil || !handled || s.hitlMatch == nil {
 		t.Fatalf("review not shown: %v %v", handled, err)
 	}

@@ -295,7 +295,7 @@ PUT/WS mutation 继续返回轻量 `sortMode/pinnedOrder/updatedAt`，不附带 
 - 设定：`PUT /api/chats/primary {chatId}`（WS 同路径同字段）把已发布的已有 Chat 设为其 owner Agent 的主要聊天；Chat 不存在返回 404，上传占位 Chat 或无 owner 的 Chat 返回 400；已是主要聊天时 `changed:false` 且不广播。
 - 互斥：当前主要聊天有活动 Run（含等待用户提问、审批的 Run）时，新建与设定都返回 409 `primary_chat_busy`，`data` 带当前主要聊天的 `chatId` 与 `runIds`。query 在创建 Chat 之前检查，被拒绝时不会留下新 Chat。
 - Mailbox 补缺：chat_send 省略 chatId/newChat 且主要指针缺失时，在会话 mutation 锁内补建，并以“指针仍缺失才设置”的条件写入设为主要聊天；恢复 accepting 时重新仲裁已有指针。既有指针不切换；`primary:true` 的 query 不取该锁，期间若它先设置了指针，信留在新建的会话中。
-- 不切换指针的入口：普通 query、在历史聊天中续聊、Automation、`chat_start`、`/api/execute`、channel、derive 和归档恢复创建或继续的 Chat 都只是历史聊天。
+- 不切换指针的入口：普通 query、在历史聊天中续聊、Automation、`chat_send`、`/api/execute`、channel、derive 和归档恢复创建或继续的 Chat 都只是历史聊天。
 - 生命周期：归档或删除主要聊天时先清除指针，客户端由既有 `chat.archived` / `chat.deleted` 得知；恢复归档不恢复指针。没有指针的 Agent 视为没有主要聊天，升级后不迁移已有 Chat。
 - 列表：`/api/chats` 可选 `primary` 与其他筛选按 AND 组合，并在 `limit` 之前生效；`primary=true` 按指针 ID 直接读取，`agentKey=<key>&primary=false` 即该 Agent 的历史聊天。HTTP 只接受单个 `true`/`false`，WebSocket 使用 JSON boolean。
 - 指针切换成功后广播 `chat.primary.changed`。
@@ -389,7 +389,7 @@ Automation 的 `description` 和 `zoneId` 均可省略。Execution 的 `zoneId` 
 
 Automation 列表和详情固定返回 `executionHistory:{available,state,message?}`，其中 `state` 为 `initializing|ready|degraded|unavailable`。History 不可读不影响 Automation 配置 API；`/api/automation/executions` 和 `/api/automation/execution` 此时返回 `503`。
 
-Automation 创建、更新的 `query.accessLevel` 与详情中的同名字段支持 `ask_for_approval/auto_approve/full_access`，省略时执行权限为 `ask_for_approval`；更新省略整个 `query` 保留原值，提供 `query` 则整体替换，省略其中的档位恢复默认。非法值或错误类型返回 400。定时和手动触发均使用受理时的配置，不继承已有 Chat 的历史权限，也不做 `chat_start` 的父档位比较；目标交互准入及工具硬限制继续生效。
+Automation 创建、更新的 `query.accessLevel` 与详情中的同名字段支持 `ask_for_approval/auto_approve/full_access`，省略时执行权限为 `ask_for_approval`；更新省略整个 `query` 保留原值，提供 `query` 则整体替换，省略其中的档位恢复默认。非法值或错误类型返回 400。定时和手动触发均使用受理时的配置，不继承已有 Chat 的历史权限，也不做 `chat_send` 的父档位比较；目标交互准入及工具硬限制继续生效。
 
 `POST /api/automation/trigger` 是 HTTP-only 的原生手动触发入口。每次请求都会创建不同的 Execution，并与 Cron 执行共用全局 Automation 并发池；暂停状态也可触发，但不会扣减 `remainingRuns`、持久化 Automation 或改变 `nextFireAt`。成功响应保持统一 200 包装，例如 `data:{"accepted":true,"status":"accepted","automationId":"daily-report","executionId":"exec_xxx"}`。该响应只表示已受理，Query 准入、模型执行、HITL 或停止取消等后续结果通过 execution history 和 `automation.execution.*` push 反映。
 
@@ -418,15 +418,15 @@ Automation 只配置 `agentKey`，TEAM 也按普通 Agent 准入执行。
 
 editingMode 只认顶层 JSON boolean，是 GENERAL/CODER/KBASE/TEAM 的通用 Workspace 编辑开关。显式 true/false 一致生效；省略时使用模板默认值（KBASE false，其他 true），规划 Run 始终只读。它只控制最终 runtimeConfig.workspaceRoot 的 mutation，不增加来源目录授权、不补工具、不改变 external 或当前 Chat 的通用权限，params.editingMode 不生效。JSONL 的原始 `query` 不补入默认值；query 行顶层的 `editingMode` 与 `request.query` 事件保存解析后的请求意图（含 false），用于普通续接和计划批准后的执行；activeRun 返回当前 Run 的实际值，规划 Run 为 false。该字段不写 Agent 配置、不从上一轮继承。
 
-JSONL query 行的 `query` 只保存调用方原样给出的输入，平台不往里添加任何字段：HTTP body 与 WS payload（含省略、显式 false、null、空对象/数组、大整数，以及 `stream`、`detached`、`lane`、`sourceUser` 等传输字段；不承诺空白或键顺序），chat_start 的工具参数，`agent_invoke`/`agent_delegate` 中该任务的原始条目，Automation 定义里实际配置的 query 字段。平台的决定与平台算出的有效值作为 query 行顶层字段并列保存：`requestId`、`agentKey`、`lane`（主通道省略）、`origin`、`accessGrant`、`planRunId`、`accessLevel`、`hidden`（有效值为 true 时写入，含 Automation 缺省隐藏与旁路通道）、`planningMode`、`editingMode`、`model`、`references`；任务行另有 `taskId`、`taskName`（含缺省为成员名称的有效值）、`taskToolId`、`taskAgentKey`。平台缺省值在写入时存下有效值，读取时不按当前规则重算。没有调用方输入的行不写 `query`：Run 中途只更新 system 快照的行只有 `system`；计划批准后执行 Run 的首行带 `planRunId`，其可见文本按该行 `locale` 在回放时生成。`request.query` 实时事件、历史回放与执行续接都由同一投影从 `query` 的内容字段和顶层决定生成。读取不区分新旧布局：平台决定只从顶层读取，缺失即视为未设置；回放与客户端恢复需要的 `requestId`、`agentKey`、`references`、`hidden`、`accessLevel`、`model` 在顶层缺失时从 `query` 读取，来源在缺失时由旧的 `role`/`runOrigin` 推出。旧记录因此照常显示，历史文件不改写；旧 Run 不再恢复执行，在旧 Chat 继续对话会写新的 query 行。复制 Chat 时整行（含 query）一起重新绑定 Chat/Run。HTTP/WS 请求与 Automation API 的字段名必须与协议拼写完全一致，大小写变体（如 `Message`）按未知字段拒绝。
+JSONL query 行的 `query` 只保存调用方原样给出的输入，平台不往里添加任何字段：HTTP body 与 WS payload（含省略、显式 false、null、空对象/数组、大整数，以及 `stream`、`detached`、`lane`、`sourceUser` 等传输字段；不承诺空白或键顺序），`agent_invoke`/`agent_delegate` 中该任务的原始条目，Automation 定义里实际配置的 query 字段。Mailbox 投递的 Run 的 query 保存平台组装的正文和引用，原始 chat_send 参数保存于 MAILS.INPUT_。平台的决定与平台算出的有效值作为 query 行顶层字段并列保存：`requestId`、`agentKey`、`lane`（主通道省略）、`origin`、`accessGrant`、`planRunId`、`accessLevel`、`hidden`（有效值为 true 时写入，含 Automation 缺省隐藏与旁路通道）、`planningMode`、`editingMode`、`model`、`references`；任务行另有 `taskId`、`taskName`（含缺省为成员名称的有效值）、`taskToolId`、`taskAgentKey`。平台缺省值在写入时存下有效值，读取时不按当前规则重算。没有调用方输入的行不写 `query`：Run 中途只更新 system 快照的行只有 `system`；计划批准后执行 Run 的首行带 `planRunId`，其可见文本按该行 `locale` 在回放时生成。`request.query` 实时事件、历史回放与执行续接都由同一投影从 `query` 的内容字段和顶层决定生成。读取不区分新旧布局：平台决定只从顶层读取，缺失即视为未设置；回放与客户端恢复需要的 `requestId`、`agentKey`、`references`、`hidden`、`accessLevel`、`model` 在顶层缺失时从 `query` 读取，来源在缺失时由旧的 `role`/`runOrigin` 推出。旧记录因此照常显示，历史文件不改写；旧 Run 不再恢复执行，在旧 Chat 继续对话会写新的 query 行。复制 Chat 时整行（含 query）一起重新绑定 Chat/Run。HTTP/WS 请求与 Automation API 的字段名必须与协议拼写完全一致，大小写变体（如 `Message`）按未知字段拒绝。
 
-`origin` 记录输入是谁发起的，由平台判定，请求不能携带：`{type:"user",userId?}`（HTTP/WS；userId 取认证主体，受信 gateway 下取远端用户）、`{type:"agent",agentKey,chatId,runId,toolId}`（chat_start 与 chat_steer）、`{type:"automation",automationId}`。计划批准后的执行 Run 沿用规划 Run 的 origin。memory 只采集 `user` 来源的输入；`automation` 来源不进入会话搜索与导出，模型输入标注为自动化请求。HTTP/WS query 和 Automation YAML/管理 API query 中的 `role` 均接收并保留供审计，执行时忽略，不进入 `request.query` 事件，也不决定模型角色。`agent.yml` 的 `role` 仍为 Agent 描述字段，与请求角色无关。chat_start 的权限审计（父档位、版本、来源、审批摘要）写在顶层 `accessGrant`。
+`origin` 记录输入是谁发起的，由平台判定，请求不能携带：`{type:"user",userId?}`（HTTP/WS；userId 取认证主体，受信 gateway 下取远端用户）、`{type:"agent",agentKey,chatId,runId,toolId}`（Mailbox 信件与插入）、`{type:"automation",automationId}`。计划批准后的执行 Run 沿用规划 Run 的 origin。memory 只采集 `user` 来源的输入；`automation` 来源不进入会话搜索与导出，模型输入标注为自动化请求。HTTP/WS query 和 Automation YAML/管理 API query 中的 `role` 均接收并保留供审计，执行时忽略，不进入 `request.query` 事件，也不决定模型角色。`agent.yml` 的 `role` 仍为 Agent 描述字段，与请求角色无关。Mailbox 的权限审计（父档位、版本、来源、审批摘要）写在顶层 `accessGrant`。
 
 `references` 统一表示本条消息指定的资源。skill/kbase/chat 客户端只传 type 和 id，服务端补齐可信元数据；Chat 正文不随请求拼接，智能体通过 task-control 的 chat_query read/search 按需读取。引用按类型与规范化 ID 去重，整个 Run 累计上限为技能 32、知识库 8、对话 32；steer 超限整条拒绝且不留下授权。技能目录只读授权和脚本入口凭据、知识库可读性、Chat 身份与授权边界见 [引用协议](引用协议.md)。选择列表只进入用户消息，不进入 system prompt 或 fingerprint；固定绑定库 boundLibraryId 保留。
 
 `GET /api/kbases?agentKey=...` 与主 WS `/api/kbases`（payload `{agentKey}`）返回 `{agentKey, capability:{available,reason?}, boundLibraryId?, libraries:[{id,name,description?,collections:[{name,description?}],readable,indexing,degraded,unavailableReason?}]}`。目标需挂载 builtin.kbase-control。库选择通过 `references:[{type:"kbase",id:"library-id"}]` 提交；不开启入口不影响既有检索工具。
 
-HTTP/WS 的 query/steer 请求拒绝未知字段，包括值为 null 或空数组的字段；HTTP query 返回 unknown_field，其他入口同样给出未知字段说明。requiredSkillKeys 继续按既有删除字段协议拒绝。chat_start、agent_invoke、agent_delegate 与 Automation query 均使用 references；子任务只接受 skill/kbase，chat 拒绝。TEAM 总控支持三类定位引用；ACP/PROXY/CHANNEL 的 query 与 steer 均拒绝 skill/kbase/chat，只接受文件、选区与站点。
+HTTP/WS 的 query/steer 请求拒绝未知字段，包括值为 null 或空数组的字段；HTTP query 返回 unknown_field，其他入口同样给出未知字段说明。requiredSkillKeys 继续按既有删除字段协议拒绝。chat_send、agent_invoke、agent_delegate 与 Automation query 均使用 references；子任务只接受 skill/kbase，chat 拒绝。TEAM 总控支持三类定位引用；ACP/PROXY/CHANNEL 的 query 与 steer 均拒绝 skill/kbase/chat，只接受文件、选区与站点。
 
 所有调用与控制只使用根 `agentKey`。已有 Chat 归属固定；成员事件上的 key 不授予根控制权限。TEAM 的成员若不存在、为 TEAM/ACP、不支持子任务或携带 agent_invoke，整个请求返回 503。活动 Run 使用冻结版本，同进程延迟批准重新校验当前版本；重启取消未完成 Run。query/steer 中的未声明字段拒绝；其他入口沿用各自 DTO 校验，不检测旧配置。
 
@@ -582,7 +582,7 @@ TEAM 总控的普通工具与 reasoning 沿普通 Agent 事件链路；内部 `a
 
 `/api/query` 与 `/api/chat` 接受细节等级 `detail`：HTTP 用 URL 参数（`?detail=detailed`），WS 用请求帧顶层字段（与 `type`、`id` 并列，见[帧类型](#帧类型)），不放进 query 请求体，因此不进入 JSONL 原始 query。显式取值为 `simple` 或 `detailed`（旧 `summary`、`full`、`none` 均拒绝），其他值返回 400 `invalid_detail`；WS 其他路由携带 `detail` 同样拒绝。
 
-档位属于 Run：`/api/query` 受理时冻结（请求显式值 > 实际准入 Agent 的 `interactionConfig.defaultDetail` > simple，Agent 默认值来自 Agent 显式配置 > agent-settings.yml 对应 mode 配置），整个 Run 期间所有观察者收到同一档事件。没有调用方连接的 Run（`chat_start`、Automation、`/api/execute`）取 Agent 默认值；批准计划后启动的执行 Run 沿用规划 Run 的档位；TEAM 子任务与 steer 不改变档位。档位只在进程内保存，不落盘（Platform 重启本就取消未完成 Run）。
+档位属于 Run：`/api/query` 受理时冻结（请求显式值 > 实际准入 Agent 的 `interactionConfig.defaultDetail` > simple，Agent 默认值来自 Agent 显式配置 > agent-settings.yml 对应 mode 配置），整个 Run 期间所有观察者收到同一档事件。没有调用方连接的 Run（`chat_send`、Automation、`/api/execute`）取 Agent 默认值；批准计划后启动的执行 Run 沿用规划 Run 的档位；TEAM 子任务与 steer 不改变档位。档位只在进程内保存，不落盘（Platform 重启本就取消未完成 Run）。
 
 - `/api/attach` 不接受 `detail`：HTTP 带该参数（含空值）返回 400 `detail_not_allowed`，WS attach 帧带 `detail` 返回协议错误；续接一律按 Run 冻结的档位。
 - `/api/chat`：Chat 有进行中的 Run 时，整个响应（含之前已结束 Run 的历史事件）按该 Run 的档位过滤，请求的 `detail` 忽略；没有进行中的 Run 时按请求档位读取，省略时按 Chat owner Agent 默认值。`activeRun.detail` 返回 Run 的档位。
@@ -1360,28 +1360,7 @@ Platform WebSocket 注册同一路径：空 payload `{}` 或 `{agentKey}` 对应
 
 ### Agent 发起的 steer 来源
 
-builtin.task-control 的 chat_steer 接收 `{runId,message}`。公开 request.steer 在 SSE、WS 与 `/api/chat` events 中带可选 `origin:{type:"agent",agentKey,chatId,runId,toolId}`，与 query 行的 `origin` 同一结构；这些是发起方身份，事件顶层 chatId/runId 是目标身份。role 仍为 user，message 与模型输入不添加来源标注。HTTP/WS `/api/steer` 传入 origin 按未知字段拒绝；普通人类 steer 不产生 origin。JSONL 将 origin 保存在 steer 对象中；改名前写入 `source` 的旧记录照常读取，回放时以 `origin` 输出。Agent 发起的 steer 不作为 memory 证据。
-
-```json
-{
-  "type": "request.steer",
-  "timestamp": 1791700000000,
-  "chatId": "chat_A",
-  "runId": "run_A",
-  "steerId": "steer_3f9a1c7e2b4d",
-  "message": "优先完成后端权限校验和越权测试；暂缓管理界面。",
-  "role": "user",
-  "origin": {
-    "type": "agent",
-    "agentKey": "initiator-agent",
-    "chatId": "chat_P",
-    "runId": "run_P",
-    "toolId": "call_7"
-  }
-}
-```
-
-chat_steer 不审批、不比较双方权限档位，保留目标原有工具授权。调用身份派生的 steerId 与目标事件相同；首次结果（含未受理）在同进程同调用内冻结，参数变化返回 idempotency_conflict。收据随调用方 Run 结束清理，在途调用完成后释放；重放等待可取消，且不覆盖首个调用结果。WS 未入队、发送前校验失败与上游明确拒绝返回 executionState:not_started；SSE 传输失败、超时或响应无法解析返回 executionState:unknown。来源不传上游，同次调用不重发，未知结果不自动补发。完整所有权、等待和调用边界见 [子智能体调度](子智能体调度.md#chat_steer)。
+Agent 通过 chat_send 给已有 Chat 补充信件；在跑时由 Mailbox 插入，空闲时开 Run，暂不可投递时排队。request.steer 的 origin 与 mailId 等来源元数据由平台构造，HTTP/WS /api/steer 不允许伪造。mailHeader 只供持久化与模型输入，实时与回放均不下发。Agent 信件不作为用户 memory 证据。完整合同见 [Mailbox](Mailbox.md)。
 
 ### planning 期间的 steer
 
@@ -1462,7 +1441,7 @@ Platform 在同一 Catalog 保护区内取得快照、比较版本、替换或�
 
 划词可携带正整数 `annotationIndex`，独立于 Reference ID，页面气泡编号与模型称呼 `Annotation N` 均使用该值。没有批注文字时仍保留编号；编辑、删除其他引用不重排编号。编号随 query/steer 引用持久化，未提供编号时不生成编号字段。
 
-主 Chat 的纯引用后续 query 在 HTTP/SSE 与 WebSocket 共用准入校验：以服务端主 Chat 摘要或已保存的 request.query 判断历史，预分配 chatId 和上传创建的空 Chat 不算已发送。引用继续执行既有校验和模型输入转换，不添加默认正文。BTW/解读的正文要求及传输方式保持现状；chat_start 工具入口仍要求文字。
+主 Chat 的纯引用后续 query 在 HTTP/SSE 与 WebSocket 共用准入校验：以服务端主 Chat 摘要或已保存的 request.query 判断历史，预分配 chatId 和上传创建的空 Chat 不算已发送。引用继续执行既有校验和模型输入转换，不添加默认正文。BTW/解读的正文要求及传输方式保持现状；chat_send 工具入口仍要求文字。
 
 完全空 query 额外要求服务端 `canContinue:true`。该布尔值仅由 `/api/chat` 详情返回，导航列表省略；客户端从详情与运行事件维护当前会话的续执行资格。服务端由最后一次持久化主 Run 计算：只允许已结束的 `error/cancel`，兼容 `cancelled/canceled/interrupted`；正常完成、未知终态、新 Run 已启动但尚未结束、等待人工交互以及无历史均为 false。不能回退到更早一次失败或取消，也不因浏览器断线推断异常中断。已有历史但不满足该条件时返回 HTTP 400、`empty_query_not_allowed`。原始 message 保持为空，模型输入补充 `Continue based on the current conversation context.`，纯附件 query 不受该额外限制。
 
@@ -1471,7 +1450,7 @@ Platform 在同一 Catalog 保护区内取得快照、比较版本、替换或�
 
 `/api/submit` 不要求创建与提交的 transport、device boundary 或 lane 相同，允许桌面创建、手机审批及 HTTP/WS 交叉提交。HTTP/WS 的既有认证、Agent/Team owner、等待项和提交参数校验及重复提交仲裁保持不变；其他 Run 控制入口仍执行原通道归属检查。
 
-`chat_start` 工具只接受 `agentKey` 作为目标字段，省略时从可信调用上下文补齐当前 Agent；目标使用精确 Agent key。显式 `agentKey` 必须为非空字符串，续聊仍校验 Chat owner，审批与幂等使用补齐后的目标。`chat_start` 由服务端读取可信父 Run 的控制记录，继承连接归属（含 transport/lane），执行生命周期仍使用独立后台 context。创建来源和父级关系保存在 query 行的 `origin`（type agent）；派生链始终继承最初 HTTP/WS 入口的 transport/lane；父级记录缺失或不是 HTTP/WS 时明确失败，不创建空来源的新 Run。不迁移或重写已有 Run 的控制记录。
+`chat_send` 以精确 agentKey 选择目标，省略时使用当前 Agent；新开独立会话必须 newChat:true，同一件事补充用 chatId，两者都省略时寄往主要对话。权限在 Mailbox 受理时冻结，投递不依赖发信 Run 存活；只有 letter started 授予发送方 Run 控制。信件开出的 Run 的 query 保存投递组装的正文与引用，原始参数保存于 MAILS。具体准入见 [Mailbox](Mailbox.md)。
 
 ## 通用智能体根目录与项目目录
 
@@ -1537,16 +1516,16 @@ WebClient 先检查有效 `workspaceDir`，没有 Workspace 不查询；有 Work
 
 ## Mailbox 会话投递
 
-Mailbox 默认关闭；在 `configs/runtime.yml` 设置 `mail.enabled: true` 并重启后启用。关闭时邮件列表与动作接口返回 503，不创建或打开 `mail.db`，详见 [启用与关闭](Mailbox.md#启用与关闭)。
+Mailbox 始终启用；并入 chats.db 前每次启动清空 mail.db 及其 sidecar，历史信封头保存于 JSONL，详见 [Mailbox](Mailbox.md)。
 
-会话投递增加 GET /api/mails 与 POST /api/mails/action，广播 mail.updated；request.query/request.steer 在顶层记录 mailId、mailKind、mailAttempt、mailHop，reply 另有 outcome；submit 可带平台生成的 origin/accessGrant 审计。字段不能由公共输入伪造，JSON 仍使用统一包裹。具体参数与权限见 [Mailbox](Mailbox.md#http-与展示)。列表及动作的 JSON 字段名不随 MAILS 数据库列名变化；purgedAt 只表示邮件正文已清理，创建会话、父邮件和回信关系继续保留，HTTP/JSONL 协议不变。
+会话投递提供 GET /api/mails（摘要与 total）、GET /api/mails/detail?mailId=（全文与等待项快照）和 POST /api/mails/action，广播 mail.updated；request.query/request.steer 在顶层记录 mailId、mailKind、mailAttempt、mailHop，reply 另有 outcome；submit 可带平台生成的 origin/accessGrant 审计。字段不能由公共输入伪造，JSON 仍使用统一包裹。具体参数与权限见 [Mailbox](Mailbox.md#http-与展示)。列表及动作的 JSON 字段名不随 MAILS 数据库列名变化；purgedAt 只表示邮件正文已清理，创建会话、父邮件和回信关系继续保留，HTTP/JSONL 协议不变。
 
 
 ## Agent 默认权限与来源
 
 Agent YAML 的 accessConfig.default 是默认值，使用目录 /api/agents、/api/agent 及对应 WS 返回有效 defaultAccessLevel。普通 /api/query、/api/execute 与 BTW/explain 在省略 accessLevel 时取目标冻结定义的默认，未配置为 ask_for_approval；显式请求优先。关闭 interactionConfig.accessLevel 时仅接受省略或等于 Agent 默认的显式值。活动 Run 当前档位与 Agent 默认分别展示，运行中切档不写回 YAML。
 
-Agent 发起 chat_start/chat_send 时，省略采用目标默认且可高于父 Run；显式高于父当前档位返回 run_start_access_level_exceeded，executionState=not_started。目标准备与准入快照变化返回可重试的 run_start_target_changed。Automation 省略仍固定 ask_for_approval。
+Agent 发起 chat_send 时，省略采用目标默认且可高于父 Run；显式高于父当前档位返回 run_start_access_level_exceeded，executionState=not_started。目标准备与准入快照变化返回可重试的 run_start_target_changed。Automation 省略仍固定 ask_for_approval。
 
 JSONL query 原始输入不补默认。顶层 accessLevel 保存有效值，accessGrant.source 可为 explicit/agent_default/platform_default/automation_config/automation_default/continuation，目标 revision 与父基线在适用时一起冻结。旧 inherited/approved 历史继续读取，不按新配置重算。
 
@@ -1586,3 +1565,5 @@ owner 管理详情返回安装记录、Manifest、policy、用户配置及配置
 `/__desktop/bridge.js`、bootstrap/config 和 `actions/call` 归应用会话边界，SDK action POST 要求精确应用 Origin 与 X-WebApp-CSRF，响应使用 `{ok,action,result|error}`。该 envelope 与 owner 管理的 `{code,msg,data}` 分离。
 
 Node 通过固定 loopback 的 `/webapps/session` 和 `/webapps/actions/call` 使用绑定代次的应用能力凭证；前者只接受 bootstrap 凭证，后者只接受短期 action token，均拒绝浏览器 Origin。应用凭证不被平台 JWT 或连接器 HTTP grant 接口接受。连接器调用进程内中立 scope，不生成伪造 deviceId。精确 action 与可用性由 capabilities 回应，不开放通用 Desktop Action 转发。
+
+工作会话查询复用 GET /api/chats?openedBy=<agentKey>，与 agentKey 取交集，主 WS chats 帧接受相同字段；subject 来自可信上下文，不接受调用方指定。重启清空 mail 后工作列表为空。

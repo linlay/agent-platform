@@ -432,7 +432,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		}
 	}()
 	var mailService *mailbox.Service
-	if cfg.Mail.Enabled {
+	{
 		mailStore, err := mailbox.Open(cfg.Paths.ChatsDir)
 		if err != nil {
 			return nil, fmt.Errorf("initialize mailbox: %w", err)
@@ -633,10 +633,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			if err != nil || summary != nil {
 				return summary != nil, err
 			}
-			return archiveStore.HasChat(chatID)
+			return false, nil
 		})
-	} else {
-		log.Printf("mailbox disabled")
 	}
 
 	if err := toolExecutor.RegisterHandler(runops.NewToolHandler(runtimeService, runManager).WithMailbox(mailService)); err != nil {

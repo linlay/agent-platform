@@ -59,7 +59,7 @@ func TestMailboxStartsDetachedRunAndReturnsCompleteResultToWaitingChat(t *testin
 	scope := controlscope.Scope{Transport: "http", Subject: "alice"}
 	f.runs.BindRunControlScope(session.RunID, scope)
 	parent.SetSteerPreparer(func(r queryinput.SteerRequest) (queryinput.SteerRequest, error) {
-		r.PreparedMessages = []map[string]any{{"role": "user", "content": box.Header(r.Mail.ID) + r.Message}}
+		r.PreparedMessages = []map[string]any{{"role": "user", "content": r.Mail.Header + r.Message}}
 		return r, nil
 	})
 	handler := runops.NewToolHandler(query, f.runs).WithMailbox(box)
@@ -227,5 +227,53 @@ func TestMailboxHTTPNeverListsOtherPrincipalsOrLetsThemRedeliver(t *testing.T) {
 	f.server.handleMailAction(denied, action)
 	if denied.Code != http.StatusForbidden {
 		t.Fatalf("cross-principal action: %d %s", denied.Code, denied.Body.String())
+	}
+}
+
+func TestMailboxSummaryAndDetailHaveSeparateContentContracts(t *testing.T) {
+	f := newTestFixtureWithModelHandler(t, nil)
+	store, err := mailbox.Open(f.cfg.Paths.ChatsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	box := mailbox.New(context.Background(), store, f.cfg.Paths.ChatsDir, 4, nil)
+	defer box.Close()
+	f.server.deps.Mailbox = box
+	_, _, err = store.Accept(mailbox.Mail{ID: "long", Kind: mailbox.Letter, Status: mailbox.Suspended, Subject: "alice", Message: strings.Repeat("文", 250), Input: json.RawMessage(`{"message":"private"}`), AccessGrant: map[string]any{"secret": "grant"}, Files: []mailbox.File{{Name: "file", Path: "file"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := httptest.NewRequest("GET", "/api/mails", nil)
+	list = list.WithContext(WithPrincipal(list.Context(), &Principal{Subject: "alice"}))
+	rec := httptest.NewRecorder()
+	f.server.handleMails(rec, list)
+	var response struct {
+		Data struct {
+			Total int              `json:"total"`
+			Mails []map[string]any `json:"mails"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Data.Total != 1 || len(response.Data.Mails) != 1 {
+		t.Fatal(rec.Body.String())
+	}
+	row := response.Data.Mails[0]
+	if len([]rune(row["message"].(string))) != 200 || row["input"] != nil || row["accessGrant"] != nil || row["files"] != nil {
+		t.Fatal(row)
+	}
+	for _, subject := range []string{"alice", "bob"} {
+		req := httptest.NewRequest("GET", "/api/mails/detail?mailId=long", nil)
+		req = req.WithContext(WithPrincipal(req.Context(), &Principal{Subject: subject}))
+		detail := httptest.NewRecorder()
+		f.server.handleMailDetail(detail, req)
+		if subject == "bob" {
+			if detail.Code != 404 {
+				t.Fatal(detail.Code)
+			}
+		} else if detail.Code != 200 || !strings.Contains(detail.Body.String(), strings.Repeat("文", 250)) || !strings.Contains(detail.Body.String(), `"files"`) {
+			t.Fatal(detail.Body.String())
+		}
 	}
 }

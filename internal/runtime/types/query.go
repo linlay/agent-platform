@@ -35,7 +35,7 @@ type QueryCommand struct {
 
 	// InitialChatName is internal-only and applies to newly created Chats.
 	InitialChatName string `json:"-"`
-	// SkipInteractionPolicy is set only by Runtime for a chat_start admission.
+	// SkipInteractionPolicy is set only by Runtime for a Mailbox admission.
 	// interactionConfig gates what a user may select in a conversation; it does
 	// not gate a trusted Agent tool entry. No transport decodes this field.
 	SkipInteractionPolicy bool `json:"-"`
@@ -73,7 +73,7 @@ type QueryCommand struct {
 	PrimaryIfMissing bool `json:"-"`
 	// Origin is who sent the input; admission defaults it to the requesting user.
 	Origin *queryinput.Origin
-	// AccessGrant audits how a chat_start Run obtained its access level.
+	// AccessGrant audits how a mail-started Run obtained its access level.
 	AccessGrant map[string]any `json:"-"`
 	// ResultContract is set only by the /api/execute entry; no transport
 	// decodes it.
