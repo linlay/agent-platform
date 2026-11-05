@@ -4,11 +4,11 @@
 
 1. sqlitecontract 支持在启动阶段把已知旧版本就地升级，替代现在"结构不符即拒绝启动"的做法；运行期仍只校验。
 2. MAILS 从 mail.db 并入 chats.db，停用 mail.db。
-3. 归档的 Chat 退出 mail。
+3. 归档的 Chat 退出 mail（改为先在 mail.db 上实现，见下）。
 4. CHATS、RUNS 补齐列：创建关系、等待过期时间、Run 档位、控制归属、来源；删除无用的 `TEAM_ID_`。
 5. chats.db、archive.db 加入工具硬拒绝名单。
 
-Mailbox 的后续阶段见 [mailbox-next.md](mailbox-next.md)，本方案是其中阶段 A 的前置。
+**暂缓（2026-11-05）：本期不改 chats.db。** mail.db 保持独立，每次启动先删除再新建（[mailbox-next.md](mailbox-next.md) 阶段 1），因此本方案不再是 mailbox 的前置。改为先在 mail.db 上做的部分：归档关闭 mail 与 `CLOSED_AT_` 列名（阶段 2.2），mail.db 的硬拒绝保护（阶段 1.5）。工作会话列表暂以 mail.db 为数据源（阶段 4），`OPENED_BY_` 落地后改用 CHATS，接口不变。
 
 ## 已确认的决定
 
@@ -16,12 +16,12 @@ Mailbox 的后续阶段见 [mailbox-next.md](mailbox-next.md)，本方案是其�
 |---|---|
 | chats.db | V1 → V2 |
 | archive.db | V1 → V2 |
-| MAILS | 并入 chats.db；表始终存在，`mail.enabled` 只控制是否读写 |
+| MAILS | 并入 chats.db；表始终存在（mail 已常开，没有开关） |
 | 归档 | 归档的 Chat 退出 mail，处理方式与删除相同 |
 | 升级时机 | 只在启动阶段检查并升级；运行期仍只校验 |
 | `CONTROL_`、`ORIGIN_` | 与 `USAGE_` 一样，作为带前缀的列组，Go 中各对应一个结构体；本次只建列，接入另做 |
 | 重启后丢失等待态的归属 | 可以接受（重启本来就会取消所有未完成的 Run） |
-| 旧 mail.db | 当作不存在：代码不打开、不导入、不删除，也不校验 |
+| 旧 mail.db | 当作不存在：代码不打开、不导入，也不校验；mail.db 本来每次启动都会清空，没有需要保留的数据 |
 | MAILS 发件字段 | 归成 `FROM_` 一组：`SUBJECT_` → `FROM_SUBJECT_`，`ORIGIN_TYPE_` → `FROM_TYPE_` |
 | executions.db | 本次不动，保持 V2；其中的 `TEAM_ID_` 暂缓删除 |
 | `AWAITING_EXPIRES_AT_` | 只加列，值恒为 0；过期行为另做（见"另做"） |
@@ -58,7 +58,7 @@ RUNS（新增列均为 `TEXT NOT NULL DEFAULT ''`，另有说明的除外）：
 
 MAILS：整表连同索引从 mail.db 移入。借这次移动顺带调整，HTTP/JSON 字段名不变：
 
-- `FROM_CHAT_DELETED_AT_`、`TO_CHAT_DELETED_AT_` 改为 `FROM_CHAT_CLOSED_AT_`、`TO_CHAT_CLOSED_AT_`，"关闭"包括归档和删除。
+- `FROM_CHAT_CLOSED_AT_`、`TO_CHAT_CLOSED_AT_` 沿用 mail.db 中的名称（mailbox-next 阶段 2.2 已从 `DELETED_AT_` 改名），"关闭"包括归档和删除。
 - 发件字段归成 `FROM_` 一组：`SUBJECT_` → `FROM_SUBJECT_`，`ORIGIN_TYPE_` → `FROM_TYPE_`。
 
 ### archive.db V2
@@ -70,11 +70,11 @@ MAILS：整表连同索引从 mail.db 移入。借这次移动顺带调整，HTT
 
 ### mail.db
 
-当作不存在：删除打开它的代码和 runtime-recovery 中对它的校验，已有文件不导入、不删除，文档也不再提及。
+当作不存在：删除启动时删除并新建 mail.db 的代码，已有文件不导入，文档也不再提及。runtime-recovery 对 mail.db 的校验已在 mailbox-next 阶段 1 删除。
 
 ## 归档后的 mail
 
-归档钩子与删除钩子合并为同一个"关闭"处理：
+关闭语义已在 mail.db 上实现（mailbox-next 阶段 2.2），并库时行为不变，只把对账改为下面的一条 SQL。规则如下：
 
 - **寄往该 Chat 的**：未完成的信转为 `failed` 并寄失败回信；未消费的回信丢弃；即时消息、请示撤回；清空这些行的正文副本。
 - **该 Chat 发出的**：已受理的回信照常投递；未完成的信转为 `failed`，不寄失败回信；即时消息、请示撤回。
@@ -107,7 +107,7 @@ MAILS：整表连同索引从 mail.db 移入。借这次移动顺带调整，HTT
 
 ## 必须同时做的保护
 
-并入 MAILS 后，chats.db 中有 subject 和权限收据，之后还会放控制归属。现在 chats.db 和 mail.db 都不在硬拒绝名单中（`internal/accesspolicy/protected.go` 只有 StateDir、身份文件和预览记录），full_access 的写入根是 `@root`，Agent 可以直接修改它们。V2 上线时，把 `chats.db`、`chats.db-wal`、`chats.db-shm`、`archive.db` 及其 `-journal` 加入硬拒绝名单。
+并入 MAILS 后，chats.db 中有 subject 和权限收据，之后还会放控制归属。现在 chats.db 不在硬拒绝名单中（mail.db 由 mailbox-next 阶段 1.5 加入）（`internal/accesspolicy/protected.go` 只有 StateDir、身份文件和预览记录），full_access 的写入根是 `@root`，Agent 可以直接修改它们。V2 上线时，把 `chats.db`、`chats.db-wal`、`chats.db-shm`、`archive.db` 及其 `-journal` 加入硬拒绝名单。
 
 Bash 中的不透明命令仍然无法拦截，与 `.state` 的现状相同，不是新增的缺口。升级备份不含 MAILS 和控制归属，不加入名单。
 
@@ -139,18 +139,17 @@ Bash 中的不透明命令仍然无法拦截，与 `.state` 的现状相同，�
 - 未知版本和未来版本仍然拒绝；运行期入口不触发升级。
 - 升级后为 WAL，连接池中的每个连接都设置了 busy_timeout。
 - chat 与 mailbox 并发写入时不出现 `SQLITE_BUSY`。
-- `mail.enabled` 关闭时不读写 MAILS。
 - 归档：寄往与发自该 Chat 的 mail 按规则关闭；恢复后不重投；两端关闭后删行；对账不读 archive.db。
 - `OPENED_BY_` 只在 newChat 时写入，补建主要对话时不写；归档再恢复后仍保留。
 - 工具读写 `chats.db`、`-wal`、`-shm`、`archive.db` 时被硬拒绝。
-- runtime-recovery 接受 V1 与 V2，不再校验 mail.db。
+- runtime-recovery 接受 V1 与 V2。
 
 ## 文档
 
 - AGENTS.md：§5 数据结构、mailbox 模块说明，以及 §9 的 SQLite 契约。§9 现在写的是"其他标记组合或结构差异拒绝并阻止启动"，升级上线后这句就不再成立，所以要改写，而不是在后面另加一条例外。改写后要让以后改结构的人知道该怎么做（之前 mail.db 就因为只升了版本号、没写迁移，导致启动失败）：
 
   > SQLite runtime store 使用 `application_id`（库类型）和 `user_version`（schema 版本）作为身份契约。改结构必须升 `user_version`，并在契约中声明从上一个已知版本的迁移；迁移只在 `app.New` 启动装配期执行，先备份、单事务执行并校验，失败则拒绝启动。运行期仅验证，绝不认领、迁移、删除或修复。标记为 `0/0` 且结构等于某个已知版本的库按该版本处理；未知版本、未来版本和结构差异拒绝并阻止启动。列物理顺序不影响比较。
-- `docs/Mailbox.md`："chats.db 与 mail.db"一节改为同一个库里的两组表；同时更新"启用与关闭"和"归档"。
+- `docs/Mailbox.md`："chats.db 与 mail.db"一节改为同一个库里的两组表，删除"启动时清空 mail.db"的说明。
 - `docs/会话存储与回放.md`（`TEAM_ID_` 的说明）、`docs/AccessPolicy与HITL改造.md`、`docs/工具目录权限.md`、`docs/手工测试用例.md`。
 - `configs/runtime.example.yml` 中 mail 的注释，以及 runtime-recovery 的契约说明。
 
@@ -159,8 +158,8 @@ Bash 中的不透明命令仍然无法拦截，与 `.state` 的现状相同，�
 1. sqlitecontract 的启动期升级能力及测试。
 2. `internal/chatdb`：chats.db V2 契约与升级、WAL 与共享连接；archive.db V2。完成第 1、2 步后，可以先单独验证升级。
 3. 加入硬拒绝名单。
-4. mailbox 改用 chats.db（MAILS 字段调整、关闭语义、归档钩子、对账 SQL），删除 mail.db 的打开代码和 runtime-recovery 中的校验。
-5. 写入 `OPENED_BY_`，提供 `/api/chats?openedBy=`（即 mailbox-next 的 B1）。
+4. mailbox 改用 chats.db（MAILS 字段调整、对账 SQL），删除 mail.db 的打开与启动清空代码（标 `TODO(chats-db-v2)` 处）。启动挂起、人工重投与保留期清理的代码一直保留，随 MAILS 持久化重新生效。
+5. 写入 `OPENED_BY_`，`/api/chats?openedBy=` 的数据源从 mail.db 的 `NEW_CHAT_` 改为该列（mailbox-next 的 B1），列表从此跨重启保留。
 6. 更新文档。
 
 Run 字段的接入在此之后另做。

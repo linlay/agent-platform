@@ -1,6 +1,6 @@
 # 主要聊天：长上下文、回放上限与聊天文件切换
 
-评估讨论汇集稿（Platform + WebClient 前端结论）。不写工作量。与 [mailbox-main-chat.md](mailbox-main-chat.md)、[chat-send-unify.md](chat-send-unify.md)、[mailbox-next.md](mailbox-next.md) 交叉；本文件只管「主 Chat 永不结束」时的**模型上下文、存储/JSONL、人可读历史上翻**，不替代 mailbox 收件/出队合同。
+评估讨论汇集稿（Platform + WebClient 前端结论）。不写工作量。与 [mailbox-next.md](mailbox-next.md) 交叉；本文件只管「主 Chat 永不结束」时的**模型上下文、存储/JSONL、人可读历史上翻**，不替代 mailbox 收件/出队合同。
 
 前端实现由 WebClient 自行推进；本文件记录已对齐的现状、产品意向与待拍板，便于前后端契约一次拍清。
 
@@ -26,7 +26,7 @@
   - 活动 Run 在安全点执行；与 query 有 `compact_in_progress` 冲突语义。
 - **存储**：`<chatId>.jsonl` append；逻辑视图（LLM history / 标准 replay）跳过已压段；原文与审计仍在盘上；有 `.compact-backups`。
 - **缺口**：没有「主 Chat 滚动切换聊天文件、只迁正文」的一等能力；没有面向 UI 的 **Chat 级事件分页**（`beforeSeq` / `hasMore` 一类）作为稳定产品合同。
-- **Mailbox / 主要聊天**（见 mailbox-main-chat）：主 Chat 无条件进箱、将来常开、先内存；主要聊天只改出队。邮箱队列短命，**不解决** JSONL 长历史问题。
+- **Mailbox / 主要聊天**（见 mailbox-next）：mail 常开，mail.db 每次启动清空；用户消息在阶段 5 改走 mailbox，主要聊天的出队策略待定。邮箱队列短命，**不解决** JSONL 长历史问题。
 
 ### WebClient（WebClient 评估，本地约 `2084eba9` / v0.5.27；远端亦未见事件分页）
 
@@ -118,7 +118,7 @@
 2. **「只带 content」定义**：是否只保留 user/assistant 对用户可见正文；tool 调用与 result 整段丢弃；是否带上有效 L2 摘要行。
 3. **「200」定义**：与上翻硬顶是否同一计量；建议迁移用「可见轮」，存储行另计。
 4. **身份与指针**：
-   - **新 `chatId` + 主 Chat 指针原子挪过去**：产品上像换文件；mailbox 收件地址、分身回信、未出队 mail 必须跟指针，漏切会寄丢。
+   - **新 `chatId` + 主 Chat 指针原子挪过去**：产品上像换文件；但 mail 的地址在发信时确定且不再改变，分身的回信、即时消息、请示和已排队的 mail 都会落回旧 chatId（旧会话仍活着时在那里开 Run，归档旧会话则这些 mail 失败）。按现行 mailbox 合同不可行。
    - **同 `chatId` 物理多卷**：地址更稳，实现像切卷；与「聊天文件」话术略有差别。
 5. **进行中状态**：有 ActiveRun / awaiting / 未出队 mail 时禁止切或先排空（待拍板）。
 6. **旧文件**：只读上翻（仍受硬顶）、History 入口、保留多久、是否冷压。
@@ -171,7 +171,7 @@
 | # | 问题 | 选项 / 说明 |
 |---|---|---|
 | X1 | 长期事实 | 是否强化记忆层，减轻「硬顶以外找不到约定」 |
-| X2 | 本文件与 mailbox-main-chat | 仅交叉引用；或日后把「切文件时指针」写进 mailbox 验收 |
+| X2 | 本文件与 mailbox-next | 仅交叉引用；mailbox-next 阶段 6.3 已记下「切文件保持同一 chatId」的约束 |
 
 ---
 
@@ -188,6 +188,5 @@
 ## 文档关系
 
 - 本文件：长主 Chat 的压缩 → 上翻上限 → 切文件。
-- [mailbox-main-chat.md](mailbox-main-chat.md)：进箱、常开、内存、出队。
-- [chat-send-unify.md](chat-send-unify.md)：`chat_send` 三态。
+- [mailbox-next.md](mailbox-next.md)：mail 常开、用户消息走 mailbox、`chat_send`、主要聊天形态与出队策略。
 - docs/会话存储与回放、API 中 compact 章节：现行压缩实现合同。
