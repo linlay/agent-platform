@@ -762,7 +762,7 @@ voice 默认关闭；未启用或模型未配置时 `enabled:false`，`reason` �
 
 | type | 字段 | 说明 |
 |---|---|---|
-| hello | version:1, agentKey, chatId?, voice?, audio.input{codec,sampleRate,channels,frameMs}, audio.output{codec,sampleRate,channels?,frameMs?} | 连接后 10 秒内的首帧。input 固定 pcm_s16le/16000/1/20；output 为 pcm_s16le 的 16000 或 24000。voice 省略取默认，须在 voices 内 |
+| hello | version:1, agentKey, chatId?, newChat?, primary?, voice?, audio.input{codec,sampleRate,channels,frameMs}, audio.output{codec,sampleRate,channels?,frameMs?} | 连接后 10 秒内的首帧。input 固定 pcm_s16le/16000/1/20；output 为 pcm_s16le 的 16000 或 24000。voice 省略取默认，须在 voices 内 |
 | listen | state:start/stop, mode:auto/manual | start 开启新一轮收音；auto 由服务端按句尾静音判定说完，manual 以 stop 结束 |
 | abort | reason? | 打断当前轮 |
 
@@ -787,15 +787,15 @@ voice 默认关闭；未启用或模型未配置时 `enabled:false`，`reason` �
 - 朗读文本在同一合成任务内按句分段提交，超长句在停顿处切分（每段最多 50 字）。CosyVoice 对单段音频有上限，超出部分静默丢弃，却仍报告整句结束和 task-finished；整段一次提交会截掉回答末尾。
 - 半双工：一次 listen 只产生一个定稿，收到 tts stop 并本地播完后再发 listen start。收音中重复的 start 忽略；轮次已进入运行、等待或朗读时返回 `turn_busy`。
 
-打断：客户端立即本地静音、清空播放并发送 abort，此后丢弃音频和本轮消息，直到收到 abort 确认。服务端结束当前轮、丢弃等待提交的定稿，经 Runtime Interrupt 取消本会话受理的 Run，再回发 `{"type":"abort","turn":N}`；事件循环是唯一写出口，确认之后不会再有旧轮音频。关闭连接不取消 Run，取消必须发 abort。
+打断：客户端立即本地静音、清空播放并发送 abort，此后丢弃音频和本轮消息，直到收到 abort 确认。服务端结束当前轮、丢弃等待提交的定稿，发起 Runtime Interrupt 取消本会话受理的 Run，并回发 `{"type":"abort","turn":N}`；事件循环是唯一写出口，确认之后不会再有旧轮音频。确认仅表示媒体隔离，不表示 Run 已释放；在途和已接受的 Interrupt 不重复发送，失败允许下一次显式 abort 重试。失败以当前有效轮的 `run_failed` 报告并丢弃待提交定稿；轮次空档中的失败保留至下一次 listen 后报告。客户端以确认中的 turn 校准下一轮。关闭连接不取消 Run，取消必须发 abort。
 
-会话与 Run：一条 WS 绑定一个 Agent/Chat。hello 的 chatId 须属于该 Agent；省略时用该 Agent 的主要聊天，没有则在首轮以 primary 新建，期间主要聊天被他处设定返回 `chat_changed`。每个定稿作为一次普通 Query（planningMode:false，省略权限/编辑/model/references），成功保存且 complete 的最后正文去掉代码块、表格、链接地址等 Markdown 后才朗读（最多 800 字）。Chat 已有非本会话的活动 Run 返回 `chat_busy`；打断后的新定稿等旧 Run 终态后再提交，等待超时返回 `run_busy_timeout`。断线只停媒体并释放观察，不中断已受理 Run，重连不补录音/Query/播放。awaiting 只提示并等原界面 Submit，提示播放结束不开放新讲话；Run 完成后仍留有待处理项时返回 `awaiting_pending` 并结束本轮，不朗读。语音 Run 采用事实上的 voice transport，原用户的 HTTP/main WS 界面可按 subject 观察/控制，跨用户及 BTW/explain 拒绝；它不新增 Agent mode 或改变普通 HTTP/WS Run 的设备/transport 边界。HITL Submit 仍走既有授权和跨设备规则。
+会话与 Run：一条 WS 绑定一个 Agent/Chat。hello 的 chatId 须属于该 Agent。显式 `newChat:true` 与非空 chatId 互斥，握手只预分配新 ID，首个非空 ASR 定稿经普通 Query 创建；空定稿、识别失败或首轮前挂断不创建空 Chat。`primary` 为可选 boolean，仅允许与 `newChat:true` 一起使用：省略或 false 创建普通 Chat，不改变主要指针；true 沿用普通 Query 的主要聊天创建与忙碌互斥规则，忙碌时语聊仍映射为 `chat_busy`。创建意图仅作用于首个受理 Query，后续轮次续用同一 Chat。未指定 chatId 且未请求 newChat 时保持默认行为：使用该 Agent 的主要聊天，没有则在首轮条件补建，期间主要聊天被他处设定返回 `chat_changed`。每个定稿作为一次普通 Query（planningMode:false，省略权限/编辑/model/references），成功保存且 complete 的最后正文去掉代码块、表格、链接地址等 Markdown 后才朗读（最多 800 字）。Chat 已有非本会话的活动 Run 返回 `chat_busy`；打断后的新定稿等旧 Run 终态后再提交，等待超时返回 `run_busy_timeout`。断线只停媒体并释放观察，不中断已受理 Run，重连不补录音/Query/播放。awaiting 只提示并等原界面 Submit，提示播放结束不开放新讲话；Run 完成后仍留有待处理项时返回 `awaiting_pending` 并结束本轮，不朗读。语音 Run 采用事实上的 voice transport，原用户的 HTTP/main WS 界面可按 subject 观察/控制，跨用户及 BTW/explain 拒绝；它不新增 Agent mode 或改变普通 HTTP/WS Run 的设备/transport 边界。HITL Submit 仍走既有授权和跨设备规则。
 
 错误码：
 
 - hello 前：`invalid_request`（首帧不是合法 hello，或 Agent、Chat、音色、音频格式不符）、`voice_unavailable`（模型或配置不可用），发送后关闭连接。
-- hello 后，error 携带 turn，结束对应轮次，连接保留：`asr_failed`、`recording_limit`、`transcript_limit`、`invalid_audio`、`audio_overflow`、`chat_busy`、`chat_changed`、`run_failed`、`run_busy_timeout`、`awaiting_pending`、`tts_failed`。无法观察 Run（`run_failed`）或旧 Run 收尾超时（`run_busy_timeout`）时随后关闭连接。ASR 错误只影响识别阶段，不停止已进入播放阶段的回答；TTS 失败允许客户端播完已经收到的尾部音频。
-- `turn_busy` 与 `invalid_request` 只拒绝该条消息，不影响进行中的轮。awaiting 提示语合成失败只以 `tts stop(reason=error)` 表示，不发 error，本轮继续等待。
+- hello 后，error 携带 turn，结束对应轮次，连接保留：`asr_failed`、`recording_limit`、`transcript_limit`、`invalid_audio`、`audio_overflow`、`chat_busy`、`chat_changed`、`run_failed`、`run_busy_timeout`、`awaiting_pending`、`tts_failed`。无法观察 Run（`run_failed`）或旧 Run 收尾超时（`run_busy_timeout`）时随后关闭连接。阻塞 Query 返回后，订阅排空与 Run 释放共用 10 秒收尾期限；关闭订阅不取消 Run。ASR 错误只影响识别阶段，不停止已进入播放阶段的回答；TTS 失败允许客户端播完已经收到的尾部音频。
+- `turn_busy` 与 `invalid_request` 只拒绝该条消息，不影响服务端进行中的轮。被拒绝的 listen 返回服务端当前 turn；WebClient 遇到 `turn_busy` 结束媒体连接并提示重连，不能按自己预增的 turn 静默忽略。awaiting 提示语合成失败只以 `tts stop(reason=error)` 表示，不发 error，本轮继续等待。
 
 时序示例：
 

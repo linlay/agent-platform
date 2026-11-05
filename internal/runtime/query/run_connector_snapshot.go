@@ -28,6 +28,10 @@ func (s *Service) finishRunConnectorPins(runID, chatID string) {
 			return
 		}
 	}
+	s.releaseRunConnectorPins(runID)
+}
+
+func (s *Service) releaseRunConnectorPins(runID string) {
 	_ = os.Remove(s.connectorSources().RunPinPath(runID))
 	s.connectorSnapshots.Delete(runID)
 }
