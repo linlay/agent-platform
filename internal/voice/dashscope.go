@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"agent-platform/internal/httpclient"
@@ -20,14 +22,17 @@ import (
 
 const (
 	startupTimeout = 5 * time.Second
-	// A silently dropped reused socket must fail fast enough for the fresh
-	// retry to fit inside the 2s startup audio buffer.
+	// A silently dropped reused socket fails fast so the fresh retry adds
+	// little delay to the first words.
 	reusedStartupTimeout = time.Second
 	finishTimeout        = 10 * time.Second
 	writeTimeout         = 5 * time.Second
-	maxStartupPCM        = 64000
-	maxRecordingPCM      = 1920000
-	maxTranscriptChars   = 4000
+	// Listening PCM queues for the whole startup path (stale reused socket,
+	// fresh dial, task-started), so a slow route starts late or fails with its
+	// own error instead of overflowing first. A proxied dial took over 2s.
+	maxStartupPCM      = int((reusedStartupTimeout+2*startupTimeout)/(20*time.Millisecond)) * 640
+	maxRecordingPCM    = 1920000
+	maxTranscriptChars = 4000
 )
 
 // errProviderTransport marks socket write/read failures, as opposed to events
@@ -47,8 +52,10 @@ type dashScopeSocket struct {
 
 type dashScopeEvent struct {
 	Header struct {
-		Event  string `json:"event"`
-		TaskID string `json:"task_id"`
+		Event        string `json:"event"`
+		TaskID       string `json:"task_id"`
+		ErrorCode    string `json:"error_code"`
+		ErrorMessage string `json:"error_message"`
 	} `json:"header"`
 	Payload struct {
 		Output struct {
@@ -161,9 +168,14 @@ func (s *dashScopeSocket) begin(ctx context.Context) (*websocket.Conn, func(bool
 }
 
 func (s *dashScopeSocket) logConnectFailure(err error, status int, credential string) {
-	reason := err.Error()
+	s.logFailure(map[string]any{"stage": "ws_connect", "status": status}, err.Error(), credential, strings.TrimPrefix(credential, "Bearer "))
+}
+
+// logFailure records provider-supplied text for diagnosis only; public errors
+// stay fixed.
+func (s *dashScopeSocket) logFailure(fields map[string]any, reason string, secrets ...string) {
 	// Remove exact credentials before generic redaction, and never log the endpoint.
-	for _, secret := range []string{credential, strings.TrimPrefix(credential, "Bearer "), s.provider.APIKey, s.endpoint} {
+	for _, secret := range append(secrets, s.provider.APIKey, s.endpoint) {
 		if secret != "" {
 			reason = strings.ReplaceAll(reason, secret, observability.HiddenToken)
 		}
@@ -172,29 +184,55 @@ func (s *dashScopeSocket) logConnectFailure(err error, status int, credential st
 	if len(runes) > 1024 {
 		runes = append(runes[:1024], '…')
 	}
-	observability.Log("voice", map[string]any{
-		"stage": "ws_connect", "modelKey": s.model.Key, "protocol": s.model.Protocol,
-		"status": status, "reason": string(runes),
-	})
+	fields["modelKey"], fields["protocol"], fields["reason"] = s.model.Key, s.model.Protocol, string(runes)
+	observability.Log("voice", fields)
+}
+
+// taskTrace reports how far provider startup got to the session that owns the
+// task: the media goroutine stores unix nanos, the event loop reads them.
+type taskTrace struct{ connected, started atomic.Int64 }
+
+type taskTraceKey struct{}
+
+func withTaskTrace(ctx context.Context, trace *taskTrace) context.Context {
+	return context.WithValue(ctx, taskTraceKey{}, trace)
+}
+
+func (t *taskTrace) phase() string {
+	switch {
+	case t.started.Load() != 0:
+		return "streaming"
+	case t.connected.Load() != 0:
+		return "awaiting_task_started"
+	default:
+		return "connecting"
+	}
 }
 
 // start sends run-task and waits for task-started. Nothing of this task has
 // reached the provider before task-started, so a reused socket that the
 // provider or network closed while idle is replaced once by a fresh one.
 func (s *dashScopeSocket) start(ctx context.Context, id string, payload map[string]any) (*websocket.Conn, func(bool), error) {
+	trace, _ := ctx.Value(taskTraceKey{}).(*taskTrace)
+	if trace == nil {
+		trace = &taskTrace{}
+	}
 	for retry := true; ; retry = false {
+		trace.connected.Store(0)
 		conn, end, reused, err := s.begin(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
+		trace.connected.Store(time.Now().UnixNano())
 		timeout := startupTimeout
 		if reused && retry {
 			timeout = reusedStartupTimeout
 		}
 		if err = dashCommand(conn, id, "run-task", payload); err == nil {
-			err = dashStarted(conn, id, timeout)
+			err = s.started(conn, id, timeout)
 		}
 		if err == nil {
+			trace.started.Store(time.Now().UnixNano())
 			return conn, end, nil
 		}
 		end(false)
@@ -212,12 +250,20 @@ func dashCommand(c *websocket.Conn, id, action string, payload map[string]any) e
 	return nil
 }
 
-func dashRead(c *websocket.Conn, id string, deadline time.Time) ([]byte, *dashScopeEvent, error) {
+func (s *dashScopeSocket) read(c *websocket.Conn, id string, deadline time.Time) ([]byte, *dashScopeEvent, error) {
 	_ = c.SetReadDeadline(deadline)
 	for {
 		kind, data, err := c.ReadMessage()
 		if err != nil {
-			return nil, nil, fmt.Errorf("%w: read failed or timed out", errProviderTransport)
+			var timeout net.Error
+			var closed *websocket.CloseError
+			switch {
+			case errors.As(err, &timeout) && timeout.Timeout():
+				return nil, nil, fmt.Errorf("%w: read timed out", errProviderTransport)
+			case errors.As(err, &closed):
+				return nil, nil, fmt.Errorf("%w: closed by provider (%d)", errProviderTransport, closed.Code)
+			}
+			return nil, nil, fmt.Errorf("%w: read failed", errProviderTransport)
 		}
 		if kind == websocket.BinaryMessage {
 			return data, nil, nil
@@ -233,14 +279,15 @@ func dashRead(c *websocket.Conn, id string, deadline time.Time) ([]byte, *dashSc
 			continue
 		}
 		if event.Header.Event == "task-failed" {
+			s.logFailure(map[string]any{"stage": "task_failed", "code": event.Header.ErrorCode}, event.Header.ErrorMessage)
 			return nil, nil, errors.New("voice provider task failed")
 		}
 		return nil, &event, nil
 	}
 }
 
-func dashStarted(c *websocket.Conn, id string, timeout time.Duration) error {
-	_, event, err := dashRead(c, id, time.Now().Add(timeout))
+func (s *dashScopeSocket) started(c *websocket.Conn, id string, timeout time.Duration) error {
+	_, event, err := s.read(c, id, time.Now().Add(timeout))
 	if err != nil {
 		return err
 	}

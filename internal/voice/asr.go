@@ -71,7 +71,7 @@ func (c *ASRClient) Recognize(ctx context.Context, audio <-chan []byte, mode str
 		for {
 			// Silence is valid while recording. The task context bounds recording;
 			// finishTimer below bounds the response after finish-task.
-			_, event, err := dashRead(conn, id, time.Time{})
+			_, event, err := c.socket.read(conn, id, time.Time{})
 			select {
 			case events <- result{event, err}:
 			case <-readCtx.Done():

@@ -502,6 +502,45 @@ func TestTTSFailureCancellationAndBackpressure(t *testing.T) {
 	}
 }
 
+func TestProviderFailureAndStartupTrace(t *testing.T) {
+	var output bytes.Buffer
+	writer, flags, prefix := log.Writer(), log.Flags(), log.Prefix()
+	log.SetOutput(&output)
+	log.SetFlags(0)
+	log.SetPrefix("")
+	t.Cleanup(func() { log.SetOutput(writer); log.SetFlags(flags); log.SetPrefix(prefix) })
+	trace := &taskTrace{}
+	release := make(chan struct{})
+	p := fakeVoice(t, func(c *websocket.Conn) {
+		id := readCommand(t, c, "run-task").Header.ID
+		<-release
+		event(t, c, id, "task-started", nil)
+		_, _, _ = c.ReadMessage()
+		_ = c.WriteJSON(map[string]any{"header": map[string]any{"event": "task-failed", "task_id": id, "error_code": "Throttling.RateQuota", "error_message": "quota for test-secret"}})
+	})
+	input := make(chan []byte, 1)
+	done := make(chan error, 1)
+	go func() {
+		_, err := testASR(t, p).Recognize(withTaskTrace(context.Background(), trace), input, "manual", nil)
+		done <- err
+	}()
+	for trace.phase() != "awaiting_task_started" {
+		time.Sleep(time.Millisecond)
+	}
+	close(release)
+	input <- make([]byte, 640)
+	if err := <-done; err == nil || err.Error() != "voice provider task failed" || trace.phase() != "streaming" {
+		t.Fatalf("public error or phase changed: %v %s", err, trace.phase())
+	}
+	var entry map[string]any
+	if err := json.Unmarshal(output.Bytes(), &entry); err != nil {
+		t.Fatalf("expected one structured diagnostic: %v %s", err, &output)
+	}
+	if entry["stage"] != "task_failed" || entry["code"] != "Throttling.RateQuota" || !strings.Contains(entry["reason"].(string), "quota for") || strings.Contains(output.String(), "test-secret") {
+		t.Fatalf("provider failure diagnostic: %s", &output)
+	}
+}
+
 func TestASRStartupOverflowAndCancellation(t *testing.T) {
 	for _, overflow := range []bool{true, false} {
 		t.Run(map[bool]string{true: "overflow", false: "cancel"}[overflow], func(t *testing.T) {
@@ -514,9 +553,9 @@ func TestASRStartupOverflowAndCancellation(t *testing.T) {
 				}
 				_, _, _ = c.ReadMessage()
 			})
-			input := make(chan []byte, 101)
+			input := make(chan []byte, maxStartupPCM/640+1)
 			if overflow {
-				for i := 0; i < 101; i++ {
+				for i := 0; i < cap(input); i++ {
 					input <- make([]byte, 640)
 				}
 			}

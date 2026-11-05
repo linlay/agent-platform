@@ -115,7 +115,7 @@ func (c *TTSClient) Synthesize(ctx context.Context, text, voice string, sampleRa
 	}
 	bytes := 0
 	for {
-		pcm, event, readErr := dashRead(conn, id, time.Now().Add(finishTimeout))
+		pcm, event, readErr := c.socket.read(conn, id, time.Now().Add(finishTimeout))
 		if readErr != nil {
 			return readErr
 		}

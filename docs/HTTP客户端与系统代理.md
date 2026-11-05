@@ -83,7 +83,7 @@ Container Hub、Identity/JWKS 和 provider registration、健康检查使用专�
 
 客户端工厂共享连接池，克隆标准 Transport 并替换代理解析；不修改 `http.DefaultClient`、`http.DefaultTransport` 或 Platform 进程环境。MCP 按服务器克隆 Transport 时保留解析器、TLS 参数和连接超时覆盖。
 
-实时语音通过 `Factory.DialWebSocket` 复用解析器、拨号与证书校验。Gorilla 的 Upgrade 和 HTTPS 代理 CONNECT 均使用 HTTP/1.1，因此目标连接与代理隧道各自在局部 TLS 副本中限定 ALPN 为 `http/1.1`；普通 HTTP Transport 仍保留 HTTP/2。语音建连失败复用现有 observability 输出阶段、模型、状态码及有界脱敏原因，对外继续返回稳定错误，不记录凭据、请求头、响应正文或音频。
+实时语音通过 `Factory.DialWebSocket` 复用解析器、拨号与证书校验。Gorilla 的 Upgrade 和 HTTPS 代理 CONNECT 均使用 HTTP/1.1，因此目标连接与代理隧道各自在局部 TLS 副本中限定 ALPN 为 `http/1.1`；普通 HTTP Transport 仍保留 HTTP/2。语音建连失败复用现有 observability 输出阶段、模型、状态码及有界脱敏原因，供应商 task-failed 同样记录其 code 与脱敏消息；对外继续返回稳定错误，不记录凭据、请求头、响应正文或音频。asr_end、tts_end 失败时带内部错误，收音缓冲溢出记录 asr_overflow 及识别启动阶段（connecting、awaiting_task_started、streaming）。语音连接同样走代理解析：经远端代理连接 DashScope 时，单次 TLS 曾达 1.3–1.9 秒，建议在代理规则中让 DashScope 直连。
 
 工厂没有增加统一总超时。模型首响应与流空闲超时、Embedding 请求期限、MCP 工具期限以及各有限请求的原有总超时仍由原模块管理。刷新只影响后续请求；已有连接按所选代理分池，正在读取的 SSE 不会因刷新被取消。
 

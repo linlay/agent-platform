@@ -55,6 +55,7 @@ type voiceTestProvider struct {
 	autoFinal  atomic.Bool
 	partial    atomic.Bool
 	holdStart  atomic.Bool
+	startDelay atomic.Int64
 	failTTS    atomic.Bool
 }
 
@@ -92,6 +93,9 @@ func voiceProvider(t *testing.T) (*httptest.Server, *voiceTestProvider) {
 					t.Error("PCM reached provider before task-started")
 				}
 				return
+			}
+			if start.Payload.Task == "asr" {
+				time.Sleep(time.Duration(p.startDelay.Load()))
 			}
 			if emit("task-started", nil) != nil {
 				return
@@ -934,7 +938,8 @@ func TestVoiceEmptyAndInvalidInputNeverCreateQuery(t *testing.T) {
 				speakVoice(t, c)
 			} else if scenario == "startup overflow" {
 				_ = c.WriteJSON(map[string]any{"type": "listen", "state": "start", "mode": "manual"})
-				for i := 0; i < 101; i++ {
+				// One more frame than the 11s startup queue.
+				for i := 0; i < 551; i++ {
 					_ = c.WriteMessage(websocket.BinaryMessage, make([]byte, 640))
 				}
 			} else {

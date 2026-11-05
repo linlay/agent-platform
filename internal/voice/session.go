@@ -31,6 +31,7 @@ type turn struct {
 	started  time.Time
 	pcmBytes int
 	heard    bool
+	asrTrace *taskTrace
 }
 
 type speechTask struct {
@@ -278,11 +279,11 @@ func (s *session) control(msg clientMessage) error {
 		s.invalidate()
 		s.nextTurn++
 		ctx, cancel := context.WithCancel(s.ctx)
-		t := &turn{number: s.nextTurn, ctx: ctx, cancel: cancel, audio: make(chan []byte, 100), phase: "listening", started: time.Now()}
+		t := &turn{number: s.nextTurn, ctx: ctx, cancel: cancel, audio: make(chan []byte, maxStartupPCM/640), phase: "listening", started: time.Now(), asrTrace: &taskTrace{}}
 		s.current = t
 		input := t.audio
 		s.service.start(func() {
-			text, err := s.asr.Recognize(ctx, input, msg.Mode, func(text string, stopping bool) {
+			text, err := s.asr.Recognize(withTaskTrace(ctx, t.asrTrace), input, msg.Mode, func(text string, stopping bool) {
 				ack := make(chan error, 1)
 				if s.post(ctx, sessionEvent{kind: "partial", turn: t, text: text, stopping: stopping, ack: ack}) {
 					select {
@@ -314,6 +315,8 @@ func (s *session) audio(pcm []byte) error {
 		t.pcmBytes += len(pcm)
 		return nil
 	default:
+		// The queue covers provider startup, so name the stalled stage.
+		observability.Log("voice", map[string]any{"sessionId": s.id, "turn": t.number, "stage": "asr_overflow", "asrPhase": t.asrTrace.phase(), "elapsedMs": time.Since(t.started).Milliseconds(), "audioMs": t.pcmBytes / 32, "queuedMs": len(t.audio) * 20})
 		s.invalidate()
 		return s.fail("audio_overflow", "语音输入缓冲已满")
 	}
@@ -547,7 +550,14 @@ func (s *session) event(e sessionEvent) error {
 		if atRecordingLimit && !t.heard && t.pcmBytes > 0 {
 			e.err = nil
 		}
-		observability.Log("voice", map[string]any{"sessionId": s.id, "turn": t.number, "stage": "asr_end", "elapsedMs": time.Since(t.started).Milliseconds(), "audioMs": t.pcmBytes / 32, "heard": t.heard, "failed": e.err != nil})
+		entry := map[string]any{"sessionId": s.id, "turn": t.number, "stage": "asr_end", "elapsedMs": time.Since(t.started).Milliseconds(), "audioMs": t.pcmBytes / 32, "heard": t.heard, "failed": e.err != nil, "asrPhase": t.asrTrace.phase()}
+		if started := t.asrTrace.started.Load(); started != 0 {
+			entry["startMs"] = time.Unix(0, started).Sub(t.started).Milliseconds()
+		}
+		if e.err != nil {
+			entry["error"] = e.err.Error()
+		}
+		observability.Log("voice", entry)
 		if e.err != nil {
 			t.phase = "done"
 			code := "asr_failed"
@@ -616,7 +626,11 @@ func (s *session) event(e sessionEvent) error {
 		if e.err != nil {
 			reason = "error"
 		}
-		observability.Log("voice", map[string]any{"sessionId": s.id, "turn": t.number, "stage": "tts_end", "reason": reason, "elapsedMs": time.Since(e.speech.started).Milliseconds(), "audioMs": e.speech.pcmBytes * 1000 / (s.sampleRate * 2), "textChars": e.speech.textChars})
+		entry := map[string]any{"sessionId": s.id, "turn": t.number, "stage": "tts_end", "reason": reason, "elapsedMs": time.Since(e.speech.started).Milliseconds(), "audioMs": e.speech.pcmBytes * 1000 / (s.sampleRate * 2), "textChars": e.speech.textChars}
+		if e.err != nil {
+			entry["error"] = e.err.Error()
+		}
+		observability.Log("voice", entry)
 		if err := s.write(map[string]any{"type": "tts", "turn": t.number, "state": "stop", "reason": reason}); err != nil {
 			return err
 		}
