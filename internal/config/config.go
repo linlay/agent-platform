@@ -209,6 +209,7 @@ type QueryConfig struct {
 
 type PromptsConfig struct {
 	Runtime      RuntimePromptConfig
+	Connector    PromptConnectorConfig
 	Skill        PromptSkillConfig
 	View         PromptViewConfig
 	Announce     PromptAnnounceConfig
@@ -230,6 +231,13 @@ type PromptSkillConfig struct {
 	CatalogHeader      string
 	DisclosureHeader   string
 	InstructionsLabel  string
+}
+
+// PromptConnectorConfig holds the mounted connector catalog rules and header.
+// Both fields must be configured together; neither has a source default.
+type PromptConnectorConfig struct {
+	InstructionsPrompt string
+	CatalogHeader      string
 }
 
 // PromptViewConfig holds the Markdown VIEW rules and catalog header. Both are

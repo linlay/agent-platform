@@ -225,6 +225,23 @@ func TestSystemInitFingerprintChangesWithPromptAndStage(t *testing.T) {
 	}
 }
 
+func TestSystemInitFingerprintChangesWithConnectorCatalog(t *testing.T) {
+	session := fingerprintTestSession()
+	base := ComputeSystemInitFingerprint(session, "main", nil)
+	session.ConnectorCatalogPrompt = "Available connectors:\n- crm | CRM | Customers"
+	if got := ComputeSystemInitFingerprint(session, "main", nil); got == base {
+		t.Fatal("connector catalog did not change system-init fingerprint")
+	}
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "hello"}, nil, 12, config.PromptsConfig{})
+	if len(profiles) == 0 {
+		t.Fatal("no system-init profile")
+	}
+	content, _ := profiles[0].SystemMessage["content"].(string)
+	if !strings.Contains(content, session.ConnectorCatalogPrompt) {
+		t.Fatal("connector catalog absent from system-init profile")
+	}
+}
+
 func TestCachedSystemInitConversions(t *testing.T) {
 	profiles := BuildSystemInitProfiles(fingerprintTestSession(), api.QueryRequest{ChatID: "chat-1", Message: "hello"}, []api.ToolDetailResponse{
 		{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}},

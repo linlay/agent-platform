@@ -1101,12 +1101,13 @@ func TestSystemEnvironmentShowsRuntimeRelativeLocalPaths(t *testing.T) {
 	}
 }
 
-func TestBuildSystemPromptPlacesViewCatalogAfterSkills(t *testing.T) {
+func TestBuildSystemPromptOrdersConnectorSkillAndViewCatalogs(t *testing.T) {
 	sections := buildSystemPromptSections(QuerySession{
-		AgentKey:           "demo",
-		Mode:               "GENERAL",
-		SkillCatalogPrompt: "SKILLS",
-		ViewCatalogPrompt:  "VIEWS",
+		AgentKey:               "demo",
+		Mode:                   "GENERAL",
+		ConnectorCatalogPrompt: "CONNECTORS",
+		SkillCatalogPrompt:     "SKILLS",
+		ViewCatalogPrompt:      "VIEWS",
 	}, api.QueryRequest{}, PromptBuildOptions{})
 	order := map[string]int{}
 	for index, section := range sections {
@@ -1114,7 +1115,8 @@ func TestBuildSystemPromptPlacesViewCatalogAfterSkills(t *testing.T) {
 	}
 	skills, hasSkills := order["skill-catalog"]
 	views, hasViews := order["view-catalog"]
-	if !hasSkills || !hasViews || skills+1 != views || sections[views].Content != "VIEWS" {
+	connectors, hasConnectors := order["connector-catalog"]
+	if !hasConnectors || !hasSkills || !hasViews || connectors+1 != skills || skills+1 != views || sections[views].Content != "VIEWS" || sections[connectors].Content != "CONNECTORS" {
 		t.Fatalf("section order: %#v", order)
 	}
 }

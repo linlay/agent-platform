@@ -3,11 +3,18 @@ package contracts
 import "agent-platform/internal/api"
 
 type PromptAppendConfig struct {
+	Connector ConnectorAppendConfig
 	Skill     SkillAppendConfig
 	Tool      ToolAppendConfig
 	Reference ReferenceAppendConfig
 	View      ViewAppendConfig
 	Announce  AnnounceAppendConfig
+}
+
+// ConnectorAppendConfig has no source defaults; both fields enable the catalog.
+type ConnectorAppendConfig struct {
+	InstructionsPrompt string
+	CatalogHeader      string
 }
 
 // ViewAppendConfig has no source defaults: the VIEW catalog section is

@@ -358,6 +358,11 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	bScripts := !options.DisableSkillScriptGrants
 	s.BindReferencePreparer(&session, agentDef, bScripts)
 	session.CurrentMessages = s.BuildCurrentMessages(req, session)
+	connectorCatalog, err := BuildConnectorCatalogPrompt(agentDef, session.Locale, session.PromptAppend.Connector)
+	if err != nil {
+		return contracts.QuerySession{}, err
+	}
+	session.ConnectorCatalogPrompt = connectorCatalog
 	if err := s.ConfigureViews(&session, agentDef); err != nil {
 		return contracts.QuerySession{}, err
 	}

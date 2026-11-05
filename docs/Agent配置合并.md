@@ -3,11 +3,25 @@
 ## 配置归属
 
 - `configs/agent-settings.yml`：全局及 mode 预置、创建默认值、Workspace 规则文件、顶层 ACP bridges。
-- `configs/agent-prompt.yml`：`shared`（runtime/skill/view/announce/reference/tool-appendix/automation/btw/planning-mode）、`coder`、`kbase` 提示词。注入时机不变。`shared.skill.instructions-prompt`（技能适用性判断与 SKILL.md 读取规则的唯一来源）、`shared.reference.protocol-prompt`（`[References]` 引用协议）和 `shared.reference.advanced-protocol-prompt`（开启 advanced-user-prompt 时在前者之上追加的 XML 包装协议）没有源码兜底：缺失或为空时对应段落不追加，分发正文见 `configs/agent-prompt.example.yml`。规划、BTW 的指令文本同样只来自本文件：缺失时不带指令；PLAN-EXECUTE 已下线，残留的 `shared.plan-execute` 忽略并记录 warning；技能目录、披露和工具附录标题仅保留极简标签作为兜底。`shared.automation.user-prompt-template` 包装由 Automation（定时或手动触发）启动的 Run 的任务正文，按可信触发来源而非请求 `role` 判定，只进入该条 user 消息，不进入 system prompt、system-init cache key 或 fingerprint；占位符为 `{{message}}`、`{{automation_id}}`，缺失或为空时不包装并保留原有 `[automation request]` 前缀。KBASE 提示词由 `kbase.system-prompt`、`kbase.workspace-prompt` 按此顺序拼接，两项都没有源码兜底。`kbase.editing-prompt` 已删除，出现即拒绝加载；旧部署应删除该键，并按需将通用文件修改要求合并到 `kbase.workspace-prompt`。`editingMode` 不再选择独立的 KBASE stage 或 cache key；模板变量 `{{editing_mode}}` 已删除，配置出现即拒绝加载。`kbase.capability-prompt` 已删除，出现即拒绝加载：kbase_* 工具的检索规则只由工具说明与 `kbase-control` Skill 提供，挂载 `builtin.kbase-control` 不再向 system prompt 追加规则；仅固定绑定库在 system prompt 追加 boundLibraryId，本次引用元数据进入用户引用块。
+- `configs/agent-prompt.yml`：`shared`（runtime/connector/skill/view/announce/reference/tool-appendix/automation/btw/planning-mode）、`coder`、`kbase` 提示词。注入时机不变。`shared.skill.instructions-prompt`（技能适用性判断与 SKILL.md 读取规则的唯一来源）、`shared.reference.protocol-prompt`（`[References]` 引用协议）和 `shared.reference.advanced-protocol-prompt`（开启 advanced-user-prompt 时在前者之上追加的 XML 包装协议）没有源码兜底：缺失或为空时对应段落不追加，分发正文见 `configs/agent-prompt.example.yml`。规划、BTW 的指令文本同样只来自本文件：缺失时不带指令；PLAN-EXECUTE 已下线，残留的 `shared.plan-execute` 忽略并记录 warning；技能目录、披露和工具附录标题仅保留极简标签作为兜底。`shared.automation.user-prompt-template` 包装由 Automation（定时或手动触发）启动的 Run 的任务正文，按可信触发来源而非请求 `role` 判定，只进入该条 user 消息，不进入 system prompt、system-init cache key 或 fingerprint；占位符为 `{{message}}`、`{{automation_id}}`，缺失或为空时不包装并保留原有 `[automation request]` 前缀。KBASE 提示词由 `kbase.system-prompt`、`kbase.workspace-prompt` 按此顺序拼接，两项都没有源码兜底。`kbase.editing-prompt` 已删除，出现即拒绝加载；旧部署应删除该键，并按需将通用文件修改要求合并到 `kbase.workspace-prompt`。`editingMode` 不再选择独立的 KBASE stage 或 cache key；模板变量 `{{editing_mode}}` 已删除，配置出现即拒绝加载。`kbase.capability-prompt` 已删除，出现即拒绝加载：kbase_* 工具的检索规则只由工具说明与 `kbase-control` Skill 提供，挂载 `builtin.kbase-control` 不再向 system prompt 追加规则；仅固定绑定库在 system prompt 追加 boundLibraryId，本次引用元数据进入用户引用块。
 - `configs/tools.yml`：访问策略、Bash/FileTools/run-env，以及顶层 vision-recognize/web-fetch/image-generate。AI profile 的 system-prompt 随 profile 保存。
 - `configs/runtime.yml`：平台运行设置、`kbx.embedding`、`memory`。memx 继续由 memory.worker 配置，不新增 memx 节。
 
 所有上述 YAML 在启动时读取，修改需要重启；注册表连接快照可在调用前重新同步。
+
+### 连接器目录提示词
+
+`shared.connector` 与 `shared.skill`、`shared.view` 同级，连接器目录位于技能目录之前。`instructions-prompt` 与 `catalog-header` 必须成对配置；两者都缺失或为空时不注入，没有源码兜底。
+
+```yaml
+shared:
+  connector:
+    instructions-prompt: |
+      The following connectors are mounted to this Agent. Use their descriptions to identify services relevant to the user's task.
+    catalog-header: "Available connectors:"
+```
+
+目录从当前执行 Agent 的 Run 冻结挂载包读取，按 ID 排序，每项一行展示 `id | name | description`。名称与描述复用当前 Run 语言的本地化逻辑，描述为空时省略；目录条目总量上限为 32 KiB，超限按完整条目省略并记录日志。没有挂载时省略整个区块。GENERAL/CODER/KBASE/TEAM 共用，成员仅显示自身挂载；ACP 与 Proxy 路由不注入。目录内容纳入 system-init fingerprint，不探测远端状态、不增加权限。部署需将上述段落合并到真实 `agent-prompt.yml` 并重启生效。
 
 ## Agent 设置
 

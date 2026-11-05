@@ -451,6 +451,7 @@ type QuerySession struct {
 	AdvancedUserPrompt       bool
 	OwnerPrompt              string
 	OwnerPromptLoaded        bool
+	ConnectorCatalogPrompt   string
 	SkillCatalogPrompt       string
 	ViewCatalogPrompt        string
 	SystemInitCache          map[string]SystemInitSnapshot

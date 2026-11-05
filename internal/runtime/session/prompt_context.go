@@ -21,6 +21,8 @@ import (
 
 func BuildPromptAppendConfig(global config.PromptsConfig, def catalog.AgentDefinition) contracts.PromptAppendConfig {
 	config := contracts.DefaultPromptAppendConfig()
+	config.Connector.InstructionsPrompt = strings.TrimSpace(global.Connector.InstructionsPrompt)
+	config.Connector.CatalogHeader = strings.TrimSpace(global.Connector.CatalogHeader)
 	config.Skill.InstructionsPrompt = strings.TrimSpace(global.Skill.InstructionsPrompt)
 	config.Reference.ProtocolPrompt = strings.TrimSpace(global.Reference.ProtocolPrompt)
 	config.View.InstructionsPrompt = strings.TrimSpace(global.View.InstructionsPrompt)

@@ -81,6 +81,7 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 	appendSection("runtime-plan-tasks", "Runtime Context: Current Plan Tasks", "runtime.plan_tasks", buildPlanTaskContextSection(session, toolNames, options.Stage))
 	appendSection("stage-system", "Stage System Prompt", "stage.system", stageSystemPrompt)
 	appendSection("tool-announce", "Progress Announcements", "tools.announce", buildAnnounceSection(options.ToolDefinitions, appendConfig))
+	appendSection("connector-catalog", "Connector Catalog Prompt", "connectors.catalog", strings.TrimSpace(session.ConnectorCatalogPrompt))
 	appendSection("skill-catalog", "Skill Catalog Prompt", "skills.catalog", strings.TrimSpace(session.SkillCatalogPrompt))
 	appendSection("view-catalog", "View Catalog Prompt", "views.catalog", strings.TrimSpace(session.ViewCatalogPrompt))
 	appendSection("tool-appendix", "Tool Appendix", "tools.appendix", buildToolAppendix(options.ToolDefinitions, appendConfig, options.IncludeAfterCallHints))

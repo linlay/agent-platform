@@ -292,11 +292,12 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	if err := validatePromptTemplates(v, path); err != nil {
 		return err
 	}
-	shared, err := optionalConfigMap(v, "shared", path, "runtime", "skill", "view", "announce", "reference", "tool-appendix", "automation", "btw", "planning-mode")
+	shared, err := optionalConfigMap(v, "shared", path, "runtime", "connector", "skill", "view", "announce", "reference", "tool-appendix", "automation", "btw", "planning-mode")
 	if err != nil {
 		return err
 	}
 	schemas := map[string][]string{
+		"connector":     {"instructions-prompt", "catalog-header"},
 		"skill":         {"instructions-prompt", "catalog-header", "disclosure-header", "instructions-label"},
 		"view":          {"instructions-prompt", "catalog-header"},
 		"announce":      {"instructions-prompt"},
@@ -319,6 +320,12 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	}
 	if err := validateViewPrompts(shared, path+".shared.view"); err != nil {
 		return err
+	}
+	connectorPrompts, _ := shared["connector"].(map[string]any)
+	instructions, _ := connectorPrompts["instructions-prompt"].(string)
+	header, _ := connectorPrompts["catalog-header"].(string)
+	if (strings.TrimSpace(instructions) == "") != (strings.TrimSpace(header) == "") {
+		return fmt.Errorf("%s.shared.connector: instructions-prompt and catalog-header must be configured together", path)
 	}
 	coder, err := optionalConfigMap(v, "coder", path, "system-prompt", "planning-prompt")
 	if err != nil {

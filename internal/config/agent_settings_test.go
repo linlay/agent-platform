@@ -328,6 +328,41 @@ func TestShippedExamplesDeclarePlanningModeDefaults(t *testing.T) {
 	}
 }
 
+func TestConnectorPromptsLoadAndRequireBothKeys(t *testing.T) {
+	var c Config
+	body := "shared:\n  connector:\n    instructions-prompt: rules\n    catalog-header: Connectors:\n"
+	if err := c.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", body)); err != nil {
+		t.Fatal(err)
+	}
+	if c.Prompts.Connector.InstructionsPrompt != "rules" || c.Prompts.Connector.CatalogHeader != "Connectors:" {
+		t.Fatalf("connector prompts: %#v", c.Prompts.Connector)
+	}
+	for _, body := range []string{
+		"shared:\n  connector:\n    catalog-header: Connectors:\n",
+		"shared:\n  connector:\n    instructions-prompt: rules\n",
+		"shared:\n  connector:\n    instructions-prompt: rules\n    catalog-header: Connectors:\n    label: x\n",
+		"shared:\n  connector:\n    instructions-prompt: [rules]\n    catalog-header: Connectors:\n",
+	} {
+		var cfg Config
+		if err := cfg.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", body)); err == nil {
+			t.Fatalf("accepted %q", body)
+		}
+	}
+	for _, body := range []string{"shared: {}\n", "shared:\n  connector:\n    instructions-prompt: ''\n    catalog-header: ''\n"} {
+		var cfg Config
+		if err := cfg.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", body)); err != nil || cfg.Prompts.Connector != (PromptConnectorConfig{}) {
+			t.Fatalf("empty connector prompts: %#v, %v", cfg.Prompts.Connector, err)
+		}
+	}
+	var shipped Config
+	if err := shipped.applyAgentPromptFile(ProjectFile("configs/agent-prompt.example.yml")); err != nil {
+		t.Fatal(err)
+	}
+	if shipped.Prompts.Connector.InstructionsPrompt == "" || shipped.Prompts.Connector.CatalogHeader != "Available connectors:" {
+		t.Fatalf("example connector prompts: %#v", shipped.Prompts.Connector)
+	}
+}
+
 func TestViewPromptsLoadAndRequireBothKeys(t *testing.T) {
 	var c Config
 	body := "shared:\n  view:\n    instructions-prompt: |\n      view rules\n    catalog-header: Views:\n"

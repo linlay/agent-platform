@@ -10,6 +10,12 @@ shared:
       timezone: {{timezone}}
       language: {{locale}}
 
+  connector:
+    # Configure both fields together. Empty or missing: no connector section.
+    instructions-prompt: |
+      The following connectors are mounted to this Agent. Use their descriptions to identify services relevant to the user's task.
+    catalog-header: "Available connectors:"
+
   skill:
     # Single source of the skill rules. Empty or missing: no skill rules are appended.
     instructions-prompt: |

@@ -742,6 +742,10 @@ func (c *Config) applyCORSValues(values map[string]any) {
 }
 
 func (c *Config) applyPromptsValues(values map[string]any) {
+	if connectorPrompts, _ := values["connector"].(map[string]any); len(connectorPrompts) > 0 {
+		c.Prompts.Connector.InstructionsPrompt = stringValue(anyValue(connectorPrompts["instructions-prompt"], c.Prompts.Connector.InstructionsPrompt), c.Prompts.Connector.InstructionsPrompt)
+		c.Prompts.Connector.CatalogHeader = stringValue(anyValue(connectorPrompts["catalog-header"], c.Prompts.Connector.CatalogHeader), c.Prompts.Connector.CatalogHeader)
+	}
 	skill, _ := values["skill"].(map[string]any)
 	if len(skill) > 0 {
 		c.Prompts.Skill.InstructionsPrompt = stringValue(anyValue(skill["instructions-prompt"], c.Prompts.Skill.InstructionsPrompt), c.Prompts.Skill.InstructionsPrompt)
