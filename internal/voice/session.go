@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -43,13 +42,19 @@ type speechTask struct {
 	textChars int
 }
 
+const (
+	interruptIdle int32 = iota
+	interruptPending
+	interruptAccepted
+	interruptFailed
+)
+
 // ownedRun records only this session's one blocking call and explicit cancel
 // intention. Admission, Chat exclusion and HITL remain owned by Runtime.
 type ownedRun struct {
-	turn          *turn
-	ref           atomic.Pointer[rt.RunRef]
-	cancelled     atomic.Bool
-	interruptOnce sync.Once
+	ref            atomic.Pointer[rt.RunRef]
+	cancelled      atomic.Bool
+	interruptState atomic.Int32
 }
 
 type sessionEvent struct {
@@ -81,6 +86,7 @@ type session struct {
 	chatID, agentKey, voice string
 	id                      string
 	primary                 bool
+	primaryIfMissing        bool
 	sampleRate              int
 	asr                     *ASRClient
 	tts                     *TTSClient
@@ -123,6 +129,7 @@ func runSession(service *Service, conn *websocket.Conn, caller Caller) {
 		return
 	}
 	s.agentKey, s.sampleRate = hello.AgentKey, hello.Audio.Output.SampleRate
+	s.primaryIfMissing = s.primary && !hello.NewChat
 	am, ap, tm, tp, err := service.speechModels()
 	if err != nil {
 		_ = s.fail("voice_unavailable", "语音模型不可用")
@@ -191,11 +198,7 @@ func runSession(service *Service, conn *websocket.Conn, caller Caller) {
 			}
 		case <-s.waited:
 			s.clearPending()
-			if s.current != nil {
-				s.current.phase = "done"
-				s.current.text = ""
-			}
-			if s.fail("run_busy_timeout", "旧任务尚未结束，请稍后重试") != nil {
+			if s.current != nil && s.failTurn(s.current, "run_busy_timeout", "旧任务尚未结束，请稍后重试") != nil {
 				return
 			}
 		}
@@ -210,6 +213,17 @@ func (s *session) write(value any) error {
 func (s *session) fail(code, msg string) error {
 	observability.Log("voice", map[string]any{"sessionId": s.id, "turn": s.nextTurn, "stage": "error", "code": code})
 	return s.write(map[string]any{"type": "error", "turn": s.nextTurn, "code": code, "msg": msg})
+}
+
+// failTurn ends media only; Runtime retains ownership of any accepted Run.
+func (s *session) failTurn(t *turn, code, message string) error {
+	t.cancel()
+	s.stopListening(t)
+	t.phase, t.text, t.awaiting = "done", "", false
+	if s.pending == t {
+		s.clearPending()
+	}
+	return s.fail(code, message)
 }
 
 func (s *session) post(ctx context.Context, e sessionEvent) bool {
@@ -281,6 +295,9 @@ func (s *session) control(msg clientMessage) error {
 		ctx, cancel := context.WithCancel(s.ctx)
 		t := &turn{number: s.nextTurn, ctx: ctx, cancel: cancel, audio: make(chan []byte, maxStartupPCM/640), phase: "listening", started: time.Now(), asrTrace: &taskTrace{}}
 		s.current = t
+		if s.running != nil && s.running.interruptState.Load() == interruptFailed {
+			return s.reportInterruptFailure()
+		}
 		input := t.audio
 		s.service.start(func() {
 			text, err := s.asr.Recognize(withTaskTrace(ctx, t.asrTrace), input, msg.Mode, func(text string, stopping bool) {
@@ -327,20 +344,40 @@ func (s *session) interrupt(run *ownedRun) {
 	if ref == nil || !run.cancelled.Load() {
 		return
 	}
+	if !run.interruptState.CompareAndSwap(interruptIdle, interruptPending) &&
+		!run.interruptState.CompareAndSwap(interruptFailed, interruptPending) {
+		return
+	}
 	work := func() {
-		run.interruptOnce.Do(func() {
-			ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
-			defer cancel()
-			source, reason, detail := contracts.InterruptSourceWSAPI, contracts.InterruptReasonUserCancelled, "voice abort"
-			if s.service.ctx.Err() != nil {
-				source, reason, detail = contracts.InterruptSourceServerSetup, contracts.InterruptReasonRunInterrupted, "voice shutdown"
-			}
-			_, _ = s.service.deps.Runtime.Interrupt(ctx, rt.InterruptCommand{RunRef: *ref, Source: source, Reason: reason, Detail: detail})
-		})
+		ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
+		defer cancel()
+		source, reason, detail := contracts.InterruptSourceWSAPI, contracts.InterruptReasonUserCancelled, "voice abort"
+		if s.service.ctx.Err() != nil {
+			source, reason, detail = contracts.InterruptSourceServerSetup, contracts.InterruptReasonRunInterrupted, "voice shutdown"
+		}
+		result, err := s.service.deps.Runtime.Interrupt(ctx, rt.InterruptCommand{RunRef: *ref, Source: source, Reason: reason, Detail: detail})
+		accepted := err == nil && result.Accepted
+		if err == nil && !accepted {
+			active, found, lookupErr := s.service.deps.Runs.ActiveRunForChat(ref.ChatID)
+			accepted = lookupErr == nil && (!found || active.RunID != ref.RunID)
+		}
+		if accepted {
+			run.interruptState.Store(interruptAccepted)
+			return
+		}
+		run.interruptState.Store(interruptFailed)
+		s.post(s.ctx, sessionEvent{kind: "interruptFailed", run: run})
 	}
 	if !s.service.start(work) {
 		work()
 	}
+}
+
+func (s *session) reportInterruptFailure() error {
+	if s.current == nil || s.current.phase == "done" {
+		return nil // Retain the failure on ownedRun until the next listen.
+	}
+	return s.failTurn(s.current, "run_failed", "任务中断失败，请再次点击打断或在聊天界面停止任务")
 }
 
 func (s *session) submit(t *turn) error {
@@ -348,18 +385,17 @@ func (s *session) submit(t *turn) error {
 	if primary {
 		summary, err := s.service.deps.Chats.Summary(s.chatID)
 		if err != nil {
-			return s.fail("run_failed", "聊天状态不可用")
+			return s.failTurn(t, "run_failed", "聊天状态不可用")
 		}
 		if summary != nil {
 			primary = false
 			s.primary = false
 		}
 	}
-	if primary {
+	if primary && s.primaryIfMissing {
 		current, err := s.service.deps.Chats.PrimaryChatID(s.agentKey)
 		if err != nil || current != "" && current != s.chatID {
-			t.phase = "done"
-			return s.fail("chat_changed", "主要聊天已变化，请重新连接语音")
+			return s.failTurn(t, "chat_changed", "主要聊天已变化，请重新连接语音")
 		}
 	}
 	planning := false
@@ -368,11 +404,11 @@ func (s *session) submit(t *turn) error {
 		input["primary"] = true
 	}
 	original, _ := json.Marshal(input)
-	cmd := rt.QueryCommand{AgentKey: s.agentKey, ChatID: s.chatID, Message: t.text, PlanningMode: &planning, Primary: primary, PrimaryIfMissing: primary, OriginalQuery: original, Identity: s.caller.Identity, Locale: s.caller.Locale, ResourceBaseURL: s.caller.ResourceBaseURL}
+	cmd := rt.QueryCommand{AgentKey: s.agentKey, ChatID: s.chatID, Message: t.text, PlanningMode: &planning, Primary: primary, PrimaryIfMissing: primary && s.primaryIfMissing, OriginalQuery: original, Identity: s.caller.Identity, Locale: s.caller.Locale, ResourceBaseURL: s.caller.ResourceBaseURL}
 	if s.caller.Identity != nil {
 		cmd.Caller = rt.Caller{Subject: s.caller.Identity.Subject, DeviceID: s.caller.Identity.DeviceID, Scope: s.caller.Identity.Scope}
 	}
-	run := &ownedRun{turn: t}
+	run := &ownedRun{}
 	s.running = run
 	t.phase = "running"
 	t.text = ""
@@ -386,6 +422,8 @@ func (s *session) submit(t *turn) error {
 			}
 		}()
 		var observed <-chan struct{}
+		observationCtx, stopObservation := context.WithCancel(s.ctx)
+		defer stopObservation()
 		result, err := s.service.deps.Runtime.ExecuteQueryWithHooks(runCtx, cmd, rt.QueryHooks{OnRunStarted: func(start chat.RunStart) {
 			ref := &rt.RunRef{RunID: start.RunID, ChatID: start.ChatID, AgentKey: start.AgentKey, Caller: cmd.Caller}
 			run.ref.Store(ref)
@@ -405,14 +443,14 @@ func (s *session) submit(t *turn) error {
 				defer sub.Close()
 				for {
 					select {
-					case <-s.ctx.Done():
+					case <-observationCtx.Done():
 						return
 					case event, ok := <-sub.Events:
 						if !ok {
 							return
 						}
 						if event.Type == "awaiting.ask" || event.Type == "awaiting.answer" {
-							if !s.post(s.ctx, sessionEvent{kind: event.Type, run: run, turn: t, awaitingID: event.String("awaitingId"), mode: event.String("mode")}) {
+							if !s.post(observationCtx, sessionEvent{kind: event.Type, run: run, turn: t, awaitingID: event.String("awaitingId"), mode: event.String("mode")}) {
 								return
 							}
 						}
@@ -424,16 +462,22 @@ func (s *session) submit(t *turn) error {
 				close(done)
 			}
 		}})
+		// One deadline bounds both subscription drain and Chat release.
+		deadline := time.NewTimer(finishTimeout)
+		defer deadline.Stop()
 		if observed != nil {
 			select {
 			case <-observed:
 			case <-s.ctx.Done():
+				stopObservation()
+			case <-deadline.C:
+				stopObservation()
+				<-observed
+				s.post(s.ctx, sessionEvent{kind: "releaseFailed", turn: t, run: run})
+				return
 			}
 		}
-		// Proxy completion can precede its observer/Chat release. Wait on the
-		// existing manager rather than guessing from a cancel acknowledgment.
-		deadline := time.NewTimer(finishTimeout)
-		defer deadline.Stop()
+		// A cancel acknowledgment alone never releases Chat admission.
 		poll := time.NewTicker(10 * time.Millisecond)
 		defer poll.Stop()
 		for {
@@ -457,6 +501,12 @@ func (s *session) submit(t *turn) error {
 }
 
 func (s *session) event(e sessionEvent) error {
+	if e.kind == "interruptFailed" {
+		if e.run == s.running && e.run.interruptState.Load() == interruptFailed {
+			return s.reportInterruptFailure()
+		}
+		return nil
+	}
 	if e.kind == "releaseFailed" {
 		if err := s.fail("run_busy_timeout", "任务收尾超时，请重新连接语音"); err != nil {
 			return err
@@ -486,7 +536,6 @@ func (s *session) event(e sessionEvent) error {
 				}
 			}
 			if e.err != nil || !result.Persisted || result.Completion == nil || result.FinishReason != "complete" {
-				e.turn.phase = "done"
 				code := "run_failed"
 				var request *rt.RequestError
 				if errors.As(e.err, &request) {
@@ -497,19 +546,18 @@ func (s *session) event(e sessionEvent) error {
 						code = "chat_changed"
 					}
 				}
-				if err := s.fail(code, "当前问题未完成，请查看聊天界面"); err != nil {
+				if err := s.failTurn(e.turn, code, "当前问题未完成，请查看聊天界面"); err != nil {
 					return err
 				}
 			} else {
 				summary, err := s.service.deps.Chats.Summary(s.chatID)
 				if err != nil {
-					return s.fail("run_failed", "无法核对聊天完成状态")
+					return s.failTurn(e.turn, "run_failed", "无法核对聊天完成状态")
 				}
 				if summary != nil && summary.PendingAwaiting != nil {
 					// A later Run continues this item and this session does not
 					// observe it; end the turn instead of waiting silently.
-					e.turn.phase = "done"
-					if err := s.fail("awaiting_pending", "请在聊天界面继续处理待确认项"); err != nil {
+					if err := s.failTurn(e.turn, "awaiting_pending", "请在聊天界面继续处理待确认项"); err != nil {
 						return err
 					}
 				} else if err := s.speak(e.turn, speechText(result.Completion.AssistantText), false); err != nil {
@@ -559,14 +607,13 @@ func (s *session) event(e sessionEvent) error {
 		}
 		observability.Log("voice", entry)
 		if e.err != nil {
-			t.phase = "done"
 			code := "asr_failed"
 			for text, stable := range map[string]string{"recording limit": "recording_limit", "transcript limit": "transcript_limit", "startup audio": "audio_overflow"} {
 				if strings.Contains(e.err.Error(), text) {
 					code = stable
 				}
 			}
-			return s.fail(code, "语音识别未完成，请重试")
+			return s.failTurn(t, code, "语音识别未完成，请重试")
 		}
 		if strings.TrimSpace(e.text) == "" {
 			t.phase = "done"
@@ -579,9 +626,7 @@ func (s *session) event(e sessionEvent) error {
 		}
 		if s.running != nil {
 			if !s.running.cancelled.Load() {
-				t.phase = "done"
-				t.text = ""
-				return s.fail("chat_busy", "当前聊天已有运行中的任务")
+				return s.failTurn(t, "chat_busy", "当前聊天已有运行中的任务")
 			}
 			s.pending = t
 			s.waitTimer = time.NewTimer(finishTimeout)

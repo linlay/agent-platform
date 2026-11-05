@@ -22,6 +22,8 @@ type clientMessage struct {
 	Version  int    `json:"version,omitempty"`
 	AgentKey string `json:"agentKey,omitempty"`
 	ChatID   string `json:"chatId,omitempty"`
+	NewChat  bool   `json:"newChat,omitempty"`
+	Primary  *bool  `json:"primary,omitempty"`
 	Voice    string `json:"voice,omitempty"`
 	Audio    struct {
 		Input  audioFormat `json:"input"`
@@ -49,6 +51,9 @@ func (s *Service) resolveHello(msg clientMessage) (string, bool, string, error) 
 	if msg.Type != "hello" || msg.Version != 1 || msg.AgentKey == "" {
 		return "", false, "", errors.New("invalid voice hello")
 	}
+	if msg.NewChat && msg.ChatID != "" || msg.Primary != nil && !msg.NewChat {
+		return "", false, "", errors.New("invalid voice chat intent")
+	}
 	if _, ok := s.deps.Agents.AgentDefinition(msg.AgentKey); !ok {
 		return "", false, "", errors.New("agent unavailable")
 	}
@@ -66,6 +71,10 @@ func (s *Service) resolveHello(msg clientMessage) (string, bool, string, error) 
 	}
 	if !allowed {
 		return "", false, "", errors.New("voice not allowed")
+	}
+	if msg.NewChat {
+		// Reserve only; the first nonempty transcript creates the Chat through Runtime.
+		return uuid.NewString(), msg.Primary != nil && *msg.Primary, voice, nil
 	}
 	chatID := msg.ChatID
 	var err error

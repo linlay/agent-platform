@@ -151,15 +151,24 @@ func awaitingTimeoutApplies(mode string) bool {
 
 type registeredQueryRun = runtimetypes.RegisteredRun
 
-func (s *Service) registeredQueryRun(observerCtx context.Context, runCtx context.Context, control *contracts.RunControl, prepared preparedQuery) (registeredQueryRun, *statusError) {
+func (s *Service) registeredQueryRun(observerCtx context.Context, runCtx context.Context, control *contracts.RunControl, prepared preparedQuery) (registered registeredQueryRun, failure *statusError) {
 	runID := prepared.Req.RunID
+	defer func() {
+		if failure == nil {
+			return
+		}
+		// Registration owns failures before an executor can perform this drain.
+		if bus, ok := s.deps.Runs.EventBus(runID); ok {
+			bus.FreezeAndWait()
+		}
+		s.releaseRunConnectorPins(runID)
+		s.deps.Runs.Finish(runID)
+	}()
 	status, ok := s.deps.Runs.RunStatus(runID)
 	if !ok {
-		s.deps.Runs.Finish(runID)
 		return registeredQueryRun{}, &statusError{Status: 500, Code: "internal_error", Message: "registered run status is unavailable"}
 	}
 	if err := timecontract.ValidateEpochMillis(status.StartedAt, "startedAt", "run.registration"); err != nil {
-		s.deps.Runs.Finish(runID)
 		return registeredQueryRun{}, &statusError{
 			Status:  422,
 			Code:    "time_contract_violation",
@@ -180,11 +189,9 @@ func (s *Service) registeredQueryRun(observerCtx context.Context, runCtx context
 		}
 		recorder, ok := execution.CompletionStore.(chat.RunStartRecorder)
 		if !ok || recorder == nil {
-			s.deps.Runs.Finish(runID)
 			return registeredQueryRun{}, &statusError{Status: 500, Code: "internal_error", Message: "run start recorder is not configured"}
 		}
 		if err := recorder.OnRunStarted(start); err != nil {
-			s.deps.Runs.Finish(runID)
 			if isTimeContractViolation(err) {
 				return registeredQueryRun{}, &statusError{Status: 422, Code: "time_contract_violation", Message: timeContractViolationMessage, Data: timeContractErrorData(err)}
 			}
@@ -193,7 +200,6 @@ func (s *Service) registeredQueryRun(observerCtx context.Context, runCtx context
 		notifyInternalQueryRunStarted(observerCtx, start)
 	}
 	if err := s.FreezeRunConnectors(prepared); err != nil {
-		s.deps.Runs.Finish(runID)
 		return registeredQueryRun{}, btwStatusError(500, "run_connector_snapshot_unavailable", err.Error())
 	}
 	return registeredQueryRun{RunCtx: runCtx, Control: control, Managed: true, StartedAtMillis: status.StartedAt}, nil
