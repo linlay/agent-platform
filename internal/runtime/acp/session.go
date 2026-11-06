@@ -302,6 +302,18 @@ func (s *Sessions) prepareSession(ctx context.Context, chatID string, child *cat
 			return s.Inspect(chatID)
 		}
 	}
+	// Capture the scope before startup so concurrent catalog/auth changes cannot
+	// publish old defaults under a new cache identity.
+	previewKey := ""
+	if child == nil {
+		if summary, err := s.chats.Summary(chatID); err == nil && summary != nil {
+			if def, ok := s.resolve(summary.AgentKey); ok {
+				s.mu.Lock()
+				previewKey = s.previewKey(engineID, workspace, def)
+				s.mu.Unlock()
+			}
+		}
+	}
 	var binding *dto.SessionBinding
 	if child == nil {
 		binding, err = s.chats.LoadEngineSession(chatID)
@@ -500,6 +512,7 @@ func (s *Sessions) prepareSession(ctx context.Context, chatID string, child *cat
 		PluginVersion  string `json:"pluginVersion"`
 		ArtifactDigest string `json:"artifactDigest"`
 	}{p.pluginVersion, p.artifactDigest}
+	defaults := clonePreview(dto.ConfigPreview{EngineID: engineID, ConfigOptions: options})
 	if binding != nil && len(binding.ConfigSelection) > 0 {
 		if err = s.applySelections(ctx, e, append([]dto.ConfigSelection(nil), binding.ConfigSelection...), false); err != nil {
 			return dto.PreparedSession{}, agentengine.Error("session_restore_failed")
@@ -533,6 +546,11 @@ func (s *Sessions) prepareSession(ctx context.Context, chatID string, child *cat
 		e.process = nil
 		e.readyState = false
 		e.mu.Unlock()
+	}
+	if method == "session/new" && previewKey != "" {
+		s.mu.Lock()
+		s.cachePreview(previewKey, defaults)
+		s.mu.Unlock()
 	}
 	keep = true
 	return prepared, nil
@@ -807,8 +825,14 @@ func controlRequest(ctx context.Context, p interface {
 }, method string, params any) (json.RawMessage, error) {
 	result, err := p.Request(ctx, method, params)
 	var rpc *sdk.RequestError
-	if errors.As(err, &rpc) && rpc.Code == -32000 {
-		return nil, agentengine.Error("auth_required")
+	if errors.As(err, &rpc) {
+		if rpc.Code == -32000 {
+			return nil, agentengine.Error("auth_required")
+		}
+		// Preserve only this stable dependency error, never arbitrary Adapter text.
+		if rpc.Code == -32603 && rpc.Message == "dependency_missing" {
+			return nil, agentengine.Error("dependency_missing")
+		}
 	}
 	return result, err
 }

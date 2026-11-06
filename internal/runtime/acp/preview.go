@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"agent-platform/internal/agentengine"
+	"agent-platform/internal/catalog"
 	dto "agent-platform/internal/contracts/agentengine"
 )
 
@@ -36,14 +37,12 @@ func (s *Sessions) Preview(ctx context.Context, agentKey string, refresh bool) (
 	if err != nil {
 		return dto.ConfigPreview{}, err
 	}
-	definition, _ := json.Marshal(def)
-	directory := s.host.registry.Directory()
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		return dto.ConfigPreview{}, ErrClosed
 	}
-	key := fmt.Sprintf("%s\x00%s\x00%s\x00%d\x00%d\x00%x", engineID, workspace, directory.CatalogGeneration, directory.Revision, s.previewEpoch, sha256.Sum256(definition))
+	key := s.previewKey(engineID, workspace, def)
 	cached, found := s.previews[key]
 	if !refresh || (found && time.Since(cached.at) < configPreviewTTL) {
 		s.mu.Unlock()
@@ -78,19 +77,7 @@ func (s *Sessions) Preview(ctx context.Context, agentKey string, refresh bool) (
 			pending.err = probeErr
 			pending.result = dto.ConfigPreview{EngineID: engineID, ConfigOptions: prepared.ConfigOptions}
 			if probeErr == nil && s.previewEpoch == epoch && !s.closed {
-				if s.previews == nil {
-					s.previews = map[string]configPreview{}
-				}
-				// A bounded, short-lived discovery cache, not another persistent registry.
-				for k, entry := range s.previews {
-					if time.Since(entry.at) >= configPreviewTTL {
-						delete(s.previews, k)
-					}
-				}
-				if len(s.previews) >= 128 {
-					clear(s.previews)
-				}
-				s.previews[key] = configPreview{result: pending.result, at: time.Now()}
+				s.cachePreview(key, pending.result)
 			}
 			s.previewPending = nil
 			close(pending.done)
@@ -107,4 +94,31 @@ func (s *Sessions) Preview(ctx context.Context, agentKey string, refresh bool) (
 
 func clonePreview(p dto.ConfigPreview) dto.ConfigPreview {
 	return dto.ConfigPreview{EngineID: p.EngineID, ConfigOptions: copyPrepared(dto.PreparedSession{ConfigOptions: p.ConfigOptions}).ConfigOptions}
+}
+
+// Called under s.mu. Discovery and a real new session share the same defaults;
+// per-Chat selections and restored sessions must never populate this cache.
+func (s *Sessions) previewKey(engineID, workspace string, def catalog.AgentDefinition) string {
+	definition, _ := json.Marshal(def)
+	directory := s.host.registry.Directory()
+	return fmt.Sprintf("%s\x00%s\x00%s\x00%d\x00%d\x00%x", engineID, workspace, directory.CatalogGeneration, directory.Revision, s.previewEpoch, sha256.Sum256(definition))
+}
+
+func (s *Sessions) cachePreview(key string, result dto.ConfigPreview) {
+	if s.previews == nil {
+		s.previews = map[string]configPreview{}
+	}
+	// TTL controls refresh, not display. Keep stale defaults available while
+	// discovery waits for spare capacity; evict only the oldest bounded entry.
+	if _, exists := s.previews[key]; !exists && len(s.previews) >= 128 {
+		var oldestKey string
+		var oldest time.Time
+		for k, entry := range s.previews {
+			if oldest.IsZero() || entry.at.Before(oldest) {
+				oldestKey, oldest = k, entry.at
+			}
+		}
+		delete(s.previews, oldestKey)
+	}
+	s.previews[key] = configPreview{result: clonePreview(result), at: time.Now()}
 }

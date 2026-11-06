@@ -57,3 +57,21 @@ go test ./internal/runtime/query ./internal/server ./internal/interaction ./inte
 ## 结果记录
 
 每行一个用例×系统架构×插件/CLI/Node 版本组合，记录候选源码修订、包/二进制摘要、前置配置、步骤、预期、实际、状态和脱敏证据。状态用通过/失败/阻塞/不适用；未执行保持待实测，跳过不能写通过。私有 `build/qa` 日志不是长期凭证，提交可共享的摘要记录并标明可获取的证据位置，不提交 Token、OAuth code、个人配置、会话正文或凭据副本。
+
+## 轻量 Adapter / 本机 CLI（2026-11-06）
+
+Codex/Claude 0.1.1 不交付 CLI，使用用户在执行宿主上安装及认证的本机程序。Platform 继续精确校验宿主 Node；在受管运行时之后保留绝对用户 PATH，不继承相对目录、Token 或 NODE_OPTIONS 等变量。Adapter initialize 的 -32603/dependency_missing 映射为既有稳定错误码，不能误报为 auth_required；安装 CLI 后显式 Prepare 重试。CLI 配置/认证/会话由其本地实现管理，原插件 profile 仍保留但两插件不再用其认证投影。
+
+自动化覆盖 PATH 边界及缺依赖后的重试；新版正式 Desktop/standalone、多轮/审批/恢复/强杀与 OS/CLI 版本矩阵须独立复验，旧随包 CLI 的证据不能替代。上游程序版本不受插件快照固定，用户升级 CLI 后可能改变协议能力。
+
+安装预检补充（0.1.1）：只对标准 JSON-RPC 内明确的 -32603/dependency_missing 允许登记，CLI 后装；真实 Prepare 仍要求正确 ACP v1 握手。任意报错、退出、畸形数据或错误协议版本仍拒绝。该流程不伪造成功握手，缺 CLI 的用户可先安装插件。
+
+## ACP 配置加载与切换延迟（2026-11-06）
+
+现场证据：进程 4/4 时，新聊天预览反复 409；一次 Prepare 等待 15.3 秒失败，而驻留 Prepare 多为 0–1ms。对本机 Codex 0.164.0 的隔离测量只执行 initialize/session/new/session/close，无 Prompt：初始化约 371ms，同连接两次 new 约 25.2s/29.9s。逐请求测量 account/read 约 11.3s，thread/start 约 5.2s，model/list 约 5.0s；独立子进程使用 127.0.0.1:7890 后整次 new 约 14.8s，属于当时实测而非性能保证，系统/用户配置未修改。
+
+修复沿用 Sessions/ConfigPreview：真实新会话成功后复用其初始默认选项，写入前复制，随后 Configure/恢复选择不得污染默认值；同引擎/Workspace/Agent 定义/目录代次/认证代次仍隔离。TTL 仅控制刷新，容量内保留旧值用于后台刷新期间展示，超过 128 项只逐出最旧项。首条消息确认现有凭据不清缓存，认证失败/显式登录、目录及定义变化仍使旧键不可用。UI 切换先读既有配置快照；Prepare/Query 的真实准入及容量/后台任务保护不放宽。
+
+验收条件：满容量下已发现的默认选项无需新进程即可读取，其他 Chat 的 Model-B 不替代默认 Model-A；跨 30 秒并切换项目仍可读旧默认值；升级/凭据失效不能返回旧选项；发送始终校验真实准备/配置版本；无缓存且持续 busy 的前端停止无限重试。正式主壳及真实模型/多轮仍待实测，不能把本轮无模型握手当作完整产品验收。
+
+本轮验证：ACP 全包通过，缓存/多会话/认证定向 race 通过；跨 30 秒公共接口回归、真实认证撤销后的缓存清空通过。上述 CLI 耗时来自实际已安装 Adapter；完整修复仍需更新 Platform/WebClient 后在正式主壳复验。

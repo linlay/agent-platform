@@ -43,6 +43,25 @@ case 'session/close':sessions.delete(p.sessionId);send(m.id,{});break;
 default:send(m.id,{});
 }});`
 
+func TestMissingLocalCLIReportsDependencyMissingAndAllowsRetry(t *testing.T) {
+	script := strings.Replace(sessionAgent, "case 'initialize':send(m.id,{protocolVersion:1,agentCapabilities:{loadSession:true,sessionCapabilities:{resume:{}}}});break;", `case 'initialize':if (!require('node:fs').existsSync('cli-installed')) {console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32603,message:'dependency_missing'}}));} else {send(m.id,{protocolVersion:1});}break;`, 1)
+	registry, _, _, sessions, root := sessionFixture(t, script)
+	entry := sessionDelivery(t, root, script, "fixture", "2.0.0", "without-local-cli")
+	if _, err := registry.Apply("snapshot", encoded(t, dto.EngineSnapshot{APIVersion: 1, Revision: 2, Entries: []dto.EngineInstallation{entry}})); err != nil {
+		t.Fatalf("plugin installation must not require a local CLI: %v", err)
+	}
+	_, err := sessions.Prepare(t.Context(), "chat-one")
+	if !errors.Is(err, agentengine.Error("dependency_missing")) {
+		t.Fatalf("missing CLI was not identified: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cli-installed"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sessions.Prepare(t.Context(), "chat-one"); err != nil {
+		t.Fatalf("explicit retry after installation failed: %v", err)
+	}
+}
+
 func TestOversizedPromptIsRejectedWithoutClosingSession(t *testing.T) {
 	_, store, host, sessions, _ := sessionFixture(t, sessionAgent)
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
@@ -1758,7 +1777,48 @@ func TestConfigurationPreviewDoesNotReserveChatAndReusesWarmWorker(t *testing.T)
 	}
 }
 
-func TestConfigurationPreviewUsesSpareCapacityBesideResidentChat(t *testing.T) {
+func TestNewSessionSeedsDefaultPreviewAtFullCapacity(t *testing.T) {
+	script := strings.Replace(multiplexAgent, "case 'session/prompt':send", "case 'session/prompt':if(fs.existsSync('reject-auth')){console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:'auth_required'}}));break;}send", 1)
+	_, _, host, sessions, root := sessionFixtureWithOptions(t, script, driver.Options{MaxProcesses: 1, MaxSessions: 1})
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	p, err := sessions.Prepare(ctx, "chat-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = sessions.Configure(ctx, dto.ConfigUpdate{ChatID: p.ChatID, PreparationID: p.PreparationID, ConfigRevision: p.ConfigRevision, Selections: []dto.ConfigSelection{{ConfigID: "ModelID", Value: json.RawMessage(`"Model-B"`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sessions.Prompt(ctx, p.ChatID, p.PreparationID, p.ConfigRevision, []sdk.ContentBlock{sdk.TextBlock("hello")}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, refresh := range []bool{false, true, false} {
+		preview, err := sessions.Preview(ctx, "project", refresh)
+		if err != nil || len(preview.ConfigOptions) != 1 || !strings.Contains(string(preview.ConfigOptions[0]), `"currentValue":"Model-A"`) {
+			t.Fatalf("new Chat must reuse discovered defaults at full capacity, not another Chat's selection: %+v %v", preview, err)
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "initializations")); err != nil || string(data) != "1\n" || host.Stats().Processes != 1 {
+		t.Fatalf("preview restarted CLI: %q %v %+v", data, err, host.Stats())
+	}
+	if got, err := sessions.Inspect(p.ChatID); err != nil || got.PreparationID != p.PreparationID || got.ConfigRevision != p.ConfigRevision {
+		t.Fatalf("preview changed original session: %+v %v", got, err)
+	}
+	write(t, filepath.Join(root, "reject-auth"), "", 0600)
+	if _, err := sessions.Prompt(ctx, p.ChatID, p.PreparationID, p.ConfigRevision, []sdk.ContentBlock{sdk.TextBlock("credentials revoked")}, nil); err == nil {
+		t.Fatal("authentication failure was not reported")
+	}
+	if auth, err := sessions.AuthStatus("owner", "fixture/agent"); err != nil || auth.State != "required" {
+		t.Fatalf("authentication failure was not observed: %+v %v", auth, err)
+	}
+	if preview, err := sessions.Preview(ctx, "project", false); err != nil || len(preview.ConfigOptions) != 0 {
+		t.Fatalf("revoked credentials retained old defaults: %+v %v", preview, err)
+	}
+
+}
+
+func TestConfigurationPreviewReusesDefaultsBesideResidentChat(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		script   string
@@ -1781,18 +1841,12 @@ func TestConfigurationPreviewUsesSpareCapacityBesideResidentChat(t *testing.T) {
 				t.Fatal(err)
 			}
 			preview, err := sessions.Preview(ctx, "project", true)
-			if tc.capacity == 1 {
-				if !errors.Is(err, driver.ErrBusy) {
-					t.Fatalf("full host should defer discovery: %v", err)
-				}
-			} else {
-				if err != nil || len(preview.ConfigOptions) != 1 || !strings.Contains(string(preview.ConfigOptions[0]), `"currentValue":"Model-A"`) {
-					t.Fatalf("resident Chat blocked new-chat defaults despite spare capacity: %+v %v; %+v", preview, err, host.Stats())
-				}
-				cached, err := sessions.Preview(ctx, "project", false)
-				if err != nil || len(cached.ConfigOptions) != 1 {
-					t.Fatalf("preview did not populate new-chat configuration: %+v %v", cached, err)
-				}
+			if err != nil || len(preview.ConfigOptions) != 1 || !strings.Contains(string(preview.ConfigOptions[0]), `"currentValue":"Model-A"`) {
+				t.Fatalf("resident Chat blocked new-chat defaults despite spare capacity: %+v %v; %+v", preview, err, host.Stats())
+			}
+			cached, err := sessions.Preview(ctx, "project", false)
+			if err != nil || len(cached.ConfigOptions) != 1 {
+				t.Fatalf("preview did not populate new-chat configuration: %+v %v", cached, err)
 			}
 			raw, err := sessions.Prompt(ctx, p.ChatID, p.PreparationID, p.ConfigRevision, []sdk.ContentBlock{sdk.TextBlock("unaffected")}, nil)
 			if err != nil || !strings.Contains(string(raw), `"model":"Model-B"`) {
@@ -1836,6 +1890,33 @@ func TestConfigurationPreviewCoalescesAndDoesNotEvictActiveChat(t *testing.T) {
 	}
 	if _, err := sessions.Prompt(ctx, p.ChatID, p.PreparationID, p.ConfigRevision, []sdk.ContentBlock{sdk.TextBlock("unaffected")}, nil); err != nil {
 		t.Fatalf("probe affected Chat: %v", err)
+	}
+}
+
+// Exercise the public refresh window: warming another project must not erase
+// stale defaults that can be displayed while a background refresh is deferred.
+func TestConfigurationPreviewRetainsStaleDefaultsAcrossProjects(t *testing.T) {
+	_, _, host, _, root := sessionFixture(t, multiplexAgent)
+	sessions := driver.NewSessions(host, nil, func(key string) (catalog.AgentDefinition, bool) {
+		return catalog.AgentDefinition{Key: key, Engine: catalog.AgentEngineACP, Runtime: map[string]any{"engineId": "fixture/agent"}, Workspace: catalog.AgentWorkspaceConfig{Root: root}}, true
+	})
+	defer sessions.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 40*time.Second)
+	defer cancel()
+	if _, err := sessions.Preview(ctx, "first", true); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-time.After(31 * time.Second):
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if _, err := sessions.Preview(ctx, "second", true); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := sessions.Preview(ctx, "first", false)
+	if err != nil || len(preview.ConfigOptions) != 1 {
+		t.Fatalf("another project erased stale defaults: %+v %v", preview, err)
 	}
 }
 

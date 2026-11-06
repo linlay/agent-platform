@@ -109,8 +109,13 @@ func (s *Supervisor) validateCandidate(engineID string, lease *agentengine.Lease
 		lease.Release()
 		return agentengine.Error("engine_unavailable")
 	}
-	result, callErr := p.Request(ctx, "initialize", map[string]any{"protocolVersion": 1, "clientCapabilities": map[string]any{}})
+	result, callErr := controlRequest(ctx, p, "initialize", map[string]any{"protocolVersion": 1, "clientCapabilities": map[string]any{}})
 	closeErr := p.Close()
+	// A lightweight Adapter can be installed before the user installs its CLI.
+	// Only an explicit dependency error defers the real handshake until Prepare.
+	if closeErr == nil && errors.Is(callErr, agentengine.Error("dependency_missing")) {
+		return nil
+	}
 	var response struct {
 		ProtocolVersion int `json:"protocolVersion"`
 	}

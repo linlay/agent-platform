@@ -81,7 +81,9 @@ func (s *Sessions) observeAuth(engineID string, raw json.RawMessage, state strin
 		}
 	}
 	if state != "" && a.operation == nil {
-		if a.state != state {
+		// A first successful prompt confirms existing credentials; it does not
+		// change the defaults already discovered with those credentials.
+		if a.state != state && !(a.state == "unknown" && state == "authenticated") {
 			s.previewEpoch++
 			clear(s.previews)
 		}

@@ -437,6 +437,8 @@ func TestReverseRequestFloodIsBoundedAndCancelled(t *testing.T) {
 }
 
 func TestEngineEnvironmentKeepsHomeButUsesPrivateProfileAndExplicitProxy(t *testing.T) {
+	localBin := filepath.Join(t.TempDir(), "user-cli-bin")
+	t.Setenv("PATH", os.Getenv("PATH")+string(os.PathListSeparator)+localBin+string(os.PathListSeparator)+".")
 	t.Setenv("AP_ACCESS_TOKEN", "host-secret")
 	t.Setenv("NODE_OPTIONS", "--require /must-not-load")
 	t.Setenv("NODE_PATH", "/must-not-resolve")
@@ -464,6 +466,19 @@ func TestEngineEnvironmentKeepsHomeButUsesPrivateProfileAndExplicitProxy(t *test
 		if _, ok := env[key]; ok {
 			t.Fatalf("inherited forbidden %s", key)
 		}
+	}
+	paths := strings.Split(env["PATH"], string(os.PathListSeparator))
+	foundLocal := false
+	for _, directory := range paths {
+		if directory == localBin {
+			foundLocal = true
+		}
+		if !filepath.IsAbs(directory) {
+			t.Fatal("relative executable search path inherited")
+		}
+	}
+	if !foundLocal {
+		t.Fatal("user CLI search path was discarded")
 	}
 	if env["HOME"] != os.Getenv("HOME") || env["HTTPS_PROXY"] != "http://127.0.0.1:7890" || !strings.Contains(env["NO_PROXY"], "127.0.0.1") {
 		t.Fatal("home or proxy policy not applied")

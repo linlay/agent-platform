@@ -44,10 +44,17 @@ func environment(root, engineID string, lease *agentengine.Lease, proxy httpclie
 	} else {
 		return nil, errors.New("unsupported_deployment")
 	}
+	// Adapter subprocesses use user-installed CLIs. Preserve absolute search
+	// directories after the managed runtime; never search the current Workspace.
+	for _, directory := range filepath.SplitList(os.Getenv("PATH")) {
+		if filepath.IsAbs(directory) {
+			dirs = append(dirs, directory)
+		}
+	}
 	env["PATH"] = strings.Join(dirs, string(os.PathListSeparator))
 	profile := filepath.Join(root, "agent-engine-profiles", profileID(engineID))
 	// Profile identity belongs to the engine, not its program version or Chat.
-	// Plugins map this protected root to their own vendor-specific settings.
+	// Plugins own whether to use this root for state or a vendor config mapping.
 	current := root
 	relative, _ := filepath.Rel(root, profile)
 	for _, part := range strings.Split(relative, string(filepath.Separator)) {
