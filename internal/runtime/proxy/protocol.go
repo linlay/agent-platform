@@ -78,17 +78,14 @@ func QueryPayload(req runtimetypes.QueryCommand, proxy *catalog.ProxyConfig, ref
 	if req.PlanningMode != nil {
 		payload["planningMode"] = *req.PlanningMode
 	}
-	// The local Chat records every upstream event and applies each viewer's
-	// own detail level, so the upstream stream must be complete.
-	return map[string]any{"frame": "request", "type": RequestType(proxy, "query"), "id": req.RequestID, "detail": UpstreamDetail, "payload": payload}
+	// The upstream delivers at its own Agent's level; the local Chat records
+	// what arrives and applies each local viewer's level.
+	return map[string]any{"frame": "request", "type": RequestType(proxy, "query"), "id": req.RequestID, "payload": payload}
 }
 
-// UpstreamDetail is the detail level every Proxy upstream query requests.
-const UpstreamDetail = "detailed"
-
-// QueryURL is the upstream SSE query endpoint at the detailed detail level.
+// QueryURL is the upstream SSE query endpoint.
 func QueryURL(baseURL string) string {
-	return strings.TrimRight(baseURL, "/") + "/api/query?detail=" + UpstreamDetail
+	return strings.TrimRight(baseURL, "/") + "/api/query"
 }
 
 func RequestType(proxy *catalog.ProxyConfig, name string) string {

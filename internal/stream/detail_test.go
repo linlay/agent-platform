@@ -113,11 +113,11 @@ func TestDetailLevelFilterEvents(t *testing.T) {
 		{Seq: 3, Type: "content.snapshot", Payload: map[string]any{}},
 		{Seq: 4, Type: "tool.snapshot", Payload: map[string]any{}},
 	}
-	simple := DetailSimple.FilterEvents(events)
+	simple := NewDetailFilter(DetailSimple, nil).FilterEvents(events)
 	if len(simple) != 2 || simple[0].Seq != 1 || simple[1].Seq != 3 {
 		t.Fatalf("simple=%#v", simple)
 	}
-	if detailed := DetailDetailed.FilterEvents(events); len(detailed) != 4 {
+	if detailed := NewDetailFilter(DetailDetailed, nil).FilterEvents(events); len(detailed) != 4 {
 		t.Fatalf("detailed=%#v", detailed)
 	}
 }
@@ -135,18 +135,11 @@ func TestDeliveryDisplayDoesNotMutatePersistedEvent(t *testing.T) {
 }
 
 func TestResolveDetailLevel(t *testing.T) {
-	for _, tc := range []struct {
-		requested    DetailLevel
-		agentDefault string
-		want         DetailLevel
-	}{
-		{"", "", DetailSimple},
-		{"", "simple", DetailSimple},
-		{"", "verbose", DetailSimple},
-		{DetailDetailed, "simple", DetailDetailed},
+	for agentDefault, want := range map[string]DetailLevel{
+		"": DetailSimple, "simple": DetailSimple, "verbose": DetailSimple, "detailed": DetailDetailed,
 	} {
-		if got := ResolveDetailLevel(tc.requested, tc.agentDefault); got != tc.want {
-			t.Fatalf("ResolveDetailLevel(%q, %q) = %q, want %q", tc.requested, tc.agentDefault, got, tc.want)
+		if got := ResolveDetailLevel(agentDefault); got != want {
+			t.Fatalf("ResolveDetailLevel(%q) = %q, want %q", agentDefault, got, want)
 		}
 	}
 }
@@ -159,8 +152,48 @@ func TestSimpleDeliversWaitCompletionWithoutOrdinaryToolResults(t *testing.T) {
 		{Seq: 3, Type: "tool.result", Payload: map[string]any{"toolName": "wait"}},
 		{Seq: 4, Type: "tool.result", Payload: map[string]any{"toolName": "bash"}},
 	}
-	delivered := DetailSimple.FilterEvents(events)
+	delivered := NewDetailFilter(DetailSimple, nil).FilterEvents(events)
 	if len(delivered) != 3 || delivered[2].Seq != 3 {
 		t.Fatalf("wait lifecycle: %#v", delivered)
 	}
+}
+
+// Live argument chunks, tool.end and replayed results carry only toolId, so a
+// simpleVisible call is tracked from the first event that names its tool.
+func TestSimpleDeliversWholeCallsOfSimpleVisibleTools(t *testing.T) {
+	visible := func(name string) bool { return name == "image_generate" }
+	live := []EventData{
+		{Seq: 1, Type: "tool.start", Payload: map[string]any{"toolId": "img", "toolName": "image_generate"}},
+		{Seq: 2, Type: "tool.args", Payload: map[string]any{"toolId": "img", "delta": "{}"}},
+		{Seq: 3, Type: "tool.end", Payload: map[string]any{"toolId": "img"}},
+		{Seq: 4, Type: "tool.start", Payload: map[string]any{"toolId": "sh", "toolName": "bash"}},
+		{Seq: 5, Type: "tool.args", Payload: map[string]any{"toolId": "sh", "delta": "{}"}},
+		{Seq: 6, Type: "tool.result", Payload: map[string]any{"toolId": "sh", "toolName": "bash"}},
+		{Seq: 7, Type: "tool.result", Payload: map[string]any{"toolId": "img", "toolName": "image_generate"}},
+	}
+	delivered := NewDetailFilter(DetailSimple, visible).FilterEvents(live)
+	if got := seqs(delivered); len(got) != 4 || got[0] != 1 || got[1] != 2 || got[2] != 3 || got[3] != 7 {
+		t.Fatalf("live delivered %v", got)
+	}
+	replay := []EventData{
+		{Seq: 1, Type: "tool.snapshot", Payload: map[string]any{"toolId": "img", "toolName": "image_generate"}},
+		{Seq: 2, Type: "tool.result", Payload: map[string]any{"toolId": "img", "result": "{}"}},
+		{Seq: 3, Type: "tool.result", Payload: map[string]any{"toolId": "other", "result": "{}"}},
+	}
+	if got := seqs(NewDetailFilter(DetailSimple, visible).FilterEvents(replay)); len(got) != 2 || got[1] != 2 {
+		t.Fatalf("replay delivered %v", got)
+	}
+	// An observer attached after tool.start still learns the call from its result.
+	late := NewDetailFilter(DetailSimple, visible)
+	if !late.Allows(live[6]) {
+		t.Fatal("late simpleVisible result dropped")
+	}
+}
+
+func seqs(events []EventData) []int64 {
+	out := make([]int64, 0, len(events))
+	for _, event := range events {
+		out = append(out, event.Seq)
+	}
+	return out
 }

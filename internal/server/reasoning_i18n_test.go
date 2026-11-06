@@ -22,7 +22,7 @@ func TestReasoningLocaleMatchesSSEHistoryAndExport(t *testing.T) {
 		)
 	})
 	for _, locale := range []string{"en", "zh-cn"} {
-		req := httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", strings.NewReader(`{"message":"think","agentKey":"mock-agent"}`))
+		req := httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"message":"think","agentKey":"mock-agent"}`))
 		req.Header.Set("X-Locale", locale)
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, req)

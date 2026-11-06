@@ -469,7 +469,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.Display = s.chatDisplay(response.AgentKey, chatReadDetail(response, detail))
-	response.Events = response.Display.EffectiveDetail.FilterEvents(response.Events)
+	response.Events = s.detailFilter(response.Display.EffectiveDetail).FilterEvents(response.Events)
 	writeJSON(w, http.StatusOK, api.Success(response))
 }
 

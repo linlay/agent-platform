@@ -45,7 +45,7 @@ coder:
 
 simple（精简过程）显示启动思考提示、模型公示、必要状态通知及输出开始时的清除，隐藏每轮自动思考、工具等一句话进度；detailed（详细过程）展示真实过程，不生成启动占位。公示保持计时已移除，旧顶层 `announce-hold-seconds` 配置拒绝加载。见 [细节等级与 run.activity](API与协议.md#细节等级与-runactivity)。
 
-query/attach/chat 不传 detail 时跟随实际 owner Agent；显式 HTTP URL 参数或 WS 帧顶层 detail 只覆盖本次下发。默认值不改变模型执行、权限、原始 query 和完整落盘。Proxy 上游继续请求 detailed；Desktop broker 不改写 detail，窗口跟随 Agent，页面按下发元数据的 effectiveDetail 展示。
+Run 的档位只来自实际 owner Agent 的有效默认值，send/query/attach 不接受请求覆盖；只有 `/api/chat` 读取空闲 Chat 的历史时可指定档位。档位不改变模型执行、权限、原始 query 和完整落盘。Proxy 不向上游指定档位，上游按自身 Agent 配置下发；页面按下发元数据的 effectiveDetail 展示。
 
 ### planning-mode 工具排除
 

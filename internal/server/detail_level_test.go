@@ -2,6 +2,7 @@ package server
 
 import (
 	"agent-platform/internal/api"
+	"agent-platform/internal/config"
 	"agent-platform/internal/stream"
 	platformws "agent-platform/internal/ws"
 	"bytes"
@@ -17,7 +18,9 @@ import (
 	"time"
 )
 
-func newDatetimeToolLoopFixture(t *testing.T) testFixture {
+// newDatetimeToolLoopFixture runs one datetime tool loop. level is every
+// mode's configured default; empty leaves it unset, which resolves to simple.
+func newDatetimeToolLoopFixture(t *testing.T, level string) testFixture {
 	t.Helper()
 	return newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]any
@@ -38,11 +41,13 @@ func newDatetimeToolLoopFixture(t *testing.T) testFixture {
 			`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_datetime","type":"function","function":{"name":"datetime","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":3,"total_tokens":13}}`,
 			`[DONE]`,
 		)
-	}, testFixtureOptions{notifications: platformws.NewHub()})
+	}, testFixtureOptions{notifications: platformws.NewHub(), configure: func(cfg *config.Config) {
+		cfg.ModeDefaultDetails = allModesDetail(level)
+	}})
 }
 
 func TestQueryDefaultsToSimpleDetail(t *testing.T) {
-	fixture := newDatetimeToolLoopFixture(t)
+	fixture := newDatetimeToolLoopFixture(t, "")
 	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"现在几点？"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept-Language", "zh-CN")
@@ -99,14 +104,14 @@ func TestQueryDefaultsToSimpleDetail(t *testing.T) {
 }
 
 func TestChatHistoryHonorsDetailLevel(t *testing.T) {
-	fixture := newDatetimeToolLoopFixture(t)
+	fixture := newDatetimeToolLoopFixture(t, "")
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", bytes.NewBufferString(`{"chatId":"chat-detail","message":"现在几点？"}`)))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"chat-detail","message":"现在几点？"}`)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("query: %d %s", rec.Code, rec.Body.String())
 	}
 	// Delivery can finish just before the runtime clears its active Run. Read
-	// history only after that boundary; an active detailed Run overrides read detail.
+	// history only after that boundary; an active Run overrides read detail.
 	for _, event := range decodeSSEMessages(t, rec.Body.String()) {
 		if event["type"] == "run.start" {
 			waitRunTerminal(t, fixture.server, event["runId"].(string))
@@ -146,34 +151,38 @@ func TestChatHistoryHonorsDetailLevel(t *testing.T) {
 	assertStringSliceContains(t, types("detailed"), "tool.snapshot")
 }
 
-func TestDetailLevelRejectsUnknownValue(t *testing.T) {
-	fixture := newDatetimeToolLoopFixture(t)
-	for _, req := range []*http.Request{
-		httptest.NewRequest(http.MethodPost, "/api/query?detail=verbose", bytes.NewBufferString(`{"message":"hi"}`)),
-		httptest.NewRequest(http.MethodPost, "/api/query?detail=none", bytes.NewBufferString(`{"message":"hi"}`)),
-		httptest.NewRequest(http.MethodPost, "/api/query?detail=summary", bytes.NewBufferString(`{"message":"hi"}`)),
-		httptest.NewRequest(http.MethodPost, "/api/query?detail=full", bytes.NewBufferString(`{"message":"hi"}`)),
-		httptest.NewRequest(http.MethodGet, "/api/chat?chatId=x&detail=verbose", nil),
-		httptest.NewRequest(http.MethodGet, "/api/chat?chatId=x&detail=none", nil),
-	} {
-		rec := httptest.NewRecorder()
-		fixture.server.ServeHTTP(rec, req)
-		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "detail must be simple or detailed") {
-			t.Fatalf("%s: %d %s", req.URL, rec.Code, rec.Body.String())
+// A Run is delivered at its Agent's configured level: requests that start or
+// observe one cannot name a level, valid or not. Only history reads choose one.
+func TestDetailRequestRules(t *testing.T) {
+	fixture := newDatetimeToolLoopFixture(t, "")
+	for _, detail := range []string{"detailed", "simple", "verbose", ""} {
+		for _, req := range []*http.Request{
+			httptest.NewRequest(http.MethodPost, "/api/query?detail="+detail, bytes.NewBufferString(`{"message":"hi"}`)),
+			httptest.NewRequest(http.MethodPost, "/api/send?detail="+detail, bytes.NewBufferString(`{"requestId":"r","message":"hi"}`)),
+		} {
+			rec := httptest.NewRecorder()
+			fixture.server.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "detail_not_allowed") {
+				t.Fatalf("%s: %d %s", req.URL, rec.Code, rec.Body.String())
+			}
 		}
-	}
-	// A Run's level is fixed by its query; attach cannot pass one, valid or not.
-	for _, detail := range []string{"detailed", ""} {
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/attach?runId=x&detail="+detail, nil))
 		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "detail_not_allowed") {
 			t.Fatalf("attach detail=%q: %d %s", detail, rec.Code, rec.Body.String())
 		}
 	}
+	for _, detail := range []string{"verbose", "none"} {
+		rec := httptest.NewRecorder()
+		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId=x&detail="+detail, nil))
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "detail must be simple or detailed") {
+			t.Fatalf("chat detail=%q: %d %s", detail, rec.Code, rec.Body.String())
+		}
+	}
 }
 
 func TestConfiguredAgentDetailAcrossHTTPAndWS(t *testing.T) {
-	f := newDatetimeToolLoopFixture(t)
+	f := newDatetimeToolLoopFixture(t, "")
 	path := filepath.Join(f.cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -186,39 +195,37 @@ func TestConfiguredAgentDetailAcrossHTTPAndWS(t *testing.T) {
 	if err := f.registry.Reload(context.Background(), "agents"); err != nil {
 		t.Fatal(err)
 	}
+	chatID := "configured"
+	rec := httptest.NewRecorder()
+	f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"chatId":"`+chatID+`","message":"time"}`)))
+	if rec.Code != 200 {
+		t.Fatalf("query: %d %s", rec.Code, rec.Body.String())
+	}
+	sawTool := false
+	runID := ""
+	for _, event := range decodeSSEMessages(t, rec.Body.String()) {
+		if event["type"] == "run.activity" && event["kind"] != nil {
+			t.Fatalf("detailed received simulated thinking: %#v", event)
+		}
+		if event["type"] == "tool.start" {
+			sawTool = true
+		}
+		if event["type"] == "run.start" {
+			runID, _ = event["runId"].(string)
+			if display, _ := event["display"].(map[string]any); display["defaultDetail"] != "detailed" || display["effectiveDetail"] != "detailed" {
+				t.Fatal(event)
+			}
+		}
+	}
+	if !sawTool {
+		t.Fatal("configured detailed Agent hid tool calls")
+	}
+	waitRunTerminal(t, f.server, runID)
+	// History reads at the Agent default unless the reader names a level.
 	for _, tc := range []struct {
 		detail   string
 		detailed bool
 	}{{"", true}, {"simple", false}, {"detailed", true}} {
-		chatID := "configured-" + tc.detail
-		url := "/api/query"
-		if tc.detail != "" {
-			url += "?detail=" + tc.detail
-		}
-		rec := httptest.NewRecorder()
-		f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, url, strings.NewReader(`{"chatId":"`+chatID+`","message":"time"}`)))
-		if rec.Code != 200 {
-			t.Fatalf("query: %d %s", rec.Code, rec.Body.String())
-		}
-		sawTool := false
-		runID := ""
-		for _, event := range decodeSSEMessages(t, rec.Body.String()) {
-			if event["type"] == "run.activity" && event["kind"] != nil {
-				t.Fatalf("detailed received simulated thinking: %#v", event)
-			}
-			if event["type"] == "tool.start" {
-				sawTool = true
-			}
-			if event["type"] == "run.start" {
-				runID, _ = event["runId"].(string)
-				if display, _ := event["display"].(map[string]any); display["defaultDetail"] != "detailed" {
-					t.Fatal(event)
-				}
-			}
-		}
-		if sawTool != tc.detailed {
-			t.Fatalf("override=%q tools=%v", tc.detail, sawTool)
-		}
 		suffix := ""
 		if tc.detail != "" {
 			suffix = "&detail=" + tc.detail
@@ -239,23 +246,23 @@ func TestConfiguredAgentDetailAcrossHTTPAndWS(t *testing.T) {
 			}
 		}
 		if sawTool != tc.detailed || response.Data.Display.DefaultDetail != "detailed" {
-			t.Fatalf("history: %s", rec.Body.String())
+			t.Fatalf("history read=%q: %s", tc.detail, rec.Body.String())
 		}
-		rec = httptest.NewRecorder()
-		// Attach follows the level the Run was started with.
-		f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/attach?agentKey=mock-agent&runId="+runID, nil))
-		if rec.Code != 200 {
-			t.Fatalf("attach: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	// Attach follows the level the Run was started with.
+	f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/attach?agentKey=mock-agent&runId="+runID, nil))
+	if rec.Code != 200 {
+		t.Fatalf("attach: %d %s", rec.Code, rec.Body.String())
+	}
+	sawTool = false
+	for _, event := range decodeSSEMessages(t, rec.Body.String()) {
+		if event["type"] == "tool.start" {
+			sawTool = true
 		}
-		sawTool = false
-		for _, event := range decodeSSEMessages(t, rec.Body.String()) {
-			if event["type"] == "tool.start" {
-				sawTool = true
-			}
-		}
-		if sawTool != tc.detailed {
-			t.Fatalf("attach override=%q tools=%v", tc.detail, sawTool)
-		}
+	}
+	if !sawTool {
+		t.Fatal("attach hid tool calls of a detailed Run")
 	}
 	srv := newLoopbackServer(t, f.server)
 	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/ws", nil)
@@ -266,8 +273,8 @@ func TestConfiguredAgentDetailAcrossHTTPAndWS(t *testing.T) {
 	readConnectedPush(t, conn)
 	for _, tc := range []struct {
 		detail   string
-		detailed bool
-	}{{"", true}, {"simple", false}} {
+		rejected bool
+	}{{"", false}, {"simple", true}} {
 		id := "ws-" + tc.detail
 		frame := map[string]any{"frame": "request", "type": "/api/query", "id": id, "payload": map[string]any{"chatId": id, "message": "time"}}
 		if tc.detail != "" {
@@ -276,7 +283,7 @@ func TestConfiguredAgentDetailAcrossHTTPAndWS(t *testing.T) {
 		if err := conn.WriteJSON(frame); err != nil {
 			t.Fatal(err)
 		}
-		sawTool, sawDisplay := false, false
+		sawTool, sawDisplay, rejected := false, false, false
 		for {
 			_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 			var message struct {
@@ -291,7 +298,8 @@ func TestConfiguredAgentDetailAcrossHTTPAndWS(t *testing.T) {
 				continue
 			}
 			if message.Frame == "error" {
-				t.Fatalf("WS error: %+v", message)
+				rejected = message.Type == "invalid_detail"
+				break
 			}
 			if message.Event["type"] == "tool.start" {
 				sawTool = true
@@ -304,8 +312,29 @@ func TestConfiguredAgentDetailAcrossHTTPAndWS(t *testing.T) {
 				break
 			}
 		}
-		if sawTool != tc.detailed || !sawDisplay {
-			t.Fatalf("WS override=%q tools=%v display=%v", tc.detail, sawTool, sawDisplay)
+		if rejected != tc.rejected || (!tc.rejected && (!sawTool || !sawDisplay)) {
+			t.Fatalf("WS detail=%q rejected=%v tools=%v display=%v", tc.detail, rejected, sawTool, sawDisplay)
+		}
+	}
+}
+
+// image_generate declares simpleVisible, so simple viewers keep its whole
+// call while ordinary tools stay hidden.
+func TestSimpleDeliveryKeepsSimpleVisibleToolCalls(t *testing.T) {
+	fixture := newDatetimeToolLoopFixture(t, "")
+	filter := fixture.server.detailFilter(stream.DetailSimple)
+	for _, tc := range []struct {
+		event stream.EventData
+		want  bool
+	}{
+		{stream.EventData{Type: "tool.start", Payload: map[string]any{"toolId": "img", "toolName": "image_generate"}}, true},
+		{stream.EventData{Type: "tool.args", Payload: map[string]any{"toolId": "img", "delta": "{}"}}, true},
+		{stream.EventData{Type: "tool.start", Payload: map[string]any{"toolId": "clock", "toolName": "datetime"}}, false},
+		{stream.EventData{Type: "tool.result", Payload: map[string]any{"toolId": "clock", "toolName": "datetime"}}, false},
+		{stream.EventData{Type: "tool.result", Payload: map[string]any{"toolId": "img", "toolName": "image_generate"}}, true},
+	} {
+		if got := filter.Allows(tc.event); got != tc.want {
+			t.Fatalf("%s %v: got %v", tc.event.Type, tc.event.Payload, got)
 		}
 	}
 }
@@ -321,8 +350,8 @@ func TestChatReadDetailFollowsActiveRun(t *testing.T) {
 }
 
 func TestDetailedQueryShowsModelWaitingOnlyOnceAcrossToolLoop(t *testing.T) {
-	fixture := newDatetimeToolLoopFixture(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", strings.NewReader(`{"message":"time"}`))
+	fixture := newDatetimeToolLoopFixture(t, "detailed")
+	req := httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"message":"time"}`))
 	req.Header.Set("Accept-Language", "zh-CN")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)

@@ -17,8 +17,7 @@ import (
 )
 
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
-	detail, ok := requestDetailLevel(w, r)
-	if !ok {
+	if rejectDetailOverride(w, r) {
 		return
 	}
 	req, err := decodeQueryRequest(r)
@@ -44,7 +43,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		command.SideID = req.SideID
 		command.Locale = requestLocale(r, s.deps.Config.Prompts.Runtime.ResolveLocale(""))
 		command.ResourceBaseURL = s.requestBaseURL(r)
-		s.writeRuntimeQueryResponse(w, r.Context(), command, detail)
+		s.writeRuntimeQueryResponse(w, r.Context(), command)
 
 		return
 	case "explain":
@@ -55,7 +54,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !isNonStreamingQuery(req) {
-		s.handleRuntimeQueryAsync(w, r, req, detail)
+		s.handleRuntimeQueryAsync(w, r, req)
 		return
 	}
 	command := trustedQueryCommand(r.Context(), req)
@@ -63,7 +62,6 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	command.ResourceBaseURL = s.requestBaseURL(r)
 	command.ChatSource = chatSourceFromContext(r.Context())
 	command.ClientTarget = runtimeClientTarget(webClientTargetFromHTTPRequest(r))
-	command.Detail = detail
 	s.writeRuntimeQueryNonStream(w, r.Context(), command)
 
 }
@@ -88,7 +86,7 @@ func writeQueryStartError(w http.ResponseWriter, err error) {
 	writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 }
 
-func (s *Server) handleRuntimeQueryAsync(w http.ResponseWriter, r *http.Request, req api.QueryRequest, detail stream.DetailLevel) {
+func (s *Server) handleRuntimeQueryAsync(w http.ResponseWriter, r *http.Request, req api.QueryRequest) {
 	command := trustedQueryCommand(r.Context(), req)
 	command.Locale = requestLocale(r, s.deps.Config.Prompts.Runtime.ResolveLocale(""))
 	command.ResourceBaseURL = s.requestBaseURL(r)
@@ -97,18 +95,18 @@ func (s *Server) handleRuntimeQueryAsync(w http.ResponseWriter, r *http.Request,
 	if principal := PrincipalFromContext(r.Context()); principal != nil {
 		command.Caller.Subject = strings.TrimSpace(principal.Subject)
 	}
-	s.writeRuntimeQueryStream(w, r.Context(), command, detail)
+	s.writeRuntimeQueryStream(w, r.Context(), command)
 }
 
-func (s *Server) writeRuntimeQueryStream(w http.ResponseWriter, ctx context.Context, command runtimetypes.QueryCommand, detail stream.DetailLevel) {
-	command.Detail = detail
+func (s *Server) writeRuntimeQueryStream(w http.ResponseWriter, ctx context.Context, command runtimetypes.QueryCommand) {
 	handle, err := s.deps.Runtime.StartQuery(ctx, command)
 	if err != nil {
 		writeQueryStartError(w, err)
 		return
 	}
 	display := s.chatDisplay(handle.AgentKey, handle.Detail)
-	detail = display.EffectiveDetail
+	detail := display.EffectiveDetail
+	filter := s.detailFilter(detail)
 	w.Header().Set("X-Event-Detail", string(detail))
 	w.Header().Set("X-Agent-Default-Detail", string(display.DefaultDetail))
 	if handle.SideID != "" {
@@ -146,7 +144,7 @@ func (s *Server) writeRuntimeQueryStream(w http.ResponseWriter, ctx context.Cont
 				return
 			}
 			event = stream.WithDisplay(event, display.DefaultDetail, detail)
-			if !detail.Allows(event.Type, event.Payload) {
+			if !filter.Allows(event) {
 				continue
 			}
 			if err := sseWriter.WriteJSON("message", localizeStreamEventData(command.Locale, event)); err != nil {
@@ -254,16 +252,16 @@ func cloneQueryErrorPayload(input map[string]any) map[string]any {
 // A blocking caller remains an observer for its whole execution, preserving the
 // existing run-control policy independently of HTTP request cancellation.
 
-func (s *Server) writeRuntimeQueryResponse(w http.ResponseWriter, ctx context.Context, cmd runtimetypes.QueryCommand, detail stream.DetailLevel) {
+func (s *Server) writeRuntimeQueryResponse(w http.ResponseWriter, ctx context.Context, cmd runtimetypes.QueryCommand) {
 	if cmd.Stream != nil && !*cmd.Stream {
 		s.writeRuntimeQueryNonStream(w, ctx, cmd)
 	} else {
-		s.writeRuntimeQueryStream(w, ctx, cmd, detail)
+		s.writeRuntimeQueryStream(w, ctx, cmd)
 	}
 }
 
-// requestDetailLevel reads the detail query parameter; an invalid value has
-// already been answered with 400 when ok is false.
+// requestDetailLevel reads the /api/chat history-read level; an invalid value
+// has already been answered with 400 when ok is false.
 func requestDetailLevel(w http.ResponseWriter, r *http.Request) (stream.DetailLevel, bool) {
 	level, ok := stream.ParseDetailLevel(r.URL.Query().Get("detail"))
 	if !ok {

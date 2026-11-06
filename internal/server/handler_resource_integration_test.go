@@ -596,7 +596,7 @@ func TestQueryAfterUploadDoesNotEmitChatStartInLiveStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", bytes.NewReader(queryBody))
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(queryBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)

@@ -15,7 +15,7 @@ mail 都寄给 Chat，不寄给 Run；寄给 Agent 就是寄给它的主要对�
 
 用户消息（文字，或只带引用）通过 `POST /api/send` 或主 WS 同名帧进入同一 MAILS 投递账本，详见 [用户消息发送](API与协议.md#用户消息发送)。用户消息仍为 `letter`，`ORIGIN_TYPE_=user`，发件 Agent/Chat/Run 为空。它不经过 Agent 发信的地址资格检查，没有信封头、派生 Run 控制链、回信和请示；消费视为用户直接输入，跳数重置为 0，chat 引用资格来自本条消息。Run 完成后转为 `done`；开出的 Run 未消费消息即结束则失败。
 
-受理保存 `REQUEST_ID_`、冻结的 `PLANNING_MODE_/EDITING_MODE_/DETAIL_`、请求显式给出的 `MODEL_`（省略时开 Run 按 Agent 配置解析）与权限，按 subject/requestId 幂等。插入只传普通用户 steer，不修改当前 Run 的运行选项；不同的显式选项写入 `IGNORED_OPTIONS_`，收据及 `mail.updated` 返回同一字段。
+受理保存 `REQUEST_ID_`、冻结的 `PLANNING_MODE_/EDITING_MODE_`、请求显式给出的 `MODEL_`（省略时开 Run 按 Agent 配置解析）与权限；细节等级不由请求指定，开 Run 时按 Agent 配置决定，按 subject/requestId 幂等。插入只传普通用户 steer，不修改当前 Run 的运行选项；不同的显式选项写入 `IGNORED_OPTIONS_`，收据及 `mail.updated` 返回同一字段。
 
 | 箱 | box | 状态 |
 |---|---|---|

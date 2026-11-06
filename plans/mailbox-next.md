@@ -397,7 +397,7 @@ P1（是否需要单独的出队策略）已确认：需要。
 
 ### 阶段 5 用户消息实施记录（2026-11-06）
 
-- 已实现 HTTP/主 WS `/api/send`、subject/requestId 幂等、与 Query 共享的用户准入、运行选项/身份/detail 冻结、开 Run/插入/排队和用户消息结算；用户消息没有 Agent 信封、回信、请示或派生 Run 控制限制。
+- 已实现 HTTP/主 WS `/api/send`、subject/requestId 幂等、与 Query 共享的用户准入、运行选项/身份冻结（detail 不由请求指定，开 Run 时按 Agent 配置定档）、开 Run/插入/排队和用户消息结算；用户消息没有 Agent 信封、回信、请示或派生 Run 控制限制。
 - 已实现 pending/received/trash 三箱与交集筛选、待收取总数角标、待发气泡、本地按身份保存、分页全文恢复、WS 重连对账、启动清库后的未送达提示与新 requestId 重发。消费先于收据不复活气泡；网络结果未知保留正文并等待对账，不当作明确拒绝重发。
 - ACP/Proxy/渠道的活动 Run 保守排队；Proxy 空闲启动、运行中排队、空闲后投递和无回信结算已补集成测试。agent-gateway 当前没有 `/api/send` 转发；为保留既有网关行为，WebClient 网关模式继续走旧 Query/steer，直连 Platform/Desktop 走统一发送。
 - 验证：Platform `make test` 通过（Server 的 SSE 历史落盘时序用例首次失败，按 Make 既有规则重试通过）；全仓 `go build` 通过，新发送入口 `-race` 通过。WebClient 全量 507 个套件、4508 项通过，相关发送/恢复回归及 typecheck、边界检查、生产 build 通过；构建只有现有包体积告警。

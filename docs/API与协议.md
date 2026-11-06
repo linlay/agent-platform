@@ -581,7 +581,7 @@ TEAM 总控的普通工具与 reasoning 沿普通 Agent 事件链路；内部 `a
 
 #### 用户消息发送
 
-`POST /api/send` 与主 WS 同名帧 `/api/send` 受理一条用户消息，返回普通 `{code,msg,data}`，不承载 Run 事件流。HTTP 的 `detail` 放 URL 参数，WS 放帧顶层。仅主 lane 可用。
+`POST /api/send` 与主 WS 同名帧 `/api/send` 受理一条用户消息，返回普通 `{code,msg,data}`，不承载 Run 事件流，不接受 `detail`（Run 按 Agent 配置定档，见[细节等级](#细节等级与-runactivity)）。仅主 lane 可用。
 
 ```json
 {"requestId":"req_unique","agentKey":"assistant","message":"继续整理报告","references":[],"planningMode":false,"editingMode":true,"model":{"key":"model-key","reasoningEffort":"LOW"},"accessLevel":"default"}
@@ -603,14 +603,14 @@ TEAM 总控的普通工具与 reasoning 沿普通 Agent 事件链路；内部 `a
 
 #### 细节等级与 run.activity
 
-`/api/query` 与 `/api/chat` 接受细节等级 `detail`：HTTP 用 URL 参数（`?detail=detailed`），WS 用请求帧顶层字段（与 `type`、`id` 并列，见[帧类型](#帧类型)），不放进 query 请求体，因此不进入 JSONL 原始 query。显式取值为 `simple` 或 `detailed`（旧 `summary`、`full`、`none` 均拒绝），其他值返回 400 `invalid_detail`；WS 其他路由携带 `detail` 同样拒绝。
+细节等级 `simple`/`detailed` 由后端按 Agent 配置决定，请求不能指定。Run 受理时按实际准入 Agent 的 `interactionConfig.defaultDetail` > agent-settings.yml 对应 mode 的 `interaction-config.default-detail` > simple 冻结，整个 Run 期间所有观察者收到同一档事件。所有开 Run 的入口（`/api/send`、`/api/query` 含 btw/explain、`/api/execute`、`chat_send`、Automation、批准计划后启动的执行 Run）都按当时的 Agent 配置定档；排队邮件在开 Run 时定档；TEAM 子任务与 steer 不改变档位。档位只在进程内保存，不落盘（Platform 重启本就取消未完成 Run）。
 
-档位属于 Run：`/api/query` 受理时冻结（请求显式值 > 实际准入 Agent 的 `interactionConfig.defaultDetail` > simple，Agent 默认值来自 Agent 显式配置 > agent-settings.yml 对应 mode 配置），整个 Run 期间所有观察者收到同一档事件。没有调用方连接的 Run（`chat_send`、Automation、`/api/execute`）取 Agent 默认值；批准计划后启动的执行 Run 沿用规划 Run 的档位；TEAM 子任务与 steer 不改变档位。档位只在进程内保存，不落盘（Platform 重启本就取消未完成 Run）。
+- `/api/send`、`/api/query`、`/api/attach` 不接受 `detail`：HTTP 带该 URL 参数（含空值）返回 400 `detail_not_allowed`，WS 帧顶层带 `detail` 返回 400 `invalid_detail` 错误帧。
+- `/api/chat` 是唯一可选档位的读取：HTTP 用 URL 参数（`?detail=detailed`），WS 用请求帧顶层字段（与 `type`、`id` 并列，见[帧类型](#帧类型)），取值为 `simple` 或 `detailed`（旧 `summary`、`full`、`none` 均拒绝），其他值返回 400 `invalid_detail`。Chat 有进行中的 Run 时，整个响应（含之前已结束 Run 的历史事件）按该 Run 的档位过滤，请求的 `detail` 忽略；没有进行中的 Run 时按请求档位读取，省略时按 Chat owner Agent 当前默认值。`activeRun.detail` 返回 Run 的档位。
 
-- `/api/attach` 不接受 `detail`：HTTP 带该参数（含空值）返回 400 `detail_not_allowed`，WS attach 帧带 `detail` 返回协议错误；续接一律按 Run 冻结的档位。
-- `/api/chat`：Chat 有进行中的 Run 时，整个响应（含之前已结束 Run 的历史事件）按该 Run 的档位过滤，请求的 `detail` 忽略；没有进行中的 Run 时按请求档位读取，省略时按 Chat owner Agent 默认值。`activeRun.detail` 返回 Run 的档位。
+`/api/chat` 返回 `display: {defaultDetail,effectiveDetail}`，前者为 Agent 有效默认值，后者为实际下发档位。流式 `run.start` 在下发时附加相同 display（不修改共享事件或落盘）；HTTP SSE 另提供 `X-Agent-Default-Detail` 和 `X-Event-Detail` 响应头。Agent 不存在时兜底 simple，不阻止历史读取。客户端展示后端下发的事件，不再按档位二次过滤。
 
-`/api/chat` 返回 `display: {defaultDetail,effectiveDetail}`，前者为 Agent 有效默认值，后者为实际下发档位。流式 `run.start` 在下发时附加相同 display（不修改共享事件或落盘）；HTTP SSE 另提供 `X-Agent-Default-Detail` 和 `X-Event-Detail` 响应头。Agent 不存在时兜底 simple，不阻止历史读取。页面按 `effectiveDetail`（实际下发档位）展示。Desktop broker 不改写 `detail`：窗口请求省略时跟随 Agent，只有需要读取工具事件的 Desktop 主进程 Run（图片工作台）在自己的 query 上显式请求 detailed。
+工具 YAML 声明 `simpleVisible: true` 的工具（当前为 `image_generate`），其调用的全部 `tool.*` 事件在 simple 下也下发。过滤按 `toolId` 跟踪同一次调用：参数分片 `tool.args`、`tool.end` 与历史回放的 `tool.result` 不带工具名，从该调用第一条带工具名的事件（`tool.start`、`tool.snapshot` 或实时 `tool.result`）开始识别。
 
 落盘始终完整，细节等级只决定下发哪些事件：
 
@@ -629,9 +629,10 @@ TEAM 总控的普通工具与 reasoning 沿普通 Agent 事件链路；内部 `a
 | 重试 `run.activity`（带 `retry`） | ✓ | ✓ |
 | `run.access_level.changed`、`context.compact.*`、`usage.snapshot` | ✓ | ✓ |
 | `tool.wait`、`tool.wait.update`、wait 的 `tool.result` | ✓ | ✓ |
+| 声明 `simpleVisible` 的工具调用的全部 `tool.*` | ✓ | ✓ |
 | `reasoning.*`、其他 `tool.*`、`debug.llmChat`、`memory.*` 及其他类型 | — | ✓ |
 
-simple（精简）保留通知与状态同步：权限变更、上下文压缩、工具等待及其完成、实时用量、公示及清除和重试活动均下发，不能因展示精简而丢失通知。自动思考、普通工具调用等进度活动，以及思考正文和普通工具参数、结果等过程详情由白名单过滤。提问和审批本身仍通过 `awaiting.ask/answer` 正常展示。detailed（详细）展示真实过程，不生成或接收启动占位；后端只向 detailed 下发首次模型等待及清空消息，其他进度由细节事件本身展示。simple 与 detailed 均实时下发 `usage.snapshot`，终态仍可读取 `run.complete/cancel/error` 的 `usage.run` 与 `usage.chat`：其中 `toolCallCount`、`llmChatCompletionCount` 固定输出（含 0），另有 `promptTokens`、`completionTokens`、`completionTokensDetails.reasoningTokens`、`estimatedCost` 等。`/api/chat` 只按等级过滤 `events`，`runs[].usage` 与顶层 `usage` 不受影响。ACP/Proxy 的上游请求保持既有方式，不能依赖 ACP 遵守 Platform 展示档位；外部活动 message 作为已成形的消息转发，不按文案猜测内部类型，保存与重连时也按不透明消息处理；gateway 与 Desktop 透传客户端的 `detail`，省略时跟随 Agent。
+simple（精简）保留通知与状态同步：权限变更、上下文压缩、工具等待及其完成、实时用量、公示及清除和重试活动均下发，不能因展示精简而丢失通知。自动思考、普通工具调用等进度活动，以及思考正文和普通工具参数、结果等过程详情由白名单过滤。提问和审批本身仍通过 `awaiting.ask/answer` 正常展示。detailed（详细）展示真实过程，不生成或接收启动占位；后端只向 detailed 下发首次模型等待及清空消息，其他进度由细节事件本身展示。simple 与 detailed 均实时下发 `usage.snapshot`，终态仍可读取 `run.complete/cancel/error` 的 `usage.run` 与 `usage.chat`：其中 `toolCallCount`、`llmChatCompletionCount` 固定输出（含 0），另有 `promptTokens`、`completionTokens`、`completionTokensDetails.reasoningTokens`、`estimatedCost` 等。`/api/chat` 只按等级过滤 `events`，`runs[].usage` 与顶层 `usage` 不受影响。Proxy 不向上游指定档位，上游按其 Agent 配置下发：上游为 simple 时，本地 Chat 只记录收到的事件，不含工具调用和思考过程。不能依赖 ACP 遵守 Platform 展示档位；外部活动 message 作为已成形的消息转发，不按文案猜测内部类型，保存与重连时也按不透明消息处理。gateway 与 Desktop 透传客户端帧，`/api/chat` 以外带 `detail` 的请求由 Platform 拒绝。
 
 `run.activity` 用一句话说明 Run（或带 `taskId` 的子任务）现在在做什么。公开业务字段只有 `runId`、`chatId`、可选 `taskId`、`message`，重试时另带 `retry`；不下发 `kind`、`initial` 或内部文案模板。后端先用内部分类按档位筛选，再按查看者语言渲染（HTTP 用请求语言、WS 用连接当前语言）。前端只显示 message，不按分类或文案二次过滤。同一 `(runId, taskId)` 新消息替换旧消息，空 message 清除该 scope 的活动；任务终态清除对应活动，Run 终态清除全部。
 
@@ -1028,10 +1029,10 @@ WebSocket 存活配置与 SSE heartbeat 完全独立。服务端默认每 30 秒
 }
 ```
 
-`/api/query`、`/api/chat` 的请求帧可在顶层携带 `detail`（显式 `simple` 或 `detailed`，省略跟随 Agent），它是下发选项而非 payload；attach 帧不接受，规则见[细节等级](#细节等级与-runactivity)：
+只有 `/api/chat` 的请求帧可在顶层携带 `detail`（显式 `simple` 或 `detailed`，省略按 Agent 默认值），它是历史读取选项而非 payload；其他帧携带返回 `invalid_detail`，规则见[细节等级](#细节等级与-runactivity)：
 
 ```json
-{"frame":"request","type":"/api/query","id":"req-2","detail":"detailed","payload":{"message":"hello"}}
+{"frame":"request","type":"/api/chat","id":"req-2","detail":"detailed","payload":{"chatId":"chat-1"}}
 ```
 
 Desktop Action 反向请求直接使用具体 Action 名作为 `type`，可信上下文位于帧顶层，payload 只包含该 Action 参数：

@@ -254,7 +254,7 @@ func TestQueryResultSubmitContinuesUntilModelFinishes(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", bytes.NewReader(body)))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body)))
 	if rec.Code != http.StatusOK || calls.Load() != 2 || !strings.Contains(rec.Body.String(), "任务已完成，结果已提交。") || !strings.Contains(rec.Body.String(), `"type":"run.complete"`) {
 		t.Fatalf("query did not finish normally after submission: %d, %d model calls, %s", rec.Code, calls.Load(), rec.Body.String())
 	}

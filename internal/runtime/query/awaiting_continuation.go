@@ -184,10 +184,6 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	}
 	req.AccessLevel = level
 	req.AccessGrant = map[string]any{"accessLevel": level, "source": source, "agentKey": agentKey, "agentRevision": agentDef.RuntimeRevision}
-	if sourceFound {
-		// Whoever watched the source Run keeps its delivery level.
-		req.Detail = sourceStatus.Detail
-	}
 	session, err := s.deps.Sessions.BuildQuerySession(context.Background(), req, summary, agentDef, sessionbuild.Options{
 		DisableSkillScriptGrants: !newExecutionRun,
 		SkipInteractionPolicy:    sourceFound && sourceStatus.RunOrigin != nil,

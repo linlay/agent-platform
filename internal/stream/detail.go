@@ -2,16 +2,18 @@ package stream
 
 import "strings"
 
-// DetailLevel selects which events viewers receive. A Run's level is fixed
-// when it is admitted and every observer gets the same events; only a Chat
-// with no active Run is read at another level. Persistence always keeps
-// every event; the level only filters delivery.
+// DetailLevel selects which events viewers receive. A Run's level comes from
+// its Agent configuration when it is admitted, never from the request, and
+// every observer gets the same events; only a Chat with no active Run is read
+// at another level. Persistence always keeps every event; the level only
+// filters delivery.
 //
 //   - simple (default): what a user reads and answers — input, Run and
 //     subtask lifecycle, content, plans, artifacts, sources, awaiting
 //     questions — plus state notifications, usage, waits, announcements and retries.
 //     One startup placeholder is simple-only. Automatic progress, reasoning
-//     bodies and ordinary tool call details stay behind.
+//     bodies and ordinary tool call details stay behind; calls of tools whose
+//     definitions declare simpleVisible are delivered whole (see DetailFilter).
 //   - detailed: real process events and retries, plus the initial model wait
 //     and clears. Activity selection happens here before internal metadata
 //     is removed; viewers display the resulting messages without classification.
@@ -22,7 +24,7 @@ const (
 	DetailDetailed DetailLevel = "detailed"
 )
 
-// ParseDetailLevel validates an explicit override. Empty inherits the Agent default.
+// ParseDetailLevel validates a configured or history-read level. Empty means unset.
 func ParseDetailLevel(raw string) (DetailLevel, bool) {
 	switch strings.TrimSpace(raw) {
 	case "":
@@ -36,12 +38,9 @@ func ParseDetailLevel(raw string) (DetailLevel, bool) {
 	}
 }
 
-// ResolveDetailLevel is the level a Run is delivered at: the request's
-// explicit level, else the Agent default, else simple.
-func ResolveDetailLevel(requested DetailLevel, agentDefault string) DetailLevel {
-	if level, ok := ParseDetailLevel(string(requested)); ok && level != "" {
-		return level
-	}
+// ResolveDetailLevel is the level a Run is delivered at: the Agent default,
+// else simple.
+func ResolveDetailLevel(agentDefault string) DetailLevel {
 	if level, ok := ParseDetailLevel(agentDefault); ok && level != "" {
 		return level
 	}
@@ -92,11 +91,45 @@ func (level DetailLevel) Allows(eventType string, payload map[string]any) bool {
 	}
 }
 
+// DetailFilter applies a level to one ordered event sequence (a live stream
+// or a history read). simpleTool reports whether a tool definition declares
+// simpleVisible; every event of such a call reaches simple viewers. Calls are
+// tracked by toolId because argument chunks, tool.end and replayed results do
+// not repeat the tool name. A filter is not safe for concurrent use.
+type DetailFilter struct {
+	level       DetailLevel
+	simpleTool  func(toolName string) bool
+	simpleCalls map[string]bool
+}
+
+func NewDetailFilter(level DetailLevel, simpleTool func(toolName string) bool) *DetailFilter {
+	return &DetailFilter{level: level, simpleTool: simpleTool, simpleCalls: map[string]bool{}}
+}
+
+func (f *DetailFilter) Level() DetailLevel {
+	return f.level
+}
+
+func (f *DetailFilter) Allows(event EventData) bool {
+	if f.level != DetailDetailed && f.simpleTool != nil && strings.HasPrefix(event.Type, "tool.") {
+		toolID, _ := event.Payload["toolId"].(string)
+		if toolID != "" {
+			if name, _ := event.Payload["toolName"].(string); name != "" && f.simpleTool(name) {
+				f.simpleCalls[toolID] = true
+			}
+			if f.simpleCalls[toolID] {
+				return true
+			}
+		}
+	}
+	return f.level.Allows(event.Type, event.Payload)
+}
+
 // FilterEvents keeps the events a viewer at this level receives.
-func (level DetailLevel) FilterEvents(events []EventData) []EventData {
+func (f *DetailFilter) FilterEvents(events []EventData) []EventData {
 	out := make([]EventData, 0, len(events))
 	for _, event := range events {
-		if level.Allows(event.Type, event.Payload) {
+		if f.Allows(event) {
 			out = append(out, event)
 		}
 	}

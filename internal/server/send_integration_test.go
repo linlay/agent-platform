@@ -130,7 +130,7 @@ func TestUserSendBusyDeliveryAndStrictProtocol(t *testing.T) {
 		t.Fatalf("queue: %d %#v", code, queued)
 	}
 	m, _ := box.Store.Get(queued.MailID)
-	if m.Status != mailbox.Queued || m.EditingMode == nil || m.Detail == "" {
+	if m.Status != mailbox.Queued || m.EditingMode == nil {
 		t.Fatalf("not frozen: %#v", m)
 	}
 	if m.Model != nil {
@@ -167,31 +167,25 @@ func TestUserSendWebSocketSharesHTTPIdempotency(t *testing.T) {
 	}
 }
 
-func TestUserSendWebSocketDetailLevels(t *testing.T) {
-	for _, detail := range []string{"simple", "detailed"} {
-		t.Run(detail, func(t *testing.T) {
-			f := newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{notifications: platformws.NewHub()})
-			box := bindUserMailbox(t, f)
-			conn := connectorUsageSocket(t, f.server)
-			frame := platformws.RequestFrame{
-				Frame: platformws.FrameRequest, Type: "/api/send", ID: "send-detail",
-				Detail: detail,
-				Payload: marshalPayload(map[string]any{
-					"requestId": "detail-request", "agentKey": "mock-agent", "message": "hello",
-				}),
-			}
-			if err := conn.WriteJSON(frame); err != nil {
-				t.Fatal(err)
-			}
-			receipt := waitForWebSocketResponseData[mailbox.Receipt](t, conn, frame.ID)
-			if receipt.Delivery != "started" || receipt.RunID == "" {
-				t.Fatalf("WS receipt: %#v", receipt)
-			}
-			mail, err := box.Store.Get(receipt.MailID)
-			if err != nil || mail.Detail != detail {
-				t.Fatalf("mail detail=%q, want %q: %v", mail.Detail, detail, err)
-			}
-		})
+// A sent message starts a Run at its Agent's level, so the frame cannot name one.
+func TestUserSendWebSocketRejectsDetail(t *testing.T) {
+	f := newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{notifications: platformws.NewHub()})
+	bindUserMailbox(t, f)
+	conn := connectorUsageSocket(t, f.server)
+	frame := platformws.RequestFrame{
+		Frame: platformws.FrameRequest, Type: "/api/send", ID: "send-detail", Detail: "detailed",
+		Payload: marshalPayload(map[string]any{
+			"requestId": "detail-request", "agentKey": "mock-agent", "message": "hello",
+		}),
+	}
+	if err := conn.WriteJSON(frame); err != nil {
+		t.Fatal(err)
+	}
+	raw := waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		return strings.Contains(string(data), `"id":"send-detail"`)
+	})
+	if !strings.Contains(string(raw), `"frame":"error"`) || !strings.Contains(string(raw), "invalid_detail") {
+		t.Fatalf("detail accepted: %s", raw)
 	}
 }
 

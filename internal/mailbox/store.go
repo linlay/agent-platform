@@ -15,7 +15,7 @@ import (
 )
 
 const schema = `CREATE TABLE MAILS (
- REQUEST_ID_ TEXT NOT NULL DEFAULT '', PLANNING_MODE_ TEXT, EDITING_MODE_ TEXT, DETAIL_ TEXT NOT NULL DEFAULT '', IGNORED_OPTIONS_ TEXT,
+ REQUEST_ID_ TEXT NOT NULL DEFAULT '', PLANNING_MODE_ TEXT, EDITING_MODE_ TEXT, IGNORED_OPTIONS_ TEXT,
  MAIL_ID_ TEXT PRIMARY KEY, KIND_ TEXT NOT NULL, STATUS_ TEXT NOT NULL,
  CREATED_AT_ INTEGER NOT NULL, UPDATED_AT_ INTEGER NOT NULL,
  TO_AGENT_KEY_ TEXT NOT NULL, TO_CHAT_ID_ TEXT NOT NULL, OPENED_CHAT_ INTEGER NOT NULL DEFAULT 0, NEW_CHAT_ INTEGER NOT NULL DEFAULT 0,
@@ -42,7 +42,7 @@ CREATE INDEX IDX_MAILS_STATUS_ ON MAILS(STATUS_);
 CREATE INDEX IDX_MAILS_ANSWERED_ ON MAILS(ANSWERED_BY_MAIL_ID_);
 CREATE INDEX IDX_MAILS_TERMINAL_ ON MAILS(TERMINAL_AT_,BODY_PURGED_AT_);`
 
-const columns = `MAIL_ID_,REQUEST_ID_,PLANNING_MODE_,EDITING_MODE_,DETAIL_,IGNORED_OPTIONS_,KIND_,STATUS_,CREATED_AT_,UPDATED_AT_,TO_AGENT_KEY_,TO_CHAT_ID_,OPENED_CHAT_,NEW_CHAT_,
+const columns = `MAIL_ID_,REQUEST_ID_,PLANNING_MODE_,EDITING_MODE_,IGNORED_OPTIONS_,KIND_,STATUS_,CREATED_AT_,UPDATED_AT_,TO_AGENT_KEY_,TO_CHAT_ID_,OPENED_CHAT_,NEW_CHAT_,
 ORIGIN_TYPE_,FROM_AGENT_KEY_,FROM_CHAT_ID_,FROM_RUN_ID_,FROM_TOOL_ID_,SUBJECT_,
 INPUT_,MESSAGE_,REFERENCES_,FILES_,BODY_PURGED_AT_,HOP_,ACCESS_LEVEL_,ACCESS_GRANT_,MODEL_,REQUEST_DIGEST_,
 ANSWERED_BY_MAIL_ID_,REPLY_KEY_,REPLY_OF_RUN_ID_,OUTCOME_,AWAITING_ID_,AWAITING_MODE_,AWAITING_SOURCE_,PARENT_MAIL_ID_,
@@ -98,7 +98,7 @@ func Open(root string) (*Store, error) {
 func (s *Store) Close() error { return s.db.Close() }
 func jsonText(v any) string   { b, _ := json.Marshal(v); return string(b) }
 func values(m Mail) []any {
-	return []any{m.ID, m.RequestID, jsonText(m.PlanningMode), jsonText(m.EditingMode), m.Detail, jsonText(m.IgnoredOptions), m.Kind, m.Status, m.CreatedAt, m.UpdatedAt, m.ToAgentKey, m.ToChatID, m.OpenedChat, m.NewChat,
+	return []any{m.ID, m.RequestID, jsonText(m.PlanningMode), jsonText(m.EditingMode), jsonText(m.IgnoredOptions), m.Kind, m.Status, m.CreatedAt, m.UpdatedAt, m.ToAgentKey, m.ToChatID, m.OpenedChat, m.NewChat,
 		m.OriginType, m.FromAgentKey, m.FromChatID, m.FromRunID, m.FromToolID, m.Subject,
 		string(m.Input), m.Message, jsonText(m.References), jsonText(m.Files), m.PurgedAt, m.Hop, m.AccessLevel, jsonText(m.AccessGrant), jsonText(m.Model), m.RequestDigest,
 		m.AnsweredBy, m.ReplyKey, m.ReplyOfRun, m.Outcome, m.AwaitingID, m.AwaitingMode, m.AwaitingSource, m.ParentID,
@@ -110,7 +110,7 @@ type scanner interface{ Scan(...any) error }
 func scan(row scanner) (Mail, error) {
 	var m Mail
 	var input, refs, files, grant, model, errData, planning, editing, ignored sql.NullString
-	err := row.Scan(&m.ID, &m.RequestID, &planning, &editing, &m.Detail, &ignored, &m.Kind, &m.Status, &m.CreatedAt, &m.UpdatedAt, &m.ToAgentKey, &m.ToChatID, &m.OpenedChat, &m.NewChat,
+	err := row.Scan(&m.ID, &m.RequestID, &planning, &editing, &ignored, &m.Kind, &m.Status, &m.CreatedAt, &m.UpdatedAt, &m.ToAgentKey, &m.ToChatID, &m.OpenedChat, &m.NewChat,
 		&m.OriginType, &m.FromAgentKey, &m.FromChatID, &m.FromRunID, &m.FromToolID, &m.Subject,
 		&input, &m.Message, &refs, &files, &m.PurgedAt, &m.Hop, &m.AccessLevel, &grant, &model, &m.RequestDigest,
 		&m.AnsweredBy, &m.ReplyKey, &m.ReplyOfRun, &m.Outcome, &m.AwaitingID, &m.AwaitingMode, &m.AwaitingSource, &m.ParentID,

@@ -344,6 +344,10 @@ activityArgs: [description, filePath]
 
 内嵌配置：`bash`/`bash_sandbox`/`wait` 用 `description`，`file_write`/`file_edit` 用 `description, filePath`，`file_read` 用 `filePath`，`file_glob`/`file_grep` 用 `pattern`，`web_fetch`/`surface_navigate` 用 `url`，`kbase_search` 用 `query`，`kbase_read` 用 `path`。规则见 [细节等级与 run.activity](API与协议.md#细节等级与-runactivity)。
 
+### simple 档下发 simpleVisible
+
+工具 YAML 可选顶层布尔 `simpleVisible`：为 true 时，该工具每次调用的全部 `tool.*` 事件在 simple 档也下发，客户端照常展示其工具卡。只给结果本身就是用户所要内容的工具使用；普通过程工具不声明，仍只在 detailed 下发。内嵌只有 `image_generate` 声明，使 simple 对话显示图像生成卡片，Desktop 图片工作台也据此读取结果。过滤规则见 [细节等级与 run.activity](API与协议.md#细节等级与-runactivity)。
+
 展示名称仅使用当前语言的 i18n.label，缺失时回退到工具 name，不能回退到上一次显示的其他语言名称。界面描述优先使用当前语言的 i18n.description，缺失时回退原始英文 description。API 的 label/toolLabel 是解析结果，不是源码中的重复配置。模型协议只从原始定义构造 name、description、parameters/input_schema 等协议字段，不发送 label、翻译表或界面翻译后的 description。工具名称、action、参数、权限与执行逻辑不受界面语言影响。
 
 工具元数据内部使用 `meta.toolI18n` 携带翻译。Native 调用在 tool.start / tool.snapshot / tool.result 保存冻结的 `toolI18n` 展示快照，以支持多个客户端和历史读取；它不进入模型上下文。HTTP/WS 目录响应、SSE/WS 工具事件、Chat/Archive 回放和会话导出在输出边界按查看者语言解析，并移除内部翻译表，不修改共享定义或原始事件。英文请求同样进行工具展示解析。

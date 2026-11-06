@@ -226,7 +226,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		ExecuteExcludeTools:       append([]string(nil), planningMode.ExecuteExcludeTools...),
 		EditingMode:               editingMode,
 		WorkspaceReadOnly:         !editingMode,
-		Detail:                    stream.ResolveDetailLevel(req.Detail, agentDef.Interaction().DefaultDetail),
+		Detail:                    stream.ResolveDetailLevel(agentDef.Interaction().DefaultDetail),
 
 		Created:              options.Created,
 		ConnectorDirs:        RuntimeConnectorDirs(agentDef),

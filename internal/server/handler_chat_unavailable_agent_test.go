@@ -24,10 +24,13 @@ import (
 func TestChatHistorySurvivesUnavailableAgent(t *testing.T) {
 	for _, state := range []string{"valid", "invalid", "legacy-mode", "deleted"} {
 		t.Run(state, func(t *testing.T) {
-			fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, _ *http.Request) {
+			fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, _ *http.Request) {
 				t.Error("history reads and rejected continuation must not call the model")
 				w.WriteHeader(http.StatusInternalServerError)
-			})
+			}, testFixtureOptions{configure: func(cfg *config.Config) {
+				// Leave the level unset so a deleted Agent's simple fallback matches.
+				cfg.ModeDefaultDetails = nil
+			}})
 			store := fixture.chats.(*chat.FileStore)
 			const chatID = "historical-chat"
 			seedAgentModeChat(t, store, chatID, "historical-run", "mock-agent", "REACT", 1000)
@@ -91,7 +94,7 @@ func TestChatHistorySurvivesUnavailableAgent(t *testing.T) {
 						if err != nil {
 							t.Fatal(err)
 						}
-						req := httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", bytes.NewReader(body))
+						req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body))
 						req.Header.Set("X-Locale", locale)
 						rec := httptest.NewRecorder()
 						fixture.server.ServeHTTP(rec, req)

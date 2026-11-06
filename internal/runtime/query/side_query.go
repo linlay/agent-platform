@@ -154,7 +154,6 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 		IncludeFullText: input.IncludeFullText,
 		AccessLevel:     input.AccessLevel,
 		Model:           input.Model,
-		Detail:          input.Detail,
 	}
 	if err := ValidateInteractionInput(agentDef.Interaction(), req, agentDef.AccessConfig.EffectiveDefault()); err != nil {
 		return preparedQuery{}, btwStatusError(400, "interaction_disabled", err.Error())

@@ -453,7 +453,7 @@ func (s *Server) wsChat(ctx context.Context, conn *ws.Conn, req ws.RequestFrame)
 		return
 	}
 	response.Display = s.chatDisplay(response.AgentKey, chatReadDetail(response, req.DetailLevel()))
-	response.Events = response.Display.EffectiveDetail.FilterEvents(response.Events)
+	response.Events = s.detailFilter(response.Display.EffectiveDetail).FilterEvents(response.Events)
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }

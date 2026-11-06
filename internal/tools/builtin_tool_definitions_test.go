@@ -395,7 +395,7 @@ func TestImageGenerateToolSchemaMatchesContract(t *testing.T) {
 	for _, def := range defs {
 		if def.Name == "image_generate" {
 			imageGenerateDef = def.Parameters
-			if def.Meta["explicitOnly"] != true {
+			if def.Meta["explicitOnly"] != true || def.Meta["simpleVisible"] != true {
 				t.Fatalf("unexpected image_generate metadata: %#v", def.Meta)
 			}
 			break

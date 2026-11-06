@@ -462,7 +462,6 @@ func (s *Service) DeliverMail(ctx context.Context, m mailbox.Mail, scope control
 		cmd.Model = m.Model
 		cmd.PlanningMode = m.PlanningMode
 		cmd.EditingMode = m.EditingMode
-		cmd.Detail = stream.DetailLevel(m.Detail)
 		cmd.OriginalQuery = m.Input
 		cmd.Origin = &queryinput.Origin{Type: queryinput.OriginUser, UserID: m.Subject}
 		if cmd.Identity == nil {

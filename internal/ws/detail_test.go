@@ -16,15 +16,17 @@ func TestRequestFrameDetail(t *testing.T) {
 	}{
 		{RequestFrame{Type: "/api/query"}, "", false},
 		{RequestFrame{Type: "/api/send"}, "", false},
-		{RequestFrame{Type: "/api/send", Detail: "simple"}, stream.DetailSimple, false},
-		{RequestFrame{Type: "/api/send", Detail: "detailed"}, stream.DetailDetailed, false},
-		{RequestFrame{Type: "/api/send", Detail: "verbose"}, "", true},
+		// A Run is delivered at its Agent's level; only history reads choose one.
+		{RequestFrame{Type: "/api/send", Detail: "simple"}, stream.DetailSimple, true},
+		{RequestFrame{Type: "/api/send", Detail: "detailed"}, stream.DetailDetailed, true},
+		{RequestFrame{Type: "/api/query", Detail: "detailed"}, stream.DetailDetailed, true},
 		{RequestFrame{Type: "/api/attach", Detail: "detailed"}, stream.DetailDetailed, true},
 		{RequestFrame{Type: "/api/chat", Detail: "simple"}, stream.DetailSimple, false},
-		{RequestFrame{Type: "/api/query", Detail: "verbose"}, "", true},
-		{RequestFrame{Type: "/api/query", Detail: "none"}, "", true},
-		{RequestFrame{Type: "/api/query", Detail: "summary"}, "", true},
-		{RequestFrame{Type: "/api/query", Detail: "full"}, "", true},
+		{RequestFrame{Type: "/api/chat", Detail: "detailed"}, stream.DetailDetailed, false},
+		{RequestFrame{Type: "/api/chat", Detail: "verbose"}, "", true},
+		{RequestFrame{Type: "/api/chat", Detail: "none"}, "", true},
+		{RequestFrame{Type: "/api/chat", Detail: "summary"}, "", true},
+		{RequestFrame{Type: "/api/chat", Detail: "full"}, "", true},
 		{RequestFrame{Type: "/api/chats", Detail: "detailed"}, stream.DetailDetailed, true},
 	} {
 		if got := tc.frame.DetailLevel(); !tc.invalid && got != tc.level {
@@ -43,7 +45,7 @@ func TestSimpleStreamDeliversStateNotifications(t *testing.T) {
 	}
 	types := []string{"run.access_level.changed", "context.compact.start", "context.compact.complete", "context.compact.failed", "tool.wait", "tool.wait.update", "tool.result", "usage.snapshot", "run.activity", "run.complete"}
 	events := make(chan stream.EventData, len(types)+1)
-	conn.StartStreamForward("notification-request", &stream.Observer{Events: events}, stream.DetailSimple, stream.DetailSimple)
+	conn.StartStreamForward("notification-request", &stream.Observer{Events: events}, stream.NewDetailFilter(stream.DetailSimple, nil), stream.DetailSimple)
 	events <- stream.EventData{Seq: 1, Type: "reasoning.delta", Timestamp: time.Now().UnixMilli(), Payload: map[string]any{"runId": "notification-run", "delta": "hidden"}}
 	for i, kind := range types {
 		payload := map[string]any{"runId": "notification-run"}
@@ -76,7 +78,7 @@ func TestStreamActivityRemovesInternalClassification(t *testing.T) {
 		t.Fatal(err)
 	}
 	events := make(chan stream.EventData, 2)
-	conn.StartStreamForward("wait-request", &stream.Observer{Events: events}, stream.DetailDetailed, stream.DetailDetailed)
+	conn.StartStreamForward("wait-request", &stream.Observer{Events: events}, stream.NewDetailFilter(stream.DetailDetailed, nil), stream.DetailDetailed)
 	events <- stream.NewEvent("run.activity", map[string]any{
 		"runId": "wait-run", "kind": "model_waiting", "initial": true,
 		"activity": map[string]any{"kind": "model_waiting"},

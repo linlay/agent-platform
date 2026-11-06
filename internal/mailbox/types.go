@@ -48,7 +48,6 @@ type Mail struct {
 	RequestID        string                        `json:"requestId,omitempty"`
 	PlanningMode     *bool                         `json:"-"`
 	EditingMode      *bool                         `json:"-"`
-	Detail           string                        `json:"-"`
 	IgnoredOptions   []string                      `json:"ignoredOptions,omitempty"`
 	FromAgentName    string                        `json:"fromAgentName,omitempty"`
 	NewChat          bool                          `json:"newChat,omitempty"`

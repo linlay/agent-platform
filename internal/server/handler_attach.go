@@ -46,6 +46,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 
 	display := s.chatDisplay(status.AgentKey, status.Detail)
 	detail := display.EffectiveDetail
+	filter := s.detailFilter(detail)
 	w.Header().Set("X-Event-Detail", string(detail))
 	w.Header().Set("X-Agent-Default-Detail", string(display.DefaultDetail))
 	observer, err := s.deps.Runs.AttachObserver(runID, lastSeq)
@@ -95,7 +96,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			event = stream.WithDisplay(event, display.DefaultDetail, detail)
-			if !detail.Allows(event.Type, event.Payload) {
+			if !filter.Allows(event) {
 				continue
 			}
 			if err := sseWriter.WriteJSON("message", localizeStreamEventData(requestLocale(r, "en"), event)); err != nil {

@@ -42,8 +42,9 @@ type ProxyEventRecorder struct {
 	planningSnapshots map[string]bool
 	markdownGuards    map[string]*stream.MarkdownDestinationGuard
 	markdownText      map[string]*strings.Builder
-	// activities derives progress from the upstream's detailed stream. Simple
-	// delivery keeps startup, announcements and clears.
+	// activities derives progress from upstream process events, which arrive
+	// only when the upstream Agent delivers detailed. Simple delivery keeps
+	// startup, announcements and clears.
 	activities *stream.ActivityTracker
 	detail     stream.DetailLevel
 }
@@ -116,7 +117,6 @@ func NewProxyEventRecorder(
 		markdownGuards:    map[string]*stream.MarkdownDestinationGuard{},
 		markdownText:      map[string]*strings.Builder{},
 		activities:        stream.NewActivityTracker(req.RunID, req.ChatID),
-		detail:            req.Detail,
 	}
 	recorder.usageTracker = NewProxyUsageTracker(chatUsage, &recorder.runUsage, models, billing)
 	return recorder

@@ -181,7 +181,7 @@ func TestProxyLiveEventDerivesUnsequencedActivity(t *testing.T) {
 
 func TestProxyStartupActivityOnlyForSummary(t *testing.T) {
 	for _, detail := range []stream.DetailLevel{stream.DetailSimple, stream.DetailDetailed} {
-		req := runtimetypes.QueryCommand{RunID: "run", ChatID: "chat", Detail: detail}
+		req := runtimetypes.QueryCommand{RunID: "run", ChatID: "chat"}
 		recorder := &ProxyEventRecorder{activities: stream.NewActivityTracker(req.RunID, req.ChatID), detail: detail}
 		bus := stream.NewRunEventBus(100, 0, nil)
 		observer, err := bus.Subscribe(0)
@@ -215,7 +215,7 @@ func TestProxyStartupActivityOnlyForSummary(t *testing.T) {
 
 func TestProxyOpaqueActivitySurvivesBothLevelsAndAttachWithoutClassification(t *testing.T) {
 	for _, detail := range []stream.DetailLevel{stream.DetailSimple, stream.DetailDetailed} {
-		req := runtimetypes.QueryCommand{RunID: "run", ChatID: "chat", Detail: detail}
+		req := runtimetypes.QueryCommand{RunID: "run", ChatID: "chat"}
 		recorder := &ProxyEventRecorder{activities: stream.NewActivityTracker(req.RunID, req.ChatID), detail: detail}
 		bus := stream.NewRunEventBus(100, 0, nil)
 		var seq int64 = 7

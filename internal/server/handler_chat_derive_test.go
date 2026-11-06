@@ -114,7 +114,7 @@ func TestHandleChatDeriveThenQueryUsesDerivedHistoryOnly(t *testing.T) {
 	}
 
 	queryRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(queryRec, httptest.NewRequest(http.MethodPost, "/api/query?detail=detailed", bytes.NewBufferString(`{
+	fixture.server.ServeHTTP(queryRec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
 		"chatId":"chat-query-derived",
 		"agentKey":"mock-agent",
 		"message":"follow up",

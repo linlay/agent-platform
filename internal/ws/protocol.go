@@ -24,18 +24,14 @@ type RequestFrame struct {
 	Type       string                         `json:"type"`
 	ID         string                         `json:"id"`
 	Source     *contracts.ClientRequestSource `json:"source,omitempty"`
-	// Detail selects the event detail level of /api/send, /api/query and
-	// /api/chat. It is a delivery option, so it stays out of the payload
-	// that a query persists.
+	// Detail selects the level /api/chat reads a Chat with no active Run
+	// at. A Run is delivered at its Agent's configured level, so frames
+	// that start or observe a Run cannot carry it.
 	Detail  string          `json:"detail,omitempty"`
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
-// detailFrameTypes accept a detail field. A Run's level is fixed by its
-// /api/send or /api/query, so attach cannot choose one.
-var detailFrameTypes = map[string]bool{"/api/send": true, "/api/query": true, "/api/chat": true}
-
-// DetailLevel is the validated override; empty is resolved from the Agent by Server.
+// DetailLevel is the validated history-read level; empty reads at the Agent default.
 func (r RequestFrame) DetailLevel() stream.DetailLevel {
 	level, _ := stream.ParseDetailLevel(r.Detail)
 	return level
@@ -45,8 +41,8 @@ func (r RequestFrame) detailError() string {
 	if strings.TrimSpace(r.Detail) == "" {
 		return ""
 	}
-	if !detailFrameTypes[r.Type] {
-		return "detail is only accepted by /api/send, /api/query and /api/chat"
+	if r.Type != "/api/chat" {
+		return "detail is only accepted by /api/chat"
 	}
 	if _, ok := stream.ParseDetailLevel(r.Detail); !ok {
 		return "detail must be simple or detailed"

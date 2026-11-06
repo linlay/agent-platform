@@ -128,12 +128,13 @@ func TestWebSocketTargetKeepsTokenOutOfURL(t *testing.T) {
 	}
 }
 
-func TestUpstreamQueriesRequestDetailedDetail(t *testing.T) {
-	if got := QueryURL("http://upstream/"); got != "http://upstream/api/query?detail=detailed" {
+// The upstream Agent's configuration decides its delivery level.
+func TestUpstreamQueriesNameNoDetail(t *testing.T) {
+	if got := QueryURL("http://upstream/"); got != "http://upstream/api/query" {
 		t.Fatalf("QueryURL=%q", got)
 	}
 	frame := QueryPayload(runtimetypes.QueryCommand{RequestID: "req"}, nil, nil)
-	if frame["detail"] != "detailed" {
-		t.Fatalf("channel query frame must request detailed events: %#v", frame)
+	if _, ok := frame["detail"]; ok {
+		t.Fatalf("channel query frame names a detail level: %#v", frame)
 	}
 }

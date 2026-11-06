@@ -112,6 +112,15 @@ type testFixtureOptions struct {
 	setupRuntime  func(root string, cfg *config.Config)
 }
 
+// allModesDetail sets every mode's default delivery level, as agent-settings.yml would.
+func allModesDetail(level string) map[string]string {
+	out := map[string]string{}
+	for _, mode := range []string{"general", "coder", "kbase", "team", "executor", "proxy", "channel"} {
+		out[mode] = level
+	}
+	return out
+}
+
 func newTestFixture(t *testing.T) testFixture {
 	return newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,
@@ -289,7 +298,9 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	}
 
 	cfg := config.Config{
-		Export: config.ConversationExportConfig{MaxSnapshotBytes: 50 << 20},
+		// Server tests observe whole Runs; tests of simple delivery configure it.
+		ModeDefaultDetails: allModesDetail("detailed"),
+		Export:             config.ConversationExportConfig{MaxSnapshotBytes: 50 << 20},
 		Server: config.ServerConfig{
 			Port: "18080",
 		},

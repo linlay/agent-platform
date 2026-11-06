@@ -24,6 +24,8 @@ description: |
   not fabricate image Markdown; tell the user that image materialization
   failed.
 explicitOnly: true
+# Generated images are the result users asked for, so simple delivery keeps the call.
+simpleVisible: true
 inputSchema:
   type: object
   properties:

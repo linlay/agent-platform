@@ -19,7 +19,6 @@ import (
 	"agent-platform/internal/mailbox"
 	"agent-platform/internal/runtime/controlscope"
 	runtimetypes "agent-platform/internal/runtime/types"
-	"agent-platform/internal/stream"
 )
 
 type userSend struct {
@@ -45,10 +44,7 @@ func (s *Service) Send(ctx context.Context, request queryinput.SendRequest, comm
 	if strings.TrimSpace(request.Message) == "" && len(request.References) == 0 {
 		return mailbox.Receipt{}, &statusError{Status: 400, Code: "invalid_request", Message: "message or references are required"}
 	}
-	encoded, err := json.Marshal(struct {
-		Request queryinput.SendRequest
-		Detail  stream.DetailLevel
-	}{request, command.Detail})
+	encoded, err := json.Marshal(request)
 	if err != nil {
 		return mailbox.Receipt{}, err
 	}
@@ -164,7 +160,6 @@ func (s *Service) acceptUserSend(ctx context.Context, r queryinput.SendRequest, 
 		editing = *cmd.EditingMode
 	}
 	cmd.PlanningMode, cmd.EditingMode = &planning, &editing
-	cmd.Detail = stream.ResolveDetailLevel(cmd.Detail, admission.AgentDef.Interaction().DefaultDetail)
 	m := mailbox.Mail{
 		ID: mailbox.NewID("mail"), Kind: mailbox.Letter, Status: mailbox.Queued,
 		CreatedAt: nowMillis(), UpdatedAt: nowMillis(),
@@ -172,7 +167,7 @@ func (s *Service) acceptUserSend(ctx context.Context, r queryinput.SendRequest, 
 		Subject: cmd.Caller.Subject, RequestID: r.RequestID,
 		Input: input, Message: r.Message, References: cmd.References,
 		Model: cmd.Model, PlanningMode: cmd.PlanningMode, EditingMode: cmd.EditingMode,
-		Detail: string(cmd.Detail), AccessLevel: cmd.AccessLevel, AccessGrant: cmd.AccessGrant,
+		AccessLevel: cmd.AccessLevel, AccessGrant: cmd.AccessGrant,
 		RequestDigest: digest,
 	}
 

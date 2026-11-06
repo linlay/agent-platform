@@ -19,8 +19,7 @@ type userSender interface {
 }
 
 func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
-	detail, ok := requestDetailLevel(w, r)
-	if !ok {
+	if rejectDetailOverride(w, r) {
 		return
 	}
 	var input queryinput.SendRequest
@@ -28,7 +27,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, api.Failure(400, err.Error()))
 		return
 	}
-	cmd := runtimetypes.QueryCommand{Detail: detail, Locale: requestLocale(r, s.deps.Config.Prompts.Runtime.ResolveLocale("")), ResourceBaseURL: s.requestBaseURL(r), ClientTarget: runtimeClientTarget(webClientTargetFromHTTPRequest(r))}
+	cmd := runtimetypes.QueryCommand{Locale: requestLocale(r, s.deps.Config.Prompts.Runtime.ResolveLocale("")), ResourceBaseURL: s.requestBaseURL(r), ClientTarget: runtimeClientTarget(webClientTargetFromHTTPRequest(r))}
 	if p := PrincipalFromContext(r.Context()); p != nil {
 		cmd.Caller.Subject = p.Subject
 	}
@@ -69,7 +68,7 @@ func (s *Server) wsSend(ctx context.Context, conn *ws.Conn, frame ws.RequestFram
 		conn.SendError(frame.ID, "invalid_request", 400, err.Error(), nil)
 		return
 	}
-	cmd := runtimetypes.QueryCommand{Detail: frame.DetailLevel(), Locale: conn.Locale(), ResourceBaseURL: conn.RequestBaseURL(), ClientTarget: runtimeClientTarget(conn.WebClientTarget())}
+	cmd := runtimetypes.QueryCommand{Locale: conn.Locale(), ResourceBaseURL: conn.RequestBaseURL(), ClientTarget: runtimeClientTarget(conn.WebClientTarget())}
 	if p := PrincipalFromContext(ctx); p != nil {
 		cmd.Caller.Subject = p.Subject
 	}

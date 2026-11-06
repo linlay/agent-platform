@@ -101,6 +101,9 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	if catalogVisible, ok := root["catalogVisible"].(bool); ok {
 		meta["catalogVisible"] = catalogVisible
 	}
+	if simpleVisible, ok := root["simpleVisible"].(bool); ok {
+		meta["simpleVisible"] = simpleVisible
+	}
 	if readOnly, ok := root["readOnly"].(bool); ok {
 		meta["readOnly"] = readOnly
 	}
