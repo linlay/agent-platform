@@ -41,7 +41,7 @@ WebClient 普通主聊天文本统一发送，待发消息按身份隔离保存�
 
 **引用是单向的。** mail.db 通过 ID 指向 Chat 和 Run（`FROM_CHAT_ID_`、`TO_CHAT_ID_`、`FROM_RUN_ID_`、`RUN_ID_`、`REPLY_OF_RUN_ID_`），chats.db 不保存任何 mailId。mail 在收件 Chat 中留下两样东西，二者都属于 Chat：
 
-- JSONL 的 query/steer 行：顶层带 `mailId`、`mailHeader`、`mailKind`、`mailAttempt`、`mailHop`（回信另有 `outcome`），正文存在该行的 `query` 或 `steer` 中。这一行就是"已消费"的证据。
+- JSONL 的 query/steer 行：Agent 发出的 mail 在行上带 `mailId`、`mailHeader`、`mailKind`、`mailAttempt`、`mailHop`（回信另有 `outcome`），正文存在该行的 `query` 或 `steer` 中。这一行就是"已消费"的证据。用户消息的行不带这些字段，按 `requestId` 认定已消费。
 - 附件副本 `<chatId>/mail/<mailId>/`，随 Chat 的生命周期保留。
 
 **谁写谁。** mailbox 不直接写 chats.db 或 JSONL：建 Chat、开 Run、插入都通过 Runtime 的入口完成，由 Runtime 落盘。Chat 一侧不写 mail.db，只通过钩子通知 mailbox：Runtime 的 Run 结束、消费、会话空闲、等待项产生与解决，以及 conversation 的删除钩子。
@@ -301,7 +301,7 @@ Answer with chat_submit runId="r_22" awaitingId="q_7", or ask the user if unsure
 - `GET /api/mails?box=pending&agentKey=&chatId=&kind=&status=&limit=&offset=`：只返回当前 subject 的 mail；挂起的信和回信附带 `evidence` 与 `error`。
 - `POST /api/mails/action {mailId, action: redeliver|discard}`：只处理挂起的 letter/reply，校验当前 subject。
 - 推送 `mail.updated {mailId, requestId, kind, status, delivery, ignoredOptions, fromAgentKey, fromChatId, toAgentKey, toChatId, runId}`，只发给该 mail 所属 subject 的主连接。
-- `request.query`、`request.steer` 与 JSONL 带 `mailId`、`mailKind`、`mailAttempt`、`mailHop`，回信另有 `outcome`；代答的 submit 带平台生成的 `origin`、`accessGrant`。这些字段由平台生成，公共输入不得伪造。
+- `request.query`、`request.steer` 带 `mailId`、`mailKind`、`mailAttempt`、`mailHop`，回信另有 `outcome`；JSONL 只为 Agent 发出的 mail 保存这些字段。代答的 submit 带平台生成的 `origin`、`accessGrant`。这些字段由平台生成，公共输入不得伪造。
 
 相邻 WebClient 的收件箱和时间线消费上述协议。
 

@@ -505,6 +505,14 @@ func (s *Service) MailConsumedEvidence(m mailbox.Mail) (bool, error) {
 		}
 		return false, err
 	}
+	// A user's message is not persisted with mail fields; its requestId is.
+	key, want := "mailId", m.ID
+	if m.OriginType == "user" {
+		key, want = "requestId", m.RequestID
+	}
+	if want == "" {
+		return false, nil
+	}
 	scan := bufio.NewScanner(strings.NewReader(content))
 	scan.Buffer(make([]byte, 65536), 64<<20)
 	for scan.Scan() {
@@ -512,12 +520,12 @@ func (s *Service) MailConsumedEvidence(m mailbox.Mail) (bool, error) {
 		if json.Unmarshal(scan.Bytes(), &row) != nil {
 			continue
 		}
-		if row["_type"] == "query" && row["mailId"] == m.ID {
+		if row["_type"] == "query" && row[key] == want {
 			return true, nil
 		}
 		if row["_type"] == "steer" {
 			steer, _ := row["steer"].(map[string]any)
-			if steer["mailId"] == m.ID {
+			if steer[key] == want {
 				return true, nil
 			}
 		}

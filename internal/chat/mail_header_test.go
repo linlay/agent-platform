@@ -12,3 +12,14 @@ func TestMailHeaderSurvivesHistoryButNotReplay(t *testing.T) {
 		t.Fatal("private header leaked", payload)
 	}
 }
+
+func TestQueryLineKeepsMailFieldsOnlyForAgentMail(t *testing.T) {
+	user := queryLineDecisionsFromPayload(map[string]any{"requestId": "req", "mailOrigin": "user", "mailId": "m1", "mailKind": "letter", "mailAttempt": 1, "mailHop": 0})
+	if user.MailInput != nil || user.RequestID != "req" {
+		t.Fatalf("user message kept mail fields: %+v", user)
+	}
+	agent := queryLineDecisionsFromPayload(map[string]any{"mailOrigin": "agent", "mailId": "m2", "mailKind": "letter", "mailAttempt": 1, "mailHop": 1})
+	if agent.MailInput == nil || agent.MailInput.ID != "m2" || agent.MailInput.Hop != 1 {
+		t.Fatalf("agent mail lost its fields: %+v", agent)
+	}
+}

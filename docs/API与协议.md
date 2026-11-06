@@ -599,7 +599,7 @@ TEAM 总控的普通工具与 reasoning 沿普通 Agent 事件链路；内部 `a
 
 `planningMode`、`editingMode` 与 `detail` 在受理时解析并冻结；`model` 只冻结请求显式给出的值，省略时开 Run 按 Agent 配置解析，与 `/api/query` 相同。这些选项只在新 Run 生效：插入时请求中与当前 Run 不同的 `planningMode/editingMode/model` 出现在 `ignoredOptions`；`accessLevel` 不改变当前 Run，调整仍用 `/api/access-level`。同一 subject 和 `requestId` 只产生一条 mail；重复请求返回相同 mail 的投递收据，不同内容返回 HTTP 409 `idempotency_conflict`。参数、Agent、归属、引用或选项校验失败直接拒绝。
 
-消费后的 `request.query/request.steer` 携带相同 `requestId/mailId` 和 `mailOrigin:user`。`mail.updated` 包含 `requestId/ignoredOptions`，只推送给该 mail 所属 subject 的主连接。没有撤销发送或删除服务端消息的接口。原 `/api/query`、`/api/steer`、Desktop、Automation、execute 和渠道入口保持原协议。
+消费后的 `request.query/request.steer` 携带相同 `requestId/mailId` 和 `mailOrigin:user`；这些 mail 字段只在实时事件中，JSONL 只保存 `requestId`。`mail.updated` 包含 `requestId/ignoredOptions`，只推送给该 mail 所属 subject 的主连接。没有撤销发送或删除服务端消息的接口。原 `/api/query`、`/api/steer`、Desktop、Automation、execute 和渠道入口保持原协议。
 
 #### 细节等级与 run.activity
 

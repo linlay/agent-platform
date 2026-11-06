@@ -73,7 +73,7 @@ func TestUserSendStartsOrdinaryRunAndIsIdempotent(t *testing.T) {
 		t.Fatalf("user mail: %#v", m)
 	}
 	line, err := f.chats.LoadRunQuery(receipt.ChatID, receipt.RunID)
-	if err != nil || line == nil || line.RequestID != "user-1" || line.MailInput == nil || line.MailInput.OriginType != "user" || line.Origin == nil || line.Origin.Type != queryinput.OriginUser {
+	if err != nil || line == nil || line.RequestID != "user-1" || line.MailInput != nil || line.Origin == nil || line.Origin.Type != queryinput.OriginUser {
 		t.Fatalf("query: %#v %v", line, err)
 	}
 	var wg sync.WaitGroup

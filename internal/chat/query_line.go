@@ -298,6 +298,11 @@ func queryLineDecisionsFromPayload(payload map[string]any) QueryLine {
 	if editing, ok := payload["editingMode"].(bool); ok {
 		line.EditingMode = &editing
 	}
+	if line.MailInput != nil && line.MailInput.OriginType == "user" {
+		// A user's message has no envelope; origin already says who sent it and
+		// mail evidence matches its requestId. The mail fields stay live-only.
+		line.MailInput = nil
+	}
 	return line
 }
 
