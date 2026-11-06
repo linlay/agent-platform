@@ -15,6 +15,7 @@ import (
 )
 
 const schema = `CREATE TABLE MAILS (
+ REQUEST_ID_ TEXT NOT NULL DEFAULT '', PLANNING_MODE_ TEXT, EDITING_MODE_ TEXT, DETAIL_ TEXT NOT NULL DEFAULT '', IGNORED_OPTIONS_ TEXT,
  MAIL_ID_ TEXT PRIMARY KEY, KIND_ TEXT NOT NULL, STATUS_ TEXT NOT NULL,
  CREATED_AT_ INTEGER NOT NULL, UPDATED_AT_ INTEGER NOT NULL,
  TO_AGENT_KEY_ TEXT NOT NULL, TO_CHAT_ID_ TEXT NOT NULL, OPENED_CHAT_ INTEGER NOT NULL DEFAULT 0, NEW_CHAT_ INTEGER NOT NULL DEFAULT 0,
@@ -30,6 +31,7 @@ const schema = `CREATE TABLE MAILS (
  RESUME_PHASE_ TEXT NOT NULL DEFAULT '', EVIDENCE_ TEXT NOT NULL DEFAULT '', ERROR_ TEXT,
  TERMINAL_AT_ INTEGER NOT NULL DEFAULT 0, FROM_CHAT_CLOSED_AT_ INTEGER NOT NULL DEFAULT 0, TO_CHAT_CLOSED_AT_ INTEGER NOT NULL DEFAULT 0
 );
+CREATE UNIQUE INDEX IDX_MAILS_REQUEST_ ON MAILS(SUBJECT_,REQUEST_ID_) WHERE REQUEST_ID_ <> '';
 CREATE UNIQUE INDEX IDX_MAILS_IDEM_ ON MAILS(FROM_RUN_ID_,FROM_TOOL_ID_) WHERE FROM_TOOL_ID_ <> '';
 CREATE UNIQUE INDEX IDX_MAILS_REPLY_ ON MAILS(REPLY_KEY_) WHERE KIND_ = 'reply';
 CREATE UNIQUE INDEX IDX_MAILS_ASK_ ON MAILS(FROM_RUN_ID_,AWAITING_ID_) WHERE KIND_ = 'ask';
@@ -40,7 +42,7 @@ CREATE INDEX IDX_MAILS_STATUS_ ON MAILS(STATUS_);
 CREATE INDEX IDX_MAILS_ANSWERED_ ON MAILS(ANSWERED_BY_MAIL_ID_);
 CREATE INDEX IDX_MAILS_TERMINAL_ ON MAILS(TERMINAL_AT_,BODY_PURGED_AT_);`
 
-const columns = `MAIL_ID_,KIND_,STATUS_,CREATED_AT_,UPDATED_AT_,TO_AGENT_KEY_,TO_CHAT_ID_,OPENED_CHAT_,NEW_CHAT_,
+const columns = `MAIL_ID_,REQUEST_ID_,PLANNING_MODE_,EDITING_MODE_,DETAIL_,IGNORED_OPTIONS_,KIND_,STATUS_,CREATED_AT_,UPDATED_AT_,TO_AGENT_KEY_,TO_CHAT_ID_,OPENED_CHAT_,NEW_CHAT_,
 ORIGIN_TYPE_,FROM_AGENT_KEY_,FROM_CHAT_ID_,FROM_RUN_ID_,FROM_TOOL_ID_,SUBJECT_,
 INPUT_,MESSAGE_,REFERENCES_,FILES_,BODY_PURGED_AT_,HOP_,ACCESS_LEVEL_,ACCESS_GRANT_,MODEL_,REQUEST_DIGEST_,
 ANSWERED_BY_MAIL_ID_,REPLY_KEY_,REPLY_OF_RUN_ID_,OUTCOME_,AWAITING_ID_,AWAITING_MODE_,AWAITING_SOURCE_,PARENT_MAIL_ID_,
@@ -96,7 +98,7 @@ func Open(root string) (*Store, error) {
 func (s *Store) Close() error { return s.db.Close() }
 func jsonText(v any) string   { b, _ := json.Marshal(v); return string(b) }
 func values(m Mail) []any {
-	return []any{m.ID, m.Kind, m.Status, m.CreatedAt, m.UpdatedAt, m.ToAgentKey, m.ToChatID, m.OpenedChat, m.NewChat,
+	return []any{m.ID, m.RequestID, jsonText(m.PlanningMode), jsonText(m.EditingMode), m.Detail, jsonText(m.IgnoredOptions), m.Kind, m.Status, m.CreatedAt, m.UpdatedAt, m.ToAgentKey, m.ToChatID, m.OpenedChat, m.NewChat,
 		m.OriginType, m.FromAgentKey, m.FromChatID, m.FromRunID, m.FromToolID, m.Subject,
 		string(m.Input), m.Message, jsonText(m.References), jsonText(m.Files), m.PurgedAt, m.Hop, m.AccessLevel, jsonText(m.AccessGrant), jsonText(m.Model), m.RequestDigest,
 		m.AnsweredBy, m.ReplyKey, m.ReplyOfRun, m.Outcome, m.AwaitingID, m.AwaitingMode, m.AwaitingSource, m.ParentID,
@@ -107,8 +109,8 @@ type scanner interface{ Scan(...any) error }
 
 func scan(row scanner) (Mail, error) {
 	var m Mail
-	var input, refs, files, grant, model, errData sql.NullString
-	err := row.Scan(&m.ID, &m.Kind, &m.Status, &m.CreatedAt, &m.UpdatedAt, &m.ToAgentKey, &m.ToChatID, &m.OpenedChat, &m.NewChat,
+	var input, refs, files, grant, model, errData, planning, editing, ignored sql.NullString
+	err := row.Scan(&m.ID, &m.RequestID, &planning, &editing, &m.Detail, &ignored, &m.Kind, &m.Status, &m.CreatedAt, &m.UpdatedAt, &m.ToAgentKey, &m.ToChatID, &m.OpenedChat, &m.NewChat,
 		&m.OriginType, &m.FromAgentKey, &m.FromChatID, &m.FromRunID, &m.FromToolID, &m.Subject,
 		&input, &m.Message, &refs, &files, &m.PurgedAt, &m.Hop, &m.AccessLevel, &grant, &model, &m.RequestDigest,
 		&m.AnsweredBy, &m.ReplyKey, &m.ReplyOfRun, &m.Outcome, &m.AwaitingID, &m.AwaitingMode, &m.AwaitingSource, &m.ParentID,
@@ -125,7 +127,7 @@ func scan(row scanner) (Mail, error) {
 	for _, v := range []struct {
 		raw string
 		dst any
-	}{{refs.String, &m.References}, {files.String, &m.Files}, {grant.String, &m.AccessGrant}, {model.String, &m.Model}, {errData.String, &m.Error}} {
+	}{{planning.String, &m.PlanningMode}, {editing.String, &m.EditingMode}, {ignored.String, &m.IgnoredOptions}, {refs.String, &m.References}, {files.String, &m.Files}, {grant.String, &m.AccessGrant}, {model.String, &m.Model}, {errData.String, &m.Error}} {
 		if v.raw != "" {
 			if err := json.Unmarshal([]byte(v.raw), v.dst); err != nil {
 				return m, fmt.Errorf("mail %s: invalid persisted JSON: %w", m.ID, err)
@@ -190,7 +192,7 @@ func (s *Store) Ask(runID, awaitingID string) (Mail, error) {
 
 // StartedLetter is the letter that opened runID, if it is still being worked.
 func (s *Store) StartedLetter(runID string) (Mail, error) {
-	return scan(s.db.QueryRow("SELECT "+columns+" FROM MAILS WHERE RUN_ID_=? AND KIND_='letter' AND DELIVERY_='started' AND STATUS_ IN ('delivered','inflight') ORDER BY CREATED_AT_,MAIL_ID_ LIMIT 1", runID))
+	return scan(s.db.QueryRow("SELECT "+columns+" FROM MAILS WHERE RUN_ID_=? AND KIND_='letter' AND ORIGIN_TYPE_<>'user' AND DELIVERY_='started' AND STATUS_ IN ('delivered','inflight') ORDER BY CREATED_AT_,MAIL_ID_ LIMIT 1", runID))
 }
 func (s *Store) AnsweredLetters(replyID string) ([]string, error) {
 	rows, err := s.db.Query("SELECT MAIL_ID_ FROM MAILS WHERE ANSWERED_BY_MAIL_ID_=? ORDER BY MAIL_ID_", replyID)
@@ -211,7 +213,7 @@ func (s *Store) AnsweredLetters(replyID string) ([]string, error) {
 
 // OwnsRun grants control only for a Run opened by the caller's own letter.
 func (s *Store) OwnsRun(runID, agentKey, subject string) (bool, error) {
-	return s.exists("RUN_ID_=? AND KIND_='letter' AND DELIVERY_='started' AND FROM_AGENT_KEY_=? AND SUBJECT_=?", runID, agentKey, subject)
+	return s.exists("RUN_ID_=? AND KIND_='letter' AND ORIGIN_TYPE_<>'user' AND DELIVERY_='started' AND FROM_AGENT_KEY_=? AND SUBJECT_=?", runID, agentKey, subject)
 }
 func (s *Store) OpenedBy(chatID, agentKey, subject string) (bool, error) {
 	return s.exists("TO_CHAT_ID_=? AND OPENED_CHAT_=1 AND FROM_AGENT_KEY_=? AND SUBJECT_=? AND TO_CHAT_CLOSED_AT_=0", chatID, agentKey, subject)
@@ -239,6 +241,18 @@ func (s *Store) Accept(m Mail) (Mail, bool, error) {
 		return m, false, err
 	}
 	defer tx.Rollback()
+	if m.RequestID != "" {
+		old, e := scan(tx.QueryRow("SELECT "+columns+" FROM MAILS WHERE SUBJECT_=? AND REQUEST_ID_=?", m.Subject, m.RequestID))
+		if e == nil {
+			if old.RequestDigest != m.RequestDigest {
+				return old, false, failure("idempotency_conflict", "requestId already used with different content")
+			}
+			return old, false, nil
+		}
+		if !errors.Is(e, ErrNotFound) {
+			return m, false, e
+		}
+	}
 	if m.FromToolID != "" {
 		old, e := scan(tx.QueryRow("SELECT "+columns+" FROM MAILS WHERE FROM_RUN_ID_=? AND FROM_TOOL_ID_=?", m.FromRunID, m.FromToolID))
 		if e == nil {
@@ -289,6 +303,14 @@ func (s *Store) Change(id string, change func(*Mail) error) (Mail, error) {
 }
 func mailWhere(f Filter) (string, []any) {
 	where, args := []string{"1=1"}, []any{}
+	switch f.Box {
+	case "pending":
+		where = append(where, "STATUS_ IN ('accepting','queued','inflight','suspended')")
+	case "received":
+		where = append(where, "STATUS_ IN ('delivered','done')")
+	case "trash":
+		where = append(where, "STATUS_ IN ('failed','discarded','withdrawn')")
+	}
 	for _, v := range []struct{ col, value string }{{"TO_AGENT_KEY_", f.AgentKey}, {"TO_CHAT_ID_", f.ChatID}, {"KIND_", string(f.Kind)}, {"STATUS_", string(f.Status)}} {
 		if v.value != "" {
 			where = append(where, v.col+"=?")
@@ -431,4 +453,8 @@ func stampTerminal(m *Mail) {
 	} else if m.TerminalAt == 0 {
 		m.TerminalAt = now()
 	}
+}
+
+func (s *Store) UserRequest(subject, id string) (Mail, error) {
+	return scan(s.db.QueryRow("SELECT "+columns+" FROM MAILS WHERE SUBJECT_=? AND REQUEST_ID_=?", subject, id))
 }

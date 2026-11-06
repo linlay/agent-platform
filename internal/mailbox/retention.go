@@ -113,7 +113,7 @@ func clearBody(m *Mail, at int64) {
 func (s *Store) deleteOrphans() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.Exec("DELETE FROM MAILS WHERE FROM_CHAT_CLOSED_AT_>0 AND TO_CHAT_CLOSED_AT_>0 AND TERMINAL_AT_>0")
+	_, err := s.db.Exec("DELETE FROM MAILS WHERE (FROM_CHAT_CLOSED_AT_>0 OR FROM_CHAT_ID_='') AND TO_CHAT_CLOSED_AT_>0 AND TERMINAL_AT_>0")
 	return err
 }
 

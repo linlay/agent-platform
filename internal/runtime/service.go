@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
+	"agent-platform/internal/mailbox"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
@@ -209,4 +210,18 @@ func (s *Service) SetAccessLevel(ctx context.Context, command runtimetypes.Acces
 		return runtimetypes.AccessLevelResult{}, err
 	}
 	return backend.SetAccessLevel(ctx, command)
+}
+
+func (s *Service) Send(ctx context.Context, r queryinput.SendRequest, cmd runtimetypes.QueryCommand) (mailbox.Receipt, error) {
+	backend, err := s.current()
+	if err != nil {
+		return mailbox.Receipt{}, err
+	}
+	sender, ok := backend.(interface {
+		Send(context.Context, queryinput.SendRequest, runtimetypes.QueryCommand) (mailbox.Receipt, error)
+	})
+	if !ok {
+		return mailbox.Receipt{}, ErrBackendUnavailable
+	}
+	return sender.Send(ctx, r, cmd)
 }

@@ -45,6 +45,11 @@ type File struct {
 	Source string `json:"source,omitempty"`
 }
 type Mail struct {
+	RequestID        string                        `json:"requestId,omitempty"`
+	PlanningMode     *bool                         `json:"-"`
+	EditingMode      *bool                         `json:"-"`
+	Detail           string                        `json:"-"`
+	IgnoredOptions   []string                      `json:"ignoredOptions,omitempty"`
 	FromAgentName    string                        `json:"fromAgentName,omitempty"`
 	NewChat          bool                          `json:"newChat,omitempty"`
 	Header           string                        `json:"-"`
@@ -99,7 +104,7 @@ func (m Mail) Terminal() bool {
 	return m.Status == Done || m.Status == Failed || m.Status == Discarded || m.Status == Withdrawn || (m.Status == Delivered && (m.Kind == Reply || m.Kind == Notify))
 }
 func (m Mail) Metadata() *queryinput.MailInput {
-	return &queryinput.MailInput{Header: m.Header, ID: m.ID, Kind: string(m.Kind), Attempt: m.Attempts, Hop: m.Hop, Outcome: m.Outcome}
+	return &queryinput.MailInput{OriginType: m.OriginType, Header: m.Header, ID: m.ID, Kind: string(m.Kind), Attempt: m.Attempts, Hop: m.Hop, Outcome: m.Outcome}
 }
 
 type Request struct {
@@ -122,8 +127,9 @@ type Grant struct {
 	Scope       controlscope.Scope
 }
 type Target struct {
-	RunID string
-	Queue bool
+	IgnoredOptions []string
+	RunID          string
+	Queue          bool
 }
 type DeliveryResult struct {
 	Accepted bool
@@ -144,6 +150,7 @@ type Port interface {
 	SubmitMail(context.Context, Mail, queryinput.SubmitRequest, *contracts.ExecutionContext) (queryinput.SubmitResponse, error)
 }
 type Filter struct {
+	Box         string
 	NewestFirst bool
 	AllSubjects bool
 	AgentKey    string
@@ -155,12 +162,13 @@ type Filter struct {
 	Offset      int
 }
 type Receipt struct {
-	MailID   string         `json:"mailId"`
-	ChatID   string         `json:"chatId"`
-	Delivery string         `json:"delivery"`
-	RunID    string         `json:"runId,omitempty"`
-	Status   Status         `json:"status"`
-	Error    map[string]any `json:"error,omitempty"`
+	IgnoredOptions []string       `json:"ignoredOptions,omitempty"`
+	MailID         string         `json:"mailId"`
+	ChatID         string         `json:"chatId"`
+	Delivery       string         `json:"delivery"`
+	RunID          string         `json:"runId,omitempty"`
+	Status         Status         `json:"status"`
+	Error          map[string]any `json:"error,omitempty"`
 }
 
 func receipt(m Mail) Receipt {
@@ -168,7 +176,7 @@ func receipt(m Mail) Receipt {
 	if d == "" {
 		d = "queued"
 	}
-	return Receipt{MailID: m.ID, ChatID: m.ToChatID, Delivery: d, RunID: m.RunID, Status: m.Status, Error: m.Error}
+	return Receipt{IgnoredOptions: m.IgnoredOptions, MailID: m.ID, ChatID: m.ToChatID, Delivery: d, RunID: m.RunID, Status: m.Status, Error: m.Error}
 }
 func failure(code, message string) error {
 	return &contracts.RunToolError{Code: code, Message: message}

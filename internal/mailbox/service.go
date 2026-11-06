@@ -146,9 +146,19 @@ func (s *Service) change(id string, fn func(*Mail) error) (Mail, error) {
 func (s *Service) changed(m Mail) {
 	if m.Terminal() {
 		s.dropScope(m.ID)
+		if released, ok := s.port.(interface{ MailReleased(string) }); ok {
+			released.MailReleased(m.ID)
+		}
 	}
 	if s.notifications != nil {
-		s.notifications.Broadcast("mail.updated", map[string]any{"mailId": m.ID, "kind": m.Kind, "status": m.Status, "delivery": m.Delivery, "fromAgentKey": m.FromAgentKey, "fromChatId": m.FromChatID, "toAgentKey": m.ToAgentKey, "toChatId": m.ToChatID, "runId": m.RunID})
+		payload := map[string]any{"requestId": m.RequestID, "ignoredOptions": m.IgnoredOptions, "mailId": m.ID, "kind": m.Kind, "status": m.Status, "delivery": m.Delivery, "fromAgentKey": m.FromAgentKey, "fromChatId": m.FromChatID, "toAgentKey": m.ToAgentKey, "toChatId": m.ToChatID, "runId": m.RunID}
+		if scoped, ok := s.notifications.(interface {
+			BroadcastSubject(string, string, map[string]any)
+		}); ok {
+			scoped.BroadcastSubject(m.Subject, "mail.updated", payload)
+		} else {
+			s.notifications.Broadcast("mail.updated", payload)
+		}
 	}
 }
 func (s *Service) all(f Filter) ([]Mail, error) {
@@ -373,6 +383,7 @@ func (s *Service) dispatch(chatID string) error {
 				return errStale
 			}
 			row.Status = Inflight
+			row.IgnoredOptions = target.IgnoredOptions
 			row.Attempts++
 			row.SteerID = row.ID + ":" + strconv.Itoa(row.Attempts)
 			row.RunID = target.RunID
@@ -561,6 +572,9 @@ func (s *Service) Action(ctx context.Context, id, action, subject string, scope 
 
 // renderHeader freezes correspondence provenance for JSONL.
 func (s *Service) renderHeader(m Mail) string {
+	if m.OriginType == "user" {
+		return ""
+	}
 	name := strings.ToUpper(string(m.Kind[:1])) + string(m.Kind[1:])
 	sender := "chat " + m.FromChatID
 	if m.Kind == Ask {
@@ -598,6 +612,20 @@ func (s *Service) renderHeader(m Mail) string {
 }
 
 func (s *Service) fail(m Mail, err error) error {
+	if m.OriginType == "user" {
+		_, e := s.change(m.ID, func(row *Mail) error {
+			if row.Terminal() {
+				return errStale
+			}
+			row.Status = Failed
+			row.Error = errorData(err)
+			return nil
+		})
+		if errors.Is(e, errStale) {
+			return nil
+		}
+		return e
+	}
 	if m.Kind != Letter {
 		_, changeErr := s.change(m.ID, func(row *Mail) error {
 			if row.Terminal() {
@@ -738,6 +766,17 @@ func (s *Service) Completed(completion chat.RunCompletion, hop int) error {
 				return nil
 			})
 			if err != nil && !errors.Is(err, errStale) {
+				return err
+			}
+			continue
+		}
+		if m.OriginType == "user" && m.Status == Delivered {
+			if _, err = s.change(m.ID, func(row *Mail) error {
+				if row.Status == Delivered {
+					row.Status = Done
+				}
+				return nil
+			}); err != nil {
 				return err
 			}
 			continue

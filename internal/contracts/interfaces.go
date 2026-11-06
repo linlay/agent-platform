@@ -333,6 +333,8 @@ type RunLimits struct {
 }
 
 type QuerySession struct {
+	// FrozenModelOptions records the admitted model for delivery comparisons.
+	FrozenModelOptions *queryinput.QueryModelOptions      `json:"-"`
 	Mail               *queryinput.MailInput              `json:"-"`
 	UserChatReferences []string                           `json:"-"`
 	RuntimeEvent       func(stream.EventData)             `json:"-"`
@@ -791,9 +793,10 @@ type ActiveRun struct {
 }
 
 type RunStatusInfo struct {
-	RunID    string
-	ChatID   string
-	AgentKey string
+	FrozenModelOptions *queryinput.QueryModelOptions `json:"-"`
+	RunID              string
+	ChatID             string
+	AgentKey           string
 
 	State              RunLoopState
 	LastSeq            int64

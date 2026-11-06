@@ -58,3 +58,22 @@ func TestUnpersistedCompletionStillAnswersMail(t *testing.T) {
 		t.Fatalf("reply: %#v %v", reply, err)
 	}
 }
+
+func TestUserMailReleasesDeliveryContextWhenTerminal(t *testing.T) {
+	s, box := testMailService(t)
+	m := mailbox.Mail{ID: "user-mail", Kind: mailbox.Letter, Status: mailbox.Delivered, ToAgentKey: "worker", ToChatID: "worker-chat", OriginType: "user",
+		Subject: "user", RequestID: "req", Message: "work", Delivery: "started", RunID: "worker-run", Attempts: 1, RequestDigest: "d"}
+	if _, _, err := box.Store.Accept(m); err != nil {
+		t.Fatal(err)
+	}
+	s.sends.contexts = map[string]runtimetypes.QueryCommand{m.ID: {Locale: "zh-CN"}}
+	var session contracts.QuerySession
+	s.bindMailboxSession(runtimetypes.QueryCommand{RunID: "worker-run", ChatID: "worker-chat"}, &session)
+	session.RuntimeComplete("worker-run", "complete", "done", false)
+	if got, err := box.Store.Get(m.ID); err != nil || got.Status != mailbox.Done || got.AnsweredBy != "" {
+		t.Fatalf("user mail: %#v %v", got, err)
+	}
+	if len(s.sends.contexts) != 0 {
+		t.Fatalf("delivery context leaked: %#v", s.sends.contexts)
+	}
+}

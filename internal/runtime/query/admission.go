@@ -380,7 +380,7 @@ func (s *Service) PrepareQueryAdmissionRequest(
 			releaseQuery(admissionRelease)
 		}
 	}()
-	if reservations, ok := s.deps.Runs.(contracts.ChatQueryAdmissionService); ok {
+	if reservations, ok := s.deps.Runs.(contracts.ChatQueryAdmissionService); ok && !req.MailboxAcceptance {
 		release, reserveErr := reservations.ReserveChatQuery(chatID, requestID)
 		if reserveErr != nil {
 			var maintenanceErr *contracts.ChatMaintenanceConflictError
@@ -429,7 +429,7 @@ func (s *Service) PrepareQueryAdmissionRequest(
 			return queryAdmission{}, &statusError{Status: 400, Message: "message is required for the first query"}
 		}
 	}
-	if gateErr := s.AwaitingQueryGateError(chatID, existingSummary); gateErr != nil {
+	if gateErr := s.AwaitingQueryGateError(chatID, existingSummary); gateErr != nil && !req.MailboxAcceptance {
 		return queryAdmission{}, gateErr
 	}
 	if requireMessage && strings.TrimSpace(req.Message) == "" && len(req.References) == 0 &&
@@ -592,55 +592,11 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 	req := admission.Req
 	agentDef := admission.AgentDef
 	chatID := req.ChatID
-	agentKey := req.AgentKey
-	chatSource := queryChatSource(ctx, req)
-	persistedAgentMode := chatAgentMode(agentDef, admission.OrchestratedTeam)
-	summary, created, err := s.deps.Chats.EnsureChatWithInitialName(chatID, agentKey, req.Message, chatSource, persistedAgentMode, req.InitialChatName)
+	summary, created, err := s.prepareAdmittedChat(ctx, admission)
 	if err != nil {
 		return preparedQuery{}, err
 	}
-	if !created && !(summary.AgentKey == "" && summary.LastRunID == "") && !runOwnerMatchesChat(&summary, agentKey) {
-		return preparedQuery{}, &statusError{
-			Status:  409,
-			Code:    "target_owner_mismatch",
-			Message: "target identity does not match chat owner",
-		}
-	}
 
-	if !created && agentKey != "" {
-		if err := s.deps.Chats.UpdateAgentIdentity(chatID, agentKey, persistedAgentMode); err != nil {
-			return preparedQuery{}, err
-		}
-		summary.AgentKey = agentKey
-		summary.AgentMode = persistedAgentMode
-	}
-	chatNamePromoted := false
-	if !created {
-		summary, chatNamePromoted, err = s.deps.Chats.PromotePendingChatName(chatID, req.Message)
-		if err != nil {
-			return preparedQuery{}, err
-		}
-	}
-	if req.Primary {
-		publish := s.deps.PrimaryChats.PublishPrimaryChat
-		if req.PrimaryIfMissing {
-			conditional, ok := s.deps.PrimaryChats.(interface{ BackfillPrimaryChat(string, string) error })
-			if !ok {
-				return preparedQuery{}, &statusError{Status: 501, Code: "not_supported", Message: "conditional primary chat is not supported"}
-			}
-			publish = conditional.BackfillPrimaryChat
-		}
-		if err := publish(agentKey, chatID); err != nil {
-			return preparedQuery{}, err
-		}
-	}
-	if created {
-		// automation/system role 只影响 chat 内部 request.query 的展示语义，
-		// 不影响会话在列表里的可见性。
-		s.broadcast("chat.created", chatCreatedPayload(chatID, summary.ChatName, agentKey, summary.CreatedAt, summary.Source))
-	} else if chatNamePromoted {
-		s.broadcast("chat.renamed", map[string]any{"chatId": summary.ChatID, "chatName": summary.ChatName, "agentKey": summary.AgentKey})
-	}
 	sessionReq := req
 	if admission.OrchestratedTeam {
 		sessionReq.AgentKey = agentDef.Key
@@ -670,6 +626,7 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 		}
 		return preparedQuery{}, err
 	}
+	session.FrozenModelOptions = freezeModelOptions(agentDef, req.Model)
 	applyDesktopImageStudioRunLimits(req, &session)
 	s.bindMailboxSession(req, &session)
 	if admission.OrchestratedTeam && admission.TeamSnapshot != nil {
@@ -728,3 +685,59 @@ func queryChatSource(ctx context.Context, req runtimetypes.QueryCommand) string 
 
 // Admission is a staged, leased query input. CompleteQueryPreparation consumes it.
 type Admission = queryAdmission
+
+func (s *Service) prepareAdmittedChat(ctx context.Context, admission queryAdmission) (chat.Summary, bool, error) {
+	req := admission.Req
+	agentDef := admission.AgentDef
+	chatID := req.ChatID
+	agentKey := req.AgentKey
+	chatSource := queryChatSource(ctx, req)
+	persistedAgentMode := chatAgentMode(agentDef, admission.OrchestratedTeam)
+	summary, created, err := s.deps.Chats.EnsureChatWithInitialName(chatID, agentKey, req.Message, chatSource, persistedAgentMode, req.InitialChatName)
+	if err != nil {
+		return chat.Summary{}, false, err
+	}
+	if !created && !(summary.AgentKey == "" && summary.LastRunID == "") && !runOwnerMatchesChat(&summary, agentKey) {
+		return chat.Summary{}, false, &statusError{
+			Status:  409,
+			Code:    "target_owner_mismatch",
+			Message: "target identity does not match chat owner",
+		}
+	}
+
+	if !created && agentKey != "" {
+		if err := s.deps.Chats.UpdateAgentIdentity(chatID, agentKey, persistedAgentMode); err != nil {
+			return chat.Summary{}, false, err
+		}
+		summary.AgentKey = agentKey
+		summary.AgentMode = persistedAgentMode
+	}
+	chatNamePromoted := false
+	if !created {
+		summary, chatNamePromoted, err = s.deps.Chats.PromotePendingChatName(chatID, req.Message)
+		if err != nil {
+			return chat.Summary{}, false, err
+		}
+	}
+	if req.Primary {
+		publish := s.deps.PrimaryChats.PublishPrimaryChat
+		if req.PrimaryIfMissing {
+			conditional, ok := s.deps.PrimaryChats.(interface{ BackfillPrimaryChat(string, string) error })
+			if !ok {
+				return chat.Summary{}, false, &statusError{Status: 501, Code: "not_supported", Message: "conditional primary chat is not supported"}
+			}
+			publish = conditional.BackfillPrimaryChat
+		}
+		if err := publish(agentKey, chatID); err != nil {
+			return chat.Summary{}, false, err
+		}
+	}
+	if created {
+		// automation/system role 只影响 chat 内部 request.query 的展示语义，
+		// 不影响会话在列表里的可见性。
+		s.broadcast("chat.created", chatCreatedPayload(chatID, summary.ChatName, agentKey, summary.CreatedAt, summary.Source))
+	} else if chatNamePromoted {
+		s.broadcast("chat.renamed", map[string]any{"chatId": summary.ChatID, "chatName": summary.ChatName, "agentKey": summary.AgentKey})
+	}
+	return summary, created, nil
+}

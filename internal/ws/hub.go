@@ -245,3 +245,18 @@ func (h *Hub) GatewayConnections(channelID string) []MonitorConnection {
 	}
 	return connections
 }
+
+func (h *Hub) BroadcastSubject(subject, eventType string, data map[string]any) {
+	if h == nil {
+		return
+	}
+	for _, conn := range h.snapshotConnections() {
+		if conn.IsDesktopBTW() || conn.IsDesktopExplain() {
+			continue
+		}
+		_, owner, _, _ := conn.monitorIdentity()
+		if owner == subject {
+			conn.SendPush(eventType, data)
+		}
+	}
+}

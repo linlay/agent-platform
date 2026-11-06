@@ -16,7 +16,7 @@ import (
 
 func (s *Service) parent(runID string) (Mail, error) {
 	m, err := s.Store.StartedLetter(runID)
-	if errors.Is(err, ErrNotFound) {
+	if errors.Is(err, ErrNotFound) || err == nil && m.OriginType == "user" {
 		return Mail{}, failure("mail_parent_required", "this Run was not opened by a letter")
 	}
 	return m, err

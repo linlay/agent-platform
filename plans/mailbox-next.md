@@ -10,7 +10,7 @@
 
 ## 执行记录（2026-11-06）
 
-阶段 1–4 已完成本地实现与自动化验收，覆盖 Platform 和相邻 `agent-webclient`；阶段 5–6 保留后续计划，不在本次实现范围。
+阶段 1–4 及阶段 5 的用户消息部分已完成本地实现与自动化验收，覆盖 Platform 和相邻 `agent-webclient`；Automation/渠道改为发信仍等待待拍板第 6 项，阶段 6 未开始。
 
 - 阶段 1：mail 常开、旧 enabled 键拒绝、启动清库、信封头随 JSONL 与压缩快照保留、数据库硬拒绝保护；恢复与保留期代码保留。
 - 阶段 2：会话退避重试、归档关闭、列表摘要与 total、按需详情、侧栏入口与挂起角标。
@@ -82,7 +82,7 @@
 
 | # | 问题 | 建议 |
 |---|---|---|
-| 4 | 统一发送入口 | 名称已确认：HTTP POST /api/send，主 WS 同名帧；请求/幂等/响应细节在阶段 5 落地前写明 |
+| 6 | 重启时仍在排队的 Automation 消息，在执行历史中记为什么结果 | Automation 改为发信前再定（阶段 5 末尾） |
 
 ## 阶段 1：mail 常开，重启清空
 
@@ -188,42 +188,132 @@ GET /api/chats?openedBy=A&agentKey=B
 
 目标：用户随时都能发消息，由平台决定开 Run、插入还是排队；客户端不再区分 query 和 steer，也不再因会话忙收到 409。主聊天由此不再有绕过 mailbox 的输入路径。
 
-**为什么需要新的发送入口。** 现在 WebClient 输入框的发送方式：
+**为什么需要新的发送入口。** 现在 WebClient 输入框在会话空闲时调用 `/api/query`，在跑时调用 `/api/steer`，卡在等待项上或发生冲突时收到 409。`/api/query` 的响应就是这次 Run 的 SSE 事件流，而排队中的消息还没有 Run，没有流可以返回。所以用户消息需要一个只负责"投进 mailbox"的入口，立即返回受理结果，事件仍通过现有的推送与挂接获得。
 
-- 会话空闲时调用 `/api/query`；
-- 会话在跑时调用 `/api/steer`；
-- 卡在等待项上或发生冲突时收到 409。
+### 已确认的设计（2026-11-06）
 
-`/api/query` 的响应就是这次 Run 的 SSE 事件流，而排队中的消息还没有 Run，没有流可以返回。所以用户消息需要一个只负责"投进 mailbox"的入口：它立即返回受理结果，包括 `mailId`、`delivery: started|inserted|queued`，开了 Run 时还有 `runId`；事件仍通过现有的推送与挂接获得。这个入口原拟名 `POST /api/send`，主 WS 上对应同名的帧类型。
+- 入口为 `POST /api/send`，主 WS 用同名帧 `/api/send`。
+- **人与 Agent 一视同仁。** 用户消息和 Agent 的信是同一张表、同一套投递规则、同一个收件箱。差别只来自发件人就是收件会话本身：不生成回信，不加信封头，不产生请示，跳数为 0。
+- **运行选项只在开新 Run 时生效。** 插入正在运行的 Run 时直接忽略，不排队，在响应的 `ignoredOptions` 中说明。`accessLevel` 不在其中：运行中 Run 的档位由 `/api/access-level` 调整。
+- **不提供取消。** 投进 mailbox 即不可撤销；会话消费很快，几乎没有可撤销的窗口。需要停下时中断 Run。
+- **收件箱分三箱**：待收取、已收件、垃圾箱，见下文。角标为待收取的总数。
 
-开始前需要定下：
+### 发送协议
 
-- 入口的名称与协议（待拍板 4），HTTP 与主 WS 使用同一套逻辑：
-  - 请求字段：目标（chatId 或 agentKey）、message、references、上传文件、运行选项、幂等键；
-  - 响应形状；
-  - 与 `/api/query` 的新建会话、`primary:true` 的对应关系。
-- 用户消息在 MAILS 中的形态：letter，`ORIGIN_TYPE_ = user`，hop 为 0，不生成回信，不加信封头。保留用户输入的语义（chat 引用资格、跳数归零）和权限。
-- 落地沿用"投递规则"：
-  - 空闲时开 Run，在跑时插入。
-  - 规划 Run、收尾或压缩中、有未决等待项时排队。
-  - 停在提问、审批或表单上时插入，等待项解决后才被读到，不代替作答。作答仍走 `/api/submit`。
-- 运行选项（`planningMode`、`editingMode`、`model`、`accessLevel`）只在开新 Run 时生效。与当前 Run 设置不同的消息进入排队，形成顺序屏障，后面的消息不能越过它插入旧 Run。
-- 请求幂等，以及取消排队（`/api/mails/action` 增加 `cancel`，只对 `queued` 有效）与投递之间的竞争：两者只有一方成功。
-- 重启：并库前 mail.db 被清空，服务端不再有未投递的用户消息。WebClient 在本地保留尚未确认消费的待发气泡；重连后服务端查不到该 mailId 时，标为"未送达"，用户可以重发（作为新消息）或删除。
-- 订阅：先沿用 `run.started` 推送加自动挂接；仍有遗漏时再增加 `chat.subscribe {chatId}`。
-- `/api/query`、`/api/steer` 保留给 Desktop、gateway、Automation、execute 和渠道使用，何时删除另行决定。
+**入口。** `POST /api/send` 与主 WS 帧 `/api/send` 共用同一应用服务。只用于主 lane；以下仍只走 `/api/query`：
+- BTW 和解读（`lane`、`sideId`）；
+- `hidden`、`params`、`scene`、`stream`；
+- 空消息续跑（`canContinue`）。
 
-WebClient：
+**请求**
 
-- 输入框一律调用新入口。
-- 消息显示为待发气泡，状态为排队中、已插入或已开始，排队中的可以取消。
-- 去掉"运行中改走 steer"的分支和 `active_run_conflict` 的提示路径。
+```json
+{
+  "requestId": "req_xxx",
+  "chatId": "chat_xxx",
+  "agentKey": "assistant",
+  "primary": true,
+  "message": "……",
+  "references": [],
+  "planningMode": false,
+  "editingMode": true,
+  "model": {"modelKey": "…", "reasoningEffort": "LOW"},
+  "accessLevel": "default"
+}
+```
 
-随后，Automation 与渠道改为发信：
+- `requestId`：必填，由客户端生成（WebClient 现在已经为每次发送生成），兼作幂等键。
+- `chatId`：已有会话，或客户端预分配、上传时创建的空会话；省略时新建会话。空会话与新建会话的处理同 `/api/query`。
+- `agentKey`：新建会话时必填；会话已存在时必须与会话的 Agent 一致。
+- `primary`：只在新建会话时有效，含义同 `/api/query`。
+- `references`：同 `/api/query`。文件先经 `/api/upload` 上传到目标会话，再以引用传入，不走 mail 的附件复制。
+- 运行选项 `planningMode`、`editingMode`、`model`、`accessLevel`：校验规则同 `/api/query`，只在这条消息开出新 Run 时生效。
+- `detail` 沿用现有位置（HTTP 用 URL 参数，WS 用帧顶层字段），只用于这条消息开出的 Run。
+- 公开请求拒绝未知字段，与 `/api/query` 一致。
+
+**响应**（`{code,msg,data}` 包裹）
+
+```json
+{"mailId": "mail_xxx", "chatId": "chat_xxx", "delivery": "inserted", "runId": "run_xxx", "ignoredOptions": ["model"]}
+```
+
+| delivery | 含义 | 客户端 |
+|---|---|---|
+| `started` | 已开出 `runId` | 按现有方式挂接该 Run |
+| `inserted` | 已插入 `runId` 所指的当前 Run | 继续看当前 Run |
+| `queued` | 排队中，没有 `runId` | 等 `mail.updated` 变为 inserted 或 started |
+
+- `ignoredOptions`：插入时，请求中与当前 Run 不同的 `planningMode`、`editingMode`、`model` 被忽略，在这里列出；没有时省略。排队的消息之后被插入时，`mail.updated` 带同一字段。
+- 只有确定性的错误才拒绝：参数无效；会话不存在、已归档或不属于本人；Agent 不可用；引用不可用；运行选项不合法；`idempotency_conflict`。会话忙不再返回 409。
+- 同一 subject 下 requestId 重复时，返回第一次的结果；requestId 相同而内容不同，返回 `idempotency_conflict`。
+
+**落地规则**沿用 docs/Mailbox.md 的"投递规则"：
+- 空闲时开 Run，在跑时插入；
+- 规划 Run、收尾或压缩中、有未决等待项时排队；
+- 停在提问、审批或表单上时插入，等待项解决后才被读到，不代替作答；作答仍走 `/api/submit`；
+- 主要聊天开启时，主聊天在跑时一律排队（阶段 6 的 P3）。
+
+**事件**
+
+- 消息被消费时，`request.query` 或 `request.steer` 事件带 `requestId` 和 `mailId`，客户端据此把待发气泡替换为正式消息。
+- `mail.updated` 增加 `requestId` 与 `ignoredOptions`，推送到本人的连接。
+
+### 收件箱：待收取、已收件、垃圾箱
+
+收件箱按 mail 的去向分三箱，像事务中心的待办、已办与垃圾箱，不按发件人区分：
+
+| 箱 | `box` | 状态 | 说明 |
+|---|---|---|---|
+| 待收取（默认） | `pending` | `accepting`、`queued`、`inflight`、`suspended` | 还没被读到。正常情况下很快清空；留在这里的是排在长 Run 后面的，或需要人处理的挂起 mail |
+| 已收件 | `received` | `delivered`、`done` | 已被收件会话读到 |
+| 垃圾箱 | `trash` | `failed`、`discarded`、`withdrawn` | 没有被读到，也不会再投递 |
+
+- 接口：`GET /api/mails` 增加 `box`，默认 `pending`；其余筛选参数不变，`total` 按所选的箱计算。`box` 与 `status` 同时给出时取交集。
+- 角标：待收取的 `total`，取代阶段 2.4 的挂起计数。消费很快，平时为 0；不为 0 说明有 mail 卡住。
+- 垃圾箱只读，不提供清空或永久删除；正文按保留期清理，两端会话关闭后删行，与其他 mail 相同。
+- WebClient：收件箱分三页；用户消息在会话时间线中仍以待发气泡展示状态。
+
+### Platform 实施
+
+| # | 内容 | 做法 |
+|---|---|---|
+| 5.1 | MAILS 结构 | 增加 `REQUEST_ID_`，以及冻结的 `PLANNING_MODE_`、`EDITING_MODE_`、`DETAIL_`、`IGNORED_OPTIONS_`；唯一索引 `(SUBJECT_, REQUEST_ID_) WHERE REQUEST_ID_ <> ''`。用户消息 `ORIGIN_TYPE_ = user`，`FROM_AGENT_KEY_`、`FROM_CHAT_ID_`、`FROM_RUN_ID_` 为空，因此不触发自寄检查和发件侧关闭处理。mail.db 每次新建，直接改 DDL |
+| 5.2 | 受理服务 | 在 `internal/runtime/query` 新增发送服务，HTTP 与 WS 共用：按 `/api/query` 的准入规则校验目标、归属、引用、interactionConfig、运行选项和权限档位（`default` 按 Agent 默认解析）；新建会话与 `primary:true` 的处理同 `/api/query`，不取会话 mutation 锁；然后写入 MAILS 并按投递规则处理。不经过 Agent 发信的地址资格检查（已打开、被引用、主要对话三类） |
+| 5.3 | 投递 | `DeliverMail` 区分用户消息：开 Run 时使用冻结的运行选项、`detail`、`requestId`，origin 为 user；插入时走普通用户 steer（带 `requestId`，没有 Agent origin）。`renderHeader` 对用户消息返回空。插入时比较冻结选项与当前 Run，把不同的项写入 `IGNORED_OPTIONS_` |
+| 5.4 | Run 绑定 | `bindMailboxSession` 把用户消息当作用户直接输入：不设 RunOrigin（不受 `run_chaining_not_allowed` 限制），chat 引用资格取自该消息，跳数归 0。由用户消息开出的 Run 不产生请示，`chat_notify` 不可用（没有发信会话） |
+| 5.5 | 结算 | Run 结束时，用户消息转为 `done`，不生成回信。"为信开出的 Run 没读到信就结束时转为 failed"同样适用 |
+| 5.6 | 收件箱接口 | `mailbox.Filter` 增加 `Box`，`List` 与 `Count` 按箱筛选；`mail.updated` 增加 `requestId`、`ignoredOptions` |
+| 5.7 | 路由 | `server_routes.go` 注册 `POST /api/send`，`ws_routes.go` 注册同名帧；server 只做解码、鉴权与响应映射 |
+| 5.8 | 非 Native 后端 | 目标范围与 `/api/query` 相同。实施时核对 ACP 与 Proxy 的插入路径；不支持插入的后端，在跑时按排队处理 |
+| 5.9 | 文档 | `docs/API与协议.md` 新增发送入口一节；`docs/Mailbox.md` 增加用户消息与三箱；AGENTS.md 的 mailbox 一句与 §6 API 说明原地改写；`README.md` |
+
+`/api/query`、`/api/steer` 不变，继续给 Desktop、gateway、Automation、execute 和渠道使用，何时删除另行决定。
+
+### WebClient 实施
+
+- 输入框一律调用 `/api/send`（连接主 WS 时用 WS 帧）；BTW、解读和空消息续跑仍走 `/api/query`。去掉"运行中改走 steer"的分支，以及 `active_run_conflict`、`awaiting_pending` 的 409 提示路径。
+- 待发气泡：发送时按 `requestId` 立即显示，状态取自响应的 `delivery` 和之后的 `mail.updated`（排队中、已插入、已开始）。收到同一 `requestId` 的 `request.query` 或 `request.steer` 后替换为正式消息。有 `ignoredOptions` 时在气泡旁提示"这条按当前任务的设置处理，新设置从下一个 Run 开始生效"。
+- `started` 时按现有方式挂接 `runId`；订阅先沿用 `run.started` 推送加自动挂接，仍有遗漏时再增加 `chat.subscribe {chatId}`。
+- 刷新恢复：打开会话时用 `GET /api/mails?box=pending&chatId=` 取回仍在排队的用户消息，恢复待发气泡。
+- 重启：并库前 mail.db 会被清空。重连后查不到某个待发气泡的 mailId 时，标为"未送达"，用户可以重发（作为新消息，使用新的 requestId）或删除。
+- 收件箱：分"待收取""已收件""垃圾箱"三页；角标改为待收取的 `total`。
+
+### 验收
+
+- 同一会话：空闲时 `started`；在跑时 `inserted`；规划 Run、压缩中或有未决等待项时 `queued`，之后按规则开 Run 或插入。客户端不再收到会话忙的 409。
+- 停在等待项上的会话收到用户消息时，等待项不被当作已作答。
+- 插入时模型不同：响应 `ignoredOptions: ["model"]`，当前 Run 不变；下一条开出新 Run 的消息使用新模型。
+- 同一 requestId 重复发送只受理一次；内容不同返回 `idempotency_conflict`。
+- 由用户消息开出的 Run：没有 RunOrigin 限制，跳数为 0，不生成回信、请示和信封头，chat 引用按用户输入授权。
+- 三箱的筛选与 `total` 正确，`box` 与 `status` 取交集；角标等于待收取总数。
+- 刷新后排队中的气泡能恢复；重启后显示"未送达"。
+- `/api/query`、`/api/steer`、Desktop、gateway、Automation、execute 和渠道的行为不变；`make test` 与 WebClient 测试通过。
+
+### 随后：Automation 与渠道改为发信
 
 - 走同一入口（origin 为 automation 或 channel），目标会话忙时排队，不再拒绝。
 - Automation 的初始权限和执行历史合同沿用现有源码，不套用 Agent 发信规则。
-- 开始前定下：重启时仍在排队的 Automation 消息，在执行历史中记为什么结果。
+- 待拍板 6：重启时仍在排队的 Automation 消息，在执行历史中记为什么结果。
 
 ## 阶段 6：主要聊天形态与 Desktop
 
@@ -302,3 +392,20 @@ P1（是否需要单独的出队策略）已确认：需要。
 分身寄来的 mail 和模型在任何情况下都不能插队。
 
 2026-11-06 审核修订：阶段 5 入口名称确认使用 HTTP POST /api/send 与主 WS 同名帧。本轮先修复阶段 1–4 审核问题，不提前接入用户消息发送路径。
+
+
+### 阶段 5 用户消息实施记录（2026-11-06）
+
+- 已实现 HTTP/主 WS `/api/send`、subject/requestId 幂等、与 Query 共享的用户准入、运行选项/身份/detail 冻结、开 Run/插入/排队和用户消息结算；用户消息没有 Agent 信封、回信、请示或派生 Run 控制限制。
+- 已实现 pending/received/trash 三箱与交集筛选、待收取总数角标、待发气泡、本地按身份保存、分页全文恢复、WS 重连对账、启动清库后的未送达提示与新 requestId 重发。消费先于收据不复活气泡；网络结果未知保留正文并等待对账，不当作明确拒绝重发。
+- ACP/Proxy/渠道的活动 Run 保守排队；Proxy 空闲启动、运行中排队、空闲后投递和无回信结算已补集成测试。agent-gateway 当前没有 `/api/send` 转发；为保留既有网关行为，WebClient 网关模式继续走旧 Query/steer，直连 Platform/Desktop 走统一发送。
+- 验证：Platform `make test` 通过（Server 的 SSE 历史落盘时序用例首次失败，按 Make 既有规则重试通过）；全仓 `go build` 通过，新发送入口 `-race` 通过。WebClient 全量 507 个套件、4508 项通过，相关发送/恢复回归及 typecheck、边界检查、生产 build 通过；构建只有现有包体积告警。
+- 本阶段未改 Automation、渠道原入口或主要聊天 P1–P3；待拍板第 6 项仍保留。
+
+审核修复（2026-11-06）：
+- 模型只冻结请求显式给出的值，省略时开 Run 按 Agent 配置解析。此前受理时把 Agent 默认模型写成显式选择，关闭模型选择的 Agent 每条用户消息都投递失败，并会覆盖各阶段的思考设置。
+- 收据 `status` 为 failed 时，WebClient 直接标未送达，不挂接收据里的 runId。
+- 进程内幂等表在受理完成后释放；用户消息的投递上下文在消费或进入终态时释放（mailbox 终态钩子 `MailReleased`），并库后需持久化，标记 TODO(chats-db-v2)。
+- `/api/send` 的 `model` 字段改为与 `/api/query` 相同的 `key`。
+- 只带有效引用的消息也走 `/api/send`，规则同 `/api/query`；网关模式不变。
+- 文档：发送一节移入 API 文档 Run 章节并补表格行；Mailbox 的 `mail.updated` 字段与推送范围更正。

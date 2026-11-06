@@ -250,7 +250,7 @@ func NormalizeEventIdentity(event stream.EventData, req runtimetypes.QueryComman
 		}
 	}
 	if event.Type == "request.query" {
-		for _, key := range []string{"mailHeader", "mailId", "mailKind", "mailAttempt", "mailHop", "outcome"} {
+		for _, key := range []string{"mailOrigin", "mailHeader", "mailId", "mailKind", "mailAttempt", "mailHop", "outcome"} {
 			delete(event.Payload, key)
 		}
 		if req.Mail != nil {
