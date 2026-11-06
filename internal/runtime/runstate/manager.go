@@ -28,16 +28,17 @@ const (
 )
 
 type managedRun struct {
-	lifetimeTimer     *time.Timer
-	interactionConfig *interaction.Config
-	run               contracts.ActiveRun
-	control           *contracts.RunControl
-	eventBus          *stream.RunEventBus
-	webClientTarget   contracts.WebClientTarget
-	runOrigin         *contracts.RunOrigin
-	startedAt         time.Time
-	completedAt       time.Time
-	runEnvironment    *runenv.Scope
+	frozenModelOptions *queryinput.QueryModelOptions
+	lifetimeTimer      *time.Timer
+	interactionConfig  *interaction.Config
+	run                contracts.ActiveRun
+	control            *contracts.RunControl
+	eventBus           *stream.RunEventBus
+	webClientTarget    contracts.WebClientTarget
+	runOrigin          *contracts.RunOrigin
+	startedAt          time.Time
+	completedAt        time.Time
+	runEnvironment     *runenv.Scope
 }
 
 type Manager struct {
@@ -195,14 +196,15 @@ func (m *Manager) registerLocked(session contracts.QuerySession) (context.Contex
 	})
 	control.SetObserverCount(0)
 	m.runs[session.RunID] = &managedRun{
-		interactionConfig: session.InteractionConfig,
-		run:               run,
-		control:           control,
-		eventBus:          eventBus,
-		webClientTarget:   session.WebClientTarget,
-		runOrigin:         cloneRunOrigin(session.RunOrigin),
-		runEnvironment:    session.RunEnvironment,
-		startedAt:         startedAt,
+		frozenModelOptions: session.FrozenModelOptions,
+		interactionConfig:  session.InteractionConfig,
+		run:                run,
+		control:            control,
+		eventBus:           eventBus,
+		webClientTarget:    session.WebClientTarget,
+		runOrigin:          cloneRunOrigin(session.RunOrigin),
+		runEnvironment:     session.RunEnvironment,
+		startedAt:          startedAt,
 	}
 	if session.RunOrigin != nil {
 		if m.runOrigins == nil {
@@ -472,9 +474,10 @@ func (m *Manager) RunStatus(runID string) (contracts.RunStatusInfo, bool) {
 	runOrigin := cloneRunOrigin(state.runOrigin)
 	m.mu.Unlock()
 	info := contracts.RunStatusInfo{
-		RunID:    run.RunID,
-		ChatID:   run.ChatID,
-		AgentKey: run.AgentKey,
+		FrozenModelOptions: state.frozenModelOptions,
+		RunID:              run.RunID,
+		ChatID:             run.ChatID,
+		AgentKey:           run.AgentKey,
 
 		State:         control.State(),
 		LastSeq:       eventBus.LatestSeq(),

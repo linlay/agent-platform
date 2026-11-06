@@ -60,3 +60,12 @@ func TestCompactIdleHookRunsAfterStateUnlock(t *testing.T) {
 		t.Fatal("queued mail would remain asleep after compaction")
 	}
 }
+
+func TestUserMailResetsHopAndChatReferences(t *testing.T) {
+	c := NewRunControl(context.Background(), "run")
+	c.RaiseMailHop(4)
+	c.ConsumeMailInput(&queryinput.MailInput{OriginType: "user", Hop: 0}, nil, queryinput.Reference{Type: "chat", ID: "referenced-chat"})
+	if c.MailHop() != 0 || len(c.UserChatReferences()) != 1 || c.UserChatReferences()[0] != "referenced-chat" {
+		t.Fatal(c.MailHop(), c.UserChatReferences())
+	}
+}

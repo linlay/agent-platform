@@ -19,7 +19,15 @@ func (s *Server) handleMails(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
-	filter := mailbox.Filter{NewestFirst: true, AgentKey: q.Get("agentKey"), ChatID: q.Get("chatId"), Kind: mailbox.Kind(q.Get("kind")), Status: mailbox.Status(q.Get("status")), Subject: subject, Limit: limit, Offset: offset}
+	box := q.Get("box")
+	if box == "" {
+		box = "pending"
+	}
+	if box != "pending" && box != "received" && box != "trash" {
+		writeJSON(w, 400, api.Failure(400, "invalid mailbox box"))
+		return
+	}
+	filter := mailbox.Filter{Box: box, NewestFirst: true, AgentKey: q.Get("agentKey"), ChatID: q.Get("chatId"), Kind: mailbox.Kind(q.Get("kind")), Status: mailbox.Status(q.Get("status")), Subject: subject, Limit: limit, Offset: offset}
 	rows, err := s.deps.Mailbox.Store.List(filter)
 	if err != nil {
 		writeJSON(w, 500, api.Failure(500, "failed to read mailbox"))

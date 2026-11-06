@@ -142,3 +142,92 @@ func TestReconcilePreservesCurrentProcessRun(t *testing.T) {
 		t.Fatal("live Run was lost")
 	}
 }
+
+func TestRestartCancelsWaitAskedOnSiblingToolLine(t *testing.T) {
+	fixture := newTestFixture(t)
+	const chatID, runID, awaitingID = "sibling-wait-chat", "sibling-wait-run", "call-wait"
+	now := time.Now().UnixMilli() - 2000
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	startServerFixtureRun(t, fixture.chats, chatID, runID, now)
+	// action_announce finishes before wait asks, so the ask lands on the tool
+	// line while both calls stay on the assistant line of the same turn.
+	if err := fixture.chats.AppendStepLine(chatID, chat.StepLine{Type: chat.StepLineTypeReact, ChatID: chatID, RunID: runID, UpdatedAt: now, Seq: 1, Messages: []chat.StoredMessage{{Role: "assistant", Ts: &now, ToolCalls: []chat.StoredToolCall{{ID: "call-announce", Type: "function", Function: chat.StoredFunction{Name: "action_announce", Arguments: "{}"}}, {ID: awaitingID, Type: "function", Function: chat.StoredFunction{Name: "wait", Arguments: "{}"}}}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.chats.AppendStepLine(chatID, chat.StepLine{Type: chat.StepLineTypeReactTool, ChatID: chatID, RunID: runID, UpdatedAt: now, Seq: 1, Messages: []chat.StoredMessage{{Role: "tool", Name: "action_announce", ToolCallID: "call-announce", Ts: &now, Content: []chat.ContentPart{{Type: "text", Text: "announced"}}}}, Awaiting: []map[string]any{{"type": "awaiting.ask", "awaitingId": awaitingID, "mode": "wait", "runId": runID, "toolId": awaitingID, "toolName": "wait", "timestamp": now}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.chats.SetPendingAwaiting(chatID, chat.PendingAwaiting{AwaitingID: awaitingID, RunID: runID, Mode: "wait", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := newRuntimeServer(deferredRestartDependencies(fixture, runstate.NewManager(), fixture.chats, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRestartTerminalizedAwaiting(t, fixture.chats, chatID, runID, awaitingID, "runtime_restarted")
+	detail, err := fixture.chats.LoadChat(chatID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateAwaitingToolPairs(detail.RawMessages); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := fixture.chats.LoadJSONLContent(chatID)
+	if err := testQueryService(restarted).Reconcile(); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := fixture.chats.LoadJSONLContent(chatID); before != after {
+		t.Fatal("restart reconciliation rewrote terminal history")
+	}
+}
+
+func TestRestartCancelsAwaitingStoredApartFromItsCalls(t *testing.T) {
+	fixture := newTestFixture(t)
+	const chatID, runID, awaitingID, callID = "apart-chat", "apart-run", "task-1:await-batch", "task-1:call-bash"
+	now := time.Now().UnixMilli() - 2000
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	startServerFixtureRun(t, fixture.chats, chatID, runID, now)
+	// A TEAM member approval is written on the root lane, apart from the
+	// member turn that holds the call.
+	if err := fixture.chats.AppendStepLine(chatID, chat.StepLine{Type: chat.StepLineTypeReact, ChatID: chatID, RunID: runID, UpdatedAt: now, Seq: 1, Awaiting: []map[string]any{{"type": "awaiting.ask", "awaitingId": awaitingID, "mode": "approval", "runId": runID, "timestamp": now}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.chats.AppendStepLine(chatID, chat.StepLine{Type: chat.StepLineTypeReact, ChatID: chatID, RunID: runID, TaskID: "task-1", UpdatedAt: now, Seq: 2, Messages: []chat.StoredMessage{{Role: "assistant", Ts: &now, ToolCalls: []chat.StoredToolCall{{ID: callID, Type: "function", Function: chat.StoredFunction{Name: "bash", Arguments: "{}"}}}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.chats.SetPendingAwaiting(chatID, chat.PendingAwaiting{AwaitingID: awaitingID, RunID: runID, Mode: "approval", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newRuntimeServer(deferredRestartDependencies(fixture, runstate.NewManager(), fixture.chats, nil)); err != nil {
+		t.Fatal(err)
+	}
+	summary, err := fixture.chats.Summary(chatID)
+	if err != nil || summary == nil || summary.PendingAwaiting != nil {
+		t.Fatalf("pending awaiting was not cleared: %#v %v", summary, err)
+	}
+	latest, err := fixture.chats.LoadLatestAwaitingSubmit(chatID, awaitingID)
+	if err != nil || latest == nil || contracts.AnyStringNode(contracts.AnyMapNode(latest.Answer["error"])["code"]) != "runtime_restarted" {
+		t.Fatalf("restart answer missing: %#v %v", latest, err)
+	}
+	completed, err := fixture.chats.ListRuns(chatID)
+	if err != nil || len(completed) != 1 || completed[0].FinishReason != "cancel" {
+		t.Fatalf("run was not canceled: %+v %v", completed, err)
+	}
+	closed := false
+	for _, line := range decodeDeferredChatJSONL(t, fixture.chats, chatID) {
+		if contracts.AnyStringNode(line["_type"]) != chat.StepLineTypeReactTool || contracts.AnyStringNode(line["taskId"]) != "task-1" {
+			continue
+		}
+		for _, raw := range line["messages"].([]any) {
+			message := contracts.AnyMapNode(raw)
+			closed = closed || (contracts.AnyStringNode(message["tool_call_id"]) == callID && strings.Contains(contracts.AnyStringNode(contracts.AnyMapNode(message["content"].([]any)[0])["text"]), "runtime_restarted"))
+		}
+	}
+	if !closed {
+		t.Fatal("member call was left without a result")
+	}
+}

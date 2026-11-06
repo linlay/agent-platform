@@ -128,7 +128,6 @@ func loadPersistedAwaitingStepFromLines(lines []map[string]any, awaitingID strin
 			Stage:         strings.TrimSpace(stringValue(line["stage"])),
 			Seq:           int(int64FromAny(line["seq"])),
 			Ask:           matchedAsk,
-			ToolCalls:     persistedAwaitingToolCalls(line["messages"]),
 			ResultToolIDs: map[string]bool{},
 		}
 	}
@@ -136,6 +135,10 @@ func loadPersistedAwaitingStepFromLines(lines []map[string]any, awaitingID strin
 		return nil
 	}
 
+	// The calls are read from the whole model turn: when a sibling call
+	// finishes first, the ask is written on its tool line instead of the
+	// assistant line that holds the calls.
+	seenCalls := map[string]bool{}
 	for _, line := range lines {
 		lineType := strings.TrimSpace(stringValue(line["_type"]))
 		if lineType != StepLineTypeReact && lineType != StepLineTypeReactTool {
@@ -145,6 +148,12 @@ func loadPersistedAwaitingStepFromLines(lines []map[string]any, awaitingID strin
 			strings.TrimSpace(stringValue(line["taskId"])) != latest.TaskID ||
 			int(int64FromAny(line["seq"])) != latest.Seq {
 			continue
+		}
+		for _, call := range persistedAwaitingToolCalls(line["messages"]) {
+			if !seenCalls[call.ID] {
+				seenCalls[call.ID] = true
+				latest.ToolCalls = append(latest.ToolCalls, call)
+			}
 		}
 		for _, rawMessage := range anyValueSlice(line["messages"]) {
 			message := mapValue(rawMessage)

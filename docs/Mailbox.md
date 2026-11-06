@@ -1,6 +1,6 @@
 # Mailbox
 
-Mailbox 负责会话之间的往来。每条记录叫 mail，按 `kind` 分四种：
+Mailbox 负责用户消息和会话之间的往来。每条记录叫 mail，按 `kind` 分四种：
 
 | kind | 名称 | 性质 | 产生方式 |
 |---|---|---|---|
@@ -10,6 +10,22 @@ Mailbox 负责会话之间的往来。每条记录叫 mail，按 `kind` 分四�
 | `ask` | 请示 | 分身卡在等待项上，转给上级处理 | 由平台根据等待项生成 |
 
 mail 都寄给 Chat，不寄给 Run；寄给 Agent 就是寄给它的主要对话。工具参数见 task-control 的 [Mailbox 手册](../internal/resources/connectors/builtin.task-control/skills/task-control/references/mailbox.md)，后续计划见 [plans/mailbox-next.md](../plans/mailbox-next.md)。
+
+## 用户消息与三箱
+
+用户消息（文字，或只带引用）通过 `POST /api/send` 或主 WS 同名帧进入同一 MAILS 投递账本，详见 [用户消息发送](API与协议.md#用户消息发送)。用户消息仍为 `letter`，`ORIGIN_TYPE_=user`，发件 Agent/Chat/Run 为空。它不经过 Agent 发信的地址资格检查，没有信封头、派生 Run 控制链、回信和请示；消费视为用户直接输入，跳数重置为 0，chat 引用资格来自本条消息。Run 完成后转为 `done`；开出的 Run 未消费消息即结束则失败。
+
+受理保存 `REQUEST_ID_`、冻结的 `PLANNING_MODE_/EDITING_MODE_/DETAIL_`、请求显式给出的 `MODEL_`（省略时开 Run 按 Agent 配置解析）与权限，按 subject/requestId 幂等。插入只传普通用户 steer，不修改当前 Run 的运行选项；不同的显式选项写入 `IGNORED_OPTIONS_`，收据及 `mail.updated` 返回同一字段。
+
+| 箱 | box | 状态 |
+|---|---|---|
+| 待收取（默认） | `pending` | accepting、queued、inflight、suspended |
+| 已收件 | `received` | delivered、done |
+| 垃圾箱 | `trash` | failed、discarded、withdrawn |
+
+`GET /api/mails` 的 `box` 默认 pending，非法值拒绝；`box` 与 `status` 取交集，列表和 total 使用同一过滤。WebClient 角标为待收取总数。垃圾箱只读，不提供清空和永久删除；正文照常按保留期清理。用户 mail 只有收件 Chat，关闭该 Chat 后按无发件端记录清理。
+
+WebClient 普通主聊天文本统一发送，待发消息按身份隔离保存到本地。消费事件出现时按 requestId 替换为正式用户消息；刷新从 pending 恢复，启动清库导致 mail 不存在时显示“未送达”，可用新 requestId 重发或只删除本地消息。BTW、解读、空消息续跑及带专用参数的 Query 沿用既有入口。运行中卡在 HITL 的输入仍可发送，但作答必须提交等待项。
 
 ## chats.db 与 mail.db
 
@@ -282,9 +298,9 @@ Answer with chat_submit runId="r_22" awaitingId="q_7", or ask the user if unsure
 | `chat_query` | `action: "opened"` 列出本 Agent 开出的会话及其 active/activeRun |
 
 
-- `GET /api/mails?agentKey=&chatId=&kind=&status=&limit=&offset=`：只返回当前 subject 的 mail；挂起的信和回信附带 `evidence` 与 `error`。
+- `GET /api/mails?box=pending&agentKey=&chatId=&kind=&status=&limit=&offset=`：只返回当前 subject 的 mail；挂起的信和回信附带 `evidence` 与 `error`。
 - `POST /api/mails/action {mailId, action: redeliver|discard}`：只处理挂起的 letter/reply，校验当前 subject。
-- 广播 `mail.updated {mailId, kind, status, delivery, toAgentKey, toChatId, runId}`。
+- 推送 `mail.updated {mailId, requestId, kind, status, delivery, ignoredOptions, fromAgentKey, fromChatId, toAgentKey, toChatId, runId}`，只发给该 mail 所属 subject 的主连接。
 - `request.query`、`request.steer` 与 JSONL 带 `mailId`、`mailKind`、`mailAttempt`、`mailHop`，回信另有 `outcome`；代答的 submit 带平台生成的 `origin`、`accessGrant`。这些字段由平台生成，公共输入不得伪造。
 
 相邻 WebClient 的收件箱和时间线消费上述协议。
@@ -293,4 +309,4 @@ Answer with chat_submit runId="r_22" awaitingId="q_7", or ask the user if unsure
 
 `NEW_CHAT_` 只记录 chat_send newChat:true 创建关系；补建主要聊天仍用 OPENED_CHAT_ 重放受理，NEW_CHAT_ 为 0。GET /api/chats?openedBy=A 可与 agentKey=B 取交集，HTTP 与主 WS 使用相同应用服务；subject 来自可信上下文。查询不读取 JSONL，Run 状态按本页 ID 批量补齐。普通 wait 不算等待处理。重启后工作列表为空，旧聊天仍保留在历史中。
 
-GET /api/mails 返回 mails 摘要与 total，message 最多 200 字，不返回 input/accessGrant/附件；GET /api/mails/detail?mailId= 返回当前用户的全文、附件和请示等待项快照。WebClient 侧栏收件箱显示挂起数量；主聊天下显示工作会话，请示卡片可跳转分身或以用户身份调用 /api/submit，保留等待项、冻结操作与所有权校验。并发作答只有一次成功。上级代答展示来源与审批档位，实时与回放读取相同事件。
+GET /api/mails 返回 mails 摘要与 total，message 最多 200 字，不返回 input/accessGrant/附件；GET /api/mails/detail?mailId= 返回当前用户的全文、附件和请示等待项快照。WebClient 侧栏收件箱显示待收取总数；主聊天下显示工作会话，请示卡片可跳转分身或以用户身份调用 /api/submit，保留等待项、冻结操作与所有权校验。并发作答只有一次成功。上级代答展示来源与审批档位，实时与回放读取相同事件。

@@ -15,6 +15,10 @@ func TestRequestFrameDetail(t *testing.T) {
 		invalid bool
 	}{
 		{RequestFrame{Type: "/api/query"}, "", false},
+		{RequestFrame{Type: "/api/send"}, "", false},
+		{RequestFrame{Type: "/api/send", Detail: "simple"}, stream.DetailSimple, false},
+		{RequestFrame{Type: "/api/send", Detail: "detailed"}, stream.DetailDetailed, false},
+		{RequestFrame{Type: "/api/send", Detail: "verbose"}, "", true},
 		{RequestFrame{Type: "/api/attach", Detail: "detailed"}, stream.DetailDetailed, true},
 		{RequestFrame{Type: "/api/chat", Detail: "simple"}, stream.DetailSimple, false},
 		{RequestFrame{Type: "/api/query", Detail: "verbose"}, "", true},

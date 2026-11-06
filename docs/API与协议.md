@@ -404,6 +404,7 @@ Automation 只配置 `agentKey`，TEAM 也按普通 Agent 准入执行。
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
 | POST | `/api/execute` | body（JSON 或 multipart 的 `request` 字段）: `agentKey`、`chatId`、`references`、`message`、`outputSchema`、`input`、`requestId`、`accessLevel`；chatId 与 multipart 文件互斥，省略时新建 Chat；multipart 其余字段为输入文件 | 等待 Run 结束，返回 `result_submit` 的 `{chatId,status,output|reason}`；契约见 [智能体执行接口](智能体执行接口.md) |
+| POST | `/api/send` | query: `detail`；body: `requestId`、`chatId`、`agentKey`、`primary`、`message`、`references`、`planningMode`、`editingMode`、`model`、`accessLevel` | 用户消息收据 `{mailId,chatId,delivery,runId?,status,ignoredOptions?}`，见 [用户消息发送](#用户消息发送) |
 | POST | `/api/query` | query: `detail`；body: `lane`（默认 `main`，可选 `btw`）、`sideId`（旁路分支续问）、`message`、`agentKey`、`chatId`、`runId`、`requestId`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model`、`primary`（见 [主要聊天](#主要聊天)） | 默认 SSE stream；`stream:false` 时返回 JSON |
 | GET | `/api/attach` | query: `runId`、根 `agentKey`、`lastSeq` | 按公开 owner 续接 run 的 SSE stream，档位为 Run 受理时冻结的 `detail`，不接受 `detail` 参数 |
 | POST | `/api/submit` | body: 根 `agentKey`、`runId`、`awaitingId`，以及 `params`（question/approval 的数组）或 `param`（planning/form 的单个对象），二选一 | HITL submit ack |
@@ -577,6 +578,28 @@ Native Query 的 SSE、`stream:false` 和进程内阻塞调用共用同一执行
 `reasoning.start` 与 `reasoning.snapshot` 的 `reasoningLabel` 是按查看者语言解析的显示文案。`en`、`zh-CN` 各有 30 条，文案及固定对应顺序以 `internal/i18n/reasoning.go` 为事实源；中文文案不含「中」和「正在」。对 `TrimSpace(reasoningId)` 的 UTF-8 字节做 32 位 FNV-1a 哈希，再 `% 30` 选择同一组双语文案，语言不参与哈希；空 ID 使用第一组 `Thinking / 思考`。HTTP 使用请求语言，WebSocket 使用连接当前语言；SSE、attach、Chat/Archive 回放与 Snapshot 导出复用该规则。协议只保留现有 `reasoningLabel`，不增加 key 或翻译表。标签只作等待文案，推理正文保持原样。
 
 TEAM 总控的普通工具与 reasoning 沿普通 Agent 事件链路；内部 `agent_delegate` 不展示工具卡。成员输出继续使用现有 `task.*` 与 task-scoped `content.*`：成员事件带 `taskId`，携带成员 `agentKey`、`presentation:"task"`，并在 `actor` 中标记 `type:"agent"`。一项和多项委派使用相同终止规则，成员正文不会成为根回答；最终非流式 `content`、run summary 与 `AssistantText` 只取总控生成的唯一 Team 最终正文。
+
+#### 用户消息发送
+
+`POST /api/send` 与主 WS 同名帧 `/api/send` 受理一条用户消息，返回普通 `{code,msg,data}`，不承载 Run 事件流。HTTP 的 `detail` 放 URL 参数，WS 放帧顶层。仅主 lane 可用。
+
+```json
+{"requestId":"req_unique","agentKey":"assistant","message":"继续整理报告","references":[],"planningMode":false,"editingMode":true,"model":{"key":"model-key","reasoningEffort":"LOW"},"accessLevel":"default"}
+```
+
+`requestId` 必填；`message` 与 `references` 至少给出一项，只带引用时沿用 `/api/query` 的规则（引用须含内容，且会话已有历史）。省略 `chatId` 创建 Chat，新 Chat 必须指定 `agentKey`；也支持客户端预分配 ID 和上传空会话。已有 Chat 必须属于当前用户，显式 Agent 必须与所有者一致；归档 Chat 不接受发送。`primary:true` 的准入和建 Chat 语义沿用 `/api/query`。引用和交互配置、权限及运行选项沿用 Query 校验；上传文件先进入目标 Chat，再通过 `references` 引用，不复制为 mail 附件。
+
+可用请求字段只有 `requestId`、`chatId`、`agentKey`、`primary`、`message`、`references`、`planningMode`、`editingMode`、`model`、`accessLevel`；`model` 与 `/api/query` 相同（`key`、`modelId`、`reasoningEffort`、`serviceTier`）。拒绝未知字段、错误大小写和重复 JSON 键。BTW/解读、空消息续跑及需要 `hidden/params/scene/stream` 的调用继续走原 `/api/query`。
+
+```json
+{"code":0,"msg":"success","data":{"mailId":"mail_x","chatId":"chat_x","delivery":"inserted","runId":"run_x","status":"inflight","ignoredOptions":["model"]}}
+```
+
+`delivery` 为 `started`（已开 Run）、`inserted`（已进入当前 Run 的待消费队列）或 `queued`（等待投递、尚无 Run）。`status` 是 mail 当前状态：受理后开 Run 或插入当场失败时为 `failed` 并附 `error`，此时 `runId` 不可挂接，客户端按未送达处理。Run 事件通过既有推送和 `/api/attach` 观察。会话忙会受理并插入或排队。提问、审批、表单上的消息不会替代 `/api/submit` 作答；规划、压缩、维护和未决的跨 Run 等待项会排队。ACP、Proxy 和渠道后端没有可确认的用户消息插入合同，活动 Run 期间保守排队，空闲时仍可开 Run。
+
+`planningMode`、`editingMode` 与 `detail` 在受理时解析并冻结；`model` 只冻结请求显式给出的值，省略时开 Run 按 Agent 配置解析，与 `/api/query` 相同。这些选项只在新 Run 生效：插入时请求中与当前 Run 不同的 `planningMode/editingMode/model` 出现在 `ignoredOptions`；`accessLevel` 不改变当前 Run，调整仍用 `/api/access-level`。同一 subject 和 `requestId` 只产生一条 mail；重复请求返回相同 mail 的投递收据，不同内容返回 HTTP 409 `idempotency_conflict`。参数、Agent、归属、引用或选项校验失败直接拒绝。
+
+消费后的 `request.query/request.steer` 携带相同 `requestId/mailId` 和 `mailOrigin:user`。`mail.updated` 包含 `requestId/ignoredOptions`，只推送给该 mail 所属 subject 的主连接。没有撤销发送或删除服务端消息的接口。原 `/api/query`、`/api/steer`、Desktop、Automation、execute 和渠道入口保持原协议。
 
 #### 细节等级与 run.activity
 

@@ -14,7 +14,7 @@ var requestContentKeys = []string{"message", "params", "scene"}
 // A line written before they moved out of query lacks them; readers treat a
 // missing decision as unset, since such a Run is never resumed.
 var requestDecisionKeys = []string{
-	"mailId", "mailKind", "mailAttempt", "mailHop", "outcome",
+	"mailOrigin", "mailId", "mailKind", "mailAttempt", "mailHop", "outcome",
 	"requestId", "runId", "chatId", "agentKey", "lane", "origin", "accessGrant", "planRunId",
 	"accessLevel", "editingMode", "model", "references",
 }

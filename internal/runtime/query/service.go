@@ -74,6 +74,7 @@ type PrimaryChatPort interface {
 }
 
 type Service struct {
+	sends             userSends
 	mailbox           *mailbox.Service
 	deps              Dependencies
 	backgroundCtx     context.Context

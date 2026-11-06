@@ -342,6 +342,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/automation/trigger", s.method(http.MethodPost, s.handleAutomationTrigger))
 	s.router.HandleFunc("/api/automation/executions", s.method(http.MethodPost, s.handleAutomationExecutions))
 	s.router.HandleFunc("/api/automation/execution", s.method(http.MethodPost, s.handleAutomationExecution))
+	s.router.HandleFunc("/api/send", s.method(http.MethodPost, s.handleSend))
 	s.router.HandleFunc("/api/query", s.method(http.MethodPost, s.handleQuery))
 	s.router.HandleFunc("/api/voice/capabilities", s.method(http.MethodGet, s.handleVoiceCapabilities))
 	s.router.HandleFunc("/api/voice/ws", s.method(http.MethodGet, s.handleVoiceWS))

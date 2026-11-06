@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/mailbox"
 	"agent-platform/internal/runtime/catalogview"
 	"agent-platform/internal/runtime/controlscope"
+	sessionbuild "agent-platform/internal/runtime/session"
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 )
@@ -400,6 +401,14 @@ func (s *Service) MailTarget(ctx context.Context, m mailbox.Mail) (mailbox.Targe
 		return mailbox.Target{}, err
 	}
 	if ok {
+		if m.OriginType == "user" {
+			queue := active.PlanningMode || active.State == contracts.RunLoopStateCompacting || sessionbuild.IsProxyRoutedAgent(def)
+			ignored := []string(nil)
+			if !queue {
+				ignored = s.userIgnoredOptions(m, active)
+			}
+			return mailbox.Target{RunID: active.RunID, Queue: queue, IgnoredOptions: ignored}, nil
+		}
 		return mailbox.Target{RunID: active.RunID, Queue: active.PlanningMode || active.State == contracts.RunLoopStateCompacting}, nil
 	}
 	if gate := s.AwaitingQueryGateError(m.ToChatID, summary); gate != nil {
@@ -414,9 +423,12 @@ func (s *Service) DeliverMail(ctx context.Context, m mailbox.Mail, scope control
 		refs = append(refs, queryinput.Reference{Type: "file", Name: f.Name, URL: "@chat/" + f.Path, SizeBytes: &size})
 	}
 	origin := &queryinput.Origin{Type: queryinput.OriginAgent, AgentKey: m.FromAgentKey, ChatID: m.FromChatID, RunID: m.FromRunID, ToolID: m.FromToolID}
+	if m.OriginType == "user" {
+		origin = nil
+	}
 	if m.Delivery == "inserted" {
 		body := s.mailbox.Body(m)
-		req := queryinput.SteerRequest{ChatID: m.ToChatID, RunID: m.RunID, SteerID: m.SteerID, AgentKey: m.ToAgentKey, Message: body, References: refs, Origin: origin, Mail: m.Metadata()}
+		req := queryinput.SteerRequest{RequestID: m.RequestID, ChatID: m.ToChatID, RunID: m.RunID, SteerID: m.SteerID, AgentKey: m.ToAgentKey, Message: body, References: refs, Origin: origin, Mail: m.Metadata()}
 		req.ModelMessage = m.Header + body
 		if response, statusErr, ok := s.deps.Proxy.Steer(req); ok {
 			if statusErr != nil {
@@ -433,6 +445,32 @@ func (s *Service) DeliverMail(ctx context.Context, m mailbox.Mail, scope control
 	body := s.mailbox.Body(m)
 	input, _ := json.Marshal(map[string]any{"message": body, "references": refs})
 	cmd := runtimetypes.QueryCommand{RunID: m.RunID, ChatID: m.ToChatID, AgentKey: m.ToAgentKey, Message: body, References: refs, Origin: origin, Mail: m.Metadata(), AccessLevel: m.AccessLevel, AccessGrant: m.AccessGrant, Model: m.Model, OriginalQuery: input, SkipInteractionPolicy: true, Identity: &contracts.AuthIdentity{Subject: m.Subject}}
+	if m.OriginType == "user" {
+		s.sends.Lock()
+		frozen := s.sends.contexts[m.ID]
+		s.sends.Unlock()
+		cmd = frozen
+		cmd.RunID = m.RunID
+		cmd.ChatID = m.ToChatID
+		cmd.AgentKey = m.ToAgentKey
+		cmd.RequestID = m.RequestID
+		cmd.Mail = m.Metadata()
+		cmd.Message = body
+		cmd.References = refs
+		cmd.AccessLevel = m.AccessLevel
+		cmd.AccessGrant = m.AccessGrant
+		cmd.Model = m.Model
+		cmd.PlanningMode = m.PlanningMode
+		cmd.EditingMode = m.EditingMode
+		cmd.Detail = stream.DetailLevel(m.Detail)
+		cmd.OriginalQuery = m.Input
+		cmd.Origin = &queryinput.Origin{Type: queryinput.OriginUser, UserID: m.Subject}
+		if cmd.Identity == nil {
+			cmd.Identity = &contracts.AuthIdentity{Subject: m.Subject}
+		}
+		cmd.Primary = false
+		cmd.MailboxAcceptance = false
+	}
 	cmd.ModelMessage = m.Header + body
 	ctx = controlscope.WithContext(s.backgroundCtx, scope)
 	_, err := s.StartQuery(ctx, cmd)
@@ -492,18 +530,21 @@ func (s *Service) bindMailboxSession(req runtimetypes.QueryCommand, session *con
 		return
 	}
 	session.Mail = req.Mail
-	if req.Mail == nil && (req.Origin == nil || req.Origin.Type == queryinput.OriginUser) {
+	if (req.Mail == nil || req.Mail.OriginType == "user") && (req.Origin == nil || req.Origin.Type == queryinput.OriginUser) {
 		session.UserChatReferences = queryinput.ResourceIDs(req.References, "chat")
 	}
 	// Only a letter derives the Run from its sender. A reply, notification or
 	// ask wakes the receiving Chat's own Agent, which keeps its Chat tools and
 	// gives the sender no control over the Run.
-	if req.Mail != nil && req.Mail.Kind == string(mailbox.Letter) {
+	if req.Mail != nil && req.Mail.OriginType != "user" && req.Mail.Kind == string(mailbox.Letter) {
 		session.RunOrigin = &contracts.RunOrigin{AgentKey: req.Origin.AgentKey, ChatID: req.Origin.ChatID, RunID: req.Origin.RunID, ToolID: req.Origin.ToolID, Subject: session.Subject}
 	}
 	session.RuntimeEvent = func(event stream.EventData) {
 		if event.Type == "request.query" || event.Type == "request.steer" {
 			if input := queryinput.MailFromPayload(event.Payload); input != nil {
+				if input.OriginType == "user" {
+					s.MailReleased(input.ID)
+				}
 				if err := s.mailbox.Consumed(input, req.RunID); err != nil {
 					log.Printf("[mailbox] consume: %v", err)
 				}

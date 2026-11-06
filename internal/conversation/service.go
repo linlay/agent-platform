@@ -359,3 +359,10 @@ type ControlReceipt struct {
 	Digest string
 	Result map[string]any
 }
+
+func (s *Service) ChatArchived(id string) (bool, error) {
+	if s.Archives == nil {
+		return false, nil
+	}
+	return s.Archives.HasChat(id)
+}
