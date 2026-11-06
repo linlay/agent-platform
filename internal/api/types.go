@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	enginedto "agent-platform/internal/contracts/agentengine"
 	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/skillmeta"
 	"agent-platform/internal/stream"
@@ -748,23 +749,20 @@ type AgentCreationDefaultsResponse struct {
 }
 
 type AgentCreationTypeOption struct {
-	Key                    string                   `json:"key"`
-	Label                  string                   `json:"label"`
-	Mode                   string                   `json:"mode"`
-	Engine                 string                   `json:"engine"`
-	Available              bool                     `json:"available"`
-	UnavailableReason      string                   `json:"unavailableReason,omitempty"`
-	WorkspaceRequired      bool                     `json:"workspaceRequired"`
-	ModelRequired          bool                     `json:"modelRequired"`
-	DefaultModelKey        string                   `json:"defaultModelKey,omitempty"`
-	DefaultModelAvailable  bool                     `json:"defaultModelAvailable"`
-	DefaultReasoningEffort string                   `json:"defaultReasoningEffort,omitempty"`
-	BaseTools              []string                 `json:"baseTools"`
-	ACPBridges             []AgentCreationACPBridge `json:"acpBridges,omitempty"`
-}
-
-type AgentCreationACPBridge struct {
-	ID string `json:"id"`
+	Key                    string                     `json:"key"`
+	Label                  string                     `json:"label"`
+	Mode                   string                     `json:"mode"`
+	Engine                 string                     `json:"engine"`
+	Available              bool                       `json:"available"`
+	UnavailableReason      string                     `json:"unavailableReason,omitempty"`
+	WorkspaceRequired      bool                       `json:"workspaceRequired"`
+	ModelRequired          bool                       `json:"modelRequired"`
+	DefaultModelKey        string                     `json:"defaultModelKey,omitempty"`
+	DefaultModelAvailable  bool                       `json:"defaultModelAvailable"`
+	DefaultReasoningEffort string                     `json:"defaultReasoningEffort,omitempty"`
+	BaseTools              []string                   `json:"baseTools"`
+	EngineDirectory        *enginedto.EngineDirectory `json:"engineDirectory,omitempty"`
+	UnavailableCode        string                     `json:"unavailableCode,omitempty"`
 }
 
 // HostDirectoryListResponse lists the sub-directories of one directory on the
@@ -916,21 +914,13 @@ type CoderModelOptionsResponse struct {
 	ServiceTiers     []ServiceTierOption     `json:"serviceTiers,omitempty"`
 }
 
-// ChatModelOption is the public model menu entry. ACP entries retain their
-// discovery metadata; native entries only expose presentation and service tiers.
+// ChatModelOption is a native catalog menu entry. External options belong to the prepared session.
 type ChatModelOption struct {
-	Key              string   `json:"key"`
-	Name             string   `json:"name,omitempty"`
-	Icon             string   `json:"icon,omitempty"`
-	Provider         string   `json:"provider,omitempty"`
-	ModelID          string   `json:"modelId,omitempty"`
-	Protocol         string   `json:"protocol,omitempty"`
-	IsReasoner       *bool    `json:"isReasoner,omitempty"`
-	IsVision         *bool    `json:"isVision,omitempty"`
-	ContextWindow    int      `json:"contextWindow,omitempty"`
-	Timeout          int      `json:"timeout,omitempty"`
-	ReasoningEfforts []string `json:"reasoningEfforts,omitempty"`
-	ServiceTiers     []string `json:"serviceTiers,omitempty"`
+	Key          string   `json:"key"`
+	Name         string   `json:"name,omitempty"`
+	Icon         string   `json:"icon,omitempty"`
+	Provider     string   `json:"provider,omitempty"`
+	ServiceTiers []string `json:"serviceTiers,omitempty"`
 }
 
 type CoderModelOption = queryinput.CoderModelOption

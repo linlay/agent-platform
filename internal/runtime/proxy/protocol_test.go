@@ -19,8 +19,6 @@ func TestForwardParamsWorkspaceTrustBoundary(t *testing.T) {
 		{"no route", nil, "/private/workspace", nil},
 		{"loopback proxy", &catalog.ProxyConfig{BaseURL: "http://127.0.0.1:17071"}, "/private/workspace", nil},
 		{"channel", &catalog.ProxyConfig{ChannelID: "peer"}, "/private/workspace", nil},
-		{"ACP", &catalog.ProxyConfig{LocalACP: true}, "/private/workspace", "/private/workspace"},
-		{"ACP missing workspace", &catalog.ProxyConfig{LocalACP: true}, "", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, params := range []map[string]any{nil, {"channel": "desktop", "cwd": "/untrusted"}} {

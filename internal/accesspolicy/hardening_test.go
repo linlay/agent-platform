@@ -52,3 +52,41 @@ func TestDesktopSecretsHardBlockAcrossLevels(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentEngineProfilesHardBlockAcrossLevels(t *testing.T) {
+	s := policyFixture(t)
+	profiles := filepath.Join(s.WorkspaceRoot, "agent-engine-profiles")
+	credential := filepath.Join(profiles, "engine", "codex", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(credential), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(credential, []byte(`{"test":"credential"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// StateDir can be relocated; the profile follows the same runtime root as RUAgents.
+	cfg := config.Config{RuntimeMode: config.RuntimeModeDesktop, Paths: config.PathsConfig{StateDir: filepath.Join(t.TempDir(), ".state"), RUAgentsDir: filepath.Join(s.WorkspaceRoot, "ru-agents")}}
+	s.ProtectedPaths = PlatformProtectedPaths(cfg)
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
+		s.AccessLevel = level
+		for _, mode := range []AccessMode{ReadAccess, WriteAccess} {
+			plan, err := BuildPathPlan(config.DefaultAccessPolicyConfig(), s, mode, credential)
+			if err != nil || !plan.Blocked() {
+				t.Fatalf("profile not protected at %s %s: %+v %v", level, mode, plan, err)
+			}
+		}
+	}
+}
+
+func TestStandaloneEngineInstallAuthorityIsProtected(t *testing.T) {
+	s := policyFixture(t)
+	cfg := config.Config{RuntimeMode: config.RuntimeModeStandalone, Paths: config.PathsConfig{RUAgentsDir: filepath.Join(s.WorkspaceRoot, "ru-agents")}}
+	s.ProtectedPaths = PlatformProtectedPaths(cfg)
+	s.AccessLevel = AccessLevelFullAccess
+	target := filepath.Join(s.WorkspaceRoot, "agent-engine-installations", "management.json")
+	for _, mode := range []AccessMode{ReadAccess, WriteAccess} {
+		plan, err := BuildPathPlan(config.DefaultAccessPolicyConfig(), s, mode, target)
+		if err != nil || !plan.Blocked() {
+			t.Fatalf("installation authority not protected: %+v %v", plan, err)
+		}
+	}
+}

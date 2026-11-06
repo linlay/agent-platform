@@ -50,7 +50,8 @@ func (b *Builder) PrepareRunReferences(ctx context.Context, session contracts.Qu
 	}
 	remote := remoteReferenceBackend(def)
 	for _, ref := range refs {
-		if remote && (ref.Type == "chat" || ref.Type == "kbase" || ref.Type == "skill") {
+		acpInput := def.Engine == catalog.AgentEngineACP && !steer && (ref.Type == "skill" || ref.Type == "kbase")
+		if remote && !acpInput && (ref.Type == "chat" || ref.Type == "kbase" || ref.Type == "skill") {
 			return grant, fmt.Errorf("%s references are unsupported by this execution backend", ref.Type)
 		}
 		if err := policy.ValidateReference(ref.Type); err != nil {

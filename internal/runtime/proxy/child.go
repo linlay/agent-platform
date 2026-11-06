@@ -157,9 +157,7 @@ func parseProxySSEDataLineAt(line string) (stream.EventData, bool, error) {
 	return DecodeEventAt([]byte(payload), "proxy.child.sse.event")
 }
 func RequestTimeout(proxy *catalog.ProxyConfig) time.Duration {
-	if proxy != nil && proxy.TimeoutMS > 0 {
-		return time.Duration(proxy.TimeoutMS) * time.Millisecond
-	}
+
 	if proxy != nil && proxy.Timeout > 0 {
 		return time.Duration(proxy.Timeout) * time.Second
 	}

@@ -10,8 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	dto "agent-platform/internal/contracts/agentengine"
 	"agent-platform/internal/runtime/runstate"
 )
 
@@ -140,5 +142,61 @@ func TestReconcilePreservesCurrentProcessRun(t *testing.T) {
 	}
 	if active, found := fixture.runs.RunStatus(runID); !found || active.CompletedAt != 0 {
 		t.Fatal("live Run was lost")
+	}
+}
+
+func TestRestartClosesExternalAwaitingWithoutNativeToolCall(t *testing.T) {
+	for _, mode := range []string{"question", "approval", "child"} {
+		t.Run(mode, func(t *testing.T) {
+			fixture := newTestFixture(t)
+			const chatID, runID, awaitingID = "external-restart-chat", "external-run", "external-await"
+			now := time.Now().Add(-time.Second).UnixMilli()
+			if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", ""); err != nil {
+				t.Fatal(err)
+			}
+			if mode != "child" {
+				if err := fixture.chats.(*chat.FileStore).SaveEngineSession(dto.SessionBinding{SchemaVersion: 1, ChatID: chatID, EngineID: "fixture/agent", ProfileID: "fixture-profile", WorkspaceRoot: t.TempDir(), ACPSessionID: "session", ContextState: "submitted", ConfigSelection: []dto.ConfigSelection{}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			startServerFixtureRun(t, fixture.chats, chatID, runID, now)
+			ask := map[string]any{"type": "awaiting.ask", "timestamp": now, "awaitingId": awaitingID, "runId": runID, "mode": mode}
+			taskID, taskAgentKey := "", ""
+			if mode == "child" {
+				taskID, taskAgentKey = "child-task", "external-child"
+				ask["mode"] = "approval"
+				parent, _ := fixture.registry.AgentDefinition("mock-agent")
+				fixture.registry = agentDirectoryTestRegistry{Registry: fixture.registry, definitions: map[string]catalog.AgentDefinition{"mock-agent": parent, taskAgentKey: {Key: taskAgentKey, Engine: catalog.AgentEngineACP}}}
+			}
+			if mode == "question" {
+				ask["questions"] = []any{map[string]any{"id": "color", "question": "Color", "type": "text"}}
+			}
+			if err := fixture.chats.AppendStepLine(chatID, chat.StepLine{Type: chat.StepLineTypeReact, ChatID: chatID, RunID: runID, UpdatedAt: now, Seq: 1, TaskID: taskID, TaskAgentKey: taskAgentKey, Awaiting: []map[string]any{ask}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := fixture.chats.SetPendingAwaiting(chatID, chat.PendingAwaiting{AwaitingID: awaitingID, RunID: runID, Mode: mode, CreatedAt: now}); err != nil {
+				t.Fatal(err)
+			}
+			restarted, err := newRuntimeServer(deferredRestartDependencies(fixture, runstate.NewManager(), fixture.chats, nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			saved, err := fixture.chats.Summary(chatID)
+			if err != nil || saved.PendingAwaiting != nil {
+				t.Fatalf("pending=%+v %v", saved, err)
+			}
+			assertAwaitingSubmitConflict(t, restarted, chatID, runID, awaitingID, http.StatusConflict, "awaiting_interrupted", "interrupted")
+			before, _ := fixture.chats.LoadJSONLContent(chatID)
+			if strings.Contains(before, `"role":"tool"`) {
+				t.Fatal("fabricated native result")
+			}
+			if err := testQueryService(restarted).Reconcile(); err != nil {
+				t.Fatal(err)
+			}
+			after, _ := fixture.chats.LoadJSONLContent(chatID)
+			if before != after {
+				t.Fatal("restart reconciliation not idempotent")
+			}
+		})
 	}
 }

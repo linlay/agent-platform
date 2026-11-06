@@ -1,6 +1,7 @@
 package connector
 
 import (
+	"agent-platform/internal/runtimefs"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -89,7 +90,7 @@ func (s Sources) InstallShared(pkg Package) (Package, error) {
 		return Package{}, err
 	}
 	defer os.RemoveAll(stage)
-	if err := copyPackage(pkg.Dir, stage); err != nil {
+	if err := runtimefs.CopyTree(pkg.Dir, stage); err != nil {
 		return Package{}, err
 	}
 	after, err := RuntimeFingerprint(stage)
@@ -107,16 +108,10 @@ func (s Sources) InstallShared(pkg Package) (Package, error) {
 		return Package{}, err
 	}
 	dest := filepath.Join(parent, digest)
-	if _, err := os.Lstat(dest); err == nil {
-		actual, err := RuntimeFingerprint(dest)
-		if err != nil || actual != digest {
-			return Package{}, fmt.Errorf("shared connector %s failed integrity validation", pkg.ID)
-		}
-	} else if !os.IsNotExist(err) {
-		return Package{}, err
-	} else if err := os.Rename(stage, dest); err != nil {
+	if err := runtimefs.Publish(stage, dest); err != nil {
 		return Package{}, err
 	}
+
 	data, _ := json.Marshal(MountReference{ID: pkg.ID, Digest: digest})
 	if err := os.WriteFile(indexPath, data, 0600); err != nil {
 		return Package{}, err
@@ -157,7 +152,7 @@ func RetainShared(dir string) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	ok, err := trySharedLock(f)
+	ok, err := runtimefs.TryShared(f)
 	if err != nil || !ok {
 		f.Close()
 		if err == nil {
@@ -189,11 +184,11 @@ func (s Sources) AssemblyLease() (func(), error) {
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return nil, err
 	}
-	f, err := openRuntimeLock(filepath.Dir(root), "connectors", "assembly.lock")
+	f, err := runtimefs.OpenLock(filepath.Dir(root), "connectors", "assembly.lock")
 	if err != nil {
 		return nil, err
 	}
-	ok, err := trySharedLock(f)
+	ok, err := runtimefs.TryShared(f)
 	if err != nil || !ok {
 		f.Close()
 		if err == nil {
@@ -208,12 +203,12 @@ func (s Sources) AssemblyLease() (func(), error) {
 // unknown directories are preserved. Crashes release OS leases without stale counters.
 func (s Sources) CollectShared() error {
 	root := s.SharedRoot()
-	f, err := openRuntimeLock(filepath.Dir(root), "connectors", "assembly.lock")
+	f, err := runtimefs.OpenLock(filepath.Dir(root), "connectors", "assembly.lock")
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	ok, err := tryOperationLock(f)
+	ok, err := runtimefs.TryExclusive(f)
 	if err != nil {
 		return err
 	}
@@ -252,13 +247,7 @@ func (s Sources) CollectShared() error {
 			if err != nil {
 				return err
 			}
-			ok, err := tryOperationLock(lock)
-			if err == nil && ok {
-				actual, e := RuntimeFingerprint(dir)
-				if e == nil && actual == version.Name() {
-					err = os.RemoveAll(dir)
-				}
-			}
+			err = runtimefs.RemoveUnused(dir, lock)
 			lock.Close()
 			if err != nil {
 				return err
@@ -301,7 +290,7 @@ func acquireSharedOperation(root, id string) (func(), error) {
 	if root == "" || !ValidID(id) {
 		return nil, fmt.Errorf("invalid shared connector operation")
 	}
-	p, err := runtimeLockPath(filepath.Dir(root), "connectors", "install", id+".lock")
+	p, err := runtimefs.LockPath(filepath.Dir(root), "connectors", "install", id+".lock")
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +306,7 @@ func acquireSharedOperation(root, id string) (func(), error) {
 
 // The layout lock serializes initialization of the shared package root.
 func acquireSharedLayout(runtimeRoot string) (func(), error) {
-	p, err := runtimeLockPath(runtimeRoot, "shared-connector-layout.lock")
+	p, err := runtimefs.LockPath(runtimeRoot, "shared-connector-layout.lock")
 	if err != nil {
 		return nil, err
 	}

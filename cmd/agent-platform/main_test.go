@@ -15,9 +15,13 @@ func TestParseConfigOptions(t *testing.T) {
 		"--port", "7078",
 		"--sso-id-token-file", "/tmp/desktop state/sso-id-token.txt",
 		"--runtime-mode=desktop",
+		"--agent-engine-bootstrap-file", "/tmp/private bootstrap/engine.json",
 	})
 	if err != nil {
 		t.Fatalf("parse options: %v", err)
+	}
+	if options.AgentEngineBootstrapFile != "/tmp/private bootstrap/engine.json" {
+		t.Fatal("bootstrap path not preserved")
 	}
 	if options.ConfigDir != "/tmp/config" {
 		t.Fatalf("expected config dir, got %q", options.ConfigDir)

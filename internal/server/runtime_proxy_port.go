@@ -19,9 +19,7 @@ type RuntimeProxyPort struct{ Server *Server }
 func (p RuntimeProxyPort) Configure(def *catalog.AgentDefinition) *runtimetypes.RequestError {
 	return p.Server.applyProxyRoutingConfig(def)
 }
-func (p RuntimeProxyPort) Models(key string) ([]queryinput.CoderModelOption, error, bool) {
-	return p.Server.listACPCoderModelOptions(key)
-}
+
 func (p RuntimeProxyPort) Submit(req queryinput.SubmitRequest) (queryinput.SubmitResponse, *runtimetypes.RequestError, bool) {
 	return p.Server.forwardProxySubmit(req)
 }

@@ -147,7 +147,12 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			m.lastKind = "tool"
 			return nil
 		}
-		toolLabel, toolDescription := m.resolveToolMetadata(toolName)
+		toolLabel, toolDescription := value.ToolLabel, ""
+		translations := value.ToolI18n
+		if toolLabel == "" {
+			toolLabel, toolDescription = m.resolveToolMetadata(toolName)
+			translations = m.resolveToolTranslations(toolName)
+		}
 		chunkIndex := m.toolArgChunkCounters[toolID]
 		m.toolArgChunkCounters[toolID] = chunkIndex + 1
 		m.attemptToolIDs[toolID] = true
@@ -164,7 +169,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ToolName:        toolName,
 			ToolLabel:       toolLabel,
 			ToolDescription: toolDescription,
-			ToolI18n:        m.resolveToolTranslations(toolName),
+			ToolI18n:        translations,
 			ChunkIndex:      chunkIndex,
 			AwaitAsk:        awaitAsk,
 		}
@@ -209,8 +214,12 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			StartedAt: value.StartedAt, DeadlineAt: value.DeadlineAt, DurationMs: value.DurationMs, Checkpoint: value.Checkpoint, Description: value.Description, Match: value.Match, Conditions: value.Conditions, Update: value.Update}}
 	case DeltaToolResult:
 		m.lastKind = ""
-		toolLabel, toolDescription := m.resolveToolMetadata(value.ToolName)
-		translations := m.resolveToolTranslations(value.ToolName)
+		toolLabel, toolDescription := value.ToolLabel, ""
+		translations := value.ToolI18n
+		if toolLabel == "" {
+			toolLabel, toolDescription = m.resolveToolMetadata(value.ToolName)
+			translations = m.resolveToolTranslations(value.ToolName)
+		}
 		if len(value.Target) > 0 {
 			toolLabel = value.TargetLabel
 			// Gateway labels describe the target, not the gateway tool.
@@ -372,6 +381,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			AwaitingID:  value.AwaitingID,
 			SubmitID:    value.SubmitID,
 			Input:       value.Input,
+			Source:      value.Source,
 		}}
 	case DeltaAwaitingAnswer:
 		return []stream.StreamInput{stream.AwaitingAnswer{
@@ -446,6 +456,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			RunGenerationDurationMs:         value.RunGenerationDurationMs,
 		}}
 	case DeltaUsageSnapshot:
+
 		m.lastKind = ""
 		return []stream.StreamInput{stream.InputUsageSnapshot{
 			ChatID:                          value.ChatID,

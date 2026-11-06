@@ -197,7 +197,8 @@ program_apply_layout_flags \
   --log-dir "$tmp_dir/logs" \
   --port 17078 \
   --runtime-mode=desktop \
-  --sso-id-token-file "$identity_file"
+  --sso-id-token-file "$identity_file" \
+  --agent-engine-bootstrap-file "$tmp_dir/private bootstrap/engine.json"
 program_update_backend_args
 [[ "${BACKEND_ARGS[0]}" == "--config-dir" ]]
 [[ "${BACKEND_ARGS[2]}" == "--runtime-mode" ]]
@@ -205,6 +206,8 @@ program_update_backend_args
 [[ "${BACKEND_ARGS[4]}" == "--port" ]]
 [[ "${BACKEND_ARGS[6]}" == "--sso-id-token-file" ]]
 [[ "${BACKEND_ARGS[7]}" == "$identity_file" ]]
+[[ "${BACKEND_ARGS[8]}" == "--agent-engine-bootstrap-file" ]]
+[[ "${BACKEND_ARGS[9]}" == "$tmp_dir/private bootstrap/engine.json" ]]
 
 fake_backend="$tmp_dir/fake agent-platform"
 printf '%s\n' \

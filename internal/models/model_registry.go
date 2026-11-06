@@ -72,8 +72,6 @@ type ModelDefinition struct {
 }
 
 const (
-	ProtocolACPPassthrough = "ACP_PASSTHROUGH"
-
 	ModelTypeChat      = "chat"
 	ModelTypeEmbedding = "embedding"
 	ModelTypeReranker  = "reranker"
@@ -177,14 +175,6 @@ func (p ProviderDefinition) ResolvedEndpointPath(protocol string) string {
 	return defaultEndpointPath(protocol, p.BaseURL)
 }
 
-func IsACPPassthroughProtocol(protocol string) bool {
-	return strings.EqualFold(strings.TrimSpace(protocol), ProtocolACPPassthrough)
-}
-
-func IsACPPassthroughModel(model ModelDefinition) bool {
-	return IsACPPassthroughProtocol(model.Protocol)
-}
-
 func NormalizeModelType(value string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "":
@@ -236,6 +226,9 @@ func IsFileTTSProtocol(protocol string) bool {
 
 // ValidateModelTypeProtocol keeps file/realtime speech protocols paired with their model types.
 func ValidateModelTypeProtocol(modelType string, protocol string) error {
+	if strings.EqualFold(strings.TrimSpace(protocol), "ACP_PASSTHROUGH") {
+		return fmt.Errorf("ACP_PASSTHROUGH was removed; external models belong to ACP sessions")
+	}
 	if modelType == ModelTypeASR {
 		if !strings.EqualFold(strings.TrimSpace(protocol), ProtocolDashScopeASR) {
 			return fmt.Errorf("type: asr requires protocol %s", ProtocolDashScopeASR)
@@ -382,9 +375,6 @@ func (r *ModelRegistry) GetTyped(key string, modelType string) (ModelDefinition,
 	}
 	if err := validateModelForRuntime(model, modelType); err != nil {
 		return ModelDefinition{}, ProviderDefinition{}, err
-	}
-	if IsACPPassthroughModel(model) {
-		return ModelDefinition{}, ProviderDefinition{}, fmt.Errorf("model %s uses ACP_PASSTHROUGH protocol and cannot be used by native provider runtime", model.Key)
 	}
 	provider, ok := r.providers[model.Provider]
 	if !ok {
@@ -569,7 +559,7 @@ func (r *ModelRegistry) defaultLocked() (ModelDefinition, ProviderDefinition, er
 	sort.Strings(modelKeys)
 	for _, modelKey := range modelKeys {
 		model := r.models[modelKey]
-		if IsACPPassthroughModel(model) || !IsChatModel(model) {
+		if !IsChatModel(model) {
 			continue
 		}
 		provider, ok := r.providers[model.Provider]
@@ -585,7 +575,7 @@ func matchProviderDefault(models map[string]ModelDefinition, provider ProviderDe
 		return ModelDefinition{}, false
 	}
 	for _, model := range models {
-		if IsACPPassthroughModel(model) || !IsChatModel(model) {
+		if !IsChatModel(model) {
 			continue
 		}
 		if model.Provider != provider.Key {
@@ -866,9 +856,6 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 			return nil, fmt.Errorf("load model %s: invalid type %q: %s", entry.Name(), stringNode(values["type"]), InvalidModelTypeMessage(stringNode(values["type"])))
 		}
 		protocol := strings.ToUpper(strings.TrimSpace(stringNode(values["protocol"])))
-		if IsACPPassthroughProtocol(protocol) && modelType != ModelTypeChat {
-			return nil, fmt.Errorf("load model %s: ACP_PASSTHROUGH is only supported for type: chat", entry.Name())
-		}
 		if err := ValidateModelTypeProtocol(modelType, protocol); err != nil {
 			return nil, fmt.Errorf("load model %s: %w", entry.Name(), err)
 		}

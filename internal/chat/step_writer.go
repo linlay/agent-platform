@@ -208,8 +208,9 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.appendStoredMessage(event, StoredMessage{
 			Role: "assistant",
 			ToolCalls: []StoredToolCall{{
-				ID:   toolID,
-				Type: "function",
+				Display: storedToolDisplay(event),
+				ID:      toolID,
+				Type:    "function",
 				Function: StoredFunction{
 					Name:      toolName,
 					Arguments: event.String("arguments"),
@@ -243,6 +244,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			},
 		}, StoredMessage{
 			Role:         "tool",
+			Display:      storedToolDisplay(event),
 			View:         cloneStringAnyMap(anyMap(event.Value("view"))),
 			ViewError:    event.String("viewError"),
 			Name:         toolName,
@@ -282,9 +284,6 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 	case "request.steer":
 		w.flushCurrentStep()
 		w.appendSteerLine(event)
-
-	case "plan.create", "plan.update":
-		// Live-only for new JSONL writes. Plan task state is persisted in .tools/plan-tasks.
 
 	case "task.start":
 		w.flushCurrentStep()
@@ -1057,4 +1056,17 @@ func compactCycleComplete(value any) *bool {
 		return &result
 	}
 	return nil
+}
+
+func storedToolDisplay(event stream.EventData) map[string]any {
+	if !strings.HasPrefix(event.String("toolName"), "acp/") {
+		return nil
+	}
+	display := map[string]any{}
+	for _, key := range []string{"toolName", "toolLabel", "toolI18n", "fileChange"} {
+		if value, ok := event.Payload[key]; ok {
+			display[key] = value
+		}
+	}
+	return display
 }

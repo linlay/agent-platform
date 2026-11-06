@@ -8,12 +8,27 @@ import (
 	"strings"
 )
 
+// ExecutionBackend is independent of native mode and never infers ACP from a bridge ID.
+func ExecutionBackend(def AgentDefinition) string {
+	if def.Engine == AgentEngineACP {
+		return AgentEngineACP
+	}
+	switch strings.ToUpper(strings.TrimSpace(def.Mode)) {
+	case AgentModeProxy:
+		return "proxy"
+	case AgentModeChannel:
+		return "channel"
+	default:
+		return AgentEngineNative
+	}
+}
+
 func ResolvedModeCapabilities(def AgentDefinition) agentcontract.ModeCapabilities {
+	if ExecutionBackend(def) == AgentEngineACP {
+		return agentcontract.ModeCapabilities{RunAsChild: true}
+	}
 	if descriptor, ok := agentbuiltin.Lookup(def.Mode); ok {
 		capabilities := descriptor.Capabilities
-		if agentbuiltin.IsCoderACPBackend(def.Mode, def.ACPBridgeID) {
-			capabilities.RunAsChild = false
-		}
 		return capabilities
 	}
 	switch strings.ToUpper(strings.TrimSpace(def.Mode)) {
@@ -27,7 +42,7 @@ func ResolvedModeCapabilities(def AgentDefinition) agentcontract.ModeCapabilitie
 // AgentInvocationError describes static agent_invoke target eligibility. Caller
 // authorization, self-target checks and live availability remain runtime checks.
 func AgentInvocationError(def AgentDefinition) error {
-	if !AgentUsesACPCoderBackend(def) && !ResolvedModeCapabilities(def).RunAsChild {
+	if !ResolvedModeCapabilities(def).RunAsChild {
 		return fmt.Errorf("sub-agent must be GENERAL/ONESHOT/CODER/KBASE/PROXY")
 	}
 	if !AgentInvocable(def) {

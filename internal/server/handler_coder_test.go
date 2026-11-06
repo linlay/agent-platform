@@ -166,22 +166,7 @@ func TestCoderModelOptionsHTTP(t *testing.T) {
 	}
 }
 
-func TestFetchACPCoderModelOptionsFiltersNonChatModels(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"code":0,"data":{"models":[{"key":"chat-model","type":"chat"},{"key":"legacy-chat-model"},{"key":"embedding-model","type":"embedding"},{"key":"image-model","type":"image"},{"key":"vl-model","type":"vl"},{"key":"unknown-model","type":"audio"}]}}`))
-	}))
-	defer upstream.Close()
-
-	options, err := fetchACPCoderModelOptions(config.ACPBridgeConfig{BaseURL: upstream.URL})
-	if err != nil {
-		t.Fatalf("fetch ACP coder model options: %v", err)
-	}
-	if len(options) != 2 || options[0].Key != "chat-model" || options[1].Key != "legacy-chat-model" {
-		t.Fatalf("expected only chat ACP model options, got %#v", options)
-	}
-}
-
-func TestCoderModelOptionsFiltersEmptyAPIKeyAndHidesACPPassthroughFromPublicOptions(t *testing.T) {
+func TestCoderModelOptionsFiltersEmptyAPIKey(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
@@ -193,14 +178,6 @@ func TestCoderModelOptionsFiltersEmptyAPIKeyAndHidesACPPassthroughFromPublicOpti
 				"defaultModel: mock-model",
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write empty api key provider: %v", err)
-			}
-			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "gpt-5-codex.yml"), []byte(strings.Join([]string{
-				"key: gpt-5-codex",
-				"name: GPT-5 Codex",
-				"protocol: ACP_PASSTHROUGH",
-				"modelId: gpt-5-codex",
-			}, "\n")), 0o644); err != nil {
-				t.Fatalf("write acp passthrough model: %v", err)
 			}
 		},
 	})
@@ -224,281 +201,22 @@ func TestCoderModelOptionsFiltersEmptyAPIKeyAndHidesACPPassthroughFromPublicOpti
 			t.Fatalf("mock-model should be hidden when provider apiKey is empty: %#v", response.Data.Models)
 		}
 	}
-	for _, model := range response.Data.Models {
-		if model.Key == "gpt-5-codex" {
-			t.Fatalf("ACP passthrough model should be hidden from public options: %#v", response.Data.Models)
-		}
-	}
 }
 
-func TestCoderModelOptionsForACPCoderAgentOnlyShowsACPPassthrough(t *testing.T) {
-	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
-		writeProviderSSE(t, w, `[DONE]`)
-	}, testFixtureOptions{
-		setupRuntime: func(_ string, cfg *config.Config) {
-			workspace := setupCoderTestWorkspace(t, cfg, "codex-workspace")
-			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "providers", "ready.yml"), []byte(strings.Join([]string{
-				"key: ready",
-				"baseUrl: http://127.0.0.1:1",
-				"apiKey: ready-key",
-				"defaultModel: ready-model",
-			}, "\n")), 0o644); err != nil {
-				t.Fatalf("write ready provider: %v", err)
-			}
-			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "ready-model.yml"), []byte(strings.Join([]string{
-				"key: ready-model",
-				"name: Ready Model",
-				"provider: ready",
-				"protocol: OPENAI",
-				"modelId: ready-model-id",
-			}, "\n")), 0o644); err != nil {
-				t.Fatalf("write ready model: %v", err)
-			}
-			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "gpt-5.5.yml"), []byte(strings.Join([]string{
-				"key: gpt-5.5",
-				"name: GPT-5.5",
-				"protocol: ACP_PASSTHROUGH",
-				"modelId: gpt-5.5",
-				"serviceTiers:",
-				"  - fast",
-			}, "\n")), 0o644); err != nil {
-				t.Fatalf("write acp model: %v", err)
-			}
-			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "gpt-5.4.yml"), []byte(strings.Join([]string{
-				"key: gpt-5.4",
-				"name: GPT-5.4",
-				"protocol: ACP_PASSTHROUGH",
-				"modelId: gpt-5.4",
-			}, "\n")), 0o644); err != nil {
-				t.Fatalf("write alternate acp model: %v", err)
-			}
-			agentDir := filepath.Join(cfg.Paths.AgentsDir, "codex-agent")
-			if err := os.MkdirAll(agentDir, 0o755); err != nil {
-				t.Fatalf("mkdir acp agent: %v", err)
-			}
-			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
-				"key: codex-agent",
-				"name: Codex Agent",
-				"mode: CODER",
-				"engine: acp",
-				"modelConfig:",
-				"  modelKey: gpt-5.5",
-				"runtimeConfig:",
-				"  acpBridgeId: codex",
-				"  workspaceRoot: " + filepath.ToSlash(workspace),
-			}, "\n")), 0o644); err != nil {
-				t.Fatalf("write acp agent: %v", err)
-			}
-		},
-	})
-
-	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/model-options?agentKey=codex-agent", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
-	}
-	for _, field := range []string{"defaultModelKey", "defaultReasoningEffort", "defaultServiceTier", "selectedModelKey", "selectedReasoningEffort", "selectedServiceTier"} {
-		if strings.Contains(rec.Body.String(), "\""+field+"\"") {
-			t.Fatalf("options must not expose selection %s: %s", field, rec.Body.String())
-		}
-	}
-	var response api.ApiResponse[api.CoderModelOptionsResponse]
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode options response: %v", err)
-	}
-	if got := strings.Join(serviceTierKeys(response.Data.ServiceTiers), ","); got != "STANDARD,FAST" {
-		t.Fatalf("service tier options = %#v", response.Data.ServiceTiers)
-	}
-	for _, model := range response.Data.Models {
-		if model.Key == "ready-model" {
-			t.Fatalf("expected provider model to be hidden for acp coder agent, got %#v", response.Data.Models)
-		}
-	}
-	if len(response.Data.Models) != 2 {
-		t.Fatalf("expected only acp models, got %#v", response.Data.Models)
-	}
-	for _, model := range response.Data.Models {
-		if model.Key == "gpt-5.5" && (len(model.ServiceTiers) != 1 || model.ServiceTiers[0] != "fast") {
-			t.Fatalf("expected gpt-5.5 fast service tier, got %#v", model.ServiceTiers)
-		}
-	}
-}
-
-func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) {
-	var unavailable atomic.Bool
-	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/models" {
-			t.Fatalf("unexpected path %s", r.URL.Path)
-		}
-		if unavailable.Load() {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(map[string]any{
-			"code": 0,
-			"msg":  "success",
-			"data": map[string]any{
-				"models": []map[string]any{
-					{
-						"key":              "MiniMax-M2.7",
-						"name":             "MiniMax-M2.7",
-						"modelId":          "MiniMax-M2.7",
-						"contextWindow":    200000,
-						"isReasoner":       true,
-						"reasoningEfforts": []string{"LOW", "MEDIUM", "HIGH", "XHIGH"},
-						"serviceTiers":     []string{"FAST"},
-					},
-				},
-			},
-		}); err != nil {
-			t.Fatalf("encode proxy model response: %v", err)
-		}
-	}))
-	defer upstream.Close()
+func TestAgentDetailDoesNotEmbedModelOptionsAndExposesEngineIdentity(t *testing.T) {
 
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
-		configure: func(cfg *config.Config) {
-			cfg.ACP.ACPBridges = map[string]config.ACPBridgeConfig{
-				"codex": {BaseURL: upstream.URL, TimeoutMS: 5000},
-			}
-		},
-		setupRuntime: func(_ string, cfg *config.Config) {
-			workspace := setupCoderTestWorkspace(t, cfg, "codex-workspace")
-			agentDir := filepath.Join(cfg.Paths.AgentsDir, "codex-agent")
-			if err := os.MkdirAll(agentDir, 0o755); err != nil {
-				t.Fatalf("mkdir acp agent: %v", err)
-			}
-			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
-				"key: codex-agent",
-				"name: Codex Agent",
-				"mode: CODER",
-				"engine: acp",
-				"modelConfig:",
-				"  modelKey: claude-opus-4-6",
-				"runtimeConfig:",
-				"  acpBridgeId: codex",
-				"  workspaceRoot: " + filepath.ToSlash(workspace),
-			}, "\n")), 0o644); err != nil {
-				t.Fatalf("write acp agent: %v", err)
-			}
-			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "claude-opus-4-6.yml"), []byte(strings.Join([]string{
-				"key: claude-opus-4-6",
-				"name: Old Local Model",
-				"protocol: ACP_PASSTHROUGH",
-				"modelId: stale-local-model",
-			}, "\n")), 0o644); err != nil {
-				t.Fatalf("write local fallback model: %v", err)
-			}
-		},
-	})
-
-	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/model-options?agentKey=codex-agent", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
-	}
-	for _, field := range []string{"defaultModelKey", "defaultReasoningEffort", "defaultServiceTier", "selectedModelKey", "selectedReasoningEffort", "selectedServiceTier"} {
-		if strings.Contains(rec.Body.String(), "\""+field+"\"") {
-			t.Fatalf("options must not expose selection %s: %s", field, rec.Body.String())
-		}
-	}
-	var response api.ApiResponse[api.CoderModelOptionsResponse]
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode options response: %v", err)
-	}
-	if len(response.Data.Models) != 1 {
-		t.Fatalf("models = %#v", response.Data.Models)
-	}
-	if got := strings.Join(serviceTierKeys(response.Data.ServiceTiers), ","); got != "STANDARD,FAST" {
-		t.Fatalf("service tier options = %#v", response.Data.ServiceTiers)
-	}
-	if got := strings.Join(reasoningEffortKeys(response.Data.ReasoningEfforts), ","); got != "NONE,LOW,MEDIUM,HIGH,XHIGH" {
-		t.Fatalf("reasoning effort options = %#v", response.Data.ReasoningEfforts)
-	}
-	model := response.Data.Models[0]
-	if model.Key != "MiniMax-M2.7" || model.Name != "MiniMax-M2.7" || model.Icon != "" || model.ModelID != "MiniMax-M2.7" || model.ContextWindow != 200000 || model.Protocol != "ACP_PASSTHROUGH" {
-		t.Fatalf("unexpected proxy model %#v", model)
-	}
-	if strings.Join(model.ServiceTiers, ",") != "FAST" {
-		t.Fatalf("service tiers = %#v", model.ServiceTiers)
-	}
-	if strings.Join(model.ReasoningEfforts, ",") != "LOW,MEDIUM,HIGH,XHIGH" {
-		t.Fatalf("reasoning efforts = %#v", model.ReasoningEfforts)
-	}
-	if model.IsReasoner == nil || !*model.IsReasoner || model.IsVision == nil || *model.IsVision {
-		t.Fatalf("ACP must retain explicit boolean capabilities: %#v", model)
-	}
-	unavailable.Store(true)
-	rec = httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/model-options?agentKey=codex-agent", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("unavailable ACP options returned %d: %s", rec.Code, rec.Body.String())
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode unavailable ACP options: %v", err)
-	}
-	if response.Data.Models != nil {
-		t.Fatalf("unavailable ACP models must retain null response: %s", rec.Body.String())
-	}
-}
-
-func TestAgentDetailDoesNotFetchOrEmbedModelOptions(t *testing.T) {
-	var modelRequestCount atomic.Int32
-	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/models" {
-			t.Fatalf("unexpected path %s", r.URL.Path)
-		}
-		modelRequestCount.Add(1)
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(map[string]any{
-			"code": 0,
-			"msg":  "success",
-			"data": map[string]any{
-				"models": []map[string]any{
-					{
-						"key":              "MiniMax-M2.7",
-						"name":             "MiniMax-M2.7",
-						"icon":             "MiniMax",
-						"modelId":          "MiniMax-M2.7",
-						"contextWindow":    200000,
-						"isReasoner":       true,
-						"reasoningEfforts": []string{"LOW", "MEDIUM", "HIGH", "XHIGH"},
-						"serviceTiers":     []string{"FAST"},
-					},
-				},
-			},
-		}); err != nil {
-			t.Fatalf("encode proxy model response: %v", err)
-		}
-	}))
-	defer upstream.Close()
-
-	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
-		writeProviderSSE(t, w, `[DONE]`)
-	}, testFixtureOptions{
-		configure: func(cfg *config.Config) {
-			cfg.ACP.ACPBridges = map[string]config.ACPBridgeConfig{
-				"codex": {BaseURL: upstream.URL, TimeoutMS: 5000},
-			}
-		},
 		setupRuntime: func(_ string, cfg *config.Config) {
 			workspace := setupCoderTestWorkspace(t, cfg, "shared-coder-workspace")
 			for key, body := range map[string]string{
 				"codex-agent": strings.Join([]string{
 					"key: codex-agent",
 					"name: Codex Agent",
-					"mode: CODER",
 					"engine: acp",
-					"modelConfig:",
-					"  modelKey: claude-opus-4-6",
-					"  reasoning:",
-					"    enabled: true",
-					"    effort: HIGH",
 					"runtimeConfig:",
-					"  acpBridgeId: codex",
+					"  engineId: fixture/agent",
 					"  workspaceRoot: " + filepath.ToSlash(workspace),
 				}, "\n"),
 				"native-agent": strings.Join([]string{
@@ -531,19 +249,19 @@ func TestAgentDetailDoesNotFetchOrEmbedModelOptions(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &acpResponse); err != nil {
 		t.Fatalf("decode acp agent detail: %v", err)
 	}
-	if acpResponse.Data.ReasoningEffort != "HIGH" {
-		t.Fatalf("expected saved ACP effort HIGH, got %q", acpResponse.Data.ReasoningEffort)
+	if !strings.Contains(rec.Body.String(), "\"engineId\":\"fixture/agent\"") {
+		t.Fatalf("usage response must expose the external engine identity: %s", rec.Body.String())
 	}
-	if acpResponse.Data.ModelKey != "claude-opus-4-6" {
+	if acpResponse.Data.ReasoningEffort != "" {
+		t.Fatalf("expected no project reasoning override, got %q", acpResponse.Data.ReasoningEffort)
+	}
+	if acpResponse.Data.ModelKey != "" {
 		t.Fatalf("must retain configured model: %#v", acpResponse.Data)
 	}
 	for _, field := range []string{"modelOptions", "modelConfig", "selectedModelKey"} {
 		if strings.Contains(rec.Body.String(), "\""+field+"\"") {
 			t.Fatalf("unexpected field %s", field)
 		}
-	}
-	if got := modelRequestCount.Load(); got != 0 {
-		t.Fatalf("agent detail must not fetch model options: %d", got)
 	}
 
 	rec = httptest.NewRecorder()
@@ -581,13 +299,10 @@ func TestAgentDetailDoesNotFetchOrEmbedModelOptions(t *testing.T) {
 	if acpSummary == nil || nativeSummary == nil {
 		t.Fatalf("expected acp and native summaries, got %#v", summaries.Data)
 	}
-	if got := modelRequestCount.Load(); got != 0 {
-		t.Fatalf("/api/agents should not fetch ACP models, got %d total requests", got)
-	}
 	if acpSummary.ModelOptions != nil || acpSummary.ModelConfig != nil {
 		t.Fatalf("ACP agent summary should omit model options/config, got %#v", acpSummary)
 	}
-	if acpSummary.DefaultModelKey != "claude-opus-4-6" {
+	if acpSummary.DefaultModelKey != "" {
 		t.Fatalf("ACP summary default model should remain local config value, got %#v", acpSummary)
 	}
 	if nativeSummary.ModelOptions != nil || nativeSummary.ModelConfig != nil {
@@ -611,7 +326,7 @@ func reasoningEffortKeys(options []api.ReasoningEffortOption) []string {
 	return out
 }
 
-func TestCoderModelOptionsForNativeCoderAgentHidesACPPassthrough(t *testing.T) {
+func TestCoderModelOptionsForNativeCoderAgent(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
@@ -633,14 +348,6 @@ func TestCoderModelOptionsForNativeCoderAgentHidesACPPassthrough(t *testing.T) {
 				"modelId: ready-model-id",
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write ready model: %v", err)
-			}
-			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "gpt-5.5.yml"), []byte(strings.Join([]string{
-				"key: gpt-5.5",
-				"name: GPT-5.5",
-				"protocol: ACP_PASSTHROUGH",
-				"modelId: gpt-5.5",
-			}, "\n")), 0o644); err != nil {
-				t.Fatalf("write acp model: %v", err)
 			}
 			agentDir := filepath.Join(cfg.Paths.AgentsDir, "native-agent")
 			if err := os.MkdirAll(agentDir, 0o755); err != nil {
@@ -676,9 +383,6 @@ func TestCoderModelOptionsForNativeCoderAgentHidesACPPassthrough(t *testing.T) {
 	}
 	foundReady := false
 	for _, model := range response.Data.Models {
-		if model.Key == "gpt-5.5" {
-			t.Fatalf("expected acp passthrough model to be hidden for native coder, got %#v", response.Data.Models)
-		}
 		if model.Key == "ready-model" {
 			foundReady = true
 		}

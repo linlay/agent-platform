@@ -380,7 +380,7 @@ func (o *Coordinator) dispatchTeam(mainStream contracts.AgentStream, dispatch co
 			o.InjectMainToolError(main, dispatch.MainToolID, fmt.Sprintf("member %q is unavailable in Team %q", memberKey, o.TeamSnapshot.AgentKey))
 			return false, nil
 		}
-		if !catalog.AgentUsesACPCoderBackend(def) && !session.ResolvedModeCapabilities(def).RunAsChild {
+		if !session.ResolvedModeCapabilities(def).RunAsChild {
 			o.InjectMainToolError(main, dispatch.MainToolID, fmt.Sprintf("member %q cannot run as a Team child", memberKey))
 			return false, nil
 		}
@@ -661,9 +661,11 @@ func (q *TeamHITLQueue) advance() {
 func (q *TeamHITLQueue) publish(parent *contracts.RunControl, item *TeamChildAwaiting) {
 	o := q.Orchestrator
 	summaries, truncated := contracts.SummarizeApprovals(item.Ask.Approvals)
+	childAwaiting, _ := item.Control.LookupAwaiting(item.RawID)
 	// Members may reuse the same raw awaiting ID, so the Team run tracks the
 	// task-namespaced public ID and never the raw one.
 	parent.ExpectSubmit(contracts.AwaitingSubmitContext{
+		ValidateSubmit:     childAwaiting.ValidateSubmit,
 		AwaitingID:         item.PublicID,
 		TaskID:             item.Task.TaskID,
 		Summaries:          summaries,
@@ -738,13 +740,6 @@ func (o *Coordinator) RunChildTaskWithOptions(index int, task PreparedSubTask, p
 	defer release()
 	if o.TeamSnapshot == nil {
 		task.AgentDef = leasedDef
-	}
-
-	if catalog.AgentUsesACPCoderBackend(task.AgentDef) {
-		result.Status = "failed"
-		result.Text = "ACP CODER sub-agent is not supported"
-		result.Error = result.Text
-		return result
 	}
 
 	subReq := runtimetypes.QueryCommand{
@@ -1066,6 +1061,24 @@ func RouteChildStreamInput(parentRunID string, taskID string, input stream.Strea
 		return value
 	case stream.InputLLMRequest:
 		value.TaskID = taskID
+		return value
+	case stream.PlanUpdate:
+		value.TaskID = taskID
+		value.PlanID = NamespaceChildID(taskID, value.PlanID)
+		if entries, ok := value.Plan.([]map[string]any); ok {
+			scoped := make([]map[string]any, 0, len(entries))
+			for _, entry := range entries {
+				copy := make(map[string]any, len(entry))
+				for key, item := range entry {
+					copy[key] = item
+				}
+				if id, ok := copy["taskId"].(string); ok {
+					copy["taskId"] = NamespaceChildID(taskID, id)
+				}
+				scoped = append(scoped, copy)
+			}
+			value.Plan = scoped
+		}
 		return value
 	case stream.InputUsageSnapshot:
 		value.TaskID = taskID

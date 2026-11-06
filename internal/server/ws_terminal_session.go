@@ -29,6 +29,17 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 	if agentKey == "" {
 		return terminalpkg.OpenResult{}, &statusError{Status: http.StatusBadRequest, Message: "agentKey is required"}
 	}
+	if strings.HasPrefix(payload.TerminalKey, "auth-") {
+		auth, ok := s.deps.EngineSessions.(EngineAuthentication)
+		if !ok {
+			return terminalpkg.OpenResult{}, &statusError{Status: 503, Message: "desktop_required"}
+		}
+		result, err := auth.AuthTerminal(ownerKey, agentKey, strings.TrimPrefix(payload.TerminalKey, "auth-"))
+		if err != nil {
+			return terminalpkg.OpenResult{}, &statusError{Status: 403, Message: "auth_operation_not_found"}
+		}
+		return result, nil
+	}
 	if s.deps.Registry == nil {
 		return terminalpkg.OpenResult{}, &statusError{Status: http.StatusServiceUnavailable, Message: "agent registry is not configured"}
 	}

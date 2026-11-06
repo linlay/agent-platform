@@ -96,3 +96,11 @@ Container Hub、Identity/JWKS 和 provider registration、健康检查使用专�
 回归测试位于 `internal/httpclient` 与 `internal/config/config_http_test.go`，覆盖默认/显式 `auto` 跳过 PAC/WPAD 且只发送一次 POST、`pac_auto` 解析与失败不回退、优先级、单独 `NO_PROXY`、绕过、缓存并发/刷新/错误、macOS/Windows 设置解析、HTTP 代理、HTTPS CONNECT、SOCKS5 远端 DNS、无直连回退和刷新期间 SSE 保持。
 
 接口依据：[Go ProxyFromEnvironment](https://pkg.go.dev/net/http#ProxyFromEnvironment)、macOS 本机 `scutil(8)` 手册、[WinHttpGetIEProxyConfigForCurrentUser](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpgetieproxyconfigforcurrentuser)、[WinHttpGetProxyForUrl](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpgetproxyforurl)。
+
+## ACP Adapter 子进程
+
+ACP 在 `runtime/acp/environment.go` 单独构造 CLI 环境，App 传入已有 `cfg.HTTPProxy`，通过 `httpclient.Resolver.ProxyEnvironment` 复用系统设置读取，不新增代理配置系统。`fixed` 仅映射 HTTP/HTTPS URL 为 `HTTP_PROXY/HTTPS_PROXY`；`direct` 不带代理；`auto` 按协议优先采用明确的环境代理，缺省时导出系统固定 HTTP/HTTPS 代理。每次新进程启动读取配置，已有进程保留原环境；不修改宿主或系统代理设置。
+
+`NO_PROXY` 合并明确绕过列表并保留 localhost、127.0.0.1、::1；auto 下显式 `NO_PROXY=*` 直接导出全量绕过。系统 CIDR 先规范化，常规主机/域名例外交给子进程的 NO_PROXY 语义。PAC/WPAD 无固定代理、显式 `pac_auto`、SOCKS、简单主机排除、协议限定/复杂通配例外，以及带系统例外的环境/系统代理混用，仍以 `proxy_policy_unsupported` 拒绝，不静默丢弃规则或降级直连。
+
+2026-11-02：解析器和 ACP race 回归通过；macOS 真实受管 Node 收到系统固定代理，实际 Desktop 已导入 Codex 自动对账为 enabled/applied，项目创建接口与主壳 ACP 选项恢复可用。该验收覆盖启动握手与项目入口；真实模型流量采用代理、OAuth 回调及 Windows 系统代理仍按 T07/T10 单列实测。错误和公开诊断不输出代理凭据、原始 stderr。

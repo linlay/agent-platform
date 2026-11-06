@@ -184,6 +184,11 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if len(values) == 0 {
 		return nil
 	}
+	if value, exists := values["agent-engine"]; exists {
+		if err := c.applyAgentEngine(value); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	}
 	if value, exists := values["webapps"]; exists {
 		if err := c.applyWebApps(value); err != nil {
 			return fmt.Errorf("%s: %w", path, err)
@@ -815,55 +820,6 @@ func cloneConfigValue(value any) any {
 	}
 }
 
-func parseCoderACPBridges(raw any, fallback map[string]ACPBridgeConfig) (map[string]ACPBridgeConfig, error) {
-	out := make(map[string]ACPBridgeConfig, len(fallback))
-	for key, value := range fallback {
-		out[strings.TrimSpace(key)] = value
-	}
-	if raw == nil {
-		return out, nil
-	}
-	values, ok := raw.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("agent-settings config: acp-bridges must be an object")
-	}
-	if len(values) == 0 {
-		return out, nil
-	}
-	for rawID, rawValue := range values {
-		id := strings.TrimSpace(rawID)
-		if id == "" {
-			return nil, fmt.Errorf("agent-settings config: acp-bridges id must not be empty")
-		}
-		bridgeValues, ok := rawValue.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("agent-settings config: acp-bridges.%s must be an object", id)
-		}
-		cfg := ACPBridgeConfig{TimeoutMS: 300000}
-		if existing, ok := out[id]; ok {
-			cfg = existing
-		}
-		cfg.BaseURL = stringValue(anyValue(bridgeValues["base-url"], cfg.BaseURL), cfg.BaseURL)
-		cfg.AuthToken = stringValue(anyValue(bridgeValues["auth-token"], cfg.AuthToken), cfg.AuthToken)
-		if _, exists := bridgeValues["timeout"]; exists {
-			return nil, fmt.Errorf("agent-settings config: acp-bridges.%s.timeout was removed; use timeout-ms", id)
-		}
-		if rawTimeoutMS, exists := bridgeValues["timeout-ms"]; exists {
-			cfg.TimeoutMS = intValue(rawTimeoutMS, 0)
-			if cfg.TimeoutMS <= 0 {
-				return nil, fmt.Errorf("agent-settings config: acp-bridges.%s.timeout-ms must be a positive integer", id)
-			}
-		} else if cfg.TimeoutMS <= 0 {
-			cfg.TimeoutMS = 300000
-		}
-		if strings.TrimSpace(cfg.BaseURL) == "" {
-			return nil, fmt.Errorf("agent-settings config: acp-bridges.%s.base-url is required", id)
-		}
-		out[id] = cfg
-	}
-	return out, nil
-}
-
 func (c *Config) applyVisionRecognizeValues(values map[string]any) {
 	c.VisionRecognize.Enabled = boolValue(anyValue(values["enabled"], c.VisionRecognize.Enabled), c.VisionRecognize.Enabled)
 	c.VisionRecognize.DefaultProfile = stringValue(anyValue(values["default-profile"], c.VisionRecognize.DefaultProfile), c.VisionRecognize.DefaultProfile)
@@ -1135,6 +1091,47 @@ func firstAny(values map[string]any, keys ...string) any {
 	for _, key := range keys {
 		if value, ok := values[key]; ok {
 			return value
+		}
+	}
+	return nil
+}
+
+// Host budgets are deployment policy, not supplied by plugins or Query requests.
+func (c *Config) applyAgentEngine(raw any) error {
+	values, err := configMap(raw, "agent-engine", "max-processes", "max-sessions", "max-active", "max-queued", "queue-timeout", "idle-timeout")
+	if err != nil {
+		return err
+	}
+	for _, field := range []struct {
+		key    string
+		target *int
+		max    int
+	}{
+		{"max-processes", &c.AgentEngine.MaxProcesses, 64}, {"max-sessions", &c.AgentEngine.MaxSessions, 256},
+		{"max-active", &c.AgentEngine.MaxActive, 64}, {"max-queued", &c.AgentEngine.MaxQueued, 256},
+	} {
+		if raw, exists := values[field.key]; exists {
+			n, ok := raw.(int64)
+			if !ok || n < 1 || n > int64(field.max) {
+				return fmt.Errorf("agent-engine.%s must be an integer between 1 and %d", field.key, field.max)
+			}
+			*field.target = int(n)
+		}
+	}
+	for _, field := range []struct {
+		key    string
+		target *time.Duration
+	}{{"queue-timeout", &c.AgentEngine.QueueTimeout}, {"idle-timeout", &c.AgentEngine.IdleTimeout}} {
+		if raw, exists := values[field.key]; exists {
+			text, ok := raw.(string)
+			if !ok {
+				return fmt.Errorf("agent-engine.%s must be a duration", field.key)
+			}
+			value, err := time.ParseDuration(text)
+			if err != nil || value <= 0 || value > 24*time.Hour {
+				return fmt.Errorf("agent-engine.%s must be positive and at most 24h", field.key)
+			}
+			*field.target = value
 		}
 	}
 	return nil

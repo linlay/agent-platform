@@ -21,7 +21,7 @@ func NormalizeReferencedKbases(ids []string) []string {
 // The directory and admission share the existing native connector mount gate.
 // Tool exclusions remain the router's responsibility; selection grants no tools.
 func KBaseCapability(def catalog.AgentDefinition) libraryinfo.Capability {
-	if def.Engine == catalog.AgentEngineACP || IsProxyRoutedAgent(def) || catalog.AgentIsChannelMode(def.Mode) {
+	if IsProxyRoutedAgent(def) || catalog.AgentIsChannelMode(def.Mode) {
 		return libraryinfo.Capability{Reason: "kbase references are unsupported for this agent"}
 	}
 	if !slices.Contains(def.Connectors, connector.KBaseControlConnectorID) {

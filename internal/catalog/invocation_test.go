@@ -22,3 +22,22 @@ func TestAgentInvocationEligibility(t *testing.T) {
 		})
 	}
 }
+
+func TestExecutionBackendDoesNotInferNativeFromAbsenceOfProxy(t *testing.T) {
+	for _, tc := range []struct {
+		def  AgentDefinition
+		want string
+	}{
+		{AgentDefinition{Mode: "GENERAL"}, "native"}, {AgentDefinition{Mode: "CODER", Engine: AgentEngineACP, Runtime: map[string]any{"engineId": "fixture/agent"}}, "acp"},
+		{AgentDefinition{Mode: "PROXY"}, "proxy"}, {AgentDefinition{Mode: "CHANNEL"}, "channel"},
+	} {
+		if got := ExecutionBackend(tc.def); got != tc.want {
+			t.Errorf("backend=%s want %s", got, tc.want)
+		}
+	}
+	def := AgentDefinition{Mode: "CODER", Engine: AgentEngineACP, Runtime: map[string]any{"engineId": "fixture/agent"}, VisibilityScopes: []string{"invoke"}}
+	capabilities := ResolvedModeCapabilities(def)
+	if !capabilities.RunAsChild || capabilities.InvokeChildren || AgentInvocationError(def) != nil {
+		t.Fatalf("external child capability=%+v", capabilities)
+	}
+}

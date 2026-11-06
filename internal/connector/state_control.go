@@ -1,6 +1,7 @@
 package connector
 
 import (
+	"agent-platform/internal/runtimefs"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -28,7 +29,7 @@ func AcquireStateLock(ctx context.Context, root, id string) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := openLockFile(path)
+	f, err := runtimefs.OpenLockFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +38,7 @@ func AcquireStateLock(ctx context.Context, root, id string) (func(), error) {
 			f.Close()
 			return nil, err
 		}
-		locked, err := tryOperationLock(f)
+		locked, err := runtimefs.TryExclusive(f)
 		if err != nil {
 			f.Close()
 			return nil, err

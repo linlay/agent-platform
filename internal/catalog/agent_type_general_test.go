@@ -18,8 +18,8 @@ func TestParseAgentModeAndEngine(t *testing.T) {
 		{name: "legacy react rejected", mode: "REACT", wantErr: "use GENERAL"},
 		{name: "mixed case legacy rejected", mode: " ReAcT ", wantErr: "use GENERAL"},
 		{name: "native coder", mode: "CODER", engine: "native", wantMode: "CODER", wantEngine: "native"},
-		{name: "acp without mode", engine: "acp", wantMode: "CODER", wantEngine: "acp"},
-		{name: "acp with coder", mode: "CODER", engine: "ACP", wantMode: "CODER", wantEngine: "acp"},
+		{name: "acp without mode", engine: "acp", wantMode: "", wantEngine: "acp"},
+		{name: "acp with coder", mode: "CODER", engine: "ACP", wantErr: "engine: acp does not take a mode"},
 		{name: "acp with general", mode: "GENERAL", engine: "acp", wantErr: "engine: acp does not take a mode"},
 		{name: "acp with kbase", mode: "KBASE", engine: "acp", wantErr: "engine: acp does not take a mode"},
 		{name: "unknown engine", engine: "codex", wantErr: "engine must be native or acp"},
@@ -49,7 +49,7 @@ func TestAgentModeForAPIMapsLegacyReact(t *testing.T) {
 	if got := NormalizeAgentModeForRuntime(""); got != "GENERAL" {
 		t.Fatalf("NormalizeAgentModeForRuntime(empty) = %q", got)
 	}
-	if got := DefinitionRuntimeMode(map[string]any{"engine": "acp"}); got != AgentModeCoder {
+	if got := DefinitionRuntimeMode(map[string]any{"engine": "acp"}); got != "" {
 		t.Fatalf("DefinitionRuntimeMode(engine acp) = %q", got)
 	}
 }
@@ -64,19 +64,19 @@ func TestParseAgentFileEngineRules(t *testing.T) {
 		}
 		return path
 	}
-	runtime := "runtimeConfig:\n  acpBridgeId: codex\n  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
+	runtime := "runtimeConfig:\n  engineId: fixture/agent\n  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
 
 	def, err := parseAgentDefinitionForTest(write(t, "key: acp\nengine: acp\n"+runtime))
 	if err != nil {
 		t.Fatalf("engine: acp without mode: %v", err)
 	}
-	if def.Mode != AgentModeCoder || def.Engine != AgentEngineACP || !AgentUsesACPCoderBackend(def) || AgentEngineForAPI(def) != "acp" {
+	if def.Mode != "" || def.Engine != AgentEngineACP || AgentEngineForAPI(def) != "acp" || AgentEngineForAPI(def) != "acp" {
 		t.Fatalf("unexpected ACP definition: mode=%q engine=%q", def.Mode, def.Engine)
 	}
 
 	for name, tc := range map[string]struct{ content, want string }{
-		"bridge without engine": {"key: coder\nmode: CODER\n" + runtime, "runtimeConfig.acpBridgeId requires engine: acp"},
-		"engine without bridge": {"key: coder\nengine: acp\nruntimeConfig:\n  workspaceRoot: " + filepath.ToSlash(workspace) + "\n", "runtimeConfig.acpBridgeId is required for engine: acp"},
+		"bridge without engine": {"key: coder\nmode: CODER\n" + runtime, "runtimeConfig.engineId requires engine: acp"},
+		"engine without bridge": {"key: coder\nengine: acp\nruntimeConfig:\n  workspaceRoot: " + filepath.ToSlash(workspace) + "\n", "invalid ACPProject"},
 		"acp with general mode": {"key: coder\nmode: GENERAL\nengine: acp\n" + runtime, "engine: acp does not take a mode"},
 	} {
 		t.Run(name, func(t *testing.T) {

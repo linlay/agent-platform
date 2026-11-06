@@ -113,19 +113,11 @@ func QueryPayloadWithWorkspace(req runtimetypes.QueryCommand, proxy *catalog.Pro
 	return payload
 }
 
-// ForwardParams injects the frozen canonical Session workspace only for a
-// trusted local ACP route. Public query admission rejects cwd, and removing it
-// here also keeps internal callers from overriding or leaking a host directory.
-// The request itself remains unchanged for persistence and public events.
+// ForwardParams excludes host working directories from remote requests.
 func ForwardParams(req runtimetypes.QueryCommand, proxy *catalog.ProxyConfig, workspaceRoot string) map[string]any {
 	params := contracts.CloneMap(req.Params)
 	delete(params, "cwd")
-	if proxy != nil && proxy.LocalACP && workspaceRoot != "" {
-		if params == nil {
-			params = make(map[string]any)
-		}
-		params["cwd"] = workspaceRoot
-	}
+
 	return params
 }
 

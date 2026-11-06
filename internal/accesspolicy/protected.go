@@ -36,6 +36,11 @@ func PlatformProtectedPaths(cfg config.Config) []string {
 	if strings.TrimSpace(cfg.WebAppsCodeDir()) != "" {
 		paths = append(paths, cfg.WebAppsCodeDir())
 	}
+	if engines := cfg.Paths.EffectiveRUAgentsDir(); strings.TrimSpace(engines) != "" {
+		// Product CLI profiles contain credentials and survive plugin upgrades.
+		paths = append(paths, filepath.Join(filepath.Dir(engines), "agent-engine-profiles"))
+		paths = append(paths, filepath.Join(filepath.Dir(engines), "agent-engine-installations"))
+	}
 	return paths
 }
 

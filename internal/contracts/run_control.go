@@ -34,9 +34,10 @@ const (
 type runControlContextKey struct{}
 
 type SubmitResult struct {
-	Request api.SubmitRequest
-	Status  string
-	Detail  string
+	SubmitDigest string
+	Request      api.SubmitRequest
+	Status       string
+	Detail       string
 }
 
 type InterruptInfo struct {
@@ -950,6 +951,14 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 	deliverReq.AwaitingID = awaitingID
 	if resolved, exists := c.lookupResolvedSubmitLocked(publicAwaitingID, awaitingID); exists {
 		c.mu.Unlock()
+		if resolved.SubmitDigest != "" {
+			if req.OwnerID != resolved.Request.OwnerID || req.ChatID != resolved.Request.ChatID || req.RunID != resolved.Request.RunID {
+				return SubmitAck{Status: "awaiting_forbidden", SubmitID: req.SubmitID}
+			}
+			if req.SubmitID == resolved.Request.SubmitID && SubmitDigest(req) != resolved.SubmitDigest {
+				return SubmitAck{Status: "submit_conflict", SubmitID: req.SubmitID}
+			}
+		}
 		if strings.TrimSpace(req.SubmitID) != "" && strings.TrimSpace(resolved.Request.SubmitID) == strings.TrimSpace(req.SubmitID) {
 			detail := resolved.Detail
 			if detail == "" {
@@ -964,6 +973,28 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 		return SubmitAck{Accepted: false, Status: "already_resolved", SubmitID: firstNonBlankSubmitID(resolved.Request.SubmitID, req.SubmitID), Detail: detail}
 	}
 	awaiting := c.awaitingSubmits[awaitingID]
+	digest := ""
+	detail := "Tool interaction submit accepted"
+	if awaiting.ValidateSubmit != nil {
+		if c.interrupted.Load() || c.finished.Load() {
+			c.mu.Unlock()
+			return SubmitAck{Status: "awaiting_expired", SubmitID: req.SubmitID}
+		}
+		if err := awaiting.ValidateSubmit(req); err != nil {
+			c.mu.Unlock()
+			return SubmitAck{Status: err.Error(), SubmitID: req.SubmitID}
+		}
+		digest = SubmitDigest(req)
+		detail = "Decision accepted locally; producer delivery is unconfirmed"
+		// Freeze the submitted JSON before waking the RPC waiter.
+		deliverReq.Param = cloneSubmitParam(req.Param)
+		if req.Params != nil {
+			deliverReq.Params = make(queryinput.SubmitParams, len(req.Params))
+			for i, raw := range req.Params {
+				deliverReq.Params[i] = append([]byte(nil), raw...)
+			}
+		}
+	}
 	if len(awaiting.ExactApprovalIDs) > 0 {
 		items, err := queryinput.DecodeSubmitParams(req.Params)
 		valid := err == nil && len(items) == len(awaiting.ExactApprovalIDs)
@@ -1003,18 +1034,20 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 		}
 		delete(c.awaitingSubmits, awaitingID)
 		resolved := SubmitResult{
-			Request: deliverReq,
-			Status:  "accepted",
-			Detail:  "Tool interaction submit accepted",
+			SubmitDigest: digest,
+			Request:      deliverReq,
+			Status:       "accepted",
+			Detail:       detail,
 		}
 		c.recordResolvedSubmitLocked(publicAwaitingID, awaitingID, resolved)
 		c.deleteAwaitingAliasesLocked(awaitingID)
 	}
 	if _, exists := c.awaitingSubmits[awaitingID]; !ok && awaitingID != "" && exists && !c.interrupted.Load() && !c.finished.Load() {
 		accepted := SubmitResult{
-			Request: deliverReq,
-			Status:  "accepted",
-			Detail:  "Tool interaction submit accepted",
+			SubmitDigest: digest,
+			Request:      deliverReq,
+			Status:       "accepted",
+			Detail:       detail,
 		}
 		c.pendingSubmits[awaitingID] = accepted
 		if req.MailHop != nil {
@@ -1026,7 +1059,7 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 		delete(c.awaitingSubmits, awaitingID)
 		c.deleteAwaitingAliasesLocked(awaitingID)
 		c.mu.Unlock()
-		return SubmitAck{Accepted: true, Status: "accepted", SubmitID: req.SubmitID, Detail: "Tool interaction submit accepted"}
+		return SubmitAck{Accepted: true, Status: "accepted", SubmitID: req.SubmitID, Detail: detail}
 	}
 	c.mu.Unlock()
 	if !ok {
@@ -1035,11 +1068,11 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 	if !waiter.deliver(SubmitResult{
 		Request: deliverReq,
 		Status:  "accepted",
-		Detail:  "Tool interaction submit accepted",
+		Detail:  detail,
 	}) {
 		return SubmitAck{Accepted: false, Status: "unmatched", SubmitID: req.SubmitID, Detail: "Tool interaction submit waiter is no longer active"}
 	}
-	return SubmitAck{Accepted: true, Status: "accepted", SubmitID: req.SubmitID, Detail: "Tool interaction submit accepted"}
+	return SubmitAck{Accepted: true, Status: "accepted", SubmitID: req.SubmitID, Detail: detail}
 }
 
 func (c *RunControl) LookupAwaiting(awaitingID string) (AwaitingSubmitContext, bool) {
@@ -1174,6 +1207,9 @@ func (c *RunControl) expectSubmit(ctx AwaitingSubmitContext) bool {
 	}
 	if existing, ok := c.awaitingSubmits[ctx.AwaitingID]; ok && len(existing.ExactApprovalIDs) > 0 {
 		ctx.ExactApprovalIDs = append([]string(nil), existing.ExactApprovalIDs...)
+	}
+	if existing, ok := c.awaitingSubmits[ctx.AwaitingID]; ok && existing.ValidateSubmit != nil {
+		ctx.ValidateSubmit = existing.ValidateSubmit
 	}
 	if existing, ok := c.awaitingSubmits[ctx.AwaitingID]; ok && existing.SteerReplan {
 		ctx.SteerReplan = true

@@ -81,7 +81,7 @@ func TestKBaseConnectorMountWithoutLibraryContextAddsNoPrompt(t *testing.T) {
 func TestKnowledgeSelectionGatesAndEmptySelection(t *testing.T) {
 	builder := New(Dependencies{KnowledgeLibrary: func(id string) (api.KBaseOption, error) { return api.KBaseOption{ID: id, Readable: id != "bad"}, nil }})
 	def := catalog.AgentDefinition{Key: "general", Mode: "GENERAL", Connectors: []string{connector.KBaseControlConnectorID}}
-	c := interaction.DefaultsForEngine(def.Mode, false)
+	c := interaction.DefaultsForEngine(def.Mode, "native")
 	c.Attachment.Kbases = false
 	def.InteractionConfig = &c
 	if _, err := builder.ResolveKbases(def, []string{" ", ""}); err != nil {
@@ -104,8 +104,8 @@ func TestKnowledgeSelectionGatesAndEmptySelection(t *testing.T) {
 	}
 	def.Mode = "GENERAL"
 	def.Engine = catalog.AgentEngineACP
-	if _, err := builder.ResolveKbases(def, []string{"a"}); err == nil {
-		t.Fatal("ACP selection accepted")
+	if _, err := builder.ResolveKbases(def, []string{"a"}); err != nil {
+		t.Fatal("ACP selection rejected", err)
 	}
 	def.Engine = catalog.AgentEngineNative
 	if _, err := builder.ResolveKbases(def, []string{"a", "bad"}); err == nil {

@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strings"
 
-	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 )
@@ -15,29 +14,6 @@ func (s *Server) applyProxyRoutingConfig(def *catalog.AgentDefinition) *statusEr
 	}
 	if catalog.AgentIsChannelMode(def.Mode) {
 		return s.applyChannelImportRoutingConfig(def)
-	}
-	if !agentbuiltin.IsCoderACPBackend(def.Mode, def.ACPBridgeID) {
-		return nil
-	}
-	bridgeID := strings.TrimSpace(def.ACPBridgeID)
-	routing, err := agentbuiltin.CoderResolveACPBridge(bridgeID, func(key string) (agentbuiltin.CoderACPBridgeConfig, bool) {
-		bridge, ok := s.deps.Config.ACP.ACPBridges[key]
-		return agentbuiltin.CoderACPBridgeConfig{
-			BaseURL:   bridge.BaseURL,
-			AuthToken: bridge.AuthToken,
-			TimeoutMS: bridge.TimeoutMS,
-		}, ok
-	})
-	if err != nil {
-		return &statusError{Status: http.StatusServiceUnavailable, Message: err.Error()}
-	}
-	def.ProxyConfig = &catalog.ProxyConfig{
-		LocalACP:  true,
-		BaseURL:   routing.BaseURL,
-		Transport: routing.Transport,
-		Token:     routing.Token,
-		Timeout:   routing.Timeout,
-		TimeoutMS: routing.TimeoutMS,
 	}
 	return nil
 }

@@ -10,7 +10,7 @@ import (
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
-func (s *Service) Submit(_ context.Context, command runtimetypes.SubmitCommand) (runtimetypes.SubmitResult, error) {
+func (s *Service) Submit(ctx context.Context, command runtimetypes.SubmitCommand) (runtimetypes.SubmitResult, error) {
 	if strings.TrimSpace(command.RunID) == "" || strings.TrimSpace(command.AwaitingID) == "" {
 		return runtimetypes.SubmitResult{}, apperrors.New(apperrors.CodeInvalidRequest, "runId and awaitingId are required")
 	}
@@ -20,6 +20,9 @@ func (s *Service) Submit(_ context.Context, command runtimetypes.SubmitCommand) 
 		AwaitingID: command.AwaitingID, SubmitID: command.SubmitID, Locale: command.Locale,
 		Param: queryinput.SubmitParam(command.Param), Params: queryinput.SubmitParams(command.Params), ContinuationRunID: command.ContinuationRunID,
 		ContinuationState: command.ContinuationState,
+	}
+	if identity := runtimetypes.IdentityFromContext(ctx); identity != nil {
+		req.OwnerID = identity.Subject
 	}
 	req = s.normalizeActiveSubmitRun(req)
 	if statusErr := s.ValidateSubmitOwner(req); statusErr != nil {

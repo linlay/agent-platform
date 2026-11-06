@@ -14,7 +14,7 @@ import (
 )
 
 func TestInteractionAdmission(t *testing.T) {
-	c := interaction.DefaultsForEngine("KBASE", false)
+	c := interaction.DefaultsForEngine("KBASE", "native")
 	tests := []struct {
 		name   string
 		req    api.QueryRequest

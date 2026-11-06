@@ -87,28 +87,15 @@ func TestChatStartModelRejectionsStartNothing(t *testing.T) {
 	}
 }
 
-func TestChatStartACPModelOverridesUseBridgeOptions(t *testing.T) {
-	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/models" {
-			t.Errorf("unexpected bridge path %s", r.URL.Path)
-			w.WriteHeader(404)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"code":0,"data":{"models":[{"key":"bridge-model","modelId":"remote","isReasoner":true,"reasoningEfforts":["LOW","HIGH"]}]}}`))
-	}))
-	defer upstream.Close()
+func TestChatStartACPModelOverridesDoNotFallBackToNative(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) { t.Error("native provider must not be called") }, testFixtureOptions{
-		configure: func(cfg *config.Config) {
-			cfg.ACP.ACPBridges = map[string]config.ACPBridgeConfig{"codex": {BaseURL: upstream.URL, TimeoutMS: 5000}}
-		},
 		setupRuntime: func(_ string, cfg *config.Config) {
 			workspace := setupCoderTestWorkspace(t, cfg, "acp-workspace")
 			dir := filepath.Join(cfg.Paths.AgentsDir, "acp-agent")
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				t.Fatal(err)
 			}
-			data := "key: acp-agent\nname: ACP Agent\nmode: CODER\nengine: acp\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  acpBridgeId: codex\n  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
+			data := "key: acp-agent\nname: ACP Agent\nengine: acp\nruntimeConfig:\n  engineId: fixture/agent\n  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
 			if err := os.WriteFile(filepath.Join(dir, "agent.yml"), []byte(data), 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -117,20 +104,13 @@ func TestChatStartACPModelOverridesUseBridgeOptions(t *testing.T) {
 	bindTestRunControl(t, fixture.server, "parent", "ws", "desktop")
 	registerTestParentRun(t, fixture, "parent")
 	defer fixture.runs.Finish("parent")
-	for _, tc := range []struct {
-		key, effort string
-		valid       bool
-	}{
-		{"bridge-model", "HIGH", true}, {"bridge-model", "NONE", true}, {"mock-model", "HIGH", false}, {"bridge-model", "MAX", false},
-	} {
-		req := contracts.RunStartRequest{AgentKey: "acp-agent", Message: "task", ModelKey: tc.key, ReasoningEffort: tc.effort, Origin: contracts.RunOrigin{RunID: "parent"}}
-		_, err := fixture.server.PrepareRunStart(context.Background(), req)
-		if (err == nil) != tc.valid {
-			t.Fatalf("key=%s effort=%s err=%v", tc.key, tc.effort, err)
+	for _, key := range []string{"Model-A", "Model-B"} {
+		req := contracts.RunStartRequest{AgentKey: "acp-agent", Message: "task", ModelKey: key, Origin: contracts.RunOrigin{RunID: "parent"}}
+		if _, err := fixture.server.PrepareRunStart(context.Background(), req); err != nil {
+			t.Fatal(err)
 		}
-		if !tc.valid {
-			_, err = fixture.server.StartRun(context.Background(), req)
-			requireNoChatStarted(t, fixture, err, "invalid_request")
-		}
+		// Without a configured stdio host, the formal entry must fail closed.
+		_, err := fixture.server.StartRun(context.Background(), req)
+		requireNoChatStarted(t, fixture, err, "engine_unavailable")
 	}
 }

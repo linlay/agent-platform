@@ -69,3 +69,13 @@ func TestWorkspaceEditingTemplateDefaults(t *testing.T) {
 		}
 	}
 }
+
+func TestPluginACPDoesNotFallThroughNativeSessionBuilder(t *testing.T) {
+	root := t.TempDir()
+	builder := New(Dependencies{Config: config.Config{Paths: config.PathsConfig{ChatsDir: filepath.Join(root, "chats")}}})
+	def := catalog.AgentDefinition{Key: "plugin", Engine: "acp", Mode: "CODER", ModelKey: "native-default", Runtime: map[string]any{"engineId": "fixture/agent"}, Workspace: catalog.AgentWorkspaceConfig{Root: root}}
+	_, err := builder.BuildQuerySession(t.Context(), runtimetypes.QueryCommand{AgentKey: def.Key, ChatID: "chat", RunID: "run"}, chat.Summary{ChatID: "chat"}, def, Options{})
+	if err == nil || err.Error() != "capability_unsupported" {
+		t.Fatalf("plugin entered native/bridge session preparation: %v", err)
+	}
+}

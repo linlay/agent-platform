@@ -89,11 +89,11 @@ func (m *configMigration) read(path string) (string, error) {
 	return string(b), nil
 }
 func migrationRender(v map[string]YAMLSourceValue) (string, error) {
-	s, err := renderACPMap(v, 0)
+	s, err := renderMigrationMap(v, 0)
 	return s + "\n", err
 }
 func migrationObject(v map[string]YAMLSourceValue) (YAMLSourceValue, error) {
-	body, err := renderACPMap(v, 2)
+	body, err := renderMigrationMap(v, 2)
 	if err != nil {
 		return YAMLSourceValue{}, err
 	}
@@ -165,12 +165,6 @@ func planConfigMigration(dir, agents string) (*configMigration, error) {
 		switch name {
 		case "general-settings.yml", "coder-settings.yml", "kbase-settings.yml":
 			mode := strings.TrimSuffix(name, "-settings.yml")
-			if value, ok := v["acp-bridges"]; ok {
-				if err = migrationPut(settings, "acp-bridges", value, "agent-settings"); err != nil {
-					return nil, err
-				}
-				delete(v, "acp-bridges")
-			}
 			if _, ok := v["workspace-agents"]; ok {
 				tree, err := LoadYAMLTreeBytes([]byte(s))
 				if err != nil {
@@ -528,4 +522,21 @@ func migrateIgnoredAgentContext(source string, root map[string]any) (string, boo
 	}
 	after, err := ReplaceYAMLSourceValues(source, top, map[string]YAMLSourceValue{"contextConfig": replacement})
 	return after, err == nil, err
+}
+
+func renderMigrationMap(values map[string]YAMLSourceValue, indent int) (string, error) {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var lines []string
+	for _, key := range keys {
+		rendered, err := (YAMLSourceValue{Indent: indent, Tail: values[key].Tail}).WithValue(values[key], "\n")
+		if err != nil {
+			return "", err
+		}
+		lines = append(lines, strings.Repeat(" ", indent)+key+": "+rendered)
+	}
+	return strings.Join(lines, "\n"), nil
 }

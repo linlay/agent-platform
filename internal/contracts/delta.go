@@ -27,6 +27,8 @@ type DeltaReasoning struct {
 func (DeltaReasoning) agentDeltaTag() {}
 
 type DeltaToolCall struct {
+	ToolLabel string
+	ToolI18n  map[string]any
 	// PathSession is internal-only provenance for observable file argument views.
 	// The mapper must never serialize the session into public events.
 	PathSession *QuerySession `json:"-"`
@@ -64,6 +66,8 @@ type DeltaToolWait struct {
 func (DeltaToolWait) agentDeltaTag() {}
 
 type DeltaToolResult struct {
+	ToolLabel    string
+	ToolI18n     map[string]any
 	View         *view.Reference
 	ViewError    string
 	ToolID       string
@@ -281,6 +285,7 @@ type DeltaRequestSubmit struct {
 	RunID       string
 	AwaitingID  string
 	SubmitID    string
+	Source      string
 	// Input is one answer object (planning/form) or an item list.
 	Input any
 }

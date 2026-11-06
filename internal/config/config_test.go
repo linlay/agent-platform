@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/deprecation"
 )
@@ -2325,5 +2326,31 @@ func TestMCPToolModeConfiguration(t *testing.T) {
 				t.Fatalf("%q: %v", content, err)
 			}
 		})
+	}
+}
+
+func TestAgentEngineRuntimePolicyRejectsInvalidLimits(t *testing.T) {
+	for _, body := range []string{"agent-engine: []", "agent-engine:\n  max-processes: 0", "agent-engine:\n  max-sessions: 257", "agent-engine:\n  max-active: 65", "agent-engine:\n  max-queued: 257", "agent-engine:\n  max-processes: 1.5", "agent-engine:\n  idle-timeout: 0s", "agent-engine:\n  queue-timeout: forever", "agent-engine:\n  vendor: codex"} {
+		t.Run(body, func(t *testing.T) {
+			cfg := defaultConfig(LoadOptions{})
+			if err := cfg.applyRuntimeFile(configFixture(t, "runtime.yml", body+"\n")); err == nil {
+				t.Fatal("invalid policy accepted")
+			}
+		})
+	}
+}
+
+func TestAgentEngineRuntimePolicyDefaultsAndOverrides(t *testing.T) {
+	cfg := defaultConfig(LoadOptions{})
+	if cfg.AgentEngine.MaxProcesses != 4 || cfg.AgentEngine.MaxSessions != 8 || cfg.AgentEngine.IdleTimeout != 5*time.Minute {
+		t.Fatal(cfg.AgentEngine)
+	}
+	err := cfg.applyRuntimeFile(configFixture(t, "runtime.yml", "agent-engine:\n  max-processes: 2\n  max-sessions: 6\n  max-active: 3\n  max-queued: 4\n  queue-timeout: 2s\n  idle-timeout: 30s\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := AgentEngineRuntimeConfig{MaxProcesses: 2, MaxSessions: 6, MaxActive: 3, MaxQueued: 4, QueueTimeout: 2 * time.Second, IdleTimeout: 30 * time.Second}
+	if cfg.AgentEngine != want {
+		t.Fatalf("got %+v", cfg.AgentEngine)
 	}
 }

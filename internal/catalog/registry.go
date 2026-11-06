@@ -59,7 +59,6 @@ type AgentDefinition struct {
 	ServiceTier          string
 	Mode                 string
 	Engine               string // AgentEngineNative or AgentEngineACP; never empty after parsing.
-	ACPBridgeID          string
 	VisibilityScopes     []string
 	Tools                []string // Resolved tools; raw YAML is preserved separately.
 	DeclaredTools        []string
@@ -149,8 +148,6 @@ type AgentRuntimePrompts struct {
 // ProxyConfig configures PROXY mode: forward /api/query to a remote
 // AGW-compatible service (e.g. claude-code relay-server on port 3210).
 type ProxyConfig struct {
-	// LocalACP is set only by trusted ACP routing, never from Agent YAML or query input.
-	LocalACP     bool   `json:"-" yaml:"-"`
 	BaseURL      string // e.g. http://127.0.0.1:3210
 	WebSocketURL string // optional direct websocket endpoint for CHANNEL imports
 	Transport    string // ws or sse; defaults to ws for bidirectional run control
@@ -161,7 +158,6 @@ type ProxyConfig struct {
 	Token        string // optional Bearer token
 	TokenEnv     string // optional env var name for Bearer token
 	Timeout      int    // default 300 (5 min), seconds
-	TimeoutMS    int    // ACP bridge override, milliseconds
 }
 
 type AgentChannelConfig struct {
@@ -634,7 +630,7 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 			Role:               def.Role,
 		}
 		// Every ordinary Agent reports its model defaults the same way.
-		if agentbuiltin.PlanningModeSupported(def.Mode) {
+		if def.Engine != AgentEngineACP && agentbuiltin.PlanningModeSupported(def.Mode) {
 			summary.DefaultModelKey, summary.DefaultReasoningEffort = agentSummaryModelDefaults(def)
 		}
 		items = append(items, summary)
@@ -1057,5 +1053,5 @@ func (d AgentDefinition) Interaction() interaction.Config {
 	if d.InteractionConfig != nil {
 		return *d.InteractionConfig
 	}
-	return interaction.DefaultsForEngine(d.Mode, d.Engine == AgentEngineACP)
+	return interaction.DefaultsForEngine(d.Mode, d.Engine)
 }

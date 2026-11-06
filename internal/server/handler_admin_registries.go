@@ -286,9 +286,6 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 			modelType = models.ModelTypeChat
 		}
 		protocol := strings.TrimSpace(contracts.FirstNonEmptyString(root["protocol"]))
-		if models.IsACPPassthroughProtocol(protocol) && modelType != models.ModelTypeChat {
-			addError("invalid_protocol", "ACP_PASSTHROUGH is only supported for type: chat")
-		}
 		if ok {
 			if err := models.ValidateModelTypeProtocol(modelType, protocol); err != nil {
 				addError("invalid_protocol", err.Error())
@@ -310,13 +307,11 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		if err := models.ValidatePlatformOwnedCompat(protocol, root["compat"]); err != nil {
 			addError("platform_owned_compat", err.Error())
 		}
-		if !models.IsACPPassthroughProtocol(protocol) {
-			provider := strings.TrimSpace(contracts.FirstNonEmptyString(root["provider"]))
-			if provider == "" {
-				addError("missing_provider", "model provider is required")
-			} else if !s.adminRegistryProviderExists(provider) {
-				addError("unknown_provider", fmt.Sprintf("provider %s not found", provider))
-			}
+		provider := strings.TrimSpace(contracts.FirstNonEmptyString(root["provider"]))
+		if provider == "" {
+			addError("missing_provider", "model provider is required")
+		} else if !s.adminRegistryProviderExists(provider) {
+			addError("unknown_provider", fmt.Sprintf("provider %s not found", provider))
 		}
 		if strings.TrimSpace(contracts.FirstNonEmptyString(root["modelId"], root["model-id"])) == "" {
 			addError("missing_model_id", "modelId is required")

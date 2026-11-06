@@ -199,6 +199,9 @@ func (s *Service) registeredQueryRun(observerCtx context.Context, runCtx context
 		}
 		notifyInternalQueryRunStarted(observerCtx, start)
 	}
+	if prepared.Session.BackendSession != nil {
+		control.CloseSteers() // ACP has no verified steer extension; never enqueue Native input.
+	}
 	if err := s.FreezeRunConnectors(prepared); err != nil {
 		return registeredQueryRun{}, btwStatusError(500, "run_connector_snapshot_unavailable", err.Error())
 	}

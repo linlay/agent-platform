@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	agentbuiltin "agent-platform/internal/agent/builtin"
+	"agent-platform/internal/agentengine"
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/channel"
@@ -20,10 +21,6 @@ import (
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 )
-
-func reasoningEffortAllowedForACPModel(reasoningEffort string, modelKey string, options []queryinput.CoderModelOption) bool {
-	return agentbuiltin.CoderReasoningEffortAllowedForACPModel(reasoningEffort, modelKey, options)
-}
 
 func (s *Service) resolvedQueryExecution(prepared preparedQuery) queryExecutionOptions {
 	if prepared.Execution == nil {
@@ -79,10 +76,6 @@ func channelUserFromChatID(chatID string) string {
 	return strings.TrimSpace(parts[2])
 }
 
-func serviceTierAllowedForACPModel(serviceTier string, modelKey string, options []queryinput.CoderModelOption) bool {
-	return agentbuiltin.CoderServiceTierAllowedForACPModel(serviceTier, modelKey, options)
-}
-
 func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEventAssembler, contracts.StreamDeltaMapper) {
 	execution := s.resolvedQueryExecution(prepared)
 	sceneRef := (*stream.SceneRef)(nil)
@@ -97,6 +90,9 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 	editingMode := agentbuiltin.WorkspaceEditingDefault(prepared.AgentDef.Mode)
 	if prepared.Req.EditingMode != nil {
 		editingMode = *prepared.Req.EditingMode
+	}
+	if prepared.Session.BackendSession != nil {
+		editingMode = false // Native editing defaults do not describe external permissions.
 	}
 	assembler := stream.NewAssembler(stream.StreamRequest{
 		Mail:      prepared.Req.Mail,
@@ -224,6 +220,13 @@ func applyQueryModelOptionsToResolvedPlanningSettings(settings contracts.Plannin
 }
 
 func (s *Service) ValidateQueryModelOptions(options *queryinput.QueryModelOptions, agentDef catalog.AgentDefinition) error {
+	if catalog.ExecutionBackend(agentDef) == catalog.AgentEngineACP {
+		if options != nil && options.ServiceTier != "" {
+			return acpRequestError(agentengine.Error("capability_unsupported"))
+		}
+		return nil // External choices are checked against the prepared session, with exact values.
+	}
+
 	if options == nil {
 		return nil
 	}
@@ -240,57 +243,22 @@ func (s *Service) ValidateQueryModelOptions(options *queryinput.QueryModelOption
 		if s.deps.Models == nil {
 			return &statusError{Status: 503, Message: "model registry is not configured"}
 		}
-		if catalog.AgentUsesACPCoderBackend(agentDef) {
-			options, err, ok := s.deps.Proxy.Models(agentDef.Key)
-			if ok {
-				if err != nil {
-					return &statusError{Status: 502, Message: "failed to fetch ACP CODER models: " + err.Error()}
-				}
-				if !agentbuiltin.CoderModelKeyInOptions(modelKey, options) {
-					return &statusError{Status: 400, Message: "model " + modelKey + " is not available for ACP CODER"}
-				}
-			} else if err := s.validateLocalChatModelKey(modelKey, false); err != nil {
-				return &statusError{Status: 400, Message: err.Error()}
-			}
-		} else {
-			if err := s.validateLocalChatModelKey(modelKey, true); err != nil {
-				return &statusError{Status: 400, Message: err.Error()}
-			}
+		if err := s.validateLocalChatModelKey(modelKey, true); err != nil {
+			return &statusError{Status: 400, Message: err.Error()}
 		}
 	}
+
 	reasoningEffort, ok := normalizeQueryModelReasoningEffort(reasoningEffort)
 	if !ok {
 		return &statusError{Status: 400, Message: "model.reasoningEffort must be NONE, LOW, MEDIUM, HIGH, XHIGH, or MAX"}
 	}
 	options.ReasoningEffort = reasoningEffort
-	if reasoningEffort != "" && reasoningEffort != "NONE" && catalog.AgentUsesACPCoderBackend(agentDef) {
-		acpOptions, err, listed := s.deps.Proxy.Models(agentDef.Key)
-		if listed {
-			if err != nil {
-				return &statusError{Status: 502, Message: "failed to fetch ACP CODER models: " + err.Error()}
-			}
-			if !reasoningEffortAllowedForACPModel(reasoningEffort, modelKey, acpOptions) {
-				return &statusError{Status: 400, Message: "model.reasoningEffort " + reasoningEffort + " is not available for ACP CODER"}
-			}
-		}
-	}
 	serviceTier, ok = normalizeQueryModelServiceTier(serviceTier)
 	if !ok {
 		return &statusError{Status: 400, Message: "model.serviceTier must be a non-empty string"}
 	}
 	if serviceTier != "" {
-		if !catalog.AgentUsesACPCoderBackend(agentDef) {
-			return &statusError{Status: 400, Message: "model.serviceTier is only supported for ACP CODER"}
-		}
-		acpOptions, err, listed := s.deps.Proxy.Models(agentDef.Key)
-		if listed {
-			if err != nil {
-				return &statusError{Status: 502, Message: "failed to fetch ACP CODER models: " + err.Error()}
-			}
-			if !serviceTierAllowedForACPModel(serviceTier, modelKey, acpOptions) {
-				return &statusError{Status: 400, Message: "model.serviceTier " + serviceTier + " is not available for ACP CODER"}
-			}
-		}
+		return &statusError{Status: 400, Message: "model.serviceTier is not supported by this project"}
 	}
 	return nil
 }
@@ -473,16 +441,30 @@ func (s *Service) PrepareQueryAdmissionRequest(
 		}
 	}
 
+	if catalog.ExecutionBackend(agentDef) == catalog.AgentEngineACP {
+		if err := validateACPInput(req); err != nil {
+			return queryAdmission{}, err
+		}
+		if s.deps.ACP == nil {
+			return queryAdmission{}, acpRequestError(agentengine.Error("engine_unavailable"))
+		}
+		if _, _, err := s.deps.ACP.ValidateTarget(agentDef); err != nil {
+			return queryAdmission{}, acpRequestError(err)
+		}
+	}
 	if sessionbuild.IsProxyRoutedAgent(agentDef) && proxy.RequestHasReservedCWD(req.Params) {
 		return queryAdmission{}, &statusError{
 			Status:  400,
 			Message: "params.cwd is reserved for proxy-routed agents; configure runtimeConfig.workspaceRoot in agent.yml",
 		}
 	}
-	if statusErr := s.deps.Proxy.Configure(&agentDef); statusErr != nil {
-		return queryAdmission{}, statusErr
+	if catalog.ExecutionBackend(agentDef) != catalog.AgentEngineACP {
+		if statusErr := s.deps.Proxy.Configure(&agentDef); statusErr != nil {
+			return queryAdmission{}, statusErr
+		}
 	}
-	if !req.SkipInteractionPolicy && !sessionbuild.IsProxyAgentMode(agentDef.Mode) && !catalog.AgentIsChannelMode(agentDef.Mode) {
+	// ACP controls are checked above; model choices are validated against the prepared session.
+	if catalog.ExecutionBackend(agentDef) != catalog.AgentEngineACP && !req.SkipInteractionPolicy && !sessionbuild.IsProxyAgentMode(agentDef.Mode) && !catalog.AgentIsChannelMode(agentDef.Mode) {
 		if err := ValidateInteractionInput(agentDef.Interaction(), req, agentDef.AccessConfig.EffectiveDefault()); err != nil {
 			return queryAdmission{}, err
 		}
@@ -641,6 +623,11 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 	} else if chatNamePromoted {
 		s.broadcast("chat.renamed", map[string]any{"chatId": summary.ChatID, "chatName": summary.ChatName, "agentKey": summary.AgentKey})
 	}
+	if catalog.ExecutionBackend(agentDef) == catalog.AgentEngineACP {
+		prepared, err := s.prepareACP(ctx, preparedQuery{Req: req, Summary: summary, Created: created, AgentDef: agentDef, ResourceBaseURL: admission.ResourceBaseURL, Release: combinedRelease}, "")
+		succeeded = err == nil
+		return prepared, err
+	}
 	sessionReq := req
 	if admission.OrchestratedTeam {
 		sessionReq.AgentKey = agentDef.Key
@@ -695,9 +682,6 @@ func (s *Service) CompleteQueryPreparation(ctx context.Context, admission queryA
 	}
 	sessionReq.References = req.References
 	session.CurrentMessages = s.deps.Sessions.BuildCurrentMessages(sessionReq, session)
-	if catalog.AgentUsesACPCoderBackend(agentDef) {
-		req.Model = s.acpCoderModelOptions(session, req.Model)
-	}
 	systemInitLine, err := s.deps.Sessions.PrepareSystemInitCache(sessionReq, &session, created)
 	if err != nil {
 		return preparedQuery{}, err

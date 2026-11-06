@@ -28,8 +28,7 @@ type KBaseCreateDefaults = kbase.CreateDefaults
 type GeneralCreateDefaults = general.CreateDefaults
 type TeamMemberSpec = agentteam.MemberSpec
 type TeamPromptConfig = agentteam.PromptConfig
-type CoderACPBridgeConfig = coder.ACPBridgeConfig
-type CoderACPRoutingConfig = coder.ACPRoutingConfig
+
 type ProjectPromptFile = agentcontract.ProjectPromptFile
 type WorkspacePromptPolicy = agentcontract.WorkspacePromptPolicy
 type WorkspaceGitPolicy = agentcontract.WorkspaceGitPolicy
@@ -43,10 +42,6 @@ func CoderCreateToolNames() []string   { return coder.CreateToolNames() }
 const GeneralCreatePrefix = general.CreatePrefix
 const ExecutorCreatePrefix = executor.CreatePrefix
 
-func IsCoderACPBackend(mode, acpBridgeID string) bool {
-	return coder.IsACPBackend(mode, acpBridgeID)
-}
-
 // PlanningModeSupported reports whether planningMode is accepted for an Agent
 // mode. Planning is a capability of ordinary native Agents, not of one mode;
 // TEAM coordinators and pipeline modes do not offer it.
@@ -54,11 +49,6 @@ func PlanningModeSupported(mode string) bool {
 	return general.IsMode(mode) || coder.IsMode(mode) || kbase.IsMode(mode) || executor.IsMode(mode) || strings.EqualFold(mode, "TEAM")
 }
 
-// NativePlanning reports whether the platform itself runs the Agent's planning
-// Runs. An ACP bridge receives planningMode and owns the flow instead.
-func NativePlanning(mode, acpBridgeID string) bool {
-	return PlanningModeSupported(mode) && strings.TrimSpace(acpBridgeID) == ""
-}
 func PlanningModeEnabled(mode string, requested bool) bool {
 	return requested && PlanningModeSupported(mode)
 }
@@ -92,33 +82,17 @@ func ExecuteSyntheticQueryMessage(locale string) string {
 func SubmitPlanningDecision(param api.SubmitParam) string {
 	return planmode.SubmitPlanningDecision(param)
 }
-func StartsNewExecutionRun(mode string, answer map[string]any, agentMode, acpBridgeID string) bool {
-	return planmode.StartsNewExecutionRun(mode, answer, NativePlanning(agentMode, acpBridgeID))
+func StartsNewExecutionRun(mode string, answer map[string]any, agentMode string) bool {
+	return planmode.StartsNewExecutionRun(mode, answer, PlanningModeSupported(agentMode))
 }
-func CoderModelOptionsFilterMode(agentKey, mode, acpBridgeID string) string {
-	return coder.ModelOptionsFilterMode(agentKey, mode, acpBridgeID)
-}
-func CoderServiceTierOptions(acp bool, options []api.CoderModelOption) []api.ServiceTierOption {
-	return coder.ServiceTierOptions(acp, options)
-}
-func CoderReasoningEffortOptions(acp bool, options []api.CoderModelOption) []api.ReasoningEffortOption {
-	return coder.ReasoningEffortOptions(acp, options)
-}
+
 func CoderNormalizeReasoningEffort(value string) (string, bool) {
 	return coder.NormalizeReasoningEffort(value)
 }
 func CoderNormalizeServiceTier(value string) (string, bool) {
 	return coder.NormalizeServiceTier(value)
 }
-func CoderModelKeyInOptions(key string, options []api.CoderModelOption) bool {
-	return coder.ModelKeyInOptions(key, options)
-}
-func CoderServiceTierAllowedForACPModel(value, key string, options []api.CoderModelOption) bool {
-	return coder.ServiceTierAllowedForACPModel(value, key, options)
-}
-func CoderReasoningEffortAllowedForACPModel(value, key string, options []api.CoderModelOption) bool {
-	return coder.ReasoningEffortAllowedForACPModel(value, key, options)
-}
+
 func ApplyCoderCreateDefaults(definition map[string]any, defaults CoderCreateDefaults) map[string]any {
 	return coder.ApplyCreateDefaults(definition, defaults)
 }
@@ -131,12 +105,7 @@ func ApplyKBaseCreateDefaults(definition map[string]any, defaults KBaseCreateDef
 func ApplyKBaseCreateToolDefaults(definition map[string]any) map[string]any {
 	return kbase.ApplyCreateToolDefaults(definition)
 }
-func CoderResolveACPBridge(bridgeID string, lookup func(string) (CoderACPBridgeConfig, bool)) (CoderACPRoutingConfig, error) {
-	return coder.ResolveACPBridge(bridgeID, lookup)
-}
-func CoderResolveACPModelOptions(mode, modelKey string, existing *api.QueryModelOptions, resolve func(string) string) *api.QueryModelOptions {
-	return coder.ResolveACPModelOptions(mode, modelKey, existing, resolve)
-}
+
 func ValidateWorkspaceGit(policy WorkspaceGitPolicy) error {
 	return agentcontract.ValidateWorkspaceGit(policy)
 }

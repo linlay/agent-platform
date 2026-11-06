@@ -169,7 +169,7 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 		return err
 	}
 	dropRetiredPlanExecute(values, path)
-	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "general", "coder", "kbase", "team", "executor", "proxy", "channel", "acp-bridges")
+	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "general", "coder", "kbase", "team", "executor", "proxy", "channel")
 	if err != nil {
 		return err
 	}
@@ -207,11 +207,7 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 		}
 	}
 	c.ModePresets = map[string]AgentPresets{}
-	c.ACP.SourcePath = path
-	c.ACP.ACPBridges, err = parseCoderACPBridges(values["acp-bridges"], nil)
-	if err != nil {
-		return err
-	}
+
 	for _, mode := range presetModeSections {
 		v, err := optionalConfigMap(values, mode, path, "preset-tools", "preset-connectors", "default-agent", "workspace-agents", "interaction-config")
 		if err != nil {

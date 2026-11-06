@@ -480,7 +480,7 @@ func TestLoadModelRegistryRejectsNonChatACPPassthroughModel(t *testing.T) {
 	}, "\n"))
 
 	_, err := LoadModelRegistry(root)
-	if err == nil || !strings.Contains(err.Error(), "ACP_PASSTHROUGH is only supported for type: chat") {
+	if err == nil || !strings.Contains(err.Error(), "ACP_PASSTHROUGH was removed") {
 		t.Fatalf("expected non-chat ACP model rejection, got %v", err)
 	}
 }
@@ -529,25 +529,17 @@ func TestProviderlessModelStillFailsProviderBackedGet(t *testing.T) {
 	}
 }
 
-func TestACPPassthroughModelCanBeReadWithoutProvider(t *testing.T) {
-	root := t.TempDir()
-	writeTestProviderAndModel(t, root, "apiKey: plain-text")
-	writeTestProviderlessModel(t, root, "gpt-5-codex", "gpt-5-codex", "protocol: ACP_PASSTHROUGH")
-
-	registry, err := LoadModelRegistry(root)
-	if err != nil {
-		t.Fatalf("LoadModelRegistry returned error: %v", err)
-	}
-
-	model, err := registry.GetModel("gpt-5-codex")
-	if err != nil {
-		t.Fatalf("GetModel returned error: %v", err)
-	}
-	if !IsACPPassthroughModel(model) {
-		t.Fatalf("expected ACP passthrough model, got %#v", model)
-	}
-	if _, _, err := registry.Get("gpt-5-codex"); err == nil || !strings.Contains(err.Error(), "ACP_PASSTHROUGH") {
-		t.Fatalf("expected native provider Get to reject ACP passthrough model, got %v", err)
+func TestLoadModelRegistryRejectsRemovedACPProtocol(t *testing.T) {
+	for _, modelType := range []string{"chat", "vl"} {
+		t.Run(modelType, func(t *testing.T) {
+			root := t.TempDir()
+			writeTestProviderAndModel(t, root, "apiKey: plain-text")
+			writeTestProviderlessModel(t, root, "external", "external", "type: "+modelType+"\nprotocol: ACP_PASSTHROUGH")
+			_, err := LoadModelRegistry(root)
+			if err == nil || !strings.Contains(err.Error(), "ACP_PASSTHROUGH was removed") {
+				t.Fatalf("expected removed protocol rejection, got %v", err)
+			}
+		})
 	}
 }
 
@@ -656,7 +648,7 @@ func TestLoadModelRegistryRejectsInvalidReasoningEffortMapping(t *testing.T) {
 			modelLines: []string{
 				"protocol: ACP_PASSTHROUGH", "reasoningEffortMapping:", "  LOW: LOW", "  MEDIUM: HIGH", "  HIGH: HIGH", "  XHIGH: HIGH", "  MAX: MAX",
 			},
-			want: "native OPENAI chat models",
+			want: "ACP_PASSTHROUGH was removed",
 		},
 		{
 			name: "non chat model",

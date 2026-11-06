@@ -82,14 +82,7 @@ func setupAdminRegistriesFixture(t *testing.T) testFixture {
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write unknown provider model: %v", err)
 			}
-			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "acp-passthrough.yml"), []byte(strings.Join([]string{
-				"key: acp-passthrough",
-				"name: ACP Passthrough",
-				"protocol: ACP_PASSTHROUGH",
-				"modelId: gpt-5-codex",
-			}, "\n")), 0o644); err != nil {
-				t.Fatalf("write acp passthrough model: %v", err)
-			}
+
 			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "capability-model.yml"), []byte(strings.Join([]string{
 				"key: capability-model",
 				"name: Capability Model",
@@ -172,9 +165,7 @@ func TestAdminRegistriesEndpointIncludesInvalidFiles(t *testing.T) {
 	if item := byFile["models/unknown-provider.yml"]; item.Status != "invalid" || item.Diagnostic == nil || item.Diagnostic.Code != "unknown_provider" || item.DiagnosticCount != 1 {
 		t.Fatalf("unknown provider diagnostic summary missing: %#v", item)
 	}
-	if item := byFile["models/acp-passthrough.yml"]; item.Status != "ready" || item.Diagnostic != nil || item.DiagnosticCount != 0 {
-		t.Fatalf("acp passthrough providerless model should be ready: %#v", item)
-	}
+
 	if item := byFile["models/capability-model.yml"]; item.Status != "ready" || item.Name != "Capability Model" || item.Summary["type"] != "chat" || item.Summary["provider"] != "mock" || item.Summary["protocol"] != "OPENAI" || item.Summary["isVision"] != true || item.Summary["isReasoner"] != true || item.Summary["isFunction"] != true {
 		t.Fatalf("capability model list summary missing display fields: %#v", item)
 	}
@@ -441,8 +432,8 @@ func TestAdminRegistryDetailSaveValidateAndPathGuard(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &validateResp); err != nil {
 		t.Fatalf("decode acp validate response: %v", err)
 	}
-	if validateResp.Data.Status != "ready" || len(validateResp.Data.Diagnostics) != 0 {
-		t.Fatalf("expected ready acp validate response, got %#v", validateResp.Data)
+	if validateResp.Data.Status != "invalid" || len(validateResp.Data.Diagnostics) == 0 || validateResp.Data.Diagnostics[0].Code != "invalid_protocol" {
+		t.Fatalf("expected removed ACP protocol rejection, got %#v", validateResp.Data)
 	}
 
 	validateBody = bytes.NewBufferString(`{"category":"models","file":"draft-embedding.yml","content":"key: draft-embedding\nprovider: mock\nmodelId: text-embedding-v4\ntype: embedding\nembedding:\n  timeout: 60\n"}`)

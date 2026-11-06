@@ -319,7 +319,7 @@ func TestRunControlProxyForwardsSubmitInterruptAndSteer(t *testing.T) {
 
 func TestAccessLevelDisabledBeforeACPForward(t *testing.T) {
 	fixture := newTestFixture(t)
-	config := interaction.DefaultsForEngine("CODER", false)
+	config := interaction.DefaultsForEngine("CODER", "native")
 	config.AccessLevel = false
 	registerHTTPTestRun(t, fixture, context.Background(), contracts.QuerySession{
 		RunID: "acp-interaction", ChatID: "acp-chat", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent"), InteractionConfig: &config,

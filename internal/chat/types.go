@@ -368,6 +368,7 @@ type SubmitLine struct {
 // ---------------------------------------------------------------------------
 
 type StoredMessage struct {
+	Display   map[string]any `json:"_display,omitempty"`
 	View      map[string]any `json:"view,omitempty"`
 	ViewError string         `json:"viewError,omitempty"`
 	// Views binds Markdown view blocks of assistant content to frozen
@@ -399,6 +400,7 @@ type StoredMessage struct {
 type ContentPart = modelcontent.ReasoningPart
 
 type StoredToolCall struct {
+	Display  map[string]any `json:"_display,omitempty"`
 	ID       string         `json:"id"`
 	Type     string         `json:"type"`
 	Function StoredFunction `json:"function"`

@@ -17,6 +17,7 @@ $Script:LogFile = Join-Path $Script:LogDir 'agent-platform.log'
 $Script:ErrorLogFile = Join-Path $Script:LogDir 'agent-platform.stderr.log'
 $Script:ProgramPort = ''
 $Script:SsoIdTokenFile = ''
+$Script:AgentEngineBootstrapFile = ''
 $Script:RuntimeMode = 'standalone'
 $Script:DeployDocumentPreviewAPIBaseUrl = ''
 $Script:DeployDocumentPreviewPublicBaseUrl = ''
@@ -77,6 +78,7 @@ function Set-ProgramLayoutOption([string]$Name, [string]$Value) {
     '--state-dir' { $Script:RunDir = $Value }
     '--log-dir' { $Script:LogDir = $Value }
     '--port' { $Script:ProgramPort = $Value }
+    '--agent-engine-bootstrap-file' { $Script:AgentEngineBootstrapFile = $Value }
     '--sso-id-token-file' { $Script:SsoIdTokenFile = $Value }
     '--runtime-mode' { $Script:RuntimeMode = $Value }
     default { Fail-Program "unsupported argument: $Name" }
@@ -87,7 +89,7 @@ function Set-ProgramLayoutOption([string]$Name, [string]$Value) {
 function Set-ProgramLayoutArgs([string[]]$Arguments) {
   for ($i = 0; $i -lt $Arguments.Length; $i++) {
     $name = $Arguments[$i]
-    if (@('--config-dir', '--state-dir', '--log-dir', '--port', '--sso-id-token-file', '--runtime-mode') -notcontains $name) {
+    if (@('--config-dir', '--state-dir', '--log-dir', '--port', '--sso-id-token-file', '--runtime-mode', '--agent-engine-bootstrap-file') -notcontains $name) {
       Fail-Program "unsupported argument: $name"
     }
     if ($i + 1 -ge $Arguments.Length) {
@@ -685,6 +687,9 @@ function Start-ProgramBackend {
     if (-not [string]::IsNullOrWhiteSpace($Script:SsoIdTokenFile)) {
       $backendArgs += @('--sso-id-token-file', ('"{0}"' -f $Script:SsoIdTokenFile))
     }
+    if (-not [string]::IsNullOrWhiteSpace($Script:AgentEngineBootstrapFile)) {
+      $backendArgs += @('--agent-engine-bootstrap-file', ('"{0}"' -f $Script:AgentEngineBootstrapFile))
+    }
     $proc = Start-Process -FilePath $Script:BackendBin -ArgumentList $backendArgs -WorkingDirectory $Script:BundleRoot -WindowStyle Hidden -RedirectStandardOutput $Script:LogFile -RedirectStandardError $Script:ErrorLogFile -PassThru
     $proc.Id | Set-Content -LiteralPath $Script:PidFile
     Start-Sleep -Seconds 1
@@ -704,6 +709,9 @@ function Start-ProgramBackend {
   }
   if (-not [string]::IsNullOrWhiteSpace($Script:SsoIdTokenFile)) {
     $backendArgs += @('--sso-id-token-file', $Script:SsoIdTokenFile)
+  }
+  if (-not [string]::IsNullOrWhiteSpace($Script:AgentEngineBootstrapFile)) {
+    $backendArgs += @('--agent-engine-bootstrap-file', $Script:AgentEngineBootstrapFile)
   }
   & $Script:BackendBin @backendArgs
 }

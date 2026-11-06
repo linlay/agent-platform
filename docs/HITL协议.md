@@ -199,3 +199,12 @@ Desktop 对已接管的日常动作通过内部 agentPlatform 上下文及固定
 ## Mailbox 会话投递
 
 Mailbox 的 ask 镜像由 letter 开出的 Run 的等待项，问题、表单、工具审批按 awaiting_source 区分；审批即便 mode=form 也不能作为普通填表批准。chat_submit 先到先得，并在分身冻结环境用上级当前档位重新评估审批；强制人工、readonly 和 hard block 不放宽。submit 写入代答者 origin 与权限 accessGrant。详见 [Mailbox](Mailbox.md#请示与跳数)。
+
+
+## ACP 外部交互（ACP-008）
+
+权限请求由 `runtime/acp/hitl.go` 转换为既有 `mode=approval`，使用 `approvals[{id,description,command,options,allowFreeText}]`，仅提供 approve/reject。前端提交 `params:[{id,decision:"approve"或"reject"}]`；`params:[]` 取消。精确原始 optionId 只留在适配器本次调用闭包，approve→allow_once，reject→reject_once；没有 reject_once 时返回 ACP cancelled。缺少 allow_once、存在多个同类一次性选项则 capability_unsupported，不能静默选择、持续授权或扩大为 approve_rule_run。描述保留上游范围名称、目标路径；allow_once 不保证只有一次工具调用。
+
+elicitation 转为既有 `mode=question`；仅支持可准确表达的必填文本/单选，枚举 ID 转为现有 options.value，前端不读取 optionId、required 或 ACP schema。提交 `params:[{id,answer}]`，按原字段/枚举值校验；`params:[]` 取消整批。可选字段、数字、多选、URL、秘密输入和复杂约束返回 elicitation_unsupported，不能为了插件增加 AGW 字段。
+
+等待项绑定认证用户、Chat/Run、外部 session、连接代次和原 RPC；原子 claim 验证身份、有效期、选项与正文摘要。accepted 为本地受理，不证明远端交付；重复只回已有结果、不重发。同 ID 异正文拒绝，取消/过期/崩溃清除等待并拒绝迟到回答。重启只记录中断，不恢复等待、不创建 Native 工具结果。默认 5 分钟等待、2 秒软取消窗口仍需真实 CLI/负载确认。

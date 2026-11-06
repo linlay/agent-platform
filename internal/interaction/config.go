@@ -26,9 +26,12 @@ type Config struct {
 	ShowTerminal     bool `json:"showTerminal"`
 }
 
-// DefaultsForEngine also applies the engine: an ACP bridge owns Workspace
-// editing, so the editing entry is never offered by default there.
-func DefaultsForEngine(mode string, acp bool) Config {
+// Defaults returns the template defaults of a mode for a native agent.
+func Defaults(mode string) Config { return DefaultsForEngine(mode, "native") }
+
+// ACP context inputs use the Platform conversion layer; native run controls
+// remain closed. Media/MCP support is checked again against the actual session.
+func DefaultsForEngine(mode string, engine string) Config {
 	c := Config{DefaultDetail: "simple", Model: true, AccessLevel: true, Connectors: true, Attachment: Attachment{LocalFiles: true, ChatRecords: true, Skills: true, Kbases: true}}
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case "KBASE":
@@ -47,16 +50,22 @@ func DefaultsForEngine(mode string, acp bool) Config {
 	}
 	// The editing toggle starts off and is sent explicitly once shown, so it is
 	// offered by default only where a Run is read-only unless asked otherwise.
-	c.ShowEditingMode = strings.EqualFold(strings.TrimSpace(mode), "KBASE") && !acp
+	c.ShowEditingMode = strings.EqualFold(strings.TrimSpace(mode), "KBASE")
 	c.ShowTerminal = strings.EqualFold(strings.TrimSpace(mode), "CODER")
-	return applyBackendAttachmentCapabilities(c, mode, acp)
+	return applyBackendAttachmentCapabilities(c, mode, engine)
 }
 
 // Local resource identities cannot be resolved by a remote execution backend.
 // Explicit entry overrides do not add a capability to that backend.
-func applyBackendAttachmentCapabilities(c Config, mode string, acp bool) Config {
+func applyBackendAttachmentCapabilities(c Config, mode string, engine string) Config {
+	if engine == "acp" {
+		c.Model, c.AccessLevel = false, false
+		c.ShowPlanningMode, c.ShowEditingMode, c.ShowTerminal = false, false, false
+		c.Attachment.ChatRecords = false
+		return c
+	}
 	mode = strings.ToUpper(strings.TrimSpace(mode))
-	if acp || mode == "PROXY" || mode == "CHANNEL" {
+	if mode == "PROXY" || mode == "CHANNEL" {
 		c.Attachment.Skills = false
 		c.Attachment.Kbases = false
 		c.Attachment.ChatRecords = false
@@ -64,8 +73,10 @@ func applyBackendAttachmentCapabilities(c Config, mode string, acp bool) Config 
 	return c
 }
 
-func ParseForEngine(mode string, acp bool, raw any) (Config, error) {
-	c := DefaultsForEngine(mode, acp)
+func Parse(mode string, raw any) (Config, error) { return ParseForEngine(mode, "native", raw) }
+
+func ParseForEngine(mode string, engine string, raw any) (Config, error) {
+	c := DefaultsForEngine(mode, engine)
 	if raw == nil {
 		return c, nil
 	}
@@ -121,7 +132,7 @@ func ParseForEngine(mode string, acp bool, raw any) (Config, error) {
 		}
 		*target = b
 	}
-	return applyBackendAttachmentCapabilities(c, mode, acp), nil
+	return applyBackendAttachmentCapabilities(c, mode, engine), nil
 }
 
 // Validate checks request options that need no target Agent. The accessLevel

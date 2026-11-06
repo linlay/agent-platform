@@ -169,7 +169,7 @@ func TestChatSkillInheritanceSkipsUnavailableOrDisallowedSkills(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				policy := interaction.DefaultsForEngine("GENERAL", false)
+				policy := interaction.DefaultsForEngine("GENERAL", "native")
 				policy.Attachment.Skills = false
 				def.InteractionConfig = &policy
 			}

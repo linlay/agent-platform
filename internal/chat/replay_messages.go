@@ -104,6 +104,7 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID string, 
 				if label, _ := tcMap["_toolLabel"].(string); label != "" {
 					payload["toolLabel"] = label
 				}
+				restoreToolDisplay(payload, tcMap["_display"])
 				addReplayLiveSeq(payload, liveSeq)
 				events = append(events, stream.EventData{
 					Seq:       nextSeq(),
@@ -133,6 +134,7 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID string, 
 			"toolId": id,
 			"result": text,
 		}
+		restoreToolDisplay(payload, msg["_display"])
 		if output, ok := msg["_modelOutput"].(string); ok {
 			payload["modelOutput"] = output
 		}
@@ -239,4 +241,13 @@ func contentViewBindings(value any) []map[string]any {
 		}
 	}
 	return out
+}
+
+func restoreToolDisplay(payload map[string]any, raw any) {
+	display, _ := raw.(map[string]any)
+	for _, key := range []string{"toolName", "toolLabel", "toolI18n", "fileChange"} {
+		if value, ok := display[key]; ok {
+			payload[key] = value
+		}
+	}
 }

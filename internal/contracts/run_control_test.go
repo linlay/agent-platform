@@ -2,7 +2,11 @@ package contracts
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -370,5 +374,79 @@ func TestRunControlHeldSubmitTimeoutStartsOnRelease(t *testing.T) {
 	control.StartSubmitTimeout("await_2")
 	if _, err := control.AwaitSubmitWithTimeout(context.Background(), "await_2", 20*time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected early release to start the timer, got %v", err)
+	}
+}
+
+func TestProducerSubmitClaimsOnceAndBindsReceiptToOwnerAndBody(t *testing.T) {
+	control := NewRunControl(context.Background(), "run")
+	defer control.Finish()
+	expires := time.Now().Add(time.Minute)
+	validate := func(req queryinput.SubmitRequest) error {
+		if time.Now().After(expires) {
+			return fmt.Errorf("awaiting_expired")
+		}
+		if req.OwnerID != "owner" || req.ChatID != "chat" || req.RunID != "run" {
+			return fmt.Errorf("awaiting_forbidden")
+		}
+		return nil
+	}
+	control.ExpectSubmit(AwaitingSubmitContext{AwaitingID: "ask", Mode: "form", ValidateSubmit: validate})
+	start := make(chan struct{})
+	answers := make(chan queryinput.SubmitRequest, 16)
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			req := queryinput.SubmitRequest{OwnerID: "owner", ChatID: "chat", RunID: "run", AwaitingID: "ask", SubmitID: fmt.Sprint(i), Param: map[string]any{"decision": "approve", "data": map[string]any{}}}
+			if control.ResolveSubmit(req).Accepted {
+				answers <- req
+			}
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	close(answers)
+	if len(answers) != 1 {
+		t.Fatalf("claims=%d", len(answers))
+	}
+	winner := <-answers
+	result, err := control.AwaitSubmitWithTimeout(context.Background(), "ask", time.Second)
+	if err != nil || result.Request.SubmitID != winner.SubmitID {
+		t.Fatalf("result=%+v %v", result, err)
+	}
+	if !control.ResolveSubmit(winner).Accepted {
+		t.Fatal("same body retry rejected")
+	}
+	wrong := winner
+	wrong.OwnerID = "other"
+	if ack := control.ResolveSubmit(wrong); ack.Status != "awaiting_forbidden" {
+		t.Fatalf("foreign receipt=%+v", ack)
+	}
+	wrong = winner
+	wrong.RunID = "another-run"
+	if ack := control.ResolveSubmit(wrong); ack.Status != "awaiting_forbidden" {
+		t.Fatalf("foreign run receipt=%+v", ack)
+	}
+	wrong = winner
+	wrong.Param = map[string]any{"decision": "reject"}
+	if ack := control.ResolveSubmit(wrong); ack.Status != "submit_conflict" {
+		t.Fatalf("changed receipt=%+v", ack)
+	}
+	winner.Param["decision"] = "mutated"
+	if result.Request.Param["decision"] != "approve" {
+		t.Fatal("claimed payload was not frozen")
+	}
+	expires = time.Now().Add(-time.Second)
+	control.ExpectSubmit(AwaitingSubmitContext{AwaitingID: "expired", Mode: "form", ValidateSubmit: validate})
+	late := winner
+	late.AwaitingID = "expired"
+	if ack := control.ResolveSubmit(late); ack.Status != "awaiting_expired" {
+		t.Fatalf("expired=%+v", ack)
+	}
+	raw, _ := json.Marshal(AwaitingSubmitContext{AwaitingID: "private", ValidateSubmit: validate})
+	if strings.Contains(string(raw), "OwnerID") {
+		t.Fatal("private binding serialized")
 	}
 }

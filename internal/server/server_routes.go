@@ -29,6 +29,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	startedAt := time.Now()
+	// Dedicated local capability: bypass app JWT and browser CORS, never ordinary authority.
+	if isAgentEngineManagementRoute(r.URL.Path) {
+		s.handleAgentEngineManagement(w, r)
+		return
+	}
 	if s.handleCORS(w, r) {
 		return
 	}
@@ -232,7 +237,6 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/memory/status", s.method(http.MethodGet, s.handleMemoryStatus))
 	s.router.HandleFunc("/api/admin/source", s.handleAdminSource)
 	s.router.HandleFunc("/api/admin/agents/order", s.handleAdminAgentOrder)
-	s.router.HandleFunc("/api/desktop/acp-bridges", s.handleDesktopACPBridges)
 	s.router.HandleFunc("/api/admin/agents/create", s.method(http.MethodPost, s.handleAgentCreate))
 	s.router.HandleFunc("/api/admin/agents/import", s.method(http.MethodPost, s.handleAdminAgentImport))
 	s.router.HandleFunc("/api/admin/agents/update", s.method(http.MethodPost, s.handleAgentUpdate))
@@ -266,6 +270,13 @@ func (s *Server) routes() {
 	for _, action := range []string{"list", "get", "read"} {
 		s.router.HandleFunc("/api/chat/artifacts/"+action, s.handleChatArtifact)
 	}
+	for _, action := range []string{"status", "start", "cancel"} {
+		s.router.HandleFunc("/api/agent-engines/auth/"+action, s.handleAgentEngineAuth)
+	}
+	s.router.HandleFunc("/api/agent-engines", s.handleAgentEngineDirectory)
+	s.router.HandleFunc("/api/agent-engines/sessions/preview", s.handleAgentEnginePreview)
+	s.router.HandleFunc("/api/agent-engines/sessions/prepare", s.handleAgentEngineSession)
+	s.router.HandleFunc("/api/agent-engines/sessions/config", s.handleAgentEngineSession)
 	s.router.HandleFunc("/api/connectors", s.method(http.MethodGet, s.handleConnectors))
 	s.router.HandleFunc("/api/connectors/connection", s.handleConnectorConnection)
 	s.router.HandleFunc("/api/connectors/check", s.method(http.MethodPost, s.handleConnectorCheck))

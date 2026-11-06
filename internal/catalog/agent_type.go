@@ -1,6 +1,8 @@
 package catalog
 
 import (
+	enginedto "agent-platform/internal/contracts/agentengine"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -92,37 +94,26 @@ func ParseAgentEngine(value string) (string, error) {
 	}
 }
 
-// ParseAgentModeAndEngine resolves the two top-level type fields together.
-// engine: acp has no mode of its own and always runs as CODER, so mode may be
-// omitted there; any other explicit mode is a contradiction.
-func ParseAgentModeAndEngine(rawMode string, rawEngine string) (string, string, error) {
+// ACP is an execution backend, not a Native mode profile.
+func ParseAgentModeAndEngine(rawMode, rawEngine string) (string, string, error) {
 	engine, err := ParseAgentEngine(rawEngine)
 	if err != nil {
 		return "", "", err
 	}
-	if engine == AgentEngineACP && strings.TrimSpace(rawMode) == "" {
-		return AgentModeCoder, engine, nil
+	if engine == AgentEngineACP {
+		if strings.TrimSpace(rawMode) != "" {
+			return "", "", fmt.Errorf("engine: acp does not take a mode")
+		}
+		return "", engine, nil
 	}
 	mode, err := ParsePublicAgentMode(rawMode)
-	if err != nil {
-		return "", "", err
-	}
-	if engine == AgentEngineACP && mode != AgentModeCoder {
-		return "", "", fmt.Errorf("engine: acp does not take a mode; remove mode or use CODER")
-	}
-	return mode, engine, nil
+	return mode, engine, err
 }
-
-// DefinitionRuntimeMode resolves the runtime mode of a raw definition map
-// without validating it. It only adds the engine: acp default to
-// NormalizeAgentModeForRuntime so callers that branch before validation agree
-// with ParseAgentModeAndEngine.
 func DefinitionRuntimeMode(definition map[string]any) string {
-	rawMode := stringNode(definition["mode"])
-	if rawMode == "" && strings.EqualFold(stringNode(definition["engine"]), AgentEngineACP) {
-		return AgentModeCoder
+	if strings.EqualFold(stringNode(definition["engine"]), AgentEngineACP) {
+		return ""
 	}
-	return NormalizeAgentModeForRuntime(rawMode)
+	return NormalizeAgentModeForRuntime(stringNode(definition["mode"]))
 }
 
 func AgentIsProxyMode(mode string) bool {
@@ -308,37 +299,63 @@ func validateSandboxWorkspace(workspace AgentWorkspaceConfig, hasRuntimeSandbox 
 	return nil
 }
 
-func ValidateAgentCoderBackend(def AgentDefinition) error {
-	acpBridgeID := strings.TrimSpace(def.ACPBridgeID)
-	if def.Engine != AgentEngineACP {
-		if acpBridgeID != "" {
-			return fmt.Errorf("runtimeConfig.acpBridgeId requires engine: acp")
+// ValidateAgentEngineConfig is shared by API writes and file loading.
+func ValidateAgentEngineConfig(definition map[string]any) error {
+	_, engine, err := ParseAgentModeAndEngine(stringNode(definition["mode"]), stringNode(definition["engine"]))
+	if err != nil {
+		return err
+	}
+	runtimeConfig := contracts.AnyMapNode(definition["runtimeConfig"])
+	for _, key := range []string{"acpProxyId", "acpBridgeId", "bridgeId"} {
+		if _, exists := runtimeConfig[key]; exists {
+			return fmt.Errorf("runtimeConfig.%s was removed; use engineId", key)
 		}
+	}
+	if engine == AgentEngineACP {
+		raw, _ := json.Marshal(map[string]any{"engine": "acp", "runtimeConfig": runtimeConfig})
+		if err := enginedto.Validate("ACPProject", raw); err != nil {
+			return err
+		}
+		if len(contracts.AnyMapNode(definition["proxyConfig"])) > 0 {
+			return fmt.Errorf("proxyConfig is not supported for engine: acp")
+		}
+		for _, key := range []string{"modelConfig", "budget", "stageSettings", "kbaseConfig"} {
+			if _, exists := definition[key]; exists {
+				return fmt.Errorf("%s is not supported for engine: acp", key)
+			}
+		}
+	} else if _, exists := runtimeConfig["engineId"]; exists {
+		return fmt.Errorf("runtimeConfig.engineId requires engine: acp")
+	}
+	return nil
+}
+
+func ValidateAgentCoderBackend(def AgentDefinition) error {
+	if def.Engine != AgentEngineACP {
 		return nil
 	}
-	if acpBridgeID == "" {
-		return fmt.Errorf("runtimeConfig.acpBridgeId is required for engine: acp")
+	if _, exists := def.Runtime["engineId"]; !exists {
+		return fmt.Errorf("runtimeConfig.engineId is required for engine: acp")
+	}
+	if err := ValidateProjectWorkspace(map[string]any{"runtimeConfig": map[string]any{"workspaceRoot": def.Workspace.ProjectDir()}}); err != nil {
+		return err
 	}
 	if def.ProxyConfig != nil {
-		return fmt.Errorf("proxyConfig is not supported for engine: acp; configure configs/agent-settings.yml acp-bridges and runtimeConfig.acpBridgeId")
+		return fmt.Errorf("proxyConfig is not supported for engine: acp")
 	}
 	if len(def.Project.PromptFiles) > 0 {
 		return fmt.Errorf("projectConfig.promptFiles is not supported for engine: acp")
 	}
-	if len(def.ExcludedTools) > 0 {
-		return fmt.Errorf("toolConfig.excludeTools is not supported for engine: acp")
-	}
-	if len(def.Tools) > 0 {
-		return fmt.Errorf("toolConfig.tools is not supported for engine: acp; ACP bridges do not execute platform tools")
-	}
-	if len(def.Connectors) > 0 {
-		return fmt.Errorf("connectorConfig.connectors is not supported for engine: acp; ACP bridges do not execute platform tools")
+	for _, name := range def.Tools {
+		if !containsString(def.ConnectorNativeTools, name) {
+			return fmt.Errorf("toolConfig.tools is not supported for engine: acp; mount a connector instead")
+		}
 	}
 	return nil
 }
 
 func ValidateAgentModelConfig(def AgentDefinition) error {
-	if AgentUsesACPCoderBackend(def) || AgentIsProxyMode(def.Mode) || AgentIsChannelMode(def.Mode) {
+	if def.Engine == AgentEngineACP || AgentIsProxyMode(def.Mode) || AgentIsChannelMode(def.Mode) {
 		if def.MaxInputTokens > 0 {
 			return fmt.Errorf("modelConfig.maxInputTokens is only supported for native Agents")
 		}
@@ -450,11 +467,10 @@ func AgentEngineForAPI(def AgentDefinition) string {
 	return AgentEngineNative
 }
 
-func AgentUsesACPCoderBackend(def AgentDefinition) bool {
-	return agentcoder.IsACPBackend(def.Mode, def.ACPBridgeID)
-}
-
 func applyAgentModeProfileDefaults(def AgentDefinition) AgentDefinition {
+	if def.Engine == AgentEngineACP {
+		return def
+	}
 	descriptor, ok := agentbuiltin.Lookup(def.Mode)
 	if !ok {
 		return def

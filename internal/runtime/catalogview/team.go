@@ -37,7 +37,7 @@ func ValidateTeamSnapshot(snapshot catalog.TeamSnapshot) *runtimetypes.RequestEr
 	unavailable := append([]string(nil), snapshot.InvalidAgentKeys...)
 	for _, key := range snapshot.ValidAgentKeys {
 		def, exists := snapshot.AgentDefinition(key)
-		invalid := !exists || def.Mode == "TEAM" || def.Engine == "acp" || catalog.AgentUsesACPCoderBackend(def) || !sessionbuild.ResolvedModeCapabilities(def).RunAsChild
+		invalid := !exists || def.Mode == "TEAM" || def.Engine == "acp" || !sessionbuild.ResolvedModeCapabilities(def).RunAsChild
 		for _, tool := range def.Tools {
 			if tool == "agent_invoke" {
 				invalid = true

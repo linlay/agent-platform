@@ -16,6 +16,9 @@ import (
 // waiter is woken: planning/form take one param object, question/approval take
 // a params list. An invalid submit never resolves the awaiting.
 func ValidateSubmitParams(ctx contracts.AwaitingSubmitContext, req queryinput.SubmitRequest) error {
+	if ctx.ValidateSubmit != nil {
+		return ctx.ValidateSubmit(req)
+	}
 	items, err := submitItemsForMode(ctx.Mode, req)
 	if err != nil {
 		return err

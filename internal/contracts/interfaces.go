@@ -332,14 +332,23 @@ type RunLimits struct {
 	FinalAnswerPrompt string
 }
 
+type BackendSession struct {
+	ChatID         string
+	EngineID       string
+	PreparationID  string
+	ConfigRevision int64
+}
+
 type QuerySession struct {
 	Mail               *queryinput.MailInput `json:"-"`
 	UserChatReferences []string              `json:"-"`
 	// MailHeaders is bound by Runtime and used only at the model boundary.
-	MailHeaders       func(string) string                `json:"-"`
-	RuntimeEvent      func(stream.EventData)             `json:"-"`
-	RuntimeComplete   func(string, string, string, bool) `json:"-"`
-	RuntimeIdle       func()                             `json:"-"`
+	MailHeaders     func(string) string                `json:"-"`
+	RuntimeEvent    func(stream.EventData)             `json:"-"`
+	RuntimeComplete func(string, string, string, bool) `json:"-"`
+	RuntimeIdle     func()                             `json:"-"`
+	// BackendSession freezes the execution backend session selected for this Run.
+	BackendSession    *BackendSession `json:"-"`
 	InteractionConfig *interaction.Config
 	// ResolveView freezes a mounted presentation in this Chat before publication.
 	// It is installed by the session producer, never supplied by query clients.
@@ -731,8 +740,10 @@ type SubmitInfo struct {
 }
 
 type AwaitingSubmitContext struct {
-	DelegateApproval   func(context.Context, string, queryinput.SubmitRequest) error
-	ExactApprovalIDs   []string // one-time approvals bound to these invocation IDs
+	DelegateApproval func(context.Context, string, queryinput.SubmitRequest) error
+	// ValidateSubmit enforces producer-owned constraints before a waiter is resolved.
+	ValidateSubmit     func(queryinput.SubmitRequest) error `json:"-"`
+	ExactApprovalIDs   []string                             // one-time approvals bound to these invocation IDs
 	Summaries          []ApprovalSummary
 	SummariesTruncated bool
 	AwaitingID         string
@@ -756,6 +767,7 @@ type AwaitingSubmitContext struct {
 func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
 	return AwaitingSubmitContext{
 		DelegateApproval:   c.DelegateApproval,
+		ValidateSubmit:     c.ValidateSubmit,
 		ExactApprovalIDs:   append([]string(nil), c.ExactApprovalIDs...),
 		Summaries:          append([]ApprovalSummary(nil), c.Summaries...),
 		SummariesTruncated: c.SummariesTruncated,

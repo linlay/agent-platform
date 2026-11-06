@@ -23,6 +23,9 @@ func (s *Service) resolveSubmit(req queryinput.SubmitRequest) (queryinput.Submit
 
 	if awaiting, ok := s.lookupActiveAwaiting(req); ok {
 		if err := ValidateSubmitParams(awaiting, req); err != nil {
+			if awaiting.ValidateSubmit != nil {
+				return queryinput.SubmitResponse{}, 0, "", submitValidationError(err.Error())
+			}
 			if strings.EqualFold(strings.TrimSpace(awaiting.Mode), "question") {
 				return invalidQuestionSubmitResponse(req, activeSubmitChatID(s, req), err), 0, "success", nil
 			}
@@ -36,6 +39,9 @@ func (s *Service) resolveSubmit(req queryinput.SubmitRequest) (queryinput.Submit
 		ack := s.deps.Runs.Submit(req)
 		code := 0
 		msg := "success"
+		if ack.Status == "submit_conflict" || ack.Status == "awaiting_forbidden" || ack.Status == "awaiting_expired" {
+			return queryinput.SubmitResponse{}, 0, "", submitValidationError(ack.Status)
+		}
 		if ack.Status == "already_resolved" {
 			return queryinput.SubmitResponse{}, 0, "", awaitingSubmitConflictError(
 				req,
@@ -57,7 +63,10 @@ func (s *Service) resolveSubmit(req queryinput.SubmitRequest) (queryinput.Submit
 	}
 
 	if response, code, msg, ok := s.resolveAlreadyHandledActiveSubmit(req); ok {
-		if code == 409 {
+		if code == 403 || code == 409 {
+			if response.Status == "submit_conflict" || response.Status == "awaiting_forbidden" {
+				return queryinput.SubmitResponse{}, 0, "", submitValidationError(response.Status)
+			}
 			return queryinput.SubmitResponse{}, 0, "", awaitingSubmitConflictError(
 				req,
 				response.ChatID,
@@ -143,6 +152,9 @@ func (s *Service) resolveAlreadyHandledActiveSubmit(req queryinput.SubmitRequest
 		return queryinput.SubmitResponse{}, 0, "", false
 	}
 	ack := s.deps.Runs.Submit(req)
+	if ack.Status == "submit_conflict" || ack.Status == "awaiting_forbidden" {
+		return queryinput.SubmitResponse{Status: ack.Status}, 409, ack.Status, true
+	}
 	if ack.Status != "already_resolved" && !(ack.Accepted && ack.Status == "accepted") {
 		return queryinput.SubmitResponse{}, 0, "", false
 	}
@@ -174,6 +186,19 @@ func (s *Service) resolvePersistedAwaitingSubmit(req queryinput.SubmitRequest) (
 	}
 	if strings.TrimSpace(latest.RunID) != "" && strings.TrimSpace(latest.RunID) != strings.TrimSpace(req.RunID) {
 		return queryinput.SubmitResponse{}, false, nil
+	}
+	// An external receipt is scoped to its live connection generation. History
+	// cannot authenticate or re-create the original pending JSON-RPC call.
+	step, stepErr := s.LoadPersistedAwaitingStep(chatID, req.AwaitingID)
+	if stepErr != nil {
+		return queryinput.SubmitResponse{}, true, stepErr
+	}
+	binding, bindingErr := s.hasEngineAwaiting(chatID, step)
+	if bindingErr != nil {
+		return queryinput.SubmitResponse{}, true, bindingErr
+	}
+	if binding {
+		return queryinput.SubmitResponse{}, true, submitValidationError("awaiting_expired")
 	}
 	switch restartTerminalAwaitingCode(latest.Answer) {
 	case "timeout":
@@ -301,7 +326,7 @@ func (s *Service) resolveDeferredSubmit(req queryinput.SubmitRequest) (queryinpu
 	if err != nil {
 		return queryinput.SubmitResponse{}, err
 	}
-	startsNewExecutionRun := agentbuiltin.StartsNewExecutionRun(deferred.Mode, normalized, continuationAdmission.AgentDef.Mode, continuationAdmission.AgentDef.ACPBridgeID)
+	startsNewExecutionRun := agentbuiltin.StartsNewExecutionRun(deferred.Mode, normalized, continuationAdmission.AgentDef.Mode)
 	if startsNewExecutionRun {
 		req.ChatID = deferred.ChatID
 		if err := s.preparePlanExecutionAccess(req, &continuationAdmission); err != nil {
@@ -508,7 +533,7 @@ func (s *Service) prepareActiveSubmitContinuation(req queryinput.SubmitRequest, 
 	if err != nil {
 		return req, err
 	}
-	if !agentbuiltin.NativePlanning(admission.AgentDef.Mode, admission.AgentDef.ACPBridgeID) {
+	if !agentbuiltin.PlanningModeSupported(admission.AgentDef.Mode) {
 		return req, nil
 	}
 	if strings.TrimSpace(req.ContinuationRunID) == "" {
@@ -534,4 +559,15 @@ func nonContinuableDeferredSubmitUnlocks(mode string, normalized map[string]any)
 	default:
 		return false
 	}
+}
+
+func submitValidationError(code string) *statusError {
+	status := 400
+	switch code {
+	case "awaiting_forbidden":
+		status = 403
+	case "submit_conflict", "awaiting_expired":
+		status = 409
+	}
+	return &statusError{Status: status, Code: code, Message: code}
 }

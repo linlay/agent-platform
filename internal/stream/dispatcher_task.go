@@ -11,11 +11,12 @@ import (
 func (d *StreamEventDispatcher) handlePlanUpdate(input PlanUpdate) []StreamEvent {
 	eventType := "plan.update"
 	d.state.planID = input.PlanID
-	return []StreamEvent{NewEvent(eventType, map[string]any{
-		"planId": input.PlanID,
-		"plan":   input.Plan,
-		"chatId": input.ChatID,
-	})}
+	payload := map[string]any{"planId": input.PlanID, "plan": input.Plan, "chatId": input.ChatID}
+
+	if input.TaskID != "" {
+		payload["taskId"] = input.TaskID
+	}
+	return []StreamEvent{NewEvent(eventType, payload)}
 }
 
 func (d *StreamEventDispatcher) handleTaskStart(input TaskStart) []StreamEvent {

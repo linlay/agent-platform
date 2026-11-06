@@ -1,12 +1,15 @@
 package app
 
 import (
+	"agent-platform/internal/processgroup"
 	"agent-platform/internal/runtimeskills"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,5 +157,100 @@ func TestAppCloseReturnsWhenAutomationStopTimesOut(t *testing.T) {
 	elapsed := time.Since(startedAt)
 	if elapsed >= 500*time.Millisecond {
 		t.Fatalf("expected close to return promptly after timeout, took %s", elapsed)
+	}
+}
+
+// Desktop's opt-in product smoke drives the real App through loopback HTTP.
+// No fixture registry, direct snapshot import or alternate runtime assembly.
+func TestDesktopACPProductServer(t *testing.T) {
+	root := os.Getenv("ACP_PRODUCT_ROOT")
+	bootstrap := os.Getenv("ACP_PRODUCT_BOOTSTRAP")
+	if root == "" || bootstrap == "" {
+		t.Skip("requires Desktop product smoke")
+	}
+	for _, key := range []string{"AP_RUNTIME_REGISTRIES_DIR", "AP_RUNTIME_CHATS_DIR", "AP_RUNTIME_MEMORY_DIR", "AP_RUNTIME_PAN_DIR", "AP_RUNTIME_STATE_DIR"} {
+		t.Setenv(key, "")
+	}
+	t.Setenv("AP_RUNTIME_DIR", filepath.Join(root, "platform"))
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+	defer cancel()
+	application, err := New(ctx, config.LoadOptions{ConfigDir: root, RuntimeMode: "desktop", AgentEngineBootstrapFile: bootstrap})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer application.Close()
+	mux := http.NewServeMux()
+	mux.Handle("/qa/", http.StripPrefix("/qa/", http.FileServer(http.Dir(filepath.Join(root, "ui")))))
+	if webRoot := os.Getenv("ACP_PRODUCT_WEB_ROOT"); webRoot != "" {
+		mux.Handle("/api/", application.Router)
+		mux.Handle("/ws", application.Router)
+		files := http.FileServer(http.Dir(webRoot))
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.URL.Path == "/runtime-config.js":
+				w.Header().Set("Content-Type", "application/javascript")
+				w.Write([]byte(`globalThis.__AGENT_WEBCLIENT_RUNTIME_CONFIG__={BACKEND_MODE:"platform",DESKTOP_APP:"false",VOICE_ENABLED:"false"};`))
+			case strings.HasPrefix(r.URL.Path, "/agent/"):
+				http.ServeFile(w, r, filepath.Join(webRoot, "index.html"))
+			default:
+				files.ServeHTTP(w, r)
+			}
+		})
+	} else {
+		mux.Handle("/", application.Router)
+	}
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	if err := os.WriteFile(filepath.Join(root, "platform.pid"), []byte(fmt.Sprint(os.Getpid())), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "endpoint"), []byte(server.URL), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatal("Desktop acceptance did not stop the server")
+		case <-ticker.C:
+			if _, err := os.Stat(filepath.Join(root, "stop")); err == nil {
+				return
+			}
+		}
+	}
+}
+
+func TestMain(m *testing.M) {
+	if handled, code := processgroup.RunGuardian(); handled {
+		os.Exit(code)
+	}
+	os.Exit(m.Run())
+}
+
+func TestStandaloneAppPublishesReadyEngineManagement(t *testing.T) {
+	root := t.TempDir()
+	t.Cleanup(func() { _ = runtimeskills.Remove(root) })
+	for _, key := range []string{"AP_RUNTIME_REGISTRIES_DIR", "AP_RUNTIME_CHATS_DIR", "AP_RUNTIME_MEMORY_DIR", "AP_RUNTIME_PAN_DIR", "AP_RUNTIME_STATE_DIR"} {
+		t.Setenv(key, "")
+	}
+	runtimeRoot := filepath.Join(root, "runtime")
+	t.Setenv("AP_RUNTIME_DIR", runtimeRoot)
+	if err := os.MkdirAll(filepath.Join(root, "configs"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "configs", "runtime.yml"), []byte("auth:\n  enabled: false\ncontainer-hub:\n  enabled: false\nautomation:\n  enabled: false\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	application, err := New(context.Background(), config.LoadOptions{ConfigDir: root, RuntimeMode: "standalone"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer application.Close()
+	if got := application.agentEngines.Directory(); !got.Ready || len(got.Engines) != 0 {
+		t.Fatalf("standalone directory: %+v", got)
+	}
+	if _, err = os.Stat(filepath.Join(runtimeRoot, "agent-engine-installations", "management.json")); err != nil {
+		t.Fatal(err)
 	}
 }

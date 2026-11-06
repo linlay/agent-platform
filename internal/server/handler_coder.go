@@ -1,17 +1,13 @@
 package server
 
 import (
-	"encoding/json"
-	"log"
 	"net/http"
 	"strings"
-	"time"
 
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
-	"agent-platform/internal/config"
-	"agent-platform/internal/httpclient"
+
 	"agent-platform/internal/models"
 )
 
@@ -21,11 +17,17 @@ func (s *Server) handleModelOptions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) buildModelOptionsForAgent(agentKey string) api.CoderModelOptionsResponse {
+	// External model choices belong to the prepared Chat, never the native catalog.
+	if s.deps.Registry != nil {
+		if def, ok := s.deps.Registry.AgentDefinition(agentKey); ok && def.Engine == catalog.AgentEngineACP {
+			return api.CoderModelOptionsResponse{Models: []api.ChatModelOption{}}
+		}
+	}
 	modelOptions := s.listModelOptionsForAgent(agentKey)
-	reasoningEfforts := s.reasoningEffortOptionsForAgent(agentKey, modelOptions)
-	serviceTiers := s.serviceTierOptionsForAgent(agentKey, modelOptions)
-	if len(serviceTiers) == 1 && serviceTiers[0].Key == "STANDARD" {
-		serviceTiers = nil
+	reasoningEfforts := models.ReasoningEfforts()
+	reasoningOptions := make([]api.ReasoningEffortOption, 0, len(reasoningEfforts))
+	for _, effort := range reasoningEfforts {
+		reasoningOptions = append(reasoningOptions, api.ReasoningEffortOption{Key: effort, Label: effort})
 	}
 	var responseModels []api.ChatModelOption
 	if modelOptions != nil {
@@ -39,49 +41,25 @@ func (s *Server) buildModelOptionsForAgent(agentKey string) api.CoderModelOption
 			Provider:     model.Provider,
 			ServiceTiers: model.ServiceTiers,
 		}
-		if model.Protocol == models.ProtocolACPPassthrough {
-			option.ModelID = model.ModelID
-			option.Protocol = model.Protocol
-			option.IsReasoner = &model.IsReasoner
-			option.IsVision = &model.IsVision
-			option.ContextWindow = model.ContextWindow
-			option.Timeout = model.Timeout
-			option.ReasoningEfforts = model.ReasoningEfforts
-		}
 		responseModels = append(responseModels, option)
 	}
 	return api.CoderModelOptionsResponse{
 		Models:           responseModels,
-		ReasoningEfforts: reasoningEfforts,
-		ServiceTiers:     serviceTiers,
+		ReasoningEfforts: reasoningOptions,
 	}
 }
 
 func (s *Server) listModelOptionsForAgent(agentKey string) []api.CoderModelOption {
-	if options, _, ok := s.listACPCoderModelOptions(agentKey); ok {
-		return options
-	}
 	options := []api.CoderModelOption{}
 	if s.deps.Models == nil {
 		return options
 	}
-	filterMode := s.modelOptionsFilterMode(agentKey)
 	for _, model := range s.deps.Models.List() {
-		switch filterMode {
-		case "acp-only":
-			if !models.IsACPPassthroughModel(model) {
-				continue
-			}
-		case "native-only":
-			if models.IsACPPassthroughModel(model) {
-				continue
-			}
-		}
 		if !s.shouldShowModelOption(model) {
 			continue
 		}
 		reasoningEfforts := append([]string(nil), model.ReasoningEfforts...)
-		if model.IsReasoner && !models.IsACPPassthroughModel(model) {
+		if model.IsReasoner {
 			reasoningEfforts = models.ActiveReasoningEfforts()
 		}
 		options = append(options, api.CoderModelOption{
@@ -102,40 +80,9 @@ func (s *Server) listModelOptionsForAgent(agentKey string) []api.CoderModelOptio
 	return options
 }
 
-func (s *Server) listACPCoderModelOptions(agentKey string) ([]api.CoderModelOption, error, bool) {
-	bridge, ok := s.acpBridgeConfigForAgent(agentKey)
-	if !ok {
-		return nil, nil, false
-	}
-	options, err := fetchACPCoderModelOptions(bridge)
-	if err != nil {
-		log.Printf("[coder-model-options] fetch acp models for agent %s failed: %v", strings.TrimSpace(agentKey), err)
-		return nil, err, true
-	}
-	return options, nil, true
-}
-
-func (s *Server) modelOptionsFilterMode(agentKey string) string {
-	agentKey = strings.TrimSpace(agentKey)
-	if agentKey == "" {
-		return "native-only"
-	}
-	if s.deps.Registry == nil {
-		return ""
-	}
-	def, ok := s.deps.Registry.AgentDefinition(agentKey)
-	if !ok {
-		return ""
-	}
-	return agentbuiltin.CoderModelOptionsFilterMode(agentKey, def.Mode, def.ACPBridgeID)
-}
-
 func (s *Server) shouldShowModelOption(model models.ModelDefinition) bool {
 	if !models.IsChatModel(model) {
 		return false
-	}
-	if models.IsACPPassthroughModel(model) {
-		return true
 	}
 	providerKey := strings.TrimSpace(model.Provider)
 	if providerKey == "" || s.deps.Models == nil {
@@ -148,121 +95,6 @@ func (s *Server) shouldShowModelOption(model models.ModelDefinition) bool {
 	return provider.HasCredential()
 }
 
-func (s *Server) serviceTierOptionsForAgent(agentKey string, modelOptions []api.CoderModelOption) []api.ServiceTierOption {
-	agentKey = strings.TrimSpace(agentKey)
-	if agentKey == "" || s.deps.Registry == nil {
-		return agentbuiltin.CoderServiceTierOptions(false, modelOptions)
-	}
-	def, ok := s.deps.Registry.AgentDefinition(agentKey)
-	if !ok {
-		return agentbuiltin.CoderServiceTierOptions(false, modelOptions)
-	}
-	return agentbuiltin.CoderServiceTierOptions(catalog.AgentUsesACPCoderBackend(def), modelOptions)
-}
-
-func (s *Server) reasoningEffortOptionsForAgent(agentKey string, modelOptions []api.CoderModelOption) []api.ReasoningEffortOption {
-	agentKey = strings.TrimSpace(agentKey)
-	if agentKey == "" || s.deps.Registry == nil {
-		return agentbuiltin.CoderReasoningEffortOptions(false, modelOptions)
-	}
-	def, ok := s.deps.Registry.AgentDefinition(agentKey)
-	if !ok {
-		return agentbuiltin.CoderReasoningEffortOptions(false, modelOptions)
-	}
-	return agentbuiltin.CoderReasoningEffortOptions(catalog.AgentUsesACPCoderBackend(def), modelOptions)
-}
-
 func normalizeCoderReasoningEffort(value string) (string, bool) {
 	return agentbuiltin.CoderNormalizeReasoningEffort(value)
-}
-
-type acpModelCatalogResponse struct {
-	Code int `json:"code"`
-	Data struct {
-		Models []struct {
-			Key              string   `json:"key"`
-			Name             string   `json:"name"`
-			Icon             string   `json:"icon"`
-			Type             string   `json:"type"`
-			ModelID          string   `json:"modelId"`
-			ContextWindow    int      `json:"contextWindow"`
-			IsReasoner       bool     `json:"isReasoner"`
-			ReasoningEfforts []string `json:"reasoningEfforts"`
-			ServiceTiers     []string `json:"serviceTiers"`
-		} `json:"models"`
-	} `json:"data"`
-}
-
-func (s *Server) acpBridgeConfigForAgent(agentKey string) (config.ACPBridgeConfig, bool) {
-	agentKey = strings.TrimSpace(agentKey)
-	if agentKey == "" || s.deps.Registry == nil {
-		return config.ACPBridgeConfig{}, false
-	}
-	def, ok := s.deps.Registry.AgentDefinition(agentKey)
-	if !ok || !catalog.AgentUsesACPCoderBackend(def) {
-		return config.ACPBridgeConfig{}, false
-	}
-	bridgeID := strings.TrimSpace(def.ACPBridgeID)
-	if bridgeID == "" {
-		return config.ACPBridgeConfig{}, false
-	}
-	bridge, ok := s.deps.Config.ACP.ACPBridges[bridgeID]
-	if !ok || strings.TrimSpace(bridge.BaseURL) == "" {
-		return config.ACPBridgeConfig{}, false
-	}
-	return bridge, true
-}
-
-func fetchACPCoderModelOptions(bridge config.ACPBridgeConfig) ([]api.CoderModelOption, error) {
-	baseURL := strings.TrimRight(strings.TrimSpace(bridge.BaseURL), "/")
-	if baseURL == "" {
-		return nil, nil
-	}
-	timeout := time.Duration(bridge.TimeoutMS) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 5 * time.Minute
-	}
-	client := httpclient.NewClient(timeout)
-	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/models", nil)
-	if err != nil {
-		return nil, err
-	}
-	if token := strings.TrimSpace(bridge.AuthToken); token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, &statusError{Status: resp.StatusCode, Message: "proxy model discovery returned " + resp.Status}
-	}
-	var decoded acpModelCatalogResponse
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		return nil, err
-	}
-	options := make([]api.CoderModelOption, 0, len(decoded.Data.Models))
-	for _, model := range decoded.Data.Models {
-		key := strings.TrimSpace(model.Key)
-		if key == "" {
-			continue
-		}
-		modelType, ok := models.NormalizeModelType(model.Type)
-		if !ok || modelType != models.ModelTypeChat {
-			continue
-		}
-		options = append(options, api.CoderModelOption{
-			Key:              key,
-			Name:             strings.TrimSpace(model.Name),
-			Icon:             strings.TrimSpace(model.Icon),
-			ModelID:          strings.TrimSpace(model.ModelID),
-			Protocol:         models.ProtocolACPPassthrough,
-			IsReasoner:       model.IsReasoner,
-			ContextWindow:    model.ContextWindow,
-			ReasoningEfforts: append([]string(nil), model.ReasoningEfforts...),
-			ServiceTiers:     append([]string(nil), model.ServiceTiers...),
-		})
-	}
-	return options, nil
 }

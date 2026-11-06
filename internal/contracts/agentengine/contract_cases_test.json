@@ -1,0 +1,2218 @@
+[
+  {
+    "name": "PlatformTarget-valid",
+    "contract": "PlatformTarget",
+    "valid": true,
+    "value": {
+      "os": "darwin",
+      "arch": "arm64"
+    }
+  },
+  {
+    "name": "EngineDependency-valid",
+    "contract": "EngineDependency",
+    "valid": true,
+    "value": {
+      "id": "example",
+      "version": "0.1.0",
+      "delivery": "host-managed"
+    }
+  },
+  {
+    "name": "EngineLaunch-valid",
+    "contract": "EngineLaunch",
+    "valid": true,
+    "value": {
+      "runtime": "node",
+      "entry": "example",
+      "args": []
+    }
+  },
+  {
+    "name": "AdapterVersion-valid",
+    "contract": "AdapterVersion",
+    "valid": true,
+    "value": {
+      "package": "example",
+      "version": "0.1.0",
+      "acpSdkVersion": "0.1.0"
+    }
+  },
+  {
+    "name": "EngineResource-valid",
+    "contract": "EngineResource",
+    "valid": true,
+    "value": {
+      "id": "codex",
+      "name": "Codex",
+      "protocol": "acp",
+      "transport": "stdio",
+      "launch": {
+        "runtime": "node",
+        "entry": "dist/index.mjs",
+        "args": []
+      },
+      "adapter": {
+        "package": "@agentclientprotocol/codex-acp",
+        "version": "2.3.0",
+        "acpSdkVersion": "2.0.2"
+      },
+      "dependencies": [
+        {
+          "id": "node",
+          "version": "22.22.0",
+          "delivery": "host-managed"
+        },
+        {
+          "id": "codex-cli",
+          "version": "0.164.0",
+          "delivery": "bundled"
+        }
+      ]
+    }
+  },
+  {
+    "name": "EnginePluginManifest-valid",
+    "contract": "EnginePluginManifest",
+    "valid": true,
+    "value": {
+      "pluginApiVersion": 2,
+      "id": "zenmind-agent-codex",
+      "name": "Codex",
+      "version": "0.1.0",
+      "description": "Codex ACP plugin",
+      "platform": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "desktop": {
+        "bundleTopLevelDir": "zenmind-agent-codex"
+      },
+      "requires": {
+        "platformAgentEngineApi": 2,
+        "webclientAgentEngineApi": 1
+      },
+      "resources": {
+        "agentEngines": [
+          {
+            "id": "codex",
+            "name": "Codex",
+            "protocol": "acp",
+            "transport": "stdio",
+            "launch": {
+              "runtime": "node",
+              "entry": "dist/index.mjs",
+              "args": []
+            },
+            "adapter": {
+              "package": "@agentclientprotocol/codex-acp",
+              "version": "2.3.0",
+              "acpSdkVersion": "2.0.2"
+            },
+            "dependencies": [
+              {
+                "id": "node",
+                "version": "22.22.0",
+                "delivery": "host-managed"
+              },
+              {
+                "id": "codex-cli",
+                "version": "0.164.0",
+                "delivery": "bundled"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "EngineInstallation-valid",
+    "contract": "EngineInstallation",
+    "valid": true,
+    "value": {
+      "engineId": "zenmind-agent-codex/codex",
+      "pluginId": "zenmind-agent-codex",
+      "pluginVersion": "0.1.0",
+      "installationRef": "record-123",
+      "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "enabled": true
+    }
+  },
+  {
+    "name": "EngineUpsert-valid",
+    "contract": "EngineUpsert",
+    "valid": true,
+    "value": {
+      "apiVersion": 1,
+      "revision": 7,
+      "engineId": "zenmind-agent-codex/codex",
+      "pluginId": "zenmind-agent-codex",
+      "pluginVersion": "0.1.0",
+      "installationRef": "record-123",
+      "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "enabled": true
+    }
+  },
+  {
+    "name": "EngineSnapshot-valid",
+    "contract": "EngineSnapshot",
+    "valid": true,
+    "value": {
+      "apiVersion": 1,
+      "revision": 8,
+      "entries": [
+        {
+          "engineId": "zenmind-agent-codex/codex",
+          "pluginId": "zenmind-agent-codex",
+          "pluginVersion": "0.1.0",
+          "installationRef": "record-123",
+          "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "enabled": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "EngineRevoke-valid",
+    "contract": "EngineRevoke",
+    "valid": true,
+    "value": {
+      "apiVersion": 1,
+      "revision": 9,
+      "engineId": "zenmind-agent-codex/codex"
+    }
+  },
+  {
+    "name": "ACPProject-valid",
+    "contract": "ACPProject",
+    "valid": true,
+    "value": {
+      "engine": "acp",
+      "runtimeConfig": {
+        "engineId": "zenmind-agent-codex/codex",
+        "workspaceRoot": "/workspace"
+      }
+    }
+  },
+  {
+    "name": "ConfigSelection-valid",
+    "contract": "ConfigSelection",
+    "valid": true,
+    "value": {
+      "configId": "example",
+      "value": "example"
+    }
+  },
+  {
+    "name": "SessionBinding-valid",
+    "contract": "SessionBinding",
+    "valid": true,
+    "value": {
+      "schemaVersion": 1,
+      "chatId": "example",
+      "engineId": "zenmind-agent-codex/codex",
+      "profileId": "example",
+      "workspaceRoot": "/workspace",
+      "acpSessionId": "example",
+      "contextState": "prepared",
+      "configSelection": []
+    }
+  },
+  {
+    "name": "ConfigChoice-valid",
+    "contract": "ConfigChoice",
+    "valid": true,
+    "value": {
+      "value": "example",
+      "name": "example"
+    }
+  },
+  {
+    "name": "ExternalConfigOption-valid",
+    "contract": "ExternalConfigOption",
+    "valid": true,
+    "value": {
+      "id": "example",
+      "name": "example",
+      "type": "select",
+      "currentValue": "example",
+      "choices": [
+        {
+          "value": "example",
+          "name": "example"
+        }
+      ]
+    }
+  },
+  {
+    "name": "PreparedSession-valid",
+    "contract": "PreparedSession",
+    "valid": true,
+    "value": {
+      "chatId": "example",
+      "engineId": "zenmind-agent-codex/codex",
+      "preparationId": "example",
+      "configRevision": 1,
+      "configOptions": []
+    }
+  },
+  {
+    "name": "ConfigUpdate-valid",
+    "contract": "ConfigUpdate",
+    "valid": true,
+    "value": {
+      "chatId": "example",
+      "preparationId": "example",
+      "configRevision": 1,
+      "selections": [
+        {
+          "configId": "example",
+          "value": "example"
+        }
+      ]
+    }
+  },
+  {
+    "name": "TerminalAuthLaunch-valid",
+    "contract": "TerminalAuthLaunch",
+    "valid": true,
+    "value": {
+      "methodId": "example",
+      "args": [
+        "example"
+      ]
+    }
+  },
+  {
+    "name": "AuthMethod-valid",
+    "contract": "AuthMethod",
+    "valid": true,
+    "value": {
+      "id": "example",
+      "name": "example",
+      "type": "agent",
+      "available": false
+    }
+  },
+  {
+    "name": "AuthStatus-valid",
+    "contract": "AuthStatus",
+    "valid": true,
+    "value": {
+      "engineId": "zenmind-agent-codex/codex",
+      "state": "unknown",
+      "methods": []
+    }
+  },
+  {
+    "name": "AuthStart-valid",
+    "contract": "AuthStart",
+    "valid": true,
+    "value": {
+      "engineId": "zenmind-agent-codex/codex",
+      "methodId": "example"
+    }
+  },
+  {
+    "name": "ElicitationRequest-valid",
+    "contract": "ElicitationRequest",
+    "valid": true,
+    "value": {
+      "sessionId": "external-session",
+      "toolCallId": "external-tool",
+      "mode": "form",
+      "message": "Choose",
+      "requestedSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "OK",
+              "SKIP"
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ]
+      },
+      "vendorExtension": {
+        "mustBePreserved": true
+      }
+    }
+  },
+  {
+    "name": "QuestionOption-valid",
+    "contract": "QuestionOption",
+    "valid": true,
+    "value": {
+      "id": "example",
+      "label": "example"
+    }
+  },
+  {
+    "name": "ExternalQuestion-valid",
+    "contract": "ExternalQuestion",
+    "valid": true,
+    "value": {
+      "id": "example",
+      "question": "example",
+      "required": false,
+      "type": "text"
+    }
+  },
+  {
+    "name": "EngineError-valid",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "auth_required",
+      "data": {
+        "errorCode": "auth_required",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "ManagementBootstrap-valid",
+    "contract": "ManagementBootstrap",
+    "valid": true,
+    "value": {
+      "schemaVersion": 1,
+      "hostId": "example",
+      "launchNonce": "example",
+      "managementSecret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "deliveryRoot": "/workspace"
+    }
+  },
+  {
+    "name": "ManagementStatus-valid",
+    "contract": "ManagementStatus",
+    "valid": true,
+    "value": {
+      "apiVersion": 1,
+      "hostId": "example",
+      "epoch": "example",
+      "ready": false,
+      "appliedRevision": 0
+    }
+  },
+  {
+    "name": "SyncAck-valid",
+    "contract": "SyncAck",
+    "valid": true,
+    "value": {
+      "apiVersion": 1,
+      "appliedRevision": 0,
+      "action": "applied",
+      "ready": false,
+      "drainingEngineIds": []
+    }
+  },
+  {
+    "name": "ExecutionBackend-valid",
+    "contract": "ExecutionBackend",
+    "valid": true,
+    "value": "native"
+  },
+  {
+    "name": "EngineCapabilities-valid",
+    "contract": "EngineCapabilities",
+    "valid": true,
+    "value": {
+      "question": false,
+      "permission": false,
+      "configuration": false,
+      "resume": false,
+      "image": false,
+      "file": false,
+      "planning": false,
+      "access_level": false,
+      "service_tier": false,
+      "steer": false,
+      "boolean_config": false
+    }
+  },
+  {
+    "name": "EngineDirectoryEntry-valid",
+    "contract": "EngineDirectoryEntry",
+    "valid": true,
+    "value": {
+      "engineId": "zenmind-agent-codex/codex",
+      "pluginId": "example",
+      "pluginVersion": "0.1.0",
+      "enabled": false,
+      "syncState": "pending",
+      "dependencyState": "unknown",
+      "authState": "unknown",
+      "runtimeState": "stopped",
+      "capabilities": {
+        "question": false,
+        "permission": false,
+        "configuration": false,
+        "resume": false,
+        "image": false,
+        "file": false,
+        "planning": false,
+        "access_level": false,
+        "service_tier": false,
+        "steer": false,
+        "boolean_config": false
+      }
+    }
+  },
+  {
+    "name": "EngineDirectory-valid",
+    "contract": "EngineDirectory",
+    "valid": true,
+    "value": {
+      "apiVersion": 1,
+      "catalogGeneration": "example",
+      "revision": 0,
+      "ready": false,
+      "engines": []
+    }
+  },
+  {
+    "name": "DirectoryChanged-valid",
+    "contract": "DirectoryChanged",
+    "valid": true,
+    "value": {
+      "catalogGeneration": "example",
+      "revision": 0
+    }
+  },
+  {
+    "name": "EpochMillis-valid",
+    "contract": "EpochMillis",
+    "valid": true,
+    "value": 1000000000000
+  },
+  {
+    "name": "PlatformTarget-unknown-field",
+    "contract": "PlatformTarget",
+    "valid": false,
+    "value": {
+      "os": "darwin",
+      "arch": "arm64",
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "EngineDependency-unknown-field",
+    "contract": "EngineDependency",
+    "valid": false,
+    "value": {
+      "id": "example",
+      "version": "0.1.0",
+      "delivery": "host-managed",
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "EngineLaunch-unknown-field",
+    "contract": "EngineLaunch",
+    "valid": false,
+    "value": {
+      "runtime": "node",
+      "entry": "example",
+      "args": [],
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "AdapterVersion-unknown-field",
+    "contract": "AdapterVersion",
+    "valid": false,
+    "value": {
+      "package": "example",
+      "version": "0.1.0",
+      "acpSdkVersion": "0.1.0",
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "EngineResource-unknown-field",
+    "contract": "EngineResource",
+    "valid": false,
+    "value": {
+      "id": "codex",
+      "name": "Codex",
+      "protocol": "acp",
+      "transport": "stdio",
+      "launch": {
+        "runtime": "node",
+        "entry": "dist/index.mjs",
+        "args": []
+      },
+      "adapter": {
+        "package": "@agentclientprotocol/codex-acp",
+        "version": "2.3.0",
+        "acpSdkVersion": "2.0.2"
+      },
+      "dependencies": [
+        {
+          "id": "node",
+          "version": "22.22.0",
+          "delivery": "host-managed"
+        },
+        {
+          "id": "codex-cli",
+          "version": "0.164.0",
+          "delivery": "bundled"
+        }
+      ],
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "EnginePluginManifest-unknown-field",
+    "contract": "EnginePluginManifest",
+    "valid": false,
+    "value": {
+      "pluginApiVersion": 2,
+      "id": "zenmind-agent-codex",
+      "name": "Codex",
+      "version": "0.1.0",
+      "description": "Codex ACP plugin",
+      "platform": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "desktop": {
+        "bundleTopLevelDir": "zenmind-agent-codex"
+      },
+      "requires": {
+        "platformAgentEngineApi": 2,
+        "webclientAgentEngineApi": 1
+      },
+      "resources": {
+        "agentEngines": [
+          {
+            "id": "codex",
+            "name": "Codex",
+            "protocol": "acp",
+            "transport": "stdio",
+            "launch": {
+              "runtime": "node",
+              "entry": "dist/index.mjs",
+              "args": []
+            },
+            "adapter": {
+              "package": "@agentclientprotocol/codex-acp",
+              "version": "2.3.0",
+              "acpSdkVersion": "2.0.2"
+            },
+            "dependencies": [
+              {
+                "id": "node",
+                "version": "22.22.0",
+                "delivery": "host-managed"
+              },
+              {
+                "id": "codex-cli",
+                "version": "0.164.0",
+                "delivery": "bundled"
+              }
+            ]
+          }
+        ]
+      },
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "EngineInstallation-unknown-field",
+    "contract": "EngineInstallation",
+    "valid": false,
+    "value": {
+      "engineId": "zenmind-agent-codex/codex",
+      "pluginId": "zenmind-agent-codex",
+      "pluginVersion": "0.1.0",
+      "installationRef": "record-123",
+      "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "enabled": true,
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "EngineUpsert-unknown-field",
+    "contract": "EngineUpsert",
+    "valid": false,
+    "value": {
+      "apiVersion": 1,
+      "revision": 7,
+      "engineId": "zenmind-agent-codex/codex",
+      "pluginId": "zenmind-agent-codex",
+      "pluginVersion": "0.1.0",
+      "installationRef": "record-123",
+      "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "enabled": true,
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "EngineSnapshot-unknown-field",
+    "contract": "EngineSnapshot",
+    "valid": false,
+    "value": {
+      "apiVersion": 1,
+      "revision": 8,
+      "entries": [
+        {
+          "engineId": "zenmind-agent-codex/codex",
+          "pluginId": "zenmind-agent-codex",
+          "pluginVersion": "0.1.0",
+          "installationRef": "record-123",
+          "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "enabled": true
+        }
+      ],
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "EngineRevoke-unknown-field",
+    "contract": "EngineRevoke",
+    "valid": false,
+    "value": {
+      "apiVersion": 1,
+      "revision": 9,
+      "engineId": "zenmind-agent-codex/codex",
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "ACPProject-unknown-field",
+    "contract": "ACPProject",
+    "valid": false,
+    "value": {
+      "engine": "acp",
+      "runtimeConfig": {
+        "engineId": "zenmind-agent-codex/codex",
+        "workspaceRoot": "/workspace"
+      },
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "ConfigSelection-unknown-field",
+    "contract": "ConfigSelection",
+    "valid": false,
+    "value": {
+      "configId": "example",
+      "value": "example",
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "SessionBinding-unknown-field",
+    "contract": "SessionBinding",
+    "valid": false,
+    "value": {
+      "schemaVersion": 1,
+      "chatId": "example",
+      "engineId": "zenmind-agent-codex/codex",
+      "profileId": "example",
+      "workspaceRoot": "/workspace",
+      "acpSessionId": "example",
+      "contextState": "prepared",
+      "configSelection": [],
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "ConfigChoice-unknown-field",
+    "contract": "ConfigChoice",
+    "valid": false,
+    "value": {
+      "value": "example",
+      "name": "example",
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "PreparedSession-unknown-field",
+    "contract": "PreparedSession",
+    "valid": false,
+    "value": {
+      "chatId": "example",
+      "engineId": "zenmind-agent-codex/codex",
+      "preparationId": "example",
+      "configRevision": 1,
+      "configOptions": [],
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "ConfigUpdate-unknown-field",
+    "contract": "ConfigUpdate",
+    "valid": false,
+    "value": {
+      "chatId": "example",
+      "preparationId": "example",
+      "configRevision": 1,
+      "selections": [
+        {
+          "configId": "example",
+          "value": "example"
+        }
+      ],
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "TerminalAuthLaunch-unknown-field",
+    "contract": "TerminalAuthLaunch",
+    "valid": false,
+    "value": {
+      "methodId": "example",
+      "args": [
+        "example"
+      ],
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "AuthMethod-unknown-field",
+    "contract": "AuthMethod",
+    "valid": false,
+    "value": {
+      "id": "example",
+      "name": "example",
+      "type": "agent",
+      "available": false,
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "AuthStatus-unknown-field",
+    "contract": "AuthStatus",
+    "valid": false,
+    "value": {
+      "engineId": "zenmind-agent-codex/codex",
+      "state": "unknown",
+      "methods": [],
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "AuthStart-unknown-field",
+    "contract": "AuthStart",
+    "valid": false,
+    "value": {
+      "engineId": "zenmind-agent-codex/codex",
+      "methodId": "example",
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "QuestionOption-unknown-field",
+    "contract": "QuestionOption",
+    "valid": false,
+    "value": {
+      "id": "example",
+      "label": "example",
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "EngineError-unknown-field",
+    "contract": "EngineError",
+    "valid": false,
+    "value": {
+      "code": 409,
+      "msg": "auth_required",
+      "data": {
+        "errorCode": "auth_required",
+        "executionState": "not_started",
+        "retryable": false
+      },
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "ManagementBootstrap-unknown-field",
+    "contract": "ManagementBootstrap",
+    "valid": false,
+    "value": {
+      "schemaVersion": 1,
+      "hostId": "example",
+      "launchNonce": "example",
+      "managementSecret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "deliveryRoot": "/workspace",
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "ManagementStatus-unknown-field",
+    "contract": "ManagementStatus",
+    "valid": false,
+    "value": {
+      "apiVersion": 1,
+      "hostId": "example",
+      "epoch": "example",
+      "ready": false,
+      "appliedRevision": 0,
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "SyncAck-unknown-field",
+    "contract": "SyncAck",
+    "valid": false,
+    "value": {
+      "apiVersion": 1,
+      "appliedRevision": 0,
+      "action": "applied",
+      "ready": false,
+      "drainingEngineIds": [],
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "EngineCapabilities-unknown-field",
+    "contract": "EngineCapabilities",
+    "valid": false,
+    "value": {
+      "question": false,
+      "permission": false,
+      "configuration": false,
+      "resume": false,
+      "image": false,
+      "file": false,
+      "planning": false,
+      "access_level": false,
+      "service_tier": false,
+      "steer": false,
+      "boolean_config": false,
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "EngineDirectoryEntry-unknown-field",
+    "contract": "EngineDirectoryEntry",
+    "valid": false,
+    "value": {
+      "engineId": "zenmind-agent-codex/codex",
+      "pluginId": "example",
+      "pluginVersion": "0.1.0",
+      "enabled": false,
+      "syncState": "pending",
+      "dependencyState": "unknown",
+      "authState": "unknown",
+      "runtimeState": "stopped",
+      "capabilities": {
+        "question": false,
+        "permission": false,
+        "configuration": false,
+        "resume": false,
+        "image": false,
+        "file": false,
+        "planning": false,
+        "access_level": false,
+        "service_tier": false,
+        "steer": false,
+        "boolean_config": false
+      },
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "EngineDirectory-unknown-field",
+    "contract": "EngineDirectory",
+    "valid": false,
+    "value": {
+      "apiVersion": 1,
+      "catalogGeneration": "example",
+      "revision": 0,
+      "ready": false,
+      "engines": [],
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "DirectoryChanged-unknown-field",
+    "contract": "DirectoryChanged",
+    "valid": false,
+    "value": {
+      "catalogGeneration": "example",
+      "revision": 0,
+      "undeclaredField": true
+    }
+  },
+  {
+    "name": "entry-reject-../escape.mjs",
+    "contract": "EnginePluginManifest",
+    "valid": false,
+    "value": {
+      "pluginApiVersion": 2,
+      "id": "zenmind-agent-codex",
+      "name": "Codex",
+      "version": "0.1.0",
+      "description": "Codex ACP plugin",
+      "platform": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "desktop": {
+        "bundleTopLevelDir": "zenmind-agent-codex"
+      },
+      "requires": {
+        "platformAgentEngineApi": 2,
+        "webclientAgentEngineApi": 1
+      },
+      "resources": {
+        "agentEngines": [
+          {
+            "id": "codex",
+            "name": "Codex",
+            "protocol": "acp",
+            "transport": "stdio",
+            "launch": {
+              "runtime": "node",
+              "entry": "../escape.mjs",
+              "args": []
+            },
+            "adapter": {
+              "package": "@agentclientprotocol/codex-acp",
+              "version": "2.3.0",
+              "acpSdkVersion": "2.0.2"
+            },
+            "dependencies": [
+              {
+                "id": "node",
+                "version": "22.22.0",
+                "delivery": "host-managed"
+              },
+              {
+                "id": "codex-cli",
+                "version": "0.164.0",
+                "delivery": "bundled"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "entry-reject-/bin/node",
+    "contract": "EnginePluginManifest",
+    "valid": false,
+    "value": {
+      "pluginApiVersion": 2,
+      "id": "zenmind-agent-codex",
+      "name": "Codex",
+      "version": "0.1.0",
+      "description": "Codex ACP plugin",
+      "platform": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "desktop": {
+        "bundleTopLevelDir": "zenmind-agent-codex"
+      },
+      "requires": {
+        "platformAgentEngineApi": 2,
+        "webclientAgentEngineApi": 1
+      },
+      "resources": {
+        "agentEngines": [
+          {
+            "id": "codex",
+            "name": "Codex",
+            "protocol": "acp",
+            "transport": "stdio",
+            "launch": {
+              "runtime": "node",
+              "entry": "/bin/node",
+              "args": []
+            },
+            "adapter": {
+              "package": "@agentclientprotocol/codex-acp",
+              "version": "2.3.0",
+              "acpSdkVersion": "2.0.2"
+            },
+            "dependencies": [
+              {
+                "id": "node",
+                "version": "22.22.0",
+                "delivery": "host-managed"
+              },
+              {
+                "id": "codex-cli",
+                "version": "0.164.0",
+                "delivery": "bundled"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "entry-reject-C:/node.exe",
+    "contract": "EnginePluginManifest",
+    "valid": false,
+    "value": {
+      "pluginApiVersion": 2,
+      "id": "zenmind-agent-codex",
+      "name": "Codex",
+      "version": "0.1.0",
+      "description": "Codex ACP plugin",
+      "platform": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "desktop": {
+        "bundleTopLevelDir": "zenmind-agent-codex"
+      },
+      "requires": {
+        "platformAgentEngineApi": 2,
+        "webclientAgentEngineApi": 1
+      },
+      "resources": {
+        "agentEngines": [
+          {
+            "id": "codex",
+            "name": "Codex",
+            "protocol": "acp",
+            "transport": "stdio",
+            "launch": {
+              "runtime": "node",
+              "entry": "C:/node.exe",
+              "args": []
+            },
+            "adapter": {
+              "package": "@agentclientprotocol/codex-acp",
+              "version": "2.3.0",
+              "acpSdkVersion": "2.0.2"
+            },
+            "dependencies": [
+              {
+                "id": "node",
+                "version": "22.22.0",
+                "delivery": "host-managed"
+              },
+              {
+                "id": "codex-cli",
+                "version": "0.164.0",
+                "delivery": "bundled"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "entry-reject-dist/../escape.mjs",
+    "contract": "EnginePluginManifest",
+    "valid": false,
+    "value": {
+      "pluginApiVersion": 2,
+      "id": "zenmind-agent-codex",
+      "name": "Codex",
+      "version": "0.1.0",
+      "description": "Codex ACP plugin",
+      "platform": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "desktop": {
+        "bundleTopLevelDir": "zenmind-agent-codex"
+      },
+      "requires": {
+        "platformAgentEngineApi": 2,
+        "webclientAgentEngineApi": 1
+      },
+      "resources": {
+        "agentEngines": [
+          {
+            "id": "codex",
+            "name": "Codex",
+            "protocol": "acp",
+            "transport": "stdio",
+            "launch": {
+              "runtime": "node",
+              "entry": "dist/../escape.mjs",
+              "args": []
+            },
+            "adapter": {
+              "package": "@agentclientprotocol/codex-acp",
+              "version": "2.3.0",
+              "acpSdkVersion": "2.0.2"
+            },
+            "dependencies": [
+              {
+                "id": "node",
+                "version": "22.22.0",
+                "delivery": "host-managed"
+              },
+              {
+                "id": "codex-cli",
+                "version": "0.164.0",
+                "delivery": "bundled"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "entry-reject-dist\\index.mjs",
+    "contract": "EnginePluginManifest",
+    "valid": false,
+    "value": {
+      "pluginApiVersion": 2,
+      "id": "zenmind-agent-codex",
+      "name": "Codex",
+      "version": "0.1.0",
+      "description": "Codex ACP plugin",
+      "platform": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "desktop": {
+        "bundleTopLevelDir": "zenmind-agent-codex"
+      },
+      "requires": {
+        "platformAgentEngineApi": 2,
+        "webclientAgentEngineApi": 1
+      },
+      "resources": {
+        "agentEngines": [
+          {
+            "id": "codex",
+            "name": "Codex",
+            "protocol": "acp",
+            "transport": "stdio",
+            "launch": {
+              "runtime": "node",
+              "entry": "dist\\index.mjs",
+              "args": []
+            },
+            "adapter": {
+              "package": "@agentclientprotocol/codex-acp",
+              "version": "2.3.0",
+              "acpSdkVersion": "2.0.2"
+            },
+            "dependencies": [
+              {
+                "id": "node",
+                "version": "22.22.0",
+                "delivery": "host-managed"
+              },
+              {
+                "id": "codex-cli",
+                "version": "0.164.0",
+                "delivery": "bundled"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "entry-reject-dist/index.mjs:stream",
+    "contract": "EnginePluginManifest",
+    "valid": false,
+    "value": {
+      "pluginApiVersion": 2,
+      "id": "zenmind-agent-codex",
+      "name": "Codex",
+      "version": "0.1.0",
+      "description": "Codex ACP plugin",
+      "platform": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "desktop": {
+        "bundleTopLevelDir": "zenmind-agent-codex"
+      },
+      "requires": {
+        "platformAgentEngineApi": 2,
+        "webclientAgentEngineApi": 1
+      },
+      "resources": {
+        "agentEngines": [
+          {
+            "id": "codex",
+            "name": "Codex",
+            "protocol": "acp",
+            "transport": "stdio",
+            "launch": {
+              "runtime": "node",
+              "entry": "dist/index.mjs:stream",
+              "args": []
+            },
+            "adapter": {
+              "package": "@agentclientprotocol/codex-acp",
+              "version": "2.3.0",
+              "acpSdkVersion": "2.0.2"
+            },
+            "dependencies": [
+              {
+                "id": "node",
+                "version": "22.22.0",
+                "delivery": "host-managed"
+              },
+              {
+                "id": "codex-cli",
+                "version": "0.164.0",
+                "delivery": "bundled"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "upsert-reject-executable",
+    "contract": "EngineUpsert",
+    "valid": false,
+    "value": {
+      "apiVersion": 1,
+      "revision": 7,
+      "engineId": "zenmind-agent-codex/codex",
+      "pluginId": "zenmind-agent-codex",
+      "pluginVersion": "0.1.0",
+      "installationRef": "record-123",
+      "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "enabled": true,
+      "executable": "untrusted"
+    }
+  },
+  {
+    "name": "upsert-reject-args",
+    "contract": "EngineUpsert",
+    "valid": false,
+    "value": {
+      "apiVersion": 1,
+      "revision": 7,
+      "engineId": "zenmind-agent-codex/codex",
+      "pluginId": "zenmind-agent-codex",
+      "pluginVersion": "0.1.0",
+      "installationRef": "record-123",
+      "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "enabled": true,
+      "args": "untrusted"
+    }
+  },
+  {
+    "name": "upsert-reject-env",
+    "contract": "EngineUpsert",
+    "valid": false,
+    "value": {
+      "apiVersion": 1,
+      "revision": 7,
+      "engineId": "zenmind-agent-codex/codex",
+      "pluginId": "zenmind-agent-codex",
+      "pluginVersion": "0.1.0",
+      "installationRef": "record-123",
+      "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "enabled": true,
+      "env": "untrusted"
+    }
+  },
+  {
+    "name": "upsert-reject-cwd",
+    "contract": "EngineUpsert",
+    "valid": false,
+    "value": {
+      "apiVersion": 1,
+      "revision": 7,
+      "engineId": "zenmind-agent-codex/codex",
+      "pluginId": "zenmind-agent-codex",
+      "pluginVersion": "0.1.0",
+      "installationRef": "record-123",
+      "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "enabled": true,
+      "cwd": "untrusted"
+    }
+  },
+  {
+    "name": "upsert-reject-deliveryRoot",
+    "contract": "EngineUpsert",
+    "valid": false,
+    "value": {
+      "apiVersion": 1,
+      "revision": 7,
+      "engineId": "zenmind-agent-codex/codex",
+      "pluginId": "zenmind-agent-codex",
+      "pluginVersion": "0.1.0",
+      "installationRef": "record-123",
+      "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "enabled": true,
+      "deliveryRoot": "untrusted"
+    }
+  },
+  {
+    "name": "upsert-reject-ownerHostId",
+    "contract": "EngineUpsert",
+    "valid": false,
+    "value": {
+      "apiVersion": 1,
+      "revision": 7,
+      "engineId": "zenmind-agent-codex/codex",
+      "pluginId": "zenmind-agent-codex",
+      "pluginVersion": "0.1.0",
+      "installationRef": "record-123",
+      "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "enabled": true,
+      "ownerHostId": "untrusted"
+    }
+  },
+  {
+    "name": "project-reject-acpBridgeId",
+    "contract": "ACPProject",
+    "valid": false,
+    "value": {
+      "engine": "acp",
+      "runtimeConfig": {
+        "engineId": "zenmind-agent-codex/codex",
+        "workspaceRoot": "/workspace",
+        "acpBridgeId": "legacy"
+      }
+    }
+  },
+  {
+    "name": "project-reject-command",
+    "contract": "ACPProject",
+    "valid": false,
+    "value": {
+      "engine": "acp",
+      "runtimeConfig": {
+        "engineId": "zenmind-agent-codex/codex",
+        "workspaceRoot": "/workspace",
+        "command": "legacy"
+      }
+    }
+  },
+  {
+    "name": "project-reject-baseURL",
+    "contract": "ACPProject",
+    "valid": false,
+    "value": {
+      "engine": "acp",
+      "runtimeConfig": {
+        "engineId": "zenmind-agent-codex/codex",
+        "workspaceRoot": "/workspace",
+        "baseURL": "legacy"
+      }
+    }
+  },
+  {
+    "name": "project-reject-pluginVersion",
+    "contract": "ACPProject",
+    "valid": false,
+    "value": {
+      "engine": "acp",
+      "runtimeConfig": {
+        "engineId": "zenmind-agent-codex/codex",
+        "workspaceRoot": "/workspace",
+        "pluginVersion": "legacy"
+      }
+    }
+  },
+  {
+    "name": "windows-path-C:\\Projects\\测试 workspace",
+    "contract": "ACPProject",
+    "valid": true,
+    "value": {
+      "engine": "acp",
+      "runtimeConfig": {
+        "engineId": "zenmind-agent-codex/codex",
+        "workspaceRoot": "C:\\Projects\\测试 workspace"
+      }
+    }
+  },
+  {
+    "name": "windows-path-\\\\server\\share\\project",
+    "contract": "ACPProject",
+    "valid": true,
+    "value": {
+      "engine": "acp",
+      "runtimeConfig": {
+        "engineId": "zenmind-agent-codex/codex",
+        "workspaceRoot": "\\\\server\\share\\project"
+      }
+    }
+  },
+  {
+    "name": "invalid-epoch-0",
+    "contract": "EpochMillis",
+    "valid": false,
+    "value": 0
+  },
+  {
+    "name": "invalid-epoch-1700000000",
+    "contract": "EpochMillis",
+    "valid": false,
+    "value": 1700000000
+  },
+  {
+    "name": "invalid-epoch-9007199254740992",
+    "contract": "EpochMillis",
+    "valid": false,
+    "value": 9007199254740992
+  },
+  {
+    "name": "error-invalid_arguments",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 400,
+      "msg": "invalid_arguments",
+      "data": {
+        "errorCode": "invalid_arguments",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-manifest_unsupported",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 400,
+      "msg": "manifest_unsupported",
+      "data": {
+        "errorCode": "manifest_unsupported",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-invalid_config_selection",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 400,
+      "msg": "invalid_config_selection",
+      "data": {
+        "errorCode": "invalid_config_selection",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-invalid_permission_option",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 400,
+      "msg": "invalid_permission_option",
+      "data": {
+        "errorCode": "invalid_permission_option",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-capability_unsupported",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 400,
+      "msg": "capability_unsupported",
+      "data": {
+        "errorCode": "capability_unsupported",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-execute_unsupported_agent",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 400,
+      "msg": "execute_unsupported_agent",
+      "data": {
+        "errorCode": "execute_unsupported_agent",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-elicitation_unsupported",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 400,
+      "msg": "elicitation_unsupported",
+      "data": {
+        "errorCode": "elicitation_unsupported",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-management_unauthorized",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 401,
+      "msg": "management_unauthorized",
+      "data": {
+        "errorCode": "management_unauthorized",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-management_forbidden",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 403,
+      "msg": "management_forbidden",
+      "data": {
+        "errorCode": "management_forbidden",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-awaiting_forbidden",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 403,
+      "msg": "awaiting_forbidden",
+      "data": {
+        "errorCode": "awaiting_forbidden",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-artifact_untrusted",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 403,
+      "msg": "artifact_untrusted",
+      "data": {
+        "errorCode": "artifact_untrusted",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-management_epoch_mismatch",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "management_epoch_mismatch",
+      "data": {
+        "errorCode": "management_epoch_mismatch",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-revision_stale",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "revision_stale",
+      "data": {
+        "errorCode": "revision_stale",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-revision_conflict",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "revision_conflict",
+      "data": {
+        "errorCode": "revision_conflict",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-registry_not_ready",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "registry_not_ready",
+      "data": {
+        "errorCode": "registry_not_ready",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-unsupported_deployment",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "unsupported_deployment",
+      "data": {
+        "errorCode": "unsupported_deployment",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-dependency_missing",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "dependency_missing",
+      "data": {
+        "errorCode": "dependency_missing",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-engine_unavailable",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "engine_unavailable",
+      "data": {
+        "errorCode": "engine_unavailable",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-auth_required",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "auth_required",
+      "data": {
+        "errorCode": "auth_required",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-auth_method_unavailable",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "auth_method_unavailable",
+      "data": {
+        "errorCode": "auth_method_unavailable",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-desktop_required",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "desktop_required",
+      "data": {
+        "errorCode": "desktop_required",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-interaction_required",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "interaction_required",
+      "data": {
+        "errorCode": "interaction_required",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-session_restore_failed",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "session_restore_failed",
+      "data": {
+        "errorCode": "session_restore_failed",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-session_configuration_stale",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "session_configuration_stale",
+      "data": {
+        "errorCode": "session_configuration_stale",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-awaiting_expired",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "awaiting_expired",
+      "data": {
+        "errorCode": "awaiting_expired",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-submit_conflict",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "submit_conflict",
+      "data": {
+        "errorCode": "submit_conflict",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-artifact_digest_mismatch",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 409,
+      "msg": "artifact_digest_mismatch",
+      "data": {
+        "errorCode": "artifact_digest_mismatch",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-engine_busy",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 429,
+      "msg": "engine_busy",
+      "data": {
+        "errorCode": "engine_busy",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "error-rpc_connection_lost",
+    "contract": "EngineError",
+    "valid": true,
+    "value": {
+      "code": 502,
+      "msg": "rpc_connection_lost",
+      "data": {
+        "errorCode": "rpc_connection_lost",
+        "executionState": "not_started",
+        "retryable": false
+      }
+    }
+  },
+  {
+    "name": "QuestionAnswer-valid",
+    "contract": "QuestionAnswer",
+    "valid": true,
+    "value": {
+      "id": "result",
+      "answer": "OK"
+    }
+  },
+  {
+    "name": "DeliverySource-valid",
+    "contract": "DeliverySource",
+    "valid": true,
+    "value": {
+      "kind": "market",
+      "authorizationRef": "grant-1",
+      "archiveDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  {
+    "name": "DeliverySource-unknown-path",
+    "contract": "DeliverySource",
+    "valid": false,
+    "value": {
+      "kind": "market",
+      "authorizationRef": "grant-1",
+      "archiveDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "packagePath": "/outside"
+    }
+  },
+  {
+    "name": "TrustedDeliveryRecord-valid",
+    "contract": "TrustedDeliveryRecord",
+    "valid": true,
+    "value": {
+      "schemaVersion": 1,
+      "installationRef": "record-123",
+      "ownerHostId": "host-1",
+      "pluginId": "zenmind-agent-codex",
+      "pluginVersion": "0.1.0",
+      "platform": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source": {
+        "kind": "market",
+        "authorizationRef": "grant-1",
+        "archiveDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    }
+  },
+  {
+    "name": "TrustedDeliveryRecord-unknown-path",
+    "contract": "TrustedDeliveryRecord",
+    "valid": false,
+    "value": {
+      "schemaVersion": 1,
+      "installationRef": "record-123",
+      "ownerHostId": "host-1",
+      "pluginId": "zenmind-agent-codex",
+      "pluginVersion": "0.1.0",
+      "platform": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source": {
+        "kind": "market",
+        "authorizationRef": "grant-1",
+        "archiveDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "packagePath": "/outside"
+    }
+  },
+  {
+    "name": "SessionPrepare-valid",
+    "contract": "SessionPrepare",
+    "valid": true,
+    "value": {
+      "chatId": "chat-1"
+    }
+  },
+  {
+    "name": "SessionPrepare-reject-profile",
+    "contract": "SessionPrepare",
+    "valid": false,
+    "value": {
+      "chatId": "chat-1",
+      "profileId": "private"
+    }
+  },
+  {
+    "name": "AuthCancel-valid",
+    "contract": "AuthCancel",
+    "valid": true,
+    "value": {
+      "authOperationId": "auth-1"
+    }
+  },
+  {
+    "name": "AuthCancel-reject-profile",
+    "contract": "AuthCancel",
+    "valid": false,
+    "value": {
+      "authOperationId": "auth-1",
+      "profileId": "private"
+    }
+  },
+  {
+    "name": "bundled-dependency-location",
+    "contract": "EngineDependency",
+    "valid": true,
+    "value": {
+      "id": "cli",
+      "version": "1.0.0",
+      "delivery": "bundled",
+      "path": "node_modules/@vendor/cli",
+      "entry": "node_modules/@vendor/cli/bin/cli.js"
+    }
+  },
+  {
+    "name": "bundled-dependency-escape",
+    "contract": "EngineDependency",
+    "valid": false,
+    "value": {
+      "id": "cli",
+      "version": "1.0.0",
+      "delivery": "bundled",
+      "path": "../outside"
+    }
+  },
+  {
+    "name": "agent-auth",
+    "contract": "EngineResource",
+    "valid": true,
+    "value": {
+      "id": "codex",
+      "name": "Codex",
+      "protocol": "acp",
+      "transport": "stdio",
+      "launch": {
+        "runtime": "node",
+        "entry": "dist/index.mjs",
+        "args": []
+      },
+      "adapter": {
+        "package": "@agentclientprotocol/codex-acp",
+        "version": "2.3.0",
+        "acpSdkVersion": "2.0.2"
+      },
+      "dependencies": [
+        {
+          "id": "node",
+          "version": "22.22.0",
+          "delivery": "host-managed"
+        },
+        {
+          "id": "codex-cli",
+          "version": "0.164.0",
+          "delivery": "bundled"
+        }
+      ],
+      "authentication": {
+        "terminalMethods": [],
+        "agentMethods": [
+          "browser-login"
+        ]
+      }
+    }
+  },
+  {
+    "name": "agent-auth-empty-id",
+    "contract": "EngineResource",
+    "valid": false,
+    "value": {
+      "id": "codex",
+      "name": "Codex",
+      "protocol": "acp",
+      "transport": "stdio",
+      "launch": {
+        "runtime": "node",
+        "entry": "dist/index.mjs",
+        "args": []
+      },
+      "adapter": {
+        "package": "@agentclientprotocol/codex-acp",
+        "version": "2.3.0",
+        "acpSdkVersion": "2.0.2"
+      },
+      "dependencies": [
+        {
+          "id": "node",
+          "version": "22.22.0",
+          "delivery": "host-managed"
+        },
+        {
+          "id": "codex-cli",
+          "version": "0.164.0",
+          "delivery": "bundled"
+        }
+      ],
+      "authentication": {
+        "terminalMethods": [],
+        "agentMethods": [
+          ""
+        ]
+      }
+    }
+  },
+  {
+    "name": "agent-auth-arbitrary-env",
+    "contract": "EngineResource",
+    "valid": false,
+    "value": {
+      "id": "codex",
+      "name": "Codex",
+      "protocol": "acp",
+      "transport": "stdio",
+      "launch": {
+        "runtime": "node",
+        "entry": "dist/index.mjs",
+        "args": []
+      },
+      "adapter": {
+        "package": "@agentclientprotocol/codex-acp",
+        "version": "2.3.0",
+        "acpSdkVersion": "2.0.2"
+      },
+      "dependencies": [
+        {
+          "id": "node",
+          "version": "22.22.0",
+          "delivery": "host-managed"
+        },
+        {
+          "id": "codex-cli",
+          "version": "0.164.0",
+          "delivery": "bundled"
+        }
+      ],
+      "authentication": {
+        "terminalMethods": [],
+        "agentMethods": {
+          "TOKEN": "bad"
+        }
+      }
+    }
+  },
+  {
+    "name": "legacy-product-profile-api-rejected",
+    "contract": "EnginePluginManifest",
+    "valid": false,
+    "value": {
+      "pluginApiVersion": 2,
+      "id": "zenmind-agent-codex",
+      "name": "Codex",
+      "version": "0.1.0",
+      "description": "Codex ACP plugin",
+      "platform": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "desktop": {
+        "bundleTopLevelDir": "zenmind-agent-codex"
+      },
+      "requires": {
+        "platformAgentEngineApi": 1,
+        "webclientAgentEngineApi": 1
+      },
+      "resources": {
+        "agentEngines": [
+          {
+            "id": "codex",
+            "name": "Codex",
+            "protocol": "acp",
+            "transport": "stdio",
+            "launch": {
+              "runtime": "node",
+              "entry": "dist/index.mjs",
+              "args": []
+            },
+            "adapter": {
+              "package": "@agentclientprotocol/codex-acp",
+              "version": "2.3.0",
+              "acpSdkVersion": "2.0.2"
+            },
+            "dependencies": [
+              {
+                "id": "node",
+                "version": "22.22.0",
+                "delivery": "host-managed"
+              },
+              {
+                "id": "codex-cli",
+                "version": "0.164.0",
+                "delivery": "bundled"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "EngineLaunch-executable",
+    "contract": "EngineLaunch",
+    "valid": true,
+    "value": {
+      "runtime": "executable",
+      "entry": "bin/agent.exe",
+      "args": [
+        "acp",
+        "argument with spaces"
+      ]
+    }
+  },
+  {
+    "name": "EngineResource-executable-without-npm",
+    "contract": "EngineResource",
+    "valid": true,
+    "value": {
+      "id": "orbit",
+      "name": "Orbit",
+      "protocol": "acp",
+      "transport": "stdio",
+      "launch": {
+        "runtime": "executable",
+        "entry": "bin/agent",
+        "args": []
+      },
+      "dependencies": []
+    }
+  },
+  {
+    "name": "EngineLaunch-shell-rejected",
+    "contract": "EngineLaunch",
+    "valid": false,
+    "value": {
+      "runtime": "shell",
+      "entry": "bin/agent",
+      "args": []
+    }
+  }
+]

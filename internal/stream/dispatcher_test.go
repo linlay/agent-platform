@@ -1997,3 +1997,11 @@ func TestDispatcherToolUsageSnapshotKeepsAgentContextWindow(t *testing.T) {
 		t.Fatalf("context window must keep describing the agent model: %#v", contextWindow)
 	}
 }
+
+func TestApprovalAnswerRetainsNeutralDecision(t *testing.T) {
+	event := newAwaitingAnswerEvent(AwaitingAnswer{AwaitingID: "external-one", Answer: map[string]any{"mode": "approval", "status": "answered", "approvals": []any{map[string]any{"id": "item", "decision": "approve"}}}})
+	data, _ := json.Marshal(event)
+	if !strings.Contains(string(data), `"decision":"approve"`) {
+		t.Fatalf("approval answer dropped: %s", data)
+	}
+}

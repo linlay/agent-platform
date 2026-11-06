@@ -1068,31 +1068,6 @@ func TestFrameOrchestratorRejectsChildOutsideFixedTeamSnapshot(t *testing.T) {
 	}
 }
 
-func TestFrameOrchestratorReportsACPCoderChildAsTaskError(t *testing.T) {
-	mainStream := &stubOrchestratableStream{deltas: []contracts.AgentDelta{
-		newInvokeAgentsDelta(contracts.SubAgentTaskSpec{TaskAgentKey: "acp-coder", TaskText: "edit"}),
-	}}
-	var emitted []contracts.AgentDelta
-	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{}, map[string]catalog.AgentDefinition{
-		"acp-coder": {Key: "acp-coder", Mode: catalog.AgentModeCoder, ACPBridgeID: "codex"},
-	}, &emitted, nil)
-
-	failed, interrupted, err := orchestrator.Run(mainStream)
-	if err != nil || failed || interrupted {
-		t.Fatalf("unexpected result err=%v failed=%v interrupted=%v", err, failed, interrupted)
-	}
-	if len(emitted) != 2 {
-		t.Fatalf("expected task start and task error, got %#v", emitted)
-	}
-	terminal, ok := emitted[1].(contracts.DeltaTaskLifecycle)
-	if !ok || terminal.Kind != "error" || terminal.Error == nil || !strings.Contains(errorMessage(terminal.Error), "ACP CODER") {
-		t.Fatalf("unexpected ACP task terminal %#v", emitted[1])
-	}
-	if len(mainStream.injected) != 1 || !mainStream.injected[0].isError || !strings.Contains(mainStream.injected[0].text, `"status":"failed"`) {
-		t.Fatalf("expected failed aggregated tool result, got %#v", mainStream.injected)
-	}
-}
-
 func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {

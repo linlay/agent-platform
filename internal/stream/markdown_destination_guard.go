@@ -8,6 +8,9 @@ const rejectedMarkdownResourceText = "资源地址不合规"
 // forbidden transport URL split across provider deltas is never emitted.
 // Ordinary text and code spans/fences continue streaming immediately.
 type MarkdownDestinationGuard struct {
+	// RewriteDestination adapts complete link targets at a trusted backend
+	// boundary. The default guard preserves all allowed destinations.
+	RewriteDestination func(string) string
 	chatID             string
 	codeDelimiter      byte
 	codeDelimiterWidth int
@@ -184,6 +187,9 @@ func (g *MarkdownDestinationGuard) finishDestination(out *strings.Builder, close
 	if g.destinationForbidden(destination) {
 		out.WriteString(rejectedMarkdownResourceText)
 	} else {
+		if closed && g.RewriteDestination != nil {
+			destination = g.RewriteDestination(destination)
+		}
 		out.WriteString(g.label.String())
 		out.WriteString(destination)
 		if closed {

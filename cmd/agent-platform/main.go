@@ -20,6 +20,7 @@ import (
 	"agent-platform/internal/builtins"
 	"agent-platform/internal/config"
 	"agent-platform/internal/httpclient"
+	"agent-platform/internal/processgroup"
 )
 
 const gracefulShutdownTimeout = 3 * time.Second
@@ -30,6 +31,16 @@ type shutdownServer interface {
 }
 
 func main() {
+	if handled, code := processgroup.RunGuardian(); handled {
+		os.Exit(code)
+	}
+	if len(os.Args) >= 2 && os.Args[1] == "agent-engine-manage" {
+		if err := runAgentEngineManagement(os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "runtime-recovery" {
 		if err := runRuntimeRecovery(os.Args[2:], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -166,6 +177,8 @@ func parseConfigOptions(args []string) (config.LoadOptions, error) {
 	fs := flag.NewFlagSet("agent-platform", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	options := config.LoadOptions{}
+	fs.StringVar(&options.AgentEngineBootstrapFile, "agent-engine-bootstrap-file", "", "private one-use Desktop engine bootstrap file")
+	fs.StringVar(&options.AgentEngineNode, "agent-engine-node", "", "absolute Node executable for standalone ACP plugins")
 	fs.StringVar(&options.ConfigDir, "config-dir", "", "configuration root containing .env and configs/")
 	fs.StringVar(&options.Port, "port", "", "server listen port")
 	fs.StringVar(&options.SsoIdTokenFile, "sso-id-token-file", "", "absolute identity token file overriding the state directory default")

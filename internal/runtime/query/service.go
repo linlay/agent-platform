@@ -10,10 +10,12 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connectorops"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/mailbox"
 	"agent-platform/internal/models"
+	"agent-platform/internal/runtime/acp"
 	"agent-platform/internal/runtime/proxy"
 	"agent-platform/internal/runtime/reference"
 	"agent-platform/internal/runtime/runstate"
@@ -37,7 +39,6 @@ type DeferredAwaitingStore interface {
 // never delegate admission, recovery or execution back to the transport.
 type ProxyPort interface {
 	Configure(*catalog.AgentDefinition) *runtimetypes.RequestError
-	Models(string) ([]queryinput.CoderModelOption, error, bool)
 	Start(runtimetypes.PreparedQuery, runtimetypes.RegisteredRun, *stream.RunEventBus, bool) error
 	Execute(runtimetypes.PreparedQuery, runtimetypes.RegisteredRun, *stream.RunEventBus) (runtimetypes.QueryResult, error)
 	Submit(queryinput.SubmitRequest) (queryinput.SubmitResponse, *runtimetypes.RequestError, bool)
@@ -46,24 +47,26 @@ type ProxyPort interface {
 	AccessLevel(queryinput.AccessLevelRequest) (queryinput.AccessLevelResponse, *runtimetypes.RequestError, bool)
 }
 type Dependencies struct {
-	BackgroundContext context.Context
-	Config            config.Config
-	Runs              contracts.RunManager
-	Chats             chat.Store
-	Registry          catalog.Registry
-	Models            *models.ModelRegistry
-	Tools             contracts.ToolExecutor
-	Agent             runtimetypes.Engine
-	Profiles          sessionbuild.ProfileBuilder
-	Sessions          *sessionbuild.Builder
-	References        *reference.Service
-	Notifications     contracts.NotificationSink
-	ToolInteractions  *toolinteraction.Registry
-	DeltaMappers      contracts.StreamDeltaMapperFactory
-	DeferredAwaitings DeferredAwaitingStore
-	Proxy             ProxyPort
-	ResourceTickets   proxy.TicketIssuer
-	PrimaryChats      PrimaryChatPort
+	ConnectorOperations *connectorops.Service
+	ACP                 *acp.Sessions
+	BackgroundContext   context.Context
+	Config              config.Config
+	Runs                contracts.RunManager
+	Chats               chat.Store
+	Registry            catalog.Registry
+	Models              *models.ModelRegistry
+	Tools               contracts.ToolExecutor
+	Agent               runtimetypes.Engine
+	Profiles            sessionbuild.ProfileBuilder
+	Sessions            *sessionbuild.Builder
+	References          *reference.Service
+	Notifications       contracts.NotificationSink
+	ToolInteractions    *toolinteraction.Registry
+	DeltaMappers        contracts.StreamDeltaMapperFactory
+	DeferredAwaitings   DeferredAwaitingStore
+	Proxy               ProxyPort
+	ResourceTickets     proxy.TicketIssuer
+	PrimaryChats        PrimaryChatPort
 }
 
 // PrimaryChatPort switches an Agent's primary Chat. Admission checks the

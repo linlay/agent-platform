@@ -14,6 +14,7 @@ import (
 
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/adminsource"
+	"agent-platform/internal/agentengine"
 	"agent-platform/internal/api"
 	"agent-platform/internal/artifactpusher"
 	"agent-platform/internal/automation"
@@ -26,6 +27,7 @@ import (
 	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/connectorops"
 	"agent-platform/internal/contracts"
+	enginedto "agent-platform/internal/contracts/agentengine"
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/credentialview"
 	"agent-platform/internal/gateway"
@@ -48,6 +50,7 @@ import (
 	"agent-platform/internal/runenvops"
 	"agent-platform/internal/runops"
 	agentruntime "agent-platform/internal/runtime"
+	runtimeacp "agent-platform/internal/runtime/acp"
 	runtimeadapter "agent-platform/internal/runtime/adapter"
 	runtimeproxy "agent-platform/internal/runtime/proxy"
 	runtimequery "agent-platform/internal/runtime/query"
@@ -78,6 +81,8 @@ type App struct {
 	webappBridge           *webappbridge.Service
 	webapps                *webapp.Service
 	mailbox                *mailbox.Service
+	engineSessions         *runtimeacp.Sessions
+	agentEngines           *agentengine.Service
 	nativeConnectorRelease func()
 	Config                 config.Config
 	RuntimeEnv             runtimeenv.Info
@@ -305,6 +310,61 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 
 	agentEngine := llm.NewLLMAgentEngineWithHTTPClient(cfg, modelRegistry, toolExecutor, interactionRegistry, sandboxClient, httpclient.NewClient(0))
 	var notifications contracts.NotificationSink = wsHub
+	bootstrapFile := ""
+	node := ""
+	if len(configOptions) > 0 {
+		bootstrapFile = configOptions[0].AgentEngineBootstrapFile
+		node = configOptions[0].AgentEngineNode
+	}
+	engineChanged := func(change enginedto.DirectoryChanged) {
+		notifications.Broadcast("agent_engines.changed", map[string]any{"catalogGeneration": change.CatalogGeneration, "revision": change.Revision})
+	}
+	var engineRegistry *agentengine.Service
+	if cfg.RuntimeMode == config.RuntimeModeStandalone {
+		if bootstrapFile != "" {
+			return nil, fmt.Errorf("standalone cannot use Desktop engine bootstrap")
+		}
+		engineRegistry, err = agentengine.NewStandalone(filepath.Dir(cfg.Paths.EffectiveRUAgentsDir()), node, engineChanged)
+	} else {
+		if node != "" {
+			return nil, fmt.Errorf("Desktop owns its engine Node runtime")
+		}
+		engineRegistry, err = agentengine.New(filepath.Dir(cfg.Paths.EffectiveRUAgentsDir()), bootstrapFile, true, engineChanged)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("initialize engine registry: %w", err)
+	}
+	cleanupEngines := true
+	defer func() {
+		if cleanupEngines {
+			_ = engineRegistry.Close()
+		}
+	}()
+
+	engineProcesses, err := runtimeacp.New(engineRegistry, filepath.Dir(cfg.Paths.EffectiveRUAgentsDir()), runtimeacp.Options{Proxy: cfg.HTTPProxy,
+		MaxProcesses: cfg.AgentEngine.MaxProcesses, MaxSessions: cfg.AgentEngine.MaxSessions,
+		MaxActive: cfg.AgentEngine.MaxActive, MaxQueued: cfg.AgentEngine.MaxQueued,
+		QueueTimeout: cfg.AgentEngine.QueueTimeout, IdleTimeout: cfg.AgentEngine.IdleTimeout,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("initialize engine supervisor: %w", err)
+	}
+	defer func() {
+		if cleanupEngines {
+			_ = engineProcesses.Close()
+		}
+	}()
+
+	engineSessions := runtimeacp.NewSessions(engineProcesses, chatStore, registry.AgentDefinition)
+	if engineRegistry.IsStandalone() {
+		if err = engineRegistry.Restore(); err != nil {
+			return nil, fmt.Errorf("restore installed engines: %w", err)
+		}
+		if err = engineRegistry.PublishLocalManagement(cfg.Server.Port); err != nil {
+			return nil, err
+		}
+	}
+
 	// gatewayResolver 在 Registry 构建完成后（server 依赖就绪之后）绑定。
 	// pusher 先拿到 resolver 指针，Registry 构建完调用 SetRegistry 就能工作。
 	gatewayResolver := &lazyGatewayResolver{chats: chatStore}
@@ -423,6 +483,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	adminSourceService := adminsource.NewService()
 	chatResourceService := chatresource.NewService(chatStore)
 	terminalManager := terminal.NewManager()
+	if engineRegistry.Status().HostID != "" {
+		engineSessions.EnableAuthentication(terminalManager)
+	}
 	conversationService := conversation.NewService(chatStore, archiveStore, archiver, runManager)
 	voiceService := voice.NewService(backgroundCtx, voice.Dependencies{Config: cfg.Voice, Models: modelRegistry, Runtime: runtimeService, Chats: chatStore, Agents: registry, Runs: runManager})
 	cleanupVoice := true
@@ -530,6 +593,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Voice:             voiceService,
 		WebApps:           webapps,
 		WebAppActions:     appBridge,
+		AgentEngines:      engineRegistry,
+		EngineSessions:    engineSessions,
 		BackgroundContext: backgroundCtx,
 		Config:            cfg,
 		Chats:             chatStore,
@@ -606,8 +671,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 
 	queryService := runtimequery.NewService(runtimequery.Dependencies{
-		BackgroundContext: backgroundCtx, Config: cfg, Runs: runManager, Chats: chatStore, Registry: registry, Models: modelRegistry, Tools: toolExecutor,
-		Agent: runtimeadapter.Engine{AgentEngine: agentEngine}, Profiles: profiles, Sessions: sessions,
+		ConnectorOperations: &connectorops.Service{Auth: connectorAuth, Sources: cfg.Paths.ConnectorSources(), SsoIdTokenFile: cfg.SsoIdTokenFile},
+		BackgroundContext:   backgroundCtx, Config: cfg, Runs: runManager, Chats: chatStore, Registry: registry, Models: modelRegistry, Tools: toolExecutor,
+		Agent: runtimeadapter.Engine{AgentEngine: agentEngine}, Profiles: profiles, Sessions: sessions, ACP: engineSessions,
 		Notifications: notifications, ToolInteractions: interactionRegistry, DeltaMappers: llm.DeltaMapperFactory{Interactions: interactionRegistry, CredentialPolicy: credentialview.FromConfig(cfg)},
 		DeferredAwaitings: deferredAwaitings, Proxy: server.RuntimeProxyPort{Server: srv}, ResourceTickets: srv.RuntimeResourceTickets(),
 		PrimaryChats: conversationService,
@@ -692,12 +758,15 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	cleanupNative = false
 	cleanupMail = false
 	cleanupWebapps = false
+	cleanupEngines = false
 
 	cleanupVoice = false
 	return &App{
 		voice: voiceService, webappBridge: appBridge,
 		webapps:                webapps,
 		mailbox:                mailService,
+		agentEngines:           engineRegistry,
+		engineSessions:         engineSessions,
 		nativeConnectorRelease: nativeRelease,
 		Config:                 cfg,
 		RuntimeEnv:             hostEnv,
@@ -729,6 +798,14 @@ func (a *App) Close() error {
 	}
 	if a.webappBridge != nil {
 		a.webappBridge.Close()
+	}
+	if a.engineSessions != nil {
+		if err := a.engineSessions.Close(); err != nil {
+			log.Printf("close engine sessions: %v", err)
+		}
+	}
+	if a.agentEngines != nil {
+		defer a.agentEngines.Close()
 	}
 	if a.nativeConnectorRelease != nil {
 		defer a.nativeConnectorRelease()

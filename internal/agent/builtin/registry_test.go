@@ -53,17 +53,14 @@ func TestPlanningModeIsANativeCapabilityNotAMode(t *testing.T) {
 		if !PlanningModeSupported(mode) || !PlanningModeEnabled(mode, true) || PlanningModeEnabled(mode, false) {
 			t.Fatalf("%s must support planning only when requested", mode)
 		}
-		if !NativePlanning(mode, "") || NativePlanning(mode, "codex") {
-			t.Fatalf("%s planning is platform-run only without an ACP bridge", mode)
-		}
 	}
 	for _, mode := range []string{"PLAN_EXECUTE", "ONESHOT", "PROXY", "CHANNEL", ""} {
-		if PlanningModeSupported(mode) || NativePlanning(mode, "") {
+		if PlanningModeSupported(mode) {
 			t.Fatalf("%s must not support planning", mode)
 		}
 	}
 	answer := map[string]any{"planning": map[string]any{"decision": "approve"}}
-	if !StartsNewExecutionRun("planning", answer, "GENERAL", "") || !StartsNewExecutionRun("planning", answer, "TEAM", "") || StartsNewExecutionRun("planning", answer, "CODER", "codex") {
+	if !StartsNewExecutionRun("planning", answer, "GENERAL") || !StartsNewExecutionRun("planning", answer, "TEAM") || StartsNewExecutionRun("planning", answer, "PROXY") {
 		t.Fatal("only platform-run planning hands off to a new execution Run")
 	}
 }

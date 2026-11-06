@@ -173,7 +173,7 @@ func TestCLIUsesSingleJSONArgumentWithoutShellOrAmbientCredentials(t *testing.T)
 	malicious := `$(touch should-not-exist); " %PATH% & | < >`
 	args, _ := json.Marshal(map[string]any{"value": malicious})
 	manager := connectorauth.New(t.Context(), connector.Sources{}, nil)
-	output, err := callCLI(context.Background(), manager, pkg, []string{"-test.run=^TestCLIHelper$", "--", "connectorops-helper", "--json", string(args)}, "")
+	output, err := callCLI(context.Background(), manager, pkg, []string{"-test.run=^TestCLIHelper$", "--", "connectorops-helper", "--json", string(args)}, "", "")
 	var decoded map[string]any
 	json.Unmarshal([]byte(output.Stdout), &decoded)
 	if err != nil || decoded["value"] != malicious {

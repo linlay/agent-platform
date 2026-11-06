@@ -132,7 +132,7 @@ func (s *Service) checkExecuteTarget(agentKey string) error {
 	if !ok {
 		return executeRequestError(404, "agent_not_found", "agent not found: "+agentKey, "")
 	}
-	if sessionbuild.IsProxyRoutedAgent(def) || catalog.AgentUsesACPCoderBackend(def) || sessionbuild.IsProxyAgentMode(def.Mode) {
+	if catalog.ExecutionBackend(def) == catalog.AgentEngineACP || sessionbuild.IsProxyRoutedAgent(def) || sessionbuild.IsProxyAgentMode(def.Mode) {
 		return executeRequestError(400, "execute_unsupported_agent", "only native Agents can be executed", "")
 	}
 	if !slices.Contains(def.Tools, contracts.ResultSubmitToolName) {

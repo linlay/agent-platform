@@ -29,7 +29,7 @@ func TestSteerReferencesPrepareWithoutMutatingAndUseFrozenPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Catalog changes do not alter the policy captured by this Run.
-	changed := interaction.DefaultsForEngine(def.Mode, false)
+	changed := interaction.DefaultsForEngine(def.Mode, "native")
 	changed.Attachment.Kbases = false
 	def.InteractionConfig = &changed
 	for _, closed := range []bool{true, false} {
@@ -112,6 +112,9 @@ func TestRemoteReferenceAdmissionRejectsLocalResourceIdentities(t *testing.T) {
 	} {
 		for _, steer := range []bool{false, true} {
 			for _, kind := range []string{"skill", "kbase", "chat"} {
+				if def.Engine == catalog.AgentEngineACP && !steer && kind != "chat" {
+					continue
+				} // ACP prompt inputs resolve locally; active reference steering remains unsupported.
 				grant, err := builder.PrepareRunReferences(context.Background(), contracts.QuerySession{}, def, queryinput.MakeReferences(kind, []string{"local-resource"}), steer, true, steer)
 				if err == nil || !strings.Contains(err.Error(), "unsupported") || len(grant.References) != 0 {
 					t.Fatalf("mode=%s engine=%s steer=%v type=%s grant=%+v err=%v", def.Mode, def.Engine, steer, kind, grant, err)
@@ -125,7 +128,7 @@ func TestAgentEntryReferencesSkipInteractionPolicyButKeepFrozenSnapshot(t *testi
 	builder := New(Dependencies{Config: config.Config{Paths: config.PathsConfig{ChatsDir: filepath.Join(t.TempDir(), "chats")}}, KnowledgeLibrary: func(id string) (api.KBaseOption, error) {
 		return api.KBaseOption{ID: id, Name: id, Readable: true}, nil
 	}})
-	closed := interaction.DefaultsForEngine("GENERAL", false)
+	closed := interaction.DefaultsForEngine("GENERAL", "native")
 	closed.Attachment.Kbases = false
 	def := catalog.AgentDefinition{Key: "general", Mode: "GENERAL", Connectors: []string{connector.KBaseControlConnectorID}, InteractionConfig: &closed}
 	refs := queryinput.MakeReferences("kbase", []string{"docs"})
@@ -179,7 +182,7 @@ func TestAgentEntrySkillReferenceInSandboxNeedsSkillsCenterOnlyForCenterSkills(t
 		Config:   config.Config{Paths: config.PathsConfig{SkillsCenterDir: center}},
 		Registry: skillCenterOnlyCatalog{skills: nestedSkillCatalog{"shared": {ID: "shared"}}},
 	})
-	closed := interaction.DefaultsForEngine("GENERAL", false)
+	closed := interaction.DefaultsForEngine("GENERAL", "native")
 	closed.Attachment.Skills = false
 	def := catalog.AgentDefinition{Key: "general", Mode: "GENERAL", RuntimeDir: runtime, Skills: []string{"own"}, InteractionConfig: &closed, Runtime: map[string]any{"environmentId": "env"}}
 	prepare := func(id string) error {

@@ -238,7 +238,7 @@ Memory 深度调优使用 `configs/runtime.yml` 中的 `memory.*`。Agent 的 `m
 
 Logging 默认值已经源码化，不提供 runtime YAML 入口；只保留 `AP_DEBUG_LLM_CONSOLE` 和 `AP_DEBUG_LLM_CHAT_RECORD` 作为现场调试 allowlist。LLM 交互日志、memory 参数和内部运行默认值的适用人群和注意事项统一见 [配置化说明](./docs/配置化说明.md)。
 
-ACP CODER bridge 在 `configs/agent-settings.yml` 的 `acp-bridges` 中定义；agent 以顶层 `engine: acp` 加 `runtimeConfig.acpBridgeId` 引用条目，`timeout-ms` 默认 `300000`。配置变更需重启 runtime。ACP bridge 须能访问同一 Workspace，地址配置保持兼容；Platform 将 canonical `runtimeConfig.workspaceRoot` 作为私有 `params.cwd` 传给本机 bridge，用户不能覆盖，普通 PROXY/CHANNEL 不转发宿主 cwd。详见 [ACP 工作目录契约](docs/智能体配置说明.md#本机-acp-工作目录契约)。
+ACP 外部引擎由 Desktop 市场插件提供，通过受信目录同步给 Platform，并按 Chat 启动 stdio 会话；项目使用 engine: acp 与 runtimeConfig.engineId。安装、禁用和重连动态对账，无固定 ACP 端口和 YAML 注册配置。详见 [ACP stdio 引擎](docs/智能体配置说明.md#ACP-stdio-引擎)。
 
 Provider `apiKey` 按明文字符串读取：
 
@@ -444,3 +444,7 @@ docker compose logs -f
 `builtin.kanban-control`（看板控制）独立提供 `desktop_kanban` 的六个看板动作，依赖 Desktop；原 `builtin.platform-control` 挂载不再授予看板能力。需要看板的 Agent 应显式挂载新连接器，详见 [连接器](docs/连接器.md#kanban-control-看板控制)。
 
 Query 与 steer 的技能、知识库和对话统一使用 references；对话仅传 chatId，通过 task-control 按需读取。旧选择字段硬切，详见 [引用协议](docs/引用协议.md)。
+
+### 无 Desktop 的 ACP 插件
+
+`standalone` 可通过 Platform 本机命令管理插件，WebClient 沿用现有项目/聊天入口。启动参数、导入/更新/排空及认证边界见 [ACP 独立部署](docs/ACP独立部署.md)。

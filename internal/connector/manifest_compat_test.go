@@ -2,6 +2,7 @@
 package connector
 
 import (
+	"agent-platform/internal/runtimefs"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -118,7 +119,7 @@ func TestLegacyTokenPackageImportSaveAndRuntimeCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	copyDir := filepath.Join(t.TempDir(), "runtime-copy")
-	if err := copyPackage(filepath.Join(root, "demo"), copyDir); err != nil {
+	if err := runtimefs.CopyTree(filepath.Join(root, "demo"), copyDir); err != nil {
 		t.Fatal(err)
 	}
 	runtimePkg, err := LoadDirectory(copyDir, "demo")

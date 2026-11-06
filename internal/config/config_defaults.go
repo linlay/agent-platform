@@ -38,6 +38,7 @@ func defaultConfig(options LoadOptions) Config {
 		WebAppDataDir:       filepath.Join(runtimeRoot, "webapp-data"),
 	}
 	return Config{
+		AgentEngine:     AgentEngineRuntimeConfig{MaxProcesses: 4, MaxSessions: 8, MaxActive: 2, MaxQueued: 8, QueueTimeout: 5 * time.Second, IdleTimeout: 5 * time.Minute},
 		Export:          ConversationExportConfig{MaxSnapshotBytes: 50 << 20},
 		DocumentPreview: documentpreview.DefaultConfig(),
 		HTTPProxy:       httpclient.Config{Mode: "auto", SystemRefreshInterval: httpclient.DefaultRefreshInterval},
@@ -68,9 +69,6 @@ func defaultConfig(options LoadOptions) Config {
 		SpeechGenerate: SpeechGenerateConfig{
 			Enabled:        false,
 			DefaultProfile: "general",
-		},
-		ACP: ACPSettingsConfig{
-			ACPBridges: map[string]ACPBridgeConfig{},
 		},
 		GeneralSettings: GeneralSettingsConfig{
 			WorkspaceAgents: CoderWorkspaceAgentsConfig{},

@@ -131,7 +131,7 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	}
 	planningMarkdown := s.awaitingContinuationPlanningMarkdown(chatID, mode)
 	planningDecision := agentbuiltin.PlanContinuationDecision(mode, answer)
-	nativePlanning := agentbuiltin.NativePlanning(agentDef.Mode, agentDef.ACPBridgeID)
+	nativePlanning := agentbuiltin.PlanningModeSupported(agentDef.Mode)
 	planningApprove := nativePlanning && planningDecision == "approve"
 	planningReject := nativePlanning && planningDecision == "reject"
 	newExecutionRun := planningApprove && strings.TrimSpace(runID) != strings.TrimSpace(sourceRunID)
@@ -208,9 +208,6 @@ func (s *Service) startAwaitingContinuationWithAdmission(
 	s.bindMailboxSession(req, &session)
 	if !sessionbuild.IsProxyAgentMode(agentDef.Mode) {
 		ApplyQueryModelOptionsToSession(req.Model, &session)
-	}
-	if agentbuiltin.IsCoderACPBackend(agentDef.Mode, agentDef.ACPBridgeID) {
-		req.Model = s.acpCoderModelOptions(session, req.Model)
 	}
 	if continuationStartedAt != 0 {
 		session.StartedAtMillis = continuationStartedAt

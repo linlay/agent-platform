@@ -200,3 +200,46 @@ func TestAgentConnectorsPresetSourceAndReloadState(t *testing.T) {
 		t.Fatal("preset toggle changed source")
 	}
 }
+
+func TestACPUsesExistingConnectorSelectionAndNativeKnowledgeMount(t *testing.T) {
+	f := newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{setupRuntime: func(_ string, cfg *config.Config) {
+		release, err := cfg.Paths.PrepareNativeConnectors()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(release)
+		writeMCPConnectorForTest(t, cfg.Paths.EffectiveConnectorsCenterDir(), "docs")
+		root := t.TempDir()
+		p := filepath.Join(cfg.Paths.AgentsDir, "external", "agent.yml")
+		os.MkdirAll(filepath.Dir(p), 0755)
+		content := "key: external\nname: External\nengine: acp\nruntimeConfig:\n  engineId: fixture/agent\n  workspaceRoot: " + filepath.ToSlash(root) + "\n"
+		if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}})
+	for _, id := range []string{"docs", "builtin.kbase-control"} {
+		got := agentConnectorResponse(t, agentConnectorRequest(f.server, "PUT", "", map[string]any{"agentKey": "external", "connectorId": id, "enabled": true}))
+		found := false
+		for _, active := range got.ConnectorIDs {
+			if active == id {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("mount missing: %+v", got)
+		}
+	}
+	def, ok := f.registry.AgentDefinition("external")
+	if !ok || len(def.ConnectorMCPServers) == 0 || !def.Interaction().Attachment.Kbases {
+		t.Fatalf("ACP capabilities not mounted: %+v", def)
+	}
+	found := false
+	for _, tool := range def.Tools {
+		if tool == "kbase_search" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("knowledge tools not resolved")
+	}
+}

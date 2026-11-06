@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"agent-platform/internal/adminsource"
+	"agent-platform/internal/agentengine"
 	"agent-platform/internal/api"
 	"agent-platform/internal/automation"
 	"agent-platform/internal/catalog"
@@ -89,6 +90,8 @@ type Dependencies struct {
 	WebAppActions          webappgateway.Actions
 	WebAppHost             *webapphost.Status
 	Mailbox                *mailbox.Service
+	EngineSessions         EngineSessions
+	AgentEngines           *agentengine.Service
 	Sessions               *session.Builder
 	BackgroundContext      context.Context
 	Config                 config.Config
@@ -176,7 +179,6 @@ type ChannelConnectionSnapshotProvider interface {
 
 type Server struct {
 	webAppGateway     *webappgateway.Gateway
-	acpRegistrations  *config.ACPRegistrationStore
 	documentPreview   *documentpreview.Service
 	router            *http.ServeMux
 	deps              Dependencies
@@ -280,7 +282,6 @@ func New(deps Dependencies) (*Server, error) {
 		backgroundCtx, backgroundCancel = context.WithCancel(context.Background())
 	}
 	s := &Server{
-		acpRegistrations:  config.NewACPRegistrationStore(deps.Config.ACP),
 		router:            http.NewServeMux(),
 		deps:              deps,
 		authVerifier:      authVerifier,

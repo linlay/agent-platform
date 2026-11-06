@@ -126,6 +126,9 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) (events []StreamEven
 		if taskID := strings.TrimSpace(value.TaskID); taskID != "" {
 			payload["taskId"] = taskID
 		}
+		if value.Source != "" {
+			payload["source"] = value.Source
+		}
 		return []StreamEvent{NewEvent("request.submit", payload)}
 	case AwaitingAnswer:
 		event := newAwaitingAnswerEvent(value)
@@ -274,6 +277,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) (events []StreamEven
 		}
 		return []StreamEvent{NewEvent("debug.llmChat", payload)}
 	case InputUsageSnapshot:
+
 		if value.RunTotalTokens > 0 || value.RunLLMChatCompletionCount > 0 || value.RunToolCallCount > 0 || value.RunFirstTokenLatencyCount > 0 || value.RunGenerationDurationMs > 0 {
 			d.state.runUsage = runUsageStateFromValues(value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs)
 		}

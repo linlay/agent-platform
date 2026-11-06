@@ -1,6 +1,7 @@
 package connector
 
 import (
+	"agent-platform/internal/runtimefs"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -219,7 +220,7 @@ func installLease(prefix string) (*os.File, error) {
 		attempt == "." || strings.HasPrefix(attempt, ".") || strings.ContainsAny(attempt, `/\`) {
 		return nil, fmt.Errorf("invalid CLI installation directory")
 	}
-	return openRuntimeLock(filepath.Dir(installRoot), "connectors", "install-leases", id, version+"_"+attempt+".lock")
+	return runtimefs.OpenLock(filepath.Dir(installRoot), "connectors", "install-leases", id, version+"_"+attempt+".lock")
 }
 
 // RetainInstallation keeps an installation that an Agent version or a Run
@@ -229,7 +230,7 @@ func RetainInstallation(prefix string) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	ok, err := trySharedLock(f)
+	ok, err := runtimefs.TryShared(f)
 	if err != nil || !ok {
 		f.Close()
 		if err == nil {
@@ -270,7 +271,7 @@ func PruneInstallations(root, id string, keep ...string) {
 			if err != nil {
 				continue
 			}
-			if ok, err := tryOperationLock(lock); err == nil && ok {
+			if ok, err := runtimefs.TryExclusive(lock); err == nil && ok {
 				_ = os.RemoveAll(prefix)
 			}
 			lock.Close()

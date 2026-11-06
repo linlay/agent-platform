@@ -248,8 +248,16 @@ func (s *Service) persistTerminalAwaiting(
 		}
 	}
 
-	if err := s.persistRestartAwaitingToolResults(item, step, answer, resolvedAt); err != nil {
+	// External reverse RPCs are not Native tool calls. Their original process
+	// is gone; record interruption without manufacturing a Native tool result.
+	binding, err := s.hasEngineAwaiting(item.ChatID, step)
+	if err != nil {
 		return err
+	}
+	if !binding {
+		if err := s.persistRestartAwaitingToolResults(item, step, answer, resolvedAt); err != nil {
+			return err
+		}
 	}
 	if err := s.completeRestartAwaitingRun(item, resolvedAt, restartTerminalAwaitingCode(answer) == "runtime_restarted"); err != nil {
 		return err

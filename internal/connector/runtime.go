@@ -2,14 +2,13 @@ package connector
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
 	"agent-platform/internal/pathutil"
+	"agent-platform/internal/runtimefs"
 )
 
 func (s Sources) PersistentRoot() string {
@@ -121,113 +120,11 @@ func (s Sources) Materialize(target string, ids []string) ([]Package, error) {
 // RuntimeFingerprint includes all executable and skill bytes, so changing a
 // binary without changing mcp.json also invalidates the corresponding session.
 func RuntimeFingerprint(root string) (string, error) {
-	hash, err := packageDigest(root)
+	hash, err := runtimefs.Digest(root)
 	if err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("%x", hash), nil
-}
-
-func packageDigest(root string) ([32]byte, error) {
-	if err := validateTree(root); err != nil {
-		return [32]byte{}, err
-	}
-	h := sha256.New()
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(root, path)
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(h, "%s\x00%d\x00", filepath.ToSlash(rel), info.Mode()&(os.ModeType|0o777))
-		if entry.Type()&os.ModeSymlink != 0 {
-			target, err := linkInPackage(root, path)
-			if err != nil {
-				return err
-			}
-			fmt.Fprint(h, target)
-		} else if !entry.IsDir() {
-			f, err := os.Open(path)
-			if err != nil {
-				return err
-			}
-			_, err = io.Copy(h, f)
-			f.Close()
-			if err != nil {
-				return err
-			}
-		}
-		fmt.Fprint(h, "\x00")
-		return nil
-	})
-	var digest [32]byte
-	copy(digest[:], h.Sum(nil))
-	return digest, err
-}
-
-func linkInPackage(root, path string) (string, error) {
-	canonical, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return "", err
-	}
-	target, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Rel(canonical, target)
-}
-
-func copyPackage(source, target string) error {
-	return filepath.WalkDir(source, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(source, path)
-		destination := filepath.Join(target, rel)
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			if err := os.MkdirAll(destination, info.Mode().Perm()); err != nil {
-				return err
-			}
-			return os.Chmod(destination, info.Mode().Perm())
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			link, err := linkInPackage(source, path)
-			if err != nil {
-				return err
-			}
-			link, err = filepath.Rel(filepath.Dir(destination), filepath.Join(target, link))
-			if err != nil {
-				return err
-			}
-			return os.Symlink(link, destination)
-		}
-		input, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer input.Close()
-		output, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
-		if err != nil {
-			return err
-		}
-		if err := output.Chmod(info.Mode().Perm()); err != nil {
-			output.Close()
-			return err
-		}
-		_, err = io.Copy(output, input)
-		closeErr := output.Close()
-		if err != nil {
-			return err
-		}
-		return closeErr
-	})
 }
 
 // The managed Host CLI launcher needs only its state directory, never a token.

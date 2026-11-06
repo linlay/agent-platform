@@ -84,6 +84,9 @@ func (s *Service) prepareSideQuery(ctx context.Context, input runtimetypes.Query
 	if !ok {
 		return preparedQuery{}, btwStatusError(400, "agent_not_found", "parent chat agent not found")
 	}
+	if catalog.ExecutionBackend(agentDef) == catalog.AgentEngineACP {
+		return preparedQuery{}, btwStatusError(400, "capability_unsupported", "ACP does not support side queries")
+	}
 	if sessionbuild.IsProxyRoutedAgent(agentDef) {
 		return preparedQuery{}, btwStatusError(400, "btw_backend_unsupported", "BTW read-only mode is not supported by this agent backend")
 	}

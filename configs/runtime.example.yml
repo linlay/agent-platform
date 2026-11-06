@@ -16,6 +16,16 @@ http-proxy:
   # url: http://127.0.0.1:10809 # fixed 模式
   # bypass: ["*.example.internal"]
 
+# ACP host policy, shared by Desktop and standalone. Reload by restarting Platform.
+# Chats do not each reserve a process. Only safe resumable idle sessions are reclaimed.
+agent-engine:
+  max-processes: 4 # 1..64 adapter connections; child CLI counts depend on the plugin
+  max-sessions: 8 # 1..256 resident ACP sessions, not saved Chat count
+  max-active: 2 # 1..64 simultaneous prompts
+  max-queued: 8 # 1..256 waiting prompts / concurrent preparations
+  queue-timeout: 5s
+  idle-timeout: 5m # safe session timeout, then empty worker warm retention
+
 skills:
   max-prompt-chars: 8000
 

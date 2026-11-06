@@ -272,11 +272,11 @@ func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.Agent
 		Controls:           cloneListMaps(def.Controls),
 		Meta:               meta,
 	}
+	if def.Engine == catalog.AgentEngineACP {
+		return response
+	}
 	response.ModelKey = def.ModelKey
 	response.ReasoningEffort = firstNonBlank(def.ModelReasoningEffort, "MEDIUM")
-	if catalog.AgentUsesACPCoderBackend(def) {
-		response.ServiceTier, _ = normalizeQueryModelServiceTier(def.ServiceTier)
-	}
 	return response
 }
 
@@ -308,8 +308,8 @@ func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[
 	if modelName == "" {
 		modelName = def.ModelKey
 	}
-	if strings.TrimSpace(def.ACPBridgeID) != "" {
-		meta["acpBridgeId"] = strings.TrimSpace(def.ACPBridgeID)
+	if def.Engine == catalog.AgentEngineACP {
+		meta["engineId"] = def.Runtime["engineId"]
 	}
 	if strings.TrimSpace(def.Workspace.Root) != "" {
 		workspaceMeta := map[string]any{

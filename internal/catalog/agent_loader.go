@@ -107,7 +107,7 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, chatsD
 	}
 	// Resolve display defaults without writing inherited values into the source.
 	declared := mapNode(definition["interactionConfig"])
-	if _, explicit := declared["defaultDetail"]; !explicit {
+	if _, explicit := declared["defaultDetail"]; !explicit && def.Engine != AgentEngineACP {
 		if level := assembler.modeDefaultDetails[strings.ToLower(def.Mode)]; level != "" {
 			def.InteractionConfig.DefaultDetail = level
 		}
@@ -255,7 +255,7 @@ func adminAgentFromDefinition(source EditableAgentSource, key string, definition
 	if rawMode := stringNode(definition["mode"]); rawMode != "" {
 		mode = AgentModeForAPI(rawMode)
 	} else if strings.EqualFold(stringNode(definition["engine"]), AgentEngineACP) {
-		mode = AgentModeCoder
+		mode = ""
 	}
 	soulPrompt := ""
 	agentsPrompt := ""
@@ -607,6 +607,9 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	if err != nil {
 		return AgentDefinition{}, nil, err
 	}
+	if err := ValidateAgentEngineConfig(root); err != nil {
+		return AgentDefinition{}, nil, err
+	}
 	def.Mode = mode
 	def.Engine = engine
 	if _, declared := root["teamConfig"]; declared && mode != "TEAM" {
@@ -616,7 +619,7 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	if err != nil {
 		return AgentDefinition{}, nil, err
 	}
-	interactionConfig, err := interaction.ParseForEngine(mode, engine == AgentEngineACP, root["interactionConfig"])
+	interactionConfig, err := interaction.ParseForEngine(mode, engine, root["interactionConfig"])
 	if err != nil {
 		return AgentDefinition{}, nil, err
 	}
@@ -708,13 +711,12 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	def.RuntimePrompts = parseRuntimePrompts(mapNode(root["runtimePrompts"]))
 	runtimeConfig := mapNode(root["runtimeConfig"])
 	if len(runtimeConfig) > 0 {
-		if _, exists := runtimeConfig["acpProxyId"]; exists {
-			return AgentDefinition{}, nil, fmt.Errorf("runtimeConfig.acpProxyId was removed; use runtimeConfig.acpBridgeId")
-		}
-		def.ACPBridgeID = stringNode(runtimeConfig["acpBridgeId"])
 		def.Runtime = map[string]any{
 			"environmentId": stringNode(runtimeConfig["environmentId"]),
 			"level":         strings.ToLower(stringNode(runtimeConfig["level"])),
+		}
+		if id, exists := runtimeConfig["engineId"]; exists {
+			def.Runtime["engineId"] = id
 		}
 		def.Workspace = parseAgentWorkspaceRoot(runtimeConfig["workspaceRoot"])
 		runtimeEnv, err := parseRuntimeEnv(runtimeConfig["env"])

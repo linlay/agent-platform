@@ -2,7 +2,7 @@
 
 ## 配置归属
 
-- `configs/agent-settings.yml`：全局及 mode 预置、创建默认值、Workspace 规则文件、顶层 ACP bridges。
+- `configs/agent-settings.yml`：全局及 mode 预置、创建默认值、Workspace 规则文件。
 - `configs/agent-prompt.yml`：`shared`（runtime/skill/view/announce/reference/tool-appendix/automation/btw/planning-mode）、`coder`、`kbase` 提示词。注入时机不变。`shared.skill.instructions-prompt`（技能适用性判断与 SKILL.md 读取规则的唯一来源）、`shared.reference.protocol-prompt`（`[References]` 引用协议）和 `shared.reference.advanced-protocol-prompt`（开启 advanced-user-prompt 时在前者之上追加的 XML 包装协议）没有源码兜底：缺失或为空时对应段落不追加，分发正文见 `configs/agent-prompt.example.yml`。规划、BTW 的指令文本同样只来自本文件：缺失时不带指令；PLAN-EXECUTE 已下线，残留的 `shared.plan-execute` 忽略并记录 warning；技能目录、披露和工具附录标题仅保留极简标签作为兜底。`shared.automation.user-prompt-template` 包装由 Automation（定时或手动触发）启动的 Run 的任务正文，按可信触发来源而非请求 `role` 判定，只进入该条 user 消息，不进入 system prompt、system-init cache key 或 fingerprint；占位符为 `{{message}}`、`{{automation_id}}`，缺失或为空时不包装并保留原有 `[automation request]` 前缀。KBASE 提示词由 `kbase.system-prompt`、`kbase.workspace-prompt` 按此顺序拼接，两项都没有源码兜底。`kbase.editing-prompt` 已删除，出现即拒绝加载；旧部署应删除该键，并按需将通用文件修改要求合并到 `kbase.workspace-prompt`。`editingMode` 不再选择独立的 KBASE stage 或 cache key；模板变量 `{{editing_mode}}` 已删除，配置出现即拒绝加载。`kbase.capability-prompt` 已删除，出现即拒绝加载：kbase_* 工具的检索规则只由工具说明与 `kbase-control` Skill 提供，挂载 `builtin.kbase-control` 不再向 system prompt 追加规则；仅固定绑定库在 system prompt 追加 boundLibraryId，本次引用元数据进入用户引用块。
 - `configs/tools.yml`：访问策略、Bash/FileTools/run-env，以及顶层 vision-recognize/web-fetch/image-generate。AI profile 的 system-prompt 随 profile 保存。
 - `configs/runtime.yml`：平台运行设置、`kbx.embedding`、`memory`。memx 继续由 memory.worker 配置，不新增 memx 节。
@@ -57,9 +57,9 @@ agent-settings 顶层 `planning-mode` 对原生 GENERAL、CODER、KBASE 统一�
 
 `<mode>.default-agent.modelKey/reasoningEffort` 只在创建时补全，已有 Agent 不受动态覆盖。GENERAL/CODER 的 budget 语义不变。kbase 节表示 KBASE Agent，不是知识库引擎。
 
-GENERAL/CODER/KBASE/TEAM 的 `workspace-agents` 仅接受非空 `file`：声明即自动读取，省略整个节点即不读取；enabled 已删除。它是 mode 的模板默认值，加载逻辑对四种 mode 相同。不自动读取不限制工具按权限主动读文件。无具体 Workspace 或使用 @root 时不读取；任何 mode 显式配置的 projectConfig.promptFiles 优先；ACP 由 bridge 管理项目规则。`projectConfig.git.expectedBranch` 同样对所有 mode 生效。示例仅为 CODER 声明 AGENTS.md。
+GENERAL/CODER/KBASE/TEAM 的 `workspace-agents` 仅接受非空 `file`：声明即自动读取，省略整个节点即不读取；enabled 已删除。它是 mode 的模板默认值，加载逻辑对四种 mode 相同。不自动读取不限制工具按权限主动读文件。无具体 Workspace 或使用 @root 时不读取；任何 mode 显式配置的 projectConfig.promptFiles 优先；ACP 由插件 Adapter 管理项目规则。`projectConfig.git.expectedBranch` 同样对所有 mode 生效。示例仅为 CODER 声明 AGENTS.md。
 
-`acp-bridges` 位于顶层，配置类型独立于 CODER。Desktop 注册仅修改目标 bridge，保留其他节点、环境变量表达式及插件归属；仍需重启激活。现有 ACP mode 准入未扩展。
+外部引擎目录由 Desktop 受信交付动态同步，独立于 mode 配置；旧 ACP 配置不迁移，遇到旧字段报错。
 
 ## KBX 模型与维护配置
 

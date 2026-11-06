@@ -92,6 +92,7 @@ public static class FakeAgentPlatformBackend
   $Script:ProgramPort = '17078'
   $Script:SsoIdTokenFile = $ssoIdTokenFile
   $Script:RuntimeMode = 'desktop'
+  $Script:AgentEngineBootstrapFile = Join-Path $configRoot 'private bootstrap/engine.json'
   Update-ProgramPaths
   $env:AGENT_PLATFORM_TEST_CAPTURE_ARGS = $capturedArgsFile
   $env:AGENT_PLATFORM_TEST_BACKEND_DELAY_MS = '5000'
@@ -107,7 +108,7 @@ public static class FakeAgentPlatformBackend
   }
 
   $capturedArgs = @(Get-Content -LiteralPath $capturedArgsFile)
-  $expectedArgs = @('--config-dir', $configRoot, '--runtime-mode', 'desktop', '--port', '17078', '--sso-id-token-file', $ssoIdTokenFile)
+  $expectedArgs = @('--config-dir', $configRoot, '--runtime-mode', 'desktop', '--port', '17078', '--sso-id-token-file', $ssoIdTokenFile, '--agent-engine-bootstrap-file', $Script:AgentEngineBootstrapFile)
   if ($capturedArgs.Count -ne $expectedArgs.Count) {
     throw "expected $($expectedArgs.Count) daemon arguments, got $($capturedArgs.Count): $($capturedArgs -join ' | ')"
   }

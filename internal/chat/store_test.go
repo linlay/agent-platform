@@ -1,6 +1,7 @@
 package chat
 
 import (
+	enginedto "agent-platform/internal/contracts/agentengine"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -7154,4 +7155,42 @@ func absFloat(f float64) float64 {
 		return -f
 	}
 	return f
+}
+
+func TestEngineBindingSurvivesArchiveAndCannotBeClonedIntoAnotherChat(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, _, err = store.EnsureChat("external", "project", ""); err != nil {
+		t.Fatal(err)
+	}
+	binding := enginedto.SessionBinding{SchemaVersion: 1, ChatID: "external", EngineID: "fixture/agent", ProfileID: "profile", WorkspaceRoot: filepath.Join(root, "workspace"), ACPSessionID: "session", ContextState: "submitted", ConfigSelection: []enginedto.ConfigSelection{}}
+	if err = store.SaveEngineSession(binding); err != nil {
+		t.Fatal(err)
+	}
+	appendDeriveTestRun(t, store, "external", "run-external", "request", "response", 1000)
+	archive, err := NewArchiveStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archiver := NewArchiver(store, archive)
+	if err = archiver.ArchiveChat("external"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = archiver.RestoreChat("external"); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := store.LoadEngineSession("external")
+	if err != nil || restored == nil || restored.ContextState != "submitted" {
+		t.Fatalf("binding lost through archive: %+v %v", restored, err)
+	}
+	if _, err = store.DeriveChat(DeriveChatRequest{SourceChatID: "external", ChatID: "clone"}); err == nil || err.Error() != "capability_unsupported" {
+		t.Fatalf("external session derive not explicitly blocked: %v", err)
+	}
+	if summary, _ := store.Summary("clone"); summary != nil {
+		t.Fatal("unsupported derive created a chat")
+	}
 }

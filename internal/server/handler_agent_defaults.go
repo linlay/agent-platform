@@ -3,7 +3,6 @@ package server
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 
 	agentbuiltin "agent-platform/internal/agent/builtin"
@@ -15,6 +14,7 @@ import (
 
 // Creation defaults describe runtime facts; clients own their selection UI.
 func (s *Server) handleAgentCreationDefaults(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, api.Success(s.buildAgentCreationDefaults(responseLocale(w))))
 }
 
@@ -57,22 +57,30 @@ func (s *Server) buildAgentCreationDefaults(locale string) api.AgentCreationDefa
 	// Creation recommendations are persisted by the client as explicit tools.
 	coder.BaseTools = agentbuiltin.CoderCreateToolNames()
 
-	bridgeIDs := make([]string, 0, len(cfg.ACP.ACPBridges))
-	for id := range cfg.ACP.ACPBridges {
-		bridgeIDs = append(bridgeIDs, id)
-	}
-	sort.Strings(bridgeIDs)
-	acp := api.AgentCreationTypeOption{
-		Key: "acp", Label: label("外部引擎", "External engine"),
-		Mode: catalog.AgentModeCoder, Engine: catalog.AgentEngineACP,
-		Available: len(bridgeIDs) > 0, WorkspaceRequired: true,
-		BaseTools: []string{},
-	}
-	if !acp.Available {
-		acp.UnavailableReason = label("未在 configs/agent-settings.yml 配置 acp-bridges", "No acp-bridges are configured in configs/agent-settings.yml")
-	}
-	for _, id := range bridgeIDs {
-		acp.ACPBridges = append(acp.ACPBridges, api.AgentCreationACPBridge{ID: id})
+	acp := api.AgentCreationTypeOption{Key: "acp", Label: label("外部引擎", "External engine"), Engine: catalog.AgentEngineACP, WorkspaceRequired: true, BaseTools: []string{}}
+	if s.deps.AgentEngines == nil || s.deps.AgentEngines.Status().HostID == "" {
+		acp.UnavailableCode = "unsupported_deployment"
+		acp.UnavailableReason = label("此部署不支持本机引擎插件", "This deployment does not support local engine plugins")
+	} else {
+		directory := s.deps.AgentEngines.Directory()
+		acp.EngineDirectory = &directory
+		acp.UnavailableCode = "engine_unavailable"
+		acp.UnavailableReason = label("请在 Desktop 市场安装并启用引擎插件", "Install and enable an engine plugin in the Desktop marketplace")
+		if s.deps.AgentEngines.IsStandalone() {
+			acp.UnavailableReason = label("请由服务器管理员安装并启用引擎插件", "Ask the server administrator to install and enable an engine plugin")
+		}
+		if !directory.Ready {
+			acp.UnavailableCode = "registry_not_ready"
+			acp.UnavailableReason = label("引擎目录待同步", "Engine directory is awaiting synchronization")
+		}
+		for _, entry := range directory.Engines {
+			if directory.Ready && entry.Enabled && entry.SyncState == "applied" && entry.DependencyState == "ready" {
+				acp.Available = true
+				acp.UnavailableReason = ""
+				acp.UnavailableCode = ""
+				break
+			}
+		}
 	}
 
 	return api.AgentCreationDefaultsResponse{

@@ -214,3 +214,64 @@ func TestSystemBypass(t *testing.T) {
 		})
 	}
 }
+
+func TestProxyEnvironmentExportsSystemFixedProxy(t *testing.T) {
+	r, err := newResolver(Config{Mode: "auto"}, httpproxy.Config{}, func(context.Context) (systemSettings, error) {
+		return systemSettings{HTTP: proxyURL(t, "http://127.0.0.1:7890"), HTTPS: proxyURL(t, "http://127.0.0.1:7890"),
+			SOCKS: proxyURL(t, "socks5://127.0.0.1:7890"), Bypass: []string{"192.168/16", "*.local", "timestamp.apple.com"}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, err := r.ProxyEnvironment(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["HTTP_PROXY"] != "http://127.0.0.1:7890" || env["HTTPS_PROXY"] != "http://127.0.0.1:7890" || env["NO_PROXY"] != "localhost,127.0.0.1,::1,192.168.0.0/16,*.local,timestamp.apple.com" {
+		t.Fatalf("wrong child proxy environment: %v", env)
+	}
+}
+
+func TestProxyEnvironmentPreservesPrecedenceAndRejectsUnrepresentablePolicies(t *testing.T) {
+	for _, tt := range []struct {
+		name                            string
+		config                          Config
+		env                             httpproxy.Config
+		system                          systemSettings
+		wantHTTP, wantHTTPS, wantBypass string
+		fail                            bool
+	}{
+		{name: "environment wins", env: httpproxy.Config{HTTPProxy: "env.test:80", HTTPSProxy: "secure.test:81", NoProxy: "internal.test"}, system: systemSettings{Auto: true}, wantHTTP: "http://env.test:80", wantHTTPS: "http://secure.test:81", wantBypass: "internal.test"},
+		{name: "direct ignores system", config: Config{Mode: "direct"}, system: systemSettings{Auto: true}},
+		{name: "fixed ignores system", config: Config{Mode: "fixed", URL: "fixed.test:82", Bypass: []string{"private.test"}}, system: systemSettings{Auto: true}, wantHTTP: "http://fixed.test:82", wantHTTPS: "http://fixed.test:82", wantBypass: "private.test"},
+		{name: "all bypass ignores system", env: httpproxy.Config{NoProxy: "*"}, system: systemSettings{Auto: true}, wantBypass: "*"},
+		{name: "scheme independent", system: systemSettings{HTTPS: proxyURL(t, "http://secure.test:83")}, wantHTTPS: "http://secure.test:83"},
+		{name: "environment and system without exceptions", env: httpproxy.Config{HTTPProxy: "env.test:80"}, system: systemSettings{HTTPS: proxyURL(t, "http://secure.test:83")}, wantHTTP: "http://env.test:80", wantHTTPS: "http://secure.test:83"},
+		{name: "PAC cannot export", system: systemSettings{Auto: true}, fail: true},
+		{name: "explicit PAC remains unsupported", config: Config{Mode: "pac_auto"}, fail: true},
+		{name: "SOCKS cannot export", system: systemSettings{SOCKS: proxyURL(t, "socks5://system.test:1080")}, fail: true},
+		{name: "simple hosts cannot export", system: systemSettings{HTTP: proxyURL(t, "system.test:80"), ExcludeSimple: true}, fail: true},
+		{name: "scheme exceptions cannot export", system: systemSettings{HTTP: proxyURL(t, "system.test:80"), Bypass: []string{"http://private.test"}}, fail: true},
+		{name: "system exceptions cannot bypass env proxy", env: httpproxy.Config{HTTPProxy: "env.test:80"}, system: systemSettings{HTTPS: proxyURL(t, "system.test:80"), Bypass: []string{"private.test"}}, fail: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r, err := newResolver(tt.config, tt.env, func(context.Context) (systemSettings, error) { return tt.system, nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			env, err := r.ProxyEnvironment(context.Background())
+			if tt.fail {
+				if err == nil || err.Error() != "proxy_policy_unsupported" || env != nil {
+					t.Fatal("unsupported policy did not fail closed")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if env["HTTP_PROXY"] != tt.wantHTTP || env["HTTPS_PROXY"] != tt.wantHTTPS || !strings.Contains(env["NO_PROXY"], tt.wantBypass) {
+				t.Fatal("child routing changed precedence or bypass")
+			}
+		})
+	}
+}

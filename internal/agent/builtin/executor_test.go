@@ -19,7 +19,7 @@ func TestExecutorTemplateDefaults(t *testing.T) {
 	if _, ok := Lookup("EXECUTOR"); ok {
 		t.Fatal("executor must run on the general path, without a mode descriptor")
 	}
-	defaults := interaction.DefaultsForEngine("EXECUTOR", false)
+	defaults := interaction.DefaultsForEngine("EXECUTOR", "native")
 	if defaults.ShowPlanningMode || defaults.ShowEditingMode || defaults.ShowTerminal {
 		t.Fatalf("executor offers conversation entries by default: %#v", defaults)
 	}

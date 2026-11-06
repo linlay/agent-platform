@@ -11,6 +11,7 @@ import (
 	agentcontract "agent-platform/internal/agent"
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/agentconfig"
+	"agent-platform/internal/agentengine"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
@@ -46,6 +47,12 @@ type Options struct {
 }
 
 func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryCommand, summary chat.Summary, agentDef catalog.AgentDefinition, options Options) (contracts.QuerySession, error) {
+	// Plugin sessions are prepared by runtime/acp. They must never inherit this
+	// builder's native model, tool loop, history or the retired Bridge path.
+	if _, plugin := agentDef.Runtime["engineId"]; agentDef.Engine == catalog.AgentEngineACP && plugin {
+		return contracts.QuerySession{}, agentengine.Error("capability_unsupported")
+	}
+
 	planningModeRequested := agentbuiltin.PlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode)
 	// A planning Run never mutates the Workspace; editing takes effect in the
 	// Run that executes the confirmed plan, which keeps the request's editingMode.
@@ -120,7 +127,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	skillCatalogPrompt := BuildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsCenterDir, promptAppend)
 	resolvedWorkspaceRoot := strings.TrimSpace(runtimeContext.LocalPaths.WorkspaceDir)
 	// Project settings are explicit configuration and apply to every mode; an
-	// ACP bridge owns its own project instructions.
+	// ACP adapter owns its own project instructions.
 	workspaceAgentsPrompt := ""
 	if agentDef.Engine != catalog.AgentEngineACP {
 		if err := agentbuiltin.ValidateWorkspaceGit(agentbuiltin.WorkspaceGitPolicy{
@@ -269,7 +276,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		InteractionConfig:        func() *interaction.Config { c := agentDef.Interaction(); return &c }(),
 		StaticRuntimeEnv:         runtimeEnvOverrides,
 	}
-	if agentbuiltin.NativePlanning(agentDef.Mode, agentDef.ACPBridgeID) && !session.PlanningMode && agentbuiltin.IsConfirmedPlanRun(req.Params) {
+	if agentbuiltin.PlanningModeSupported(agentDef.Mode) && !session.PlanningMode && agentbuiltin.IsConfirmedPlanRun(req.Params) {
 		// A Run started from a confirmed plan is an ordinary Run of this Agent
 		// with the configured execution exclusions applied to its tools.
 		session.ConfirmedPlanRun = true
@@ -279,7 +286,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 			session.ToolNames = agentbuiltin.ConfirmedPlanTools(session, nil)
 		}
 	}
-	if !options.DisableSkillScriptGrants && !IsProxyRoutedAgent(agentDef) && !agentbuiltin.IsCoderACPBackend(agentDef.Mode, agentDef.ACPBridgeID) {
+	if !options.DisableSkillScriptGrants && !IsProxyRoutedAgent(agentDef) {
 		session.SkillScripts = BuildSkillScriptScope(session, agentDef, nil)
 	}
 	if options.SubTaskID == "" && !IsProxyRoutedAgent(agentDef) && ContainsTool(agentDef.Tools, "run_env") {

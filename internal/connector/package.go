@@ -3,6 +3,7 @@
 package connector
 
 import (
+	"agent-platform/internal/runtimefs"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -89,7 +90,7 @@ func loadDirectory(directory, id, file string, content []byte) (Package, error) 
 	if err != nil {
 		return Package{}, err
 	}
-	if err := validateTree(dir); err != nil {
+	if err := runtimefs.ValidateTree(dir); err != nil {
 		return Package{}, fmt.Errorf("connector %s: %w", id, err)
 	}
 	var pkg Package
@@ -437,38 +438,6 @@ func skillName(path string) (string, error) {
 		return "", fmt.Errorf("%s requires valid name and description", path)
 	}
 	return name, nil
-}
-
-func validateTree(root string) error {
-	info, err := os.Lstat(root)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("package root must be a real directory")
-	}
-	canonical, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return err
-	}
-	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			target, err := filepath.EvalSymlinks(path)
-			if err != nil {
-				return err
-			}
-			rel, err := filepath.Rel(canonical, target)
-			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				return fmt.Errorf("symlink escapes connector: %s", path)
-			}
-		} else if !entry.IsDir() && !entry.Type().IsRegular() {
-			return fmt.Errorf("unsupported connector file: %s", path)
-		}
-		return nil
-	})
 }
 
 // ReadJSON rejects duplicate keys, trailing values and unknown struct fields.

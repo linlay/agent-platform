@@ -16,9 +16,7 @@ func (unavailableProxy) Configure(def *catalog.AgentDefinition) *runtimetypes.Re
 	}
 	return nil
 }
-func (unavailableProxy) Models(string) ([]queryinput.CoderModelOption, error, bool) {
-	return nil, nil, false
-}
+
 func (unavailableProxy) Start(runtimetypes.PreparedQuery, runtimetypes.RegisteredRun, *stream.RunEventBus, bool) error {
 	return ErrNotConfigured
 }

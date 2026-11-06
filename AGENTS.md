@@ -4,9 +4,9 @@
 
 本仓库是 Agent Platform 的 Go 运行时，提供 HTTP/SSE 与 WebSocket 接口、目录驱动的 Agent/Team/Skill/Connector、工具执行、会话持久化、Markdown Memory 和 KBASE 检索。
 
-普通内置类型为 GENERAL、CODER、KBASE、TEAM、EXECUTOR；`engine` 缺省 native，显式 acp 使用外部 bridge，不由 acpBridgeId 推断。TEAM 是带成员委派能力的公开 Agent。历史 REACT 只兼容读取，新配置与 API 输入使用 GENERAL。
+普通内置类型为 GENERAL、CODER、KBASE、TEAM、EXECUTOR；`engine` 缺省 native，显式 acp 使用受信插件的 ACP stdio 会话，不由 acpBridgeId 推断。TEAM 是带成员委派能力的公开 Agent。历史 REACT 只兼容读取，新配置与 API 输入使用 GENERAL。
 
-设计约束：GENERAL/CODER/KBASE/TEAM 的 mode 写在 agent.yml 中，只在加载时提供默认值，不提供运行时功能、目录授权、必填校验或专属逻辑。mode 不要求 Workspace 或知识库绑定；项目规则文件、expectedBranch、文件变更 hook、子 Agent 调用、阶段与预算键对四种 mode 一致。editingMode 只是 Run 的编辑状态，不影响 stage、system-init cache key、fingerprint 或 system prompt；规划才是独立的运行形态。尚存的 mode 分支（ACP 内部落为 CODER、TEAM 编排）见 docs/mode-capability-audit.html，不能因已有实现而扩展。
+设计约束：GENERAL/CODER/KBASE/TEAM 的 mode 写在 agent.yml 中，只在加载时提供默认值，不提供运行时功能、目录授权、必填校验或专属逻辑。mode 不要求 Workspace 或知识库绑定；项目规则文件、expectedBranch、文件变更 hook、子 Agent 调用、阶段与预算键对四种 mode 一致。editingMode 只是 Run 的编辑状态，不影响 stage、system-init cache key、fingerprint 或 system prompt；规划才是独立的运行形态。尚存的 mode 分支（TEAM 编排）见 docs/mode-capability-audit.html，不能因已有实现而扩展。
 
 本文保留开发入口、模块边界和必须遵守的约束；功能与接口细节以文末专题索引为入口。未实现或未经目标环境验证的能力不得写成已交付。
 
@@ -43,6 +43,7 @@ cmd/agent-platform/main.go
 核心模块边界（详细调用规则见 [Runtime 模块边界](docs/Runtime模块边界.md)）：
 
 - `internal/agent` 保存中立 mode 契约；`builtin` 静态分派 CODER/KBASE/TEAM。EXECUTOR 只有模板默认值（`internal/agent/executor`），不注册 descriptor，LLM 沿用 GENERAL 路径。GENERAL 没有固定工具集、prompt 或 stage；CODER、KBASE、TEAM 的特有规则分别归各自子包。TEAM 使用普通 AgentDefinition 与 agentKey，成员配置归 Agent、编排状态归 Run。
+- `internal/agentengine` 管理受信引擎目录、完整修订和不可变快照引用/候选租约；Desktop 保留快照同步，standalone 由本机 `agent-engine-manage` 管理 ZIP 安装与持久意图（见 [ACP 独立部署](docs/ACP独立部署.md)）；Server 仅承接专用 HTTP 边界，App 组装。`internal/runtimefs` 是 connector/agentengine 共用的文件与 OS 锁原语，不合并业务模型。ACP-003/004 已接通目录及 Desktop 自动同步；`internal/runtime/acp` 的 ACP-005 监督器复用受管 Node、快照租约、ACP SDK 和 processgroup，App 通过 ACP-006 的 `Sessions` 持有并关闭。会话准备/配置、Chat 持久绑定及能力协商恢复已实现；Query/受控子任务已通过 ACP-007 接入现有 Run 执行器；外部 HITL 与取消/故障收尾已由 ACP-008 接入，ACP-009 项目以 engine: acp 与 runtimeConfig.engineId/workspaceRoot 保存，不接受 mode/旧 Bridge 字段，不继承 Native 默认值；未知项目能力关闭，真实配置只从准备会话获取。ACP Chat 绑定与物理进程分离：协商 close 与 resume/load 后，同引擎/profile、Workspace 的会话共用连接；会话/进程各自有额度，LRU/空闲回收只选择可恢复且无活动操作、未完成工具或潜在后台执行的会话。执行/未知工具、terminal、子任务及 submitted 状态保留；重建恢复原 session 和已确认配置。runtime.yml 的 agent-engine 是统一宿主策略，不从插件或 Query 读取。不能将旧 Bridge 接成新目录回退。
 - `internal/catalog` 装载目录定义并冻结 Team 成员、协调器与 prompt 快照。参见 [智能体配置](docs/智能体配置说明.md) 和 [运行时组装](docs/Agent运行时组装.md)。
 - `internal/runtime` 负责 Query 准入、Session、Run 状态、执行、恢复和子任务编排，不得依赖 Server。App 直接组装各组件；`adapter` 只转换旧执行器/catalog DTO。受管根 Proxy 驱动归 `proxy.Driver`，公共收尾与 recorder/usage 归 `runexec`；Server 经 ProxyPort 保留路由、响应、channel 与控制适配，不能宣称 ProxyPort 已移除。
 - `internal/server` 只做 HTTP/WS 解码、鉴权、响应映射、SSE flush 和薄适配，不得直接依赖 llm、tools 或具体 Agent mode。
@@ -103,6 +104,7 @@ Chat 默认由 `AP_RUNTIME_CHATS_DIR` 控制，主要包含：
 - `chat-primary.json`：每个 Agent 的主要聊天指针（agentKey → chatId），其他 active Chat 为历史聊天；由创建 Chat 的 query `primary:true` 或 `PUT /api/chats/primary` 切换；Mailbox 仅在指针缺失时补建并设定主要聊天，当前主要聊天有活动 Run 时 409 拒绝，Automation/chat_start/execute 等入口不切换，见 [API 与协议](docs/API与协议.md#主要聊天)。
 - `<chatId>.jsonl`：运行事件、StepLine、system init 与 raw messages。
 - JSONL query 行的 `query` 只保存调用方原样输入（HTTP/WS 请求体、chat_start 参数、子任务条目、Automation 配置的 query），平台不往里加字段；平台决定与平台算出的有效值写在行顶层（requestId、agentKey、lane、origin、accessGrant、planRunId、accessLevel、hidden、planningMode、editingMode、model、references，任务行另有 taskId/taskName/taskToolId/taskAgentKey），缺省值写入时存下、读取时不重算，无输入的行不写 query；请求字段名大小写变体拒绝。`origin` 由平台判定（user/agent/automation）；HTTP/WS 请求及 Automation API/YAML query 中的 `role` 均接收、保留但不参与执行；`agent.yml` 的描述字段 `role` 继续保留；读取不分新旧布局，旧记录缺少的顶层决定视为未设置，显示字段从 query 读取。btw/explain 分支分别存于 `<chatId>/.btw/`、`.explain/`，协议用 `sideId`。详见 [API 与协议](docs/API与协议.md)。
+- `<chatId>/.agent-engine-session.json`：ACP 插件会话绑定、确认配置与上下文状态，原子保存并随 Chat 归档/恢复；不保存凭据、不永久引用旧程序版本。外部会话 derive 暂拒绝，避免两个 Chat 共用外部 session ID。
 - `<chatId>/<uploaded-or-generated-file>`：上传与图片生成资源；工具返回内部绝对 `path` 和相对于当前 Chat 的稳定 `url`（不含 `chatId`），用户可见内容只使用 `url`。
 - `<chatId>/artifacts/<runId>/<filename>`：`artifact_publish` 的发布副本；发布结果 URL 必须指向该副本，写作 `@chat/artifacts/<runId>/<filename>`（字面路径）；Platform 内部读取方仍接受裸相对引用，但 Markdown 与用户可见地址必须带 `@chat/`。
 
@@ -121,7 +123,7 @@ KBX 索引固定使用 `ru-kbases/<libraryId>/index.sqlite` 及配套存储；Ag
 ## 7. 开发要点
 
 - 配置按 agent-settings（全局 + mode preset、创建默认值、file 声明式 Workspace 规则、顶层 ACP）、agent-prompt（shared 含 skill/view/reference 等，coder/kbase）、tools（含 AI profiles）、runtime（KBX 和 memory/memx）归属；旧分散配置拒绝加载，迁移入口为 `config-migrate`。KBX embedding 由 library.models.embedding 覆盖 runtime.kbx 默认并使用共享模型 registry，Agent 创建默认值来自对应 mode 的 default-agent。见 [Agent 配置合并](docs/Agent配置合并.md)。
-- `planningMode` 是原生 GENERAL/CODER/KBASE/TEAM 的通用能力，实现位于 `internal/agent/planmode`，不属于 CODER，也不是 Run 内的阶段切换：规划 Run 只产出计划并等待确认，批准后由 Runtime 启动同一 Agent 的一次普通 Run 来执行，规划 Run 不在自身内执行计划。两者的工具均为 Agent 有效工具减去 `agent-settings.yml` 的 `planning-mode.exclude-tools` / `execute-exclude-tools`，`finalize_planning` 由 Platform 追加与去除；代码不内置只读工具清单，阶段级 `toolConfig.tools` 硬失败；规划与执行都不允许换模型，原生 Agent 的 `stageSettings.planning/execute` 声明 `modelKey` 同样硬失败。ACP 交给 bridge；KBASE 规划 Run 不开启 editing。新增规则不得再以 `mode == CODER` 判断规划能力。见 [Agent 配置合并](docs/Agent配置合并.md#planning-mode-工具排除)。
+- `planningMode` 是原生 GENERAL/CODER/KBASE/TEAM 的通用能力，实现位于 `internal/agent/planmode`，不属于 CODER，也不是 Run 内的阶段切换：规划 Run 只产出计划并等待确认，批准后由 Runtime 启动同一 Agent 的一次普通 Run 来执行，规划 Run 不在自身内执行计划。两者的工具均为 Agent 有效工具减去 `agent-settings.yml` 的 `planning-mode.exclude-tools` / `execute-exclude-tools`，`finalize_planning` 由 Platform 追加与去除；代码不内置只读工具清单，阶段级 `toolConfig.tools` 硬失败；规划与执行都不允许换模型，原生 Agent 的 `stageSettings.planning/execute` 声明 `modelKey` 同样硬失败。ACP 按外部会话能力处理（显式 planning/editing 在 ACP-008 验证前拒绝）；KBASE 规划 Run 不开启 editing。新增规则不得再以 `mode == CODER` 判断规划能力。见 [Agent 配置合并](docs/Agent配置合并.md#planning-mode-工具排除)。
 
 - 通用运行时配置事实源以 `internal/config/config.go` 和 `configs/*.example.yml` 为准；KBASE capability 的配置、索引/检索默认值和工具名以 `internal/knowledge` 为准，专用 KBASE mode 的 profile、prompt、创建策略和边界以 `internal/agent/kbase` 为准；CODER/TEAM 规则分别以 `internal/agent/coder`、`internal/agent/team` 为准，文档只解释和引用。
 - Agent 候选不再注入 prompt；旧 `contextConfig.agents` 与 `agents` context 标签忽略并合并为一条非阻断管理 warning（其他旧配置拒绝规则不变）。显式挂载 builtin.platform-control 后通过 catalog_query.list 发现全部公开 Agent 摘要；invocable 仅描述 agent_invoke 静态目标资格，不改变 chat_start、Automation 或 Team 授权。详见 [智能体配置](docs/智能体配置说明.md#agent-发现与旧候选配置)。
@@ -198,7 +200,7 @@ make test
 - `agent_invoke` 只允许显式配置的普通主 agent 使用，当前禁止嵌套；TEAM 的执行 Run 只自动注入 session-local embedded builtin `agent_delegate`，plan 工具来自普通配置或 preset。普通 Agent 配置、session 与执行入口均拒绝 `agent_delegate`，该工具也不进入公开工具 catalog。
 - flat plan task 按数组顺序执行且同时最多一个 `in_progress`；最前面的非终态 task 可由 `init` 进入 `in_progress` 或直接进入 `completed/failed/canceled`，`in_progress` 可进入任一终态，终态重试必须追加新 task。TEAM 的 plan task 表示顺序阶段，但当前阶段内部仍可通过单次 `agent_delegate` 按 `maxParallel` 并行执行成员。
 - 中文“会话”和“对话”均指 Chat；“新开会话／对话”优先使用 `chat_send {newChat:true}`；旧 `chat_start` 保留并省略 `chatId`，未指定目标时可省略 `agentKey`，服务端从可信调用上下文补齐当前 Agent；只有继续用户指定的已有 Chat 才传 `chatId`。查询与中断仍按 `runId` 定位一次执行，不关闭或删除 Chat。
-- `chat_start` / `chat_get_status` / `chat_interrupt` / `chat_steer` 只允许挂载 `builtin.task-control` 的主 Agent 根 run（含 TEAM） 使用，chat_start 仅按精确 catalog `agentKey` 启动独立根 run，省略时使用可信调用方 Agent，省略 accessLevel 时使用目标 Agent 的 accessConfig.default（未配置为 ask_for_approval，允许高于父档位），显式同级或降级直接启动，显式高于父当前档位直接拒绝；Runtime 在父权限临界区受理后才创建 Chat；`runQuery.allowAccessLevelOverride` 已移除，见 [子智能体调度](docs/子智能体调度.md)；不设目标白名单、深度/并发配置或 maxActiveRuns。status/interrupt/steer 只接受同一调用 Agent 与 subject 创建的 run，这些旧执行工具对派生根 Run 继续限制一层，新 mailbox 工具按跳数限制。 `chat_start` 只需 message；省略 agentKey 使用当前 Agent；目标为当前 Agent 时省略的 modelKey/reasoningEffort 逐字段继承调用方当前 Run 的有效值（关闭思考为 NONE，续聊同样适用），目标为其他 Agent 时不继承、使用目标自己的模型与默认思考强度，显式值仅覆盖对应字段；生效值纳入幂等摘要并接受目标准入校验；目标 `interactionConfig` 只约束用户入口，不约束 `chat_start`/`chat_steer`，豁免仅限本次准入、不改 Run 冻结快照，审批、模型有效性与引用授权不变；`chat_query models` 只读列出本地 chat 模型，ACP 选项仍由 bridge 校验。
+- `chat_start` / `chat_get_status` / `chat_interrupt` / `chat_steer` 只允许挂载 `builtin.task-control` 的主 Agent 根 run（含 TEAM） 使用，chat_start 仅按精确 catalog `agentKey` 启动独立根 run，省略时使用可信调用方 Agent，省略 accessLevel 时使用目标 Agent 的 accessConfig.default（未配置为 ask_for_approval，允许高于父档位），显式同级或降级直接启动，显式高于父当前档位直接拒绝；Runtime 在父权限临界区受理后才创建 Chat；`runQuery.allowAccessLevelOverride` 已移除，见 [子智能体调度](docs/子智能体调度.md)；不设目标白名单、深度/并发配置或 maxActiveRuns。status/interrupt/steer 只接受同一调用 Agent 与 subject 创建的 run，这些旧执行工具对派生根 Run 继续限制一层，新 mailbox 工具按跳数限制。 `chat_start` 只需 message；省略 agentKey 使用当前 Agent；目标为当前 Agent 时省略的 modelKey/reasoningEffort 逐字段继承调用方当前 Run 的有效值（关闭思考为 NONE，续聊同样适用），目标为其他 Agent 时不继承、使用目标自己的模型与默认思考强度，显式值仅覆盖对应字段；生效值纳入幂等摘要并接受目标准入校验；目标 `interactionConfig` 只约束用户入口，不约束 `chat_start`/`chat_steer`，豁免仅限本次准入、不改 Run 冻结快照，审批、模型有效性与引用授权不变；`chat_query models` 只读列出本地 chat 模型，ACP 选项由真实准备会话的 configOptions 校验。
 - Chat 创建后根 `agentKey` 固定。事件携带实际执行者 key，控制只认根 Run owner。成员历史隐藏其他执行者工具结果；总控保留自己的完整工具历史和成员最终结果。
 - Team 成员、成员定义、协调器配置与 prompt 在 run 开始时解析为快照，运行中 catalog 热重载不改变该 run；下一次 run 才读取新快照。
 - `/healthz` 报告 KBX 维护能力；单个库或 Agent 绑定失效不使平台返回 503，Run 与工具独立检查库是否就绪。
@@ -248,7 +250,7 @@ Desktop 原生连接器不属于外部 builtin 构建缓存，不要求 `sync-lo
 
 - Query/steer、chat_start、agent_invoke 与 Automation 使用统一 references。定位、授权、累计限额、压缩和恢复边界以 [引用协议](docs/引用协议.md) 为准；选中资源不注入 system prompt，旧独立选择字段出现即拒绝。
 
-非 Native 执行后端（ACP/PROXY/CHANNEL）不支持本地 skill/kbase/chat 定位引用，query 与 steer 均拒绝；attachment 的对应入口始终关闭，显式配置不扩大后端能力。公开请求 DTO 与工具/Automation query 拒绝未知字段；历史事件按内部快照读取，不套用外部请求校验。
+PROXY/CHANNEL 不支持本地 skill/kbase/chat 定位引用。ACP 普通 query 在转换层接收当前 Chat 已上传 file、可信 skill 和 kbase；图片/二进制须通过 ACP 能力协商，挂载连接器/知识库工具须支持标准 MCP HTTP。ACP 不继承 Native 历史技能授权、模型配置或工具循环；chat/site/selection、steer 仍关闭，显式配置不扩大后端能力。公开请求 DTO 与工具/Automation query 拒绝未知字段；历史事件按内部快照读取，不套用外部请求校验。
 
 
 Agent 默认档位声明为 `accessConfig.default`（ask_for_approval/auto_approve/full_access），缺省不写回；普通 Query/execute/side query 及子执行器使用目标冻结定义的默认，Automation 省略仍固定 ask_for_approval。独立子执行器持有独立权限 RunControl，Team 使用根 Run 的成员快照；Mailbox 受理冻结权限，投递不重算。Agent 工具修改任意 accessConfig 块或 default 字段一律强制人工，含增加、删除、降档与空块；普通受管文件/Bash 对 AgentsDir、RUAgentsDir、AutomationsDir 只读，专用管理事务仍可写，Host 任意脚本无完整隔离。Automation 工具 create/update/启用/trigger 的最终执行档位不能高于调用 Run 的当前档位，停用不受这个比较限制；管理 HTTP/YAML 继续原合同。规划执行默认权限若较规划时升高，批准 param 需包含用户已审阅的 executionAccessLevel，否则返回 plan_access_level_changed 并保留等待项。客户端 defaultAccessLevel 是有效默认元数据，实际权限写顶层 accessLevel/accessGrant，不补进原始 query。

@@ -39,9 +39,6 @@ kbase:
   default-agent:
     modelKey: answer-model
     reasoningEffort: medium
-acp-bridges:
-  local:
-    base-url: http://127.0.0.1:17071
 `)
 	var cfg Config
 	if err := cfg.applyAgentSettingsFile(path); err != nil {
@@ -53,7 +50,7 @@ acp-bridges:
 	if cfg.GeneralSettings.WorkspaceAgents.Enabled || cfg.GeneralSettings.WorkspaceAgents.File != "" {
 		t.Fatal("absent file must not enable rules")
 	}
-	if !cfg.CoderSettings.WorkspaceAgents.Enabled || cfg.CoderSettings.WorkspaceAgents.File != "RULES.md" || cfg.KBase.DefaultAgent.ModelKey != "answer-model" || cfg.ACP.SourcePath != path {
+	if !cfg.CoderSettings.WorkspaceAgents.Enabled || cfg.CoderSettings.WorkspaceAgents.File != "RULES.md" || cfg.KBase.DefaultAgent.ModelKey != "answer-model" {
 		t.Fatal(cfg)
 	}
 	if err := cfg.applyToolsFile(configFixture(t, "tools.yml", "bash: {}\n"), false); err != nil {
@@ -128,7 +125,7 @@ func TestMigrationPreservesRawValuesAndRejectsConflicts(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("coder-settings.yml", "default-agent:\n  modelKey: code\nworkspace-agents:\n  enabled: true\n  file: AGENTS.md\nacp-bridges:\n  local:\n    base-url: http://127.0.0.1:17071\n    auth-token: ${PRIVATE_TOKEN:}\n    desktop-plugin-id: plugin\n")
+	write("coder-settings.yml", "default-agent:\n  modelKey: ${PRIVATE_TOKEN:code}\nworkspace-agents:\n  enabled: true\n  file: AGENTS.md\n")
 	write("coder-prompts.yml", "system-prompt: |\n  Hello {{name}}\n  # literal markdown\n  second line\n")
 	write("tools.yml", "preset-tools:\n  - wait\nbash:\n  max-command-chars: 9000\n")
 	write("ai-tools.yml", "vision-recognize:\n  enabled: false\n")
@@ -154,7 +151,7 @@ func TestMigrationPreservesRawValuesAndRejectsConflicts(t *testing.T) {
 		t.Fatal("migration changed values")
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "agent-settings.yml"))
-	if !bytes.Contains(raw, []byte("${PRIVATE_TOKEN:}")) {
+	if !bytes.Contains(raw, []byte("${PRIVATE_TOKEN:code}")) {
 		t.Fatal("expanded secret expression")
 	}
 	raw, _ = os.ReadFile(filepath.Join(dir, "agent-prompt.yml"))
@@ -431,5 +428,12 @@ func TestShippedAgentSettingsPresetViewDescribeForGeneralAndCoder(t *testing.T) 
 		if has != want {
 			t.Fatalf("%s view_describe preset = %v", mode, has)
 		}
+	}
+}
+
+func TestAgentSettingsRejectRemovedBridgeConfiguration(t *testing.T) {
+	var cfg Config
+	if err := cfg.applyAgentSettingsFile(configFixture(t, "agent-settings.yml", "acp-bridges: {}\n")); err == nil {
+		t.Fatal("removed bridge configuration still accepted")
 	}
 }

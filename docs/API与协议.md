@@ -36,11 +36,38 @@
 
 JSON 键严格区分大小写，拒绝重复键、未知字段及尾随 JSON；上传和解包限额来自 webapps 配置。管理 Cookie 写请求要求精确 platform-origin，所有非空 Origin 必须匹配配置来源；Bearer 自动化调用可省略 Origin。摘要、revision、运行中更新及数据删除条件失败不会自动重试。公开应用域、票据、SDK、启停和 operationId 属于后续批次，当前不能调用尚未注册的接口。
 
-## Desktop ACP 注册
 
-`PUT /api/desktop/acp-bridges` 接受 `sourcePluginId`、`bridgeId`、`baseUrl`、可选 `timeoutMs` 和 `authToken`；省略 token 时保留已有值，显式空字符串清除。`DELETE` 接受同一插件身份与 bridge ID。插件身份由 Desktop 在认证的插件 socket 上确定，不能从插件请求体透传覆盖。
+## Desktop Agent Engine 管理（ACP-003）
 
-该入口即使全局 auth 关闭也强制验证 JWT，且要求已验证的 app scope、非空 subject 和 device claim；网页或无身份请求不能注册。app scope 的本机宿主是断言插件身份的信任边界。响应仅包含 `changed`、`removed`、`restartRequired`，不回显配置路径或 token。参数错误返回 400，归属或配置冲突返回 409，持久化失败返回 500。旧 Platform 不支持该入口时 Desktop 显式失败，无文件写入降级。持久化与生效边界见 [ACP CODER Backend](智能体配置说明.md#ACP-CODER-Backend)。
+已实现 `GET /api/desktop/agent-engines/status`、`PUT /api/desktop/agent-engines`、`PUT /api/desktop/agent-engines/snapshot`、`POST /api/desktop/agent-engines/revoke` 和公共 `GET /api/agent-engines`。管理端只接受专用本机能力，公共读取沿用普通业务鉴权；具体 DTO 与错误使用 `internal/contracts/agentengine`，成功外壳为 `{code:200,msg:"ok",data:...}`。正文上限 1 MiB、目录最多 256 项；未知字段、重复 JSON key、缺失快照边界均拒绝。
+
+首次必须完整快照，所有引用导入后一次提交目录与修订；同修订同内容幂等，冲突/过期不覆盖现状。目录通知为 `agent_engines.changed`，仅带 catalogGeneration/revision；公共目录不包含管理 epoch、秘密或执行路径。安装同步、认证及进程状态独立，注册不等于登录或启动。Desktop 自动对账已由 ACP-004 接入；会话准备由 ACP-006 提供，Query 执行准入已由 ACP-007 接入。
+
+## Agent Engine 会话准备与配置（ACP-006）
+
+这些接口沿用普通业务鉴权和既有 Chat 所有权检查；写接口正文最多 1 MiB，拒绝未知字段和重复 key。不会在目录列表或配置读取请求中创建临时会话。
+
+| 方法与路径 | 请求 | 返回 |
+| --- | --- | --- |
+| `GET /api/agent-engines/sessions/preview?agentKey=…` | 当前有效 ACP Agent；读取配置探测缓存，不预建 Chat、不启动进程 | `ConfigPreview`：engineId、configOptions；无缓存为空数组，无可执行会话句柄 |
+| `POST /api/agent-engines/sessions/preview?agentKey=…` | 请求刷新新会话配置；同作用域 30 秒内去重、在途合并 | `ConfigPreview`；容量不足返回 engine_busy，由展示层延后；不发送 Prompt、不回收用户会话；部署身份认证沿用普通 API，响应 no-store |
+| `POST /api/agent-engines/sessions/prepare` | `{chatId}`，首次准备可附 agentKey 预建当前身份拥有的 Chat；已有 Chat 的 engine/Workspace 从其 Agent 读取 | `PreparedSession`：chatId、engineId、preparationId、configRevision、configOptions |
+| `GET /api/agent-engines/sessions/config?chatId=…` | 已有 Chat ID；只读当前内存快照 | `PreparedSession`；允许活动 Run 读取，不调用 prepare、不启动进程、不占执行名额；无可用快照为 409 `session_configuration_stale`，响应 `Cache-Control: no-store` |
+| `PUT /api/agent-engines/sessions/config` | `{chatId,preparationId,configRevision,selections:[{configId,value}]}` | 上游确认后的最新 `PreparedSession` |
+
+成功沿用 `{code:0,msg:"success",data:...}`。选项使用冻结的 ExternalConfigOption（上游 options 规范化为 choices，分组标记保留）；ID、值和大小写不转换，客户端不得发送 Native modelKey。未支持 serviceTier/boolean 不暴露。旧 preparationId/configRevision 返回 HTTP 409 `session_configuration_stale`；缺认证 401 `auth_required`；恢复失败 409 `session_restore_failed`；繁忙 409 `engine_busy`；目录未就绪/不可用引擎 503。参数/选项错误 400。错误 DTO 为 `{code,msg,data:{errorCode,executionState}}`，不返回上游原始错误或凭据；Chat 越权沿用既有 403 `chat_access_denied`。
+
+prepare 成功只代表真实会话和配置可用，不代表模型对话或认证 UI 已完成。配置响应确认后才允许按返回 revision 发起同一会话 prompt；正式 Query 已由 ACP-007 接入，UI 消费由 ACP-009/010 接入。本次没有新增 prompt HTTP 入口。
+
+## 外部引擎认证
+
+GET /api/agent-engines/auth/status?engineId=... 返回类型化方法与当前状态；POST /api/agent-engines/auth/start 接受 {engineId,methodId}；POST /api/agent-engines/auth/cancel 接受 {authOperationId}。操作绑定已验证 subject/device，跨身份不能取消或附着终端。仅 Desktop 本机运行时提供 helper，未接入 Desktop 时明确不可用。
+
+agent 方法调用 ACP authenticate，terminal 方法执行受信 Manifest 固定入口，不把上游 command/env 作为可执行输入。终端复用既有 Terminal WebSocket，限定本次 auth 操作。取消、五分钟期限及服务关闭均回收 helper/进程租约。认证返回后新建进程重新验证 session/new；若实际 prompt 仍返回 auth_required，则关闭连接并重新进入待认证。
+
+首版仅开放已接入的 agent 浏览器路径及受信 terminal helper；API Key、device-code、持久许可和其他未经验证方法关闭。不会通过握手或打开浏览器直接认定真实模型访问成功。
+
+旧 Desktop ACP 注册接口已删除，插件同步只走受信管理目录，详见 [Runtime 模块边界](Runtime模块边界.md)。
 
 ## 统一时间契约
 
@@ -727,15 +754,11 @@ PROXY/CHANNEL/ACP CODER 的 query 不接受用户 `params.cwd`（出现即返回
 
 Chat JSONL 步骤行用可选数组 `toolUsage` 保存这些调用（字段同上，不含 `source`），与该步骤主模型的 `usage` 分开；回放把它们计入 Run/Chat 的 token 与费用，但不计入模型调用次数、计时、上下文窗口或步骤 `modelKey`。旧记录没有该字段时按 0 处理。
 
-#### CODER model options
+#### Model options
 
-`GET /api/model-options` 返回聊天输入区运行时可选项。前端按当前 agent `mode` 自行决定是否展示该控件：
+`GET /api/model-options` 返回 Native 聊天输入区可选项，入口按后端下发的 interactionConfig 决定。models 返回可用 chat 模型的 key/name/icon/provider 与非空 serviceTiers；reasoningEfforts 为现有六档，未配置服务等级时省略 serviceTiers。当前 Native 选择仍由 `/api/agent` 提供。
 
-- `models`: 当前 model registry 中可展示的聊天模型。Native 选项仅返回 `key/name/icon/provider` 与非空的 `serviceTiers`，不返回 `modelId/protocol/isReasoner/isVision/contextWindow/timeout` 或模型级 `reasoningEfforts`。ACP 透传模型保留原有字段与 bridge 声明的能力信息，包括显式 boolean `isReasoner/isVision`、模型级 `reasoningEfforts/serviceTiers`；内部发现与 Query 校验不受 Native 响应精简影响。`icon` 是可选的模型图标标识；ACP 透传模型仅在上游 `/api/models` 返回该字段时携带。普通模型要求 `type: chat`、provider 存在且 `apiKey` 非空；`protocol: ACP_PASSTHROUGH` 的 ACP 透传模型不要求 provider。`type: embedding`、`type: image`、`type: vl` 与 `type: tts` 均不会出现在聊天模型选项中。
-- `reasoningEfforts`: 保留 `{key,label}` 对象数组，支持中文等显示标签。native model options 固定为 `NONE`、`LOW`、`MEDIUM`、`HIGH`、`XHIGH`、`MAX`，其中 `NONE` 表示关闭思考深度；ACP CODER 仍按 bridge 的模型发现结果生成
-- `serviceTiers`: 可选服务等级（ACP 按 bridge 能力解析，包含恢复标准等级的 STANDARD 选项）
-
-该接口仅表达可选能力，不返回 `defaultModelKey/defaultReasoningEffort/defaultServiceTier`。当前选择由 `/api/agent` 顶层 `modelKey/reasoningEffort/serviceTier` 提供，刷新选项不改变 Agent 的选择；无可配置服务等级时省略 serviceTiers。
+ACP 项目返回空模型选项，不读取旧 Bridge 或 Native 模型目录。真实外部选项从 Chat 的 prepare/config 接口获得，项目详情与摘要不提供原生模型/思考默认值，原生 `/api/agent/model-config` 写入被拒绝。Query 在真实会话准备后校验外部选择；项目未知能力关闭不替代该会话校验。
 
 `GET /api/admin/agents/editor-options` 的 `models` 仅返回 `type: chat` 的模型（未声明 `type` 时按 `chat` 兼容），供 Agent 创建与编辑选择；`embedding`、`image`、`vl`、`tts` 不进入选项，支持看图的 `chat` 模型仍保留。该接口无需类型过滤参数。reasoner model 同样返回 `reasoningEfforts: [LOW, MEDIUM, HIGH, XHIGH, MAX]`。这里及聊天、usage、回放中记录的均为用户选择的逻辑档位；provider 实际映射值不会作为额外字段回显。
 
@@ -1586,3 +1609,26 @@ owner 管理详情返回安装记录、Manifest、policy、用户配置及配置
 `/__desktop/bridge.js`、bootstrap/config 和 `actions/call` 归应用会话边界，SDK action POST 要求精确应用 Origin 与 X-WebApp-CSRF，响应使用 `{ok,action,result|error}`。该 envelope 与 owner 管理的 `{code,msg,data}` 分离。
 
 Node 通过固定 loopback 的 `/webapps/session` 和 `/webapps/actions/call` 使用绑定代次的应用能力凭证；前者只接受 bootstrap 凭证，后者只接受短期 action token，均拒绝浏览器 Origin。应用凭证不被平台 JWT 或连接器 HTTP grant 接口接受。连接器调用进程内中立 scope，不生成伪造 deviceId。精确 action 与可用性由 capabilities 回应，不开放通用 Desktop Action 转发。
+
+## ACP Query 当前能力（ACP-007）
+
+继续使用原 Query、attach/replay、chat_start 和 Automation 入口，不新增 prompt HTTP API。引擎目录未同步返回 registry_not_ready；缺失/禁用/未配置宿主返回 engine_unavailable，拒绝时无新 Chat/Run/进程。外部模型选择保留原始 ID/value，准备并确认后才发 prompt。
+
+当前 execute 返回 execute_unsupported_agent；BTW/Explain、references（含附件）、params/scene、显式 planning/editing、serviceTier、非 default 权限返回 capability_unsupported。steer/权限更新不受理；缺认证为 auth_required。ACP-008 已接外部 HITL 与软取消；Automation 或无等待处理上下文时需要交互仍为 interaction_required。
+
+文本、工具、文件和计划转换成既有事件；工具 acp/ 名称仅为不透明工具标识。计划使用已有 taskId/description/status 数组，pending 映射 init，不增加 source 字段；根会话复用 plantasks 快照恢复，子任务计划沿用任务内实时投影。完整且非负的本轮 token 报告转换为现有 usage.current/run 及历史用量；缺失/部分统计、会话累计量和货币成本不冒充本轮计费，不增加 source/scope/known/values 旁路。
+
+
+### ACP 外部 HITL 提交（ACP-008）
+
+权限请求由 `runtime/acp/hitl.go` 转换为既有 `mode=approval`，使用 `approvals[{id,description,command,options,allowFreeText}]`，仅提供 approve/reject。前端提交 `params:[{id,decision:"approve"或"reject"}]`；`params:[]` 取消。精确原始 optionId 只留在适配器本次调用闭包，approve→allow_once，reject→reject_once；没有 reject_once 时返回 ACP cancelled。缺少 allow_once、存在多个同类一次性选项则 capability_unsupported，不能静默选择、持续授权或扩大为 approve_rule_run。描述保留上游范围名称、目标路径；allow_once 不保证只有一次工具调用。
+
+elicitation 转为既有 `mode=question`；仅支持可准确表达的必填文本/单选，枚举 ID 转为现有 options.value，前端不读取 optionId、required 或 ACP schema。提交 `params:[{id,answer}]`，按原字段/枚举值校验；`params:[]` 取消整批。可选字段、数字、多选、URL、秘密输入和复杂约束返回 elicitation_unsupported，不能为了插件增加 AGW 字段。
+
+所有权来自认证上下文。原始 RPC、连接生命周期、选项映射及期限保留在 ACP 层；公共 AwaitingSubmitContext 只持有不序列化的 ValidateSubmit 回调，RunControl 负责锁内复核、一次受理、正文冻结及幂等。跨 owner/Chat/Run、伪造决定、过期、同 submitId 异正文均拒绝；accepted 仅表示宿主受理，不能确认上游执行，断连不补发。重启依据会话绑定及已有子任务执行者身份收尾，不依赖 source=acp；不伪造 Native 工具结果。
+
+### ACP 两端项目创建（ACP-009）
+
+creation-defaults 的 ACP 选项使用受信动态目录，不再返回 acpBridges。两端提交 engine: acp 与 runtimeConfig.engineId/workspaceRoot，不提交 mode 或 Native 默认配置。API 写入和文件加载共用严格引擎校验；创建还验证当前目录、执行快照及 Workspace，不启动 Adapter 或模型探测。无受信宿主、待同步、已撤销和缺依赖分别以 unsupported_deployment、registry_not_ready、engine_unavailable、dependency_missing 表达。
+
+目录通知复用 agent_engines.changed；客户端刷新不能覆盖用户选择或被迟到响应回滚。认证未知保持 unknown，真实认证与模型配置 UI 属于 ACP-010。

@@ -87,10 +87,10 @@ func TestPresetToolsCatalogAndStructuredSave(t *testing.T) {
 		t.Fatalf("lost exclusion: %v", got)
 	}
 }
-func TestPresetToolsACPRejectsExclusions(t *testing.T) {
-	d := AgentDefinition{Engine: AgentEngineACP, ACPBridgeID: "bridge", ExcludedTools: []string{"wait"}}
-	if ValidateAgentCoderBackend(d) == nil {
-		t.Fatal("ACP accepted exclusion")
+func TestACPAllowsConnectorToolExclusions(t *testing.T) {
+	d := AgentDefinition{Engine: AgentEngineACP, Runtime: map[string]any{"engineId": "fixture/agent"}, Workspace: AgentWorkspaceConfig{Root: t.TempDir()}, ExcludedTools: []string{"wait"}}
+	if err := ValidateAgentCoderBackend(d); err != nil {
+		t.Fatal("ACP rejected connector tool exclusion", err)
 	}
 	d.ExcludedTools = nil
 	if err := ValidateAgentCoderBackend(d); err != nil {

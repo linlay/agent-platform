@@ -17,6 +17,7 @@ LOG_FILE="$LOG_DIR/$APP_NAME.log"
 PID_FILE="$RUN_DIR/$APP_NAME.pid"
 PROGRAM_PORT=""
 SSO_ID_TOKEN_FILE=""
+AGENT_ENGINE_BOOTSTRAP_FILE=""
 RUNTIME_MODE="standalone"
 BACKEND_ARGS=()
 DEPLOY_DOCUMENT_PREVIEW_API_BASE_URL=""
@@ -96,6 +97,11 @@ program_apply_layout_flags() {
       --port)
         [[ $# -ge 2 ]] || program_die "missing value for --port"
         PROGRAM_PORT="$2"
+        shift 2
+        ;;
+      --agent-engine-bootstrap-file)
+        [[ $# -ge 2 ]] || program_die "missing value for --agent-engine-bootstrap-file"
+        AGENT_ENGINE_BOOTSTRAP_FILE="$2"
         shift 2
         ;;
       --sso-id-token-file)
@@ -746,6 +752,9 @@ program_update_backend_args() {
   fi
   if [[ -n "$SSO_ID_TOKEN_FILE" ]]; then
     BACKEND_ARGS+=(--sso-id-token-file "$SSO_ID_TOKEN_FILE")
+  fi
+  if [[ -n "$AGENT_ENGINE_BOOTSTRAP_FILE" ]]; then
+    BACKEND_ARGS+=(--agent-engine-bootstrap-file "$AGENT_ENGINE_BOOTSTRAP_FILE")
   fi
 }
 

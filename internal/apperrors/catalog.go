@@ -44,7 +44,6 @@ var definitions = []Definition{
 	def(CodeAgentRegistryUnavailable, CategoryCatalog, ScopeRequest, http.StatusServiceUnavailable, true),
 	def(CodeConfigurationError, CategoryCatalog, ScopeSystem, http.StatusInternalServerError, false),
 	def(CodePlanningModeUnsupported, CategoryCatalog, ScopeRequest, http.StatusBadRequest, false),
-	def(CodeACPBridgeNotConfigured, CategoryCatalog, ScopeProxy, http.StatusBadGateway, false),
 	def(CodeProxyConfigMissing, CategoryCatalog, ScopeProxy, http.StatusBadGateway, false),
 
 	def(CodeChatNotFound, CategoryChatRun, ScopeChat, http.StatusNotFound, false),

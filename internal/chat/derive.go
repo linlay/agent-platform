@@ -55,6 +55,12 @@ func (s *FileStore) DeriveChat(request DeriveChatRequest) (DeriveChatResult, err
 		return DeriveChatResult{}, ErrChatNotFound
 	}
 
+	// A copied transcript cannot fork an external CLI context or its session ID.
+	if _, err := os.Lstat(filepath.Join(s.ChatDir(sourceChatID), engineSessionFile)); err == nil {
+		return DeriveChatResult{}, errors.New("capability_unsupported")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return DeriveChatResult{}, err
+	}
 	if sourceSummary.PendingAwaiting != nil {
 		return DeriveChatResult{}, ErrChatPendingAwaiting
 	}

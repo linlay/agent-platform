@@ -15,7 +15,13 @@ type ConversationExportConfig struct {
 	MaxSnapshotBytes int
 }
 
+type AgentEngineRuntimeConfig struct {
+	MaxProcesses, MaxSessions, MaxActive, MaxQueued int
+	QueueTimeout, IdleTimeout                       time.Duration
+}
+
 type Config struct {
+	AgentEngine        AgentEngineRuntimeConfig
 	ModeDefaultDetails map[string]string
 
 	Export           ConversationExportConfig
@@ -23,7 +29,6 @@ type Config struct {
 	PresetConnectors []string
 	ModePresets      map[string]AgentPresets
 	PlanningMode     PlanningModeConfig
-	ACP              ACPSettingsConfig
 	KBX              KBXConfig
 	DocumentPreview  documentpreview.Config
 	HTTPProxy        httpclient.Config
@@ -80,6 +85,10 @@ type LoadOptions struct {
 	SsoIdTokenFile string
 	RuntimeMode    string
 	WebAppHost     string
+	// Private one-use startup authority; never loaded from YAML or persisted.
+	AgentEngineBootstrapFile string
+	// Administrator-selected runtime for standalone Node engines; never from a Query.
+	AgentEngineNode string
 	// IgnoreRemovedWorkingDirectoryForAudit is reserved for the read-only
 	// workspace/chat migration audit. Normal startup must leave it false.
 	IgnoreRemovedWorkingDirectoryForAudit bool
@@ -301,12 +310,6 @@ type CoderDefaultAgentConfig struct {
 	ModelKey        string
 	ReasoningEffort string
 	Budget          map[string]any
-}
-
-type ACPBridgeConfig struct {
-	BaseURL   string
-	AuthToken string
-	TimeoutMS int
 }
 
 type KBaseConfig struct {
@@ -858,11 +861,6 @@ func fixedAuthLocalPublicKeyFile(configRoot string) string {
 	return configFile(configRoot, filepath.Join("configs", "local-public-key.pem"))
 }
 
-// ACP settings are independent of Agent mode.
-type ACPSettingsConfig struct {
-	SourcePath string
-	ACPBridges map[string]ACPBridgeConfig
-}
 type AgentPresets struct{ Tools, Connectors []string }
 
 // PlanningModeConfig removes tools from a native Agent's effective tools for

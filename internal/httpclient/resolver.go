@@ -1,5 +1,5 @@
 // Package httpclient owns Platform HTTP routing. It never changes net/http's
-// globals or exports proxy credentials to child processes.
+// globals; child environments are exported only through ProxyEnvironment.
 package httpclient
 
 import (
@@ -173,6 +173,97 @@ func (r *Resolver) Resolve(ctx context.Context, u *url.URL) (Decision, error) {
 func (r *Resolver) ProxyForRequest(req *http.Request) (*url.URL, error) {
 	d, err := r.Resolve(req.Context(), req.URL)
 	return d.Proxy, err
+}
+
+// ProxyEnvironment snapshots fixed routing for a managed HTTP/HTTPS child.
+// PAC and policies that cannot fit one NO_PROXY value fail before spawning.
+// Existing children retain their environment; the next launch reads new settings.
+func (r *Resolver) ProxyEnvironment(ctx context.Context) (map[string]string, error) {
+	env := map[string]string{}
+	bypass := []string{"localhost", "127.0.0.1", "::1"}
+	unsupported := errors.New("proxy_policy_unsupported")
+	set := func(key string, proxy *url.URL) error {
+		if proxy == nil {
+			return nil
+		}
+		if proxy.Scheme != "http" && proxy.Scheme != "https" {
+			return unsupported
+		}
+		env[key] = proxy.String()
+		return nil
+	}
+	switch r.config.Mode {
+	case "pac_auto":
+		return nil, unsupported
+	case "direct":
+	case "fixed":
+		if err := set("HTTP_PROXY", r.fixed); err != nil {
+			return nil, err
+		}
+		env["HTTPS_PROXY"] = env["HTTP_PROXY"]
+		bypass = append(bypass, r.config.Bypass...)
+	default:
+		if strings.TrimSpace(r.env.NoProxy) == "*" {
+			return map[string]string{"NO_PROXY": "*"}, nil
+		}
+		if r.env.NoProxy != "" {
+			bypass = append(bypass, r.env.NoProxy)
+		}
+		var system systemSettings
+		if r.env.HTTPProxy == "" || r.env.HTTPSProxy == "" {
+			var err error
+			system, err = r.system(ctx)
+			if err != nil {
+				return nil, unsupported
+			}
+		}
+		usesSystem := false
+		for _, item := range []struct {
+			key, raw string
+			proxy    *url.URL
+		}{
+			{"HTTP_PROXY", r.env.HTTPProxy, system.HTTP},
+			{"HTTPS_PROXY", r.env.HTTPSProxy, system.HTTPS},
+		} {
+			proxy := item.proxy
+			if item.raw != "" {
+				var err error
+				proxy, err = parseProxy(item.raw)
+				if err != nil || (item.key == "HTTP_PROXY" && r.env.CGI) {
+					return nil, unsupported
+				}
+			} else {
+				if proxy == nil {
+					proxy = system.SOCKS
+				}
+				if proxy == nil && system.Auto {
+					return nil, unsupported
+				}
+				usesSystem = usesSystem || proxy != nil
+			}
+			if err := set(item.key, proxy); err != nil {
+				return nil, err
+			}
+		}
+		if usesSystem {
+			// Scheme-specific system exceptions must not bypass an explicit env proxy.
+			if system.ExcludeSimple || (len(system.Bypass) > 0 && (r.env.HTTPProxy != "" || r.env.HTTPSProxy != "")) {
+				return nil, unsupported
+			}
+			for _, rule := range system.Bypass {
+				rule = strings.TrimSpace(rule)
+				if rule == "<local>" || strings.Contains(rule, "://") || strings.ContainsAny(strings.TrimPrefix(rule, "*."), "*?") {
+					return nil, unsupported
+				}
+				if network := systemCIDR(rule); network != nil {
+					rule = network.String()
+				}
+				bypass = append(bypass, rule)
+			}
+		}
+	}
+	env["NO_PROXY"] = strings.Join(bypass, ",")
+	return env, nil
 }
 
 func (r *Resolver) system(ctx context.Context) (systemSettings, error) {

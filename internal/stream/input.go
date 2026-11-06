@@ -164,6 +164,7 @@ type SyntheticQuery struct {
 func (SyntheticQuery) streamInputTag() {}
 
 type PlanUpdate struct {
+	TaskID string
 	PlanID string
 	Plan   any
 	ChatID string
@@ -324,6 +325,7 @@ type RequestSubmit struct {
 	TaskID      string
 	AwaitingID  string
 	SubmitID    string
+	Source      string
 	// Input is one answer object (planning/form) or an item list.
 	Input any
 }

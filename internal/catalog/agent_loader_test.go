@@ -857,7 +857,7 @@ func TestParseAgentFileSupportsCoderWorkspace(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileSupportsACPCoderBridgeID(t *testing.T) {
+func TestParseAgentFileSupportsACPPlugin(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "project")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
@@ -866,12 +866,11 @@ func TestParseAgentFileSupportsACPCoderBridgeID(t *testing.T) {
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: coder\n" +
-		"mode: CODER\n" +
 		"engine: acp\n" +
 		"toolConfig:\n" +
 		"  tools: []\n" +
 		"runtimeConfig:\n" +
-		"  acpBridgeId: codex\n" +
+		"  engineId: fixture/agent\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"projectConfig:\n" +
 		"  git:\n" +
@@ -884,13 +883,13 @@ func TestParseAgentFileSupportsACPCoderBridgeID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if def.Mode != AgentModeCoder {
+	if def.Mode != "" {
 		t.Fatalf("mode = %q, want CODER", def.Mode)
 	}
-	if def.ACPBridgeID != "codex" {
-		t.Fatalf("acpBridgeId = %q, want codex", def.ACPBridgeID)
+	if def.Runtime["engineId"] != "fixture/agent" {
+		t.Fatalf("engineId = %q, want fixture/agent", def.Runtime["engineId"])
 	}
-	if !AgentUsesACPCoderBackend(def) {
+	if AgentEngineForAPI(def) != "acp" {
 		t.Fatalf("expected ACP CODER backend")
 	}
 	if len(def.Tools) != 0 {
@@ -907,10 +906,9 @@ func TestParseAgentFileRejectsACPCoderPromptFiles(t *testing.T) {
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: coder\n" +
-		"mode: CODER\n" +
 		"engine: acp\n" +
 		"runtimeConfig:\n" +
-		"  acpBridgeId: codex\n" +
+		"  engineId: fixture/agent\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"projectConfig:\n" +
 		"  promptFiles:\n" +
@@ -931,10 +929,9 @@ func TestParseAgentFileRejectsACPCoderProxyConfig(t *testing.T) {
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: coder\n" +
-		"mode: CODER\n" +
 		"engine: acp\n" +
 		"runtimeConfig:\n" +
-		"  acpBridgeId: codex\n" +
+		"  engineId: fixture/agent\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"proxyConfig:\n" +
 		"  baseUrl: http://127.0.0.1:3211\n"
@@ -953,10 +950,9 @@ func TestParseAgentFileRejectsACPCoderPlatformTools(t *testing.T) {
 	workspace := t.TempDir()
 	content := "" +
 		"key: coder\n" +
-		"mode: CODER\n" +
 		"engine: acp\n" +
 		"runtimeConfig:\n" +
-		"  acpBridgeId: codex\n" +
+		"  engineId: fixture/agent\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"toolConfig:\n" +
 		"  tools: [artifact_publish]\n"
@@ -970,15 +966,14 @@ func TestParseAgentFileRejectsACPCoderPlatformTools(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileRejectsACPCoderMCPServers(t *testing.T) {
+func TestParseAgentFileAcceptsACPConnectorMounts(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agent.yml")
 	workspace := t.TempDir()
 	content := "" +
 		"key: coder\n" +
-		"mode: CODER\n" +
 		"engine: acp\n" +
 		"runtimeConfig:\n" +
-		"  acpBridgeId: codex\n" +
+		"  engineId: fixture/agent\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"toolConfig:\n" +
 		"connectorConfig:\n" +
@@ -989,12 +984,12 @@ func TestParseAgentFileRejectsACPCoderMCPServers(t *testing.T) {
 	}
 
 	_, err := parseAgentDefinitionForTest(path)
-	if err == nil || !strings.Contains(err.Error(), "connectorConfig.connectors is not supported for engine: acp") {
-		t.Fatalf("expected ACP CODER MCP server rejection, got %v", err)
+	if err != nil {
+		t.Fatalf("ACP connector configuration rejected: %v", err)
 	}
 }
 
-func TestParseAgentFileUsesACPBackendFromBridgeID(t *testing.T) {
+func TestParseAgentFileUsesACPPluginBackend(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "project")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
@@ -1003,10 +998,9 @@ func TestParseAgentFileUsesACPBackendFromBridgeID(t *testing.T) {
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: coder\n" +
-		"mode: CODER\n" +
 		"engine: acp\n" +
 		"runtimeConfig:\n" +
-		"  acpBridgeId: codex\n" +
+		"  engineId: fixture/agent\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
@@ -1016,10 +1010,10 @@ func TestParseAgentFileUsesACPBackendFromBridgeID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if def.ACPBridgeID != "codex" {
-		t.Fatalf("acpBridgeId = %q, want codex", def.ACPBridgeID)
+	if def.Runtime["engineId"] != "fixture/agent" {
+		t.Fatalf("engineId = %q, want fixture/agent", def.Runtime["engineId"])
 	}
-	if !AgentUsesACPCoderBackend(def) {
+	if AgentEngineForAPI(def) != "acp" {
 		t.Fatalf("expected ACP CODER backend")
 	}
 }
@@ -1032,7 +1026,7 @@ func TestParseAgentFileRejectsLegacyACPProxyID(t *testing.T) {
 	}
 
 	_, err := parseAgentDefinitionForTest(path)
-	if err == nil || !strings.Contains(err.Error(), "runtimeConfig.acpProxyId was removed; use runtimeConfig.acpBridgeId") {
+	if err == nil || !strings.Contains(err.Error(), "runtimeConfig.acpProxyId was removed; use engineId") {
 		t.Fatalf("expected legacy ACP proxy id rejection, got %v", err)
 	}
 }
@@ -2139,5 +2133,21 @@ func TestParseAgentMaxInputTokens(t *testing.T) {
 	}
 	if _, err := parse(t, "key: demo\nmode: PROXY\nmodelConfig:\n  modelKey: demo-model\n  maxInputTokens: 1000\n"); err == nil || !strings.Contains(err.Error(), "only supported for native Agents") {
 		t.Fatalf("PROXY maxInputTokens must fail, got %v", err)
+	}
+}
+
+func TestParseAgentFileAcceptsPluginEngineWithoutBridge(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "key: external\nengine: acp\nruntimeConfig:\n  engineId: fixture/agent\n  workspaceRoot: " + filepath.ToSlash(root) + "\n"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	def, err := parseAgentDefinitionForTest(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def.Engine != "acp" || def.Runtime["engineId"] != "fixture/agent" {
+		t.Fatalf("plugin binding changed: %+v", def.Runtime)
 	}
 }

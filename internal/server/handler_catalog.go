@@ -17,6 +17,7 @@ import (
 
 	"agent-platform/internal/adminsource"
 	agentbuiltin "agent-platform/internal/agent/builtin"
+	"agent-platform/internal/agentengine"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
@@ -246,6 +247,22 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (r
 	if err := validateCreateAgentDefinition(req.Definition); err != nil {
 		return api.AgentDetailResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_agent_definition", err.Error())
 	}
+	if strings.EqualFold(stringValue(req.Definition["engine"]), catalog.AgentEngineACP) {
+		if s.deps.AgentEngines == nil || s.deps.AgentEngines.Status().HostID == "" {
+			return api.AgentDetailResponse{}, newAgentStatusError(503, "unsupported_deployment", "unsupported_deployment")
+		}
+		runtimeConfig := contracts.AnyMapNode(req.Definition["runtimeConfig"])
+		lease, err := s.deps.AgentEngines.Acquire(stringValue(runtimeConfig["engineId"]))
+		if err != nil {
+			code := agentengine.Error("engine_unavailable")
+			errors.As(err, &code)
+			return api.AgentDetailResponse{}, newAgentStatusError(503, string(code), string(code))
+		}
+		defer lease.Release()
+		if req.CreateLibrary != nil {
+			return api.AgentDetailResponse{}, newAgentStatusError(400, "capability_unsupported", "external engines do not support Native knowledge libraries")
+		}
+	}
 	if req.IsProject {
 		if err := catalog.ValidateProjectWorkspace(req.Definition); err != nil {
 			return api.AgentDetailResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_project_workspace", err.Error())
@@ -284,27 +301,15 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (r
 }
 
 func validateCreateAgentDefinition(definition map[string]any) error {
-	_, engine, err := catalog.ParseAgentModeAndEngine(stringValue(definition["mode"]), stringValue(definition["engine"]))
+	_, _, err := catalog.ParseAgentModeAndEngine(stringValue(definition["mode"]), stringValue(definition["engine"]))
 	if err != nil {
 		return err
 	}
 	if err := catalog.ValidateOrdinaryAgentTools(agentDefinitionToolNames(definition)); err != nil {
 		return err
 	}
-	runtimeConfig := contracts.AnyMapNode(definition["runtimeConfig"])
-	if _, exists := runtimeConfig["acpProxyId"]; exists {
-		return fmt.Errorf("runtimeConfig.acpProxyId was removed; use runtimeConfig.acpBridgeId")
-	}
-	acpBridgeID := strings.TrimSpace(contracts.AnyStringNode(runtimeConfig["acpBridgeId"]))
-	if engine == catalog.AgentEngineACP {
-		if acpBridgeID == "" {
-			return fmt.Errorf("runtimeConfig.acpBridgeId is required for engine: acp")
-		}
-		if len(contracts.AnyMapNode(definition["proxyConfig"])) > 0 {
-			return fmt.Errorf("proxyConfig is not supported for engine: acp; configure configs/agent-settings.yml acp-bridges and runtimeConfig.acpBridgeId")
-		}
-	} else if acpBridgeID != "" {
-		return fmt.Errorf("runtimeConfig.acpBridgeId requires engine: acp")
+	if err := catalog.ValidateAgentEngineConfig(definition); err != nil {
+		return err
 	}
 	return knowledge.ValidateConfigSchema(contracts.AnyMapNode(definition["kbaseConfig"]))
 }
@@ -347,6 +352,9 @@ func agentDefinitionToolNames(definition map[string]any) []string {
 }
 
 func (s *Server) applyCreateDefaultAgentConfig(definition map[string]any) map[string]any {
+	if strings.EqualFold(stringValue(definition["engine"]), catalog.AgentEngineACP) {
+		return definition
+	}
 	definition = s.applyGeneralDefaultAgentConfig(definition)
 	definition = s.applyCoderDefaultAgentConfig(definition)
 	definition = s.applyKBaseDefaultAgentConfig(definition)
@@ -409,7 +417,9 @@ func (s *Server) normalizeGeneratedModeCreation(key string, definition map[strin
 	}
 	mode := catalog.DefinitionRuntimeMode(definition)
 	prefix := ""
-	if descriptor, ok := agentbuiltin.Lookup(mode); ok {
+	if strings.EqualFold(stringValue(definition["engine"]), catalog.AgentEngineACP) {
+		prefix = "acp"
+	} else if descriptor, ok := agentbuiltin.Lookup(mode); ok {
 		prefix = strings.TrimSpace(descriptor.CreatePrefix)
 	} else if key == "" && strings.TrimSpace(stringValue(definition["key"])) == "" {
 		// General and executor agents keep a caller-chosen key; one is
@@ -545,40 +555,14 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 			serviceTier, _ = normalizeQueryModelServiceTier(raw)
 		}
 	}
-	isACPCoder := catalog.AgentUsesACPCoderBackend(def)
-	if serviceTier != "" && !isACPCoder {
-		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "serviceTier is only supported for ACP CODER")
+	if serviceTier != "" {
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "serviceTier is not supported by this project")
 	}
-	if isACPCoder {
-		options, err, ok := s.listACPCoderModelOptions(def.Key)
-		if ok {
-			if err != nil {
-				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadGateway, "upstream_error", "failed to fetch ACP CODER models: "+err.Error())
-			}
-			if !agentbuiltin.CoderModelKeyInOptions(modelKey, options) {
-				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "model "+modelKey+" is not available for ACP CODER")
-			}
-			if !agentbuiltin.CoderReasoningEffortAllowedForACPModel(reasoningEffort, modelKey, options) {
-				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "reasoningEffort is not available for selected model")
-			}
-			if serviceTier != "" && !serviceTierAllowedForACPModel(serviceTier, modelKey, options) {
-				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "serviceTier "+serviceTier+" is not available for ACP CODER model "+modelKey)
-			}
-		} else {
-			if s.deps.Models == nil {
-				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusServiceUnavailable, "unavailable", "model registry is not configured")
-			}
-			if err := s.validateLocalChatModelKey(modelKey, false); err != nil {
-				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", err.Error())
-			}
-		}
-	} else {
-		if s.deps.Models == nil {
-			return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusServiceUnavailable, "unavailable", "model registry is not configured")
-		}
-		if err := s.validateLocalChatModelKey(modelKey, true); err != nil {
-			return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", err.Error())
-		}
+	if s.deps.Models == nil {
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusServiceUnavailable, "unavailable", "model registry is not configured")
+	}
+	if err := s.validateLocalChatModelKey(modelKey, true); err != nil {
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", err.Error())
 	}
 
 	definition := contracts.CloneMap(files.Definition)
@@ -601,11 +585,7 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 	if len(reasoning) > 0 {
 		modelConfig["reasoning"] = reasoning
 	}
-	if isACPCoder && serviceTier != "" {
-		modelConfig["serviceTier"] = serviceTier
-	} else {
-		delete(modelConfig, "serviceTier")
-	}
+	delete(modelConfig, "serviceTier")
 	definition["modelConfig"] = modelConfig
 	if err := s.validateAgentReferences(definition); err != nil {
 		return api.AgentModelConfigResponse{}, err
@@ -682,7 +662,7 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 				continue
 			}
 			reasoningEfforts := make([]string, 0)
-			if model.IsReasoner && !models.IsACPPassthroughModel(model) {
+			if model.IsReasoner {
 				reasoningEfforts = models.ActiveReasoningEfforts()
 			}
 			modelOptions = append(modelOptions, api.AgentEditorModelOption{

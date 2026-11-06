@@ -75,7 +75,6 @@ const (
 	CodeAgentRegistryUnavailable  Code = "agent_registry_unavailable"
 	CodeConfigurationError        Code = "configuration_error"
 	CodePlanningModeUnsupported   Code = "planning_mode_unsupported"
-	CodeACPBridgeNotConfigured    Code = "acp_bridge_not_configured"
 	CodeProxyConfigMissing        Code = "proxy_config_missing"
 
 	CodeChatNotFound          Code = "chat_not_found"

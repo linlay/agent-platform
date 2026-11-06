@@ -56,6 +56,9 @@ type Result struct {
 type Service struct {
 	Auth    *connectorauth.Manager
 	Sources connector.Sources
+	// Supplied only by Agent execution assembly. Browser app grants do not
+	// inherit the Desktop identity or accept a caller-selected credential path.
+	SsoIdTokenFile string
 }
 
 func (s Scope) permits(id, adapter string) bool {
@@ -80,6 +83,9 @@ func (s *Service) Describe(scope Scope, id string) (Catalog, error) {
 	c, err := Load(pkg)
 	if err != nil {
 		return c, failure("connector_unavailable", 503)
+	}
+	if pkg.AuthMode == connector.AuthOneID && s.SsoIdTokenFile != "" && pkg.CLI != nil {
+		c.Adapters = []string{"cli"}
 	}
 	allowed := []string{}
 	for _, a := range c.Adapters {
@@ -142,9 +148,9 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 	if err != nil {
 		return result, failure("connector_unavailable", 503)
 	}
-	// This caller-neutral path has no Desktop identity execution context.
-	// Reject before login checks or claiming a write that will never start.
-	if pkg.AuthMode == connector.AuthOneID {
+	// Only Agent assembly provides the trusted identity path. Generic browser
+	// applications remain denied even when the Desktop happens to be logged in.
+	if pkg.AuthMode == connector.AuthOneID && (req.Adapter != "cli" || s.SsoIdTokenFile == "") {
 		return result, failure("connector_oneid_unsupported", 422)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -226,7 +232,7 @@ func (s *Service) Invoke(ctx context.Context, scope Scope, req Request) (result 
 		}()
 	}
 	if req.Adapter == "cli" {
-		result, err = callCLI(ctx, auth, pkg, req.Args, revision, req.Stdin)
+		result, err = callCLI(ctx, auth, pkg, req.Args, revision, s.SsoIdTokenFile, req.Stdin)
 	} else {
 		result.MCP, err = callMCP(ctx, pkg, req.Component, req.ToolName, req.Arguments)
 	}
@@ -296,7 +302,7 @@ func credentialFailure(err error) error {
 // read for this execution must be that same revision. The base environment is
 // the one Host Bash and the connector lifecycle use; only this connector's
 // credentials are added.
-func callCLI(ctx context.Context, auth *connectorauth.Manager, pkg connector.Package, args []string, revision string, stdin ...string) (Result, error) {
+func callCLI(ctx context.Context, auth *connectorauth.Manager, pkg connector.Package, args []string, revision, identityFile string, stdin ...string) (Result, error) {
 	var result Result
 	env, err := auth.ExecutionEnvironment(pkg)
 	if err != nil {
@@ -306,7 +312,7 @@ func callCLI(ctx context.Context, auth *connectorauth.Manager, pkg connector.Pac
 	if err != nil {
 		return result, failure("connector_auth_required", 401)
 	}
-	credentials, executed, err := connectorauth.ResolveEnvironmentWithRevision(ctx, binding, "")
+	credentials, executed, err := connectorauth.ResolveEnvironmentWithRevision(ctx, binding, identityFile)
 	if err != nil {
 		return result, credentialFailure(err)
 	}

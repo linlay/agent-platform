@@ -43,6 +43,8 @@ func QueryRoleVisible(role string) bool {
 }
 
 type SubmitRequest struct {
+	// OwnerID is supplied by the authenticated transport context, never the request body.
+	OwnerID     string         `json:"-"`
 	Origin      *Origin        `json:"-"`
 	MailHop     *int           `json:"-"`
 	AccessGrant map[string]any `json:"-"`

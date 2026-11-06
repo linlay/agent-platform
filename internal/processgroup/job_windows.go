@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -70,15 +71,37 @@ func (j *Job) Close() error {
 	return err
 }
 
-// Run starts suspended, assigns the job, then resumes the initial thread. This
+// Tree owns a suspended-start Job Object and all of its child processes.
+type Tree struct {
+	cmd *exec.Cmd
+	job *Job
+}
+
+func Run(cmd *exec.Cmd) error {
+	tree, err := Start(cmd)
+	if err != nil {
+		return err
+	}
+	// Ordinary commands do not retain a snapshot lease on cleanup failure.
+	defer tree.job.Close()
+	exitErr, cleanupErr := tree.Wait()
+	return errors.Join(exitErr, cleanupErr)
+}
+
+// Start starts suspended, assigns the job, then resumes the initial thread. This
 // closes the race where Bash could spawn an untracked child before assignment.
 // os/exec continues to own the ordinary pipes and WaitDelay/capture behavior.
-func Run(cmd *exec.Cmd) error {
+func Start(cmd *exec.Cmd) (*Tree, error) {
 	job, err := NewJob()
 	if err != nil {
-		return fmt.Errorf("create command job: %w", err)
+		return nil, fmt.Errorf("create command job: %w", err)
 	}
-	defer job.Close()
+	started := false
+	defer func() {
+		if !started {
+			job.Close()
+		}
+	}()
 	attr := syscall.SysProcAttr{}
 	if cmd.SysProcAttr != nil {
 		attr = *cmd.SysProcAttr
@@ -98,7 +121,7 @@ func Run(cmd *exec.Cmd) error {
 		}
 	}
 	if err := cmd.Start(); err != nil {
-		return err
+		return nil, err
 	}
 	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(cmd.Process.Pid))
 	if err == nil {
@@ -112,9 +135,40 @@ func Run(cmd *exec.Cmd) error {
 		_ = cmd.Process.Kill()
 		_ = job.Terminate()
 		_ = cmd.Wait()
-		return fmt.Errorf("start managed command tree: %w", err)
+		return nil, fmt.Errorf("start managed command tree: %w", err)
 	}
-	return cmd.Wait()
+	started = true
+	return &Tree{cmd: cmd, job: job}, nil
+}
+
+func (t *Tree) Kill() error { return t.job.Terminate() }
+
+func (t *Tree) Wait() (exitErr, cleanupErr error) {
+	exitErr = t.cmd.Wait()
+	if err := t.job.Terminate(); err != nil {
+		return exitErr, err
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		// JOBOBJECT_BASIC_ACCOUNTING_INFORMATION (four LARGE_INTEGER, four DWORD).
+		var accounting struct {
+			TotalUserTime, TotalKernelTime, ThisPeriodTotalUserTime, ThisPeriodTotalKernelTime int64
+			TotalPageFaultCount, TotalProcesses, ActiveProcesses, TotalTerminatedProcesses     uint32
+		}
+		t.job.mu.Lock()
+		err := windows.QueryInformationJobObject(t.job.handle, windows.JobObjectBasicAccountingInformation, uintptr(unsafe.Pointer(&accounting)), uint32(unsafe.Sizeof(accounting)), nil)
+		t.job.mu.Unlock()
+		if err != nil {
+			return exitErr, err
+		}
+		if accounting.ActiveProcesses == 0 {
+			return exitErr, t.job.Close()
+		}
+		if time.Now().After(deadline) {
+			return exitErr, errors.New("process tree did not exit")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func resumeInitialThread(pid uint32) error {
