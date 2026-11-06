@@ -103,7 +103,9 @@ func (m Mail) Terminal() bool {
 	return m.Status == Done || m.Status == Failed || m.Status == Discarded || m.Status == Withdrawn || (m.Status == Delivered && (m.Kind == Reply || m.Kind == Notify))
 }
 func (m Mail) Metadata() *queryinput.MailInput {
-	return &queryinput.MailInput{OriginType: m.OriginType, Header: m.Header, ID: m.ID, Kind: string(m.Kind), Attempt: m.Attempts, Hop: m.Hop, Outcome: m.Outcome}
+	var input map[string]any
+	_ = json.Unmarshal(m.Input, &input)
+	return &queryinput.MailInput{NewChat: m.OpenedChat && (input["newChat"] == true || input["newChat"] == "true"), OriginType: m.OriginType, Header: m.Header, ID: m.ID, Kind: string(m.Kind), Attempt: m.Attempts, Hop: m.Hop, Outcome: m.Outcome}
 }
 
 type Request struct {

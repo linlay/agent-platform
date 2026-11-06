@@ -107,6 +107,7 @@ func (r *outboundRequest) close() {
 }
 
 type Conn struct {
+	primaryChatEnabled  bool
 	sessionID           string
 	socket              *gws.Conn
 	hub                 *Hub
@@ -368,6 +369,7 @@ func (c *Conn) Run(dispatch RouteHandler) {
 	if !c.silent {
 		now := time.Now().UnixMilli()
 		if !c.SendPush("connected", map[string]any{
+			"primaryChat":     map[string]any{"enabled": c.primaryChatEnabled},
 			"protocolVersion": ProtocolVersion,
 			"lane":            c.QueryLane(),
 			"sessionId":       c.sessionID,

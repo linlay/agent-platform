@@ -54,6 +54,15 @@ func NewService() *Service {
 	return &Service{}
 }
 
+func (s *Service) PrimaryChatEnabledForAgent(key string) bool {
+	backend, err := s.current()
+	if err != nil {
+		return false
+	}
+	policy, ok := backend.(interface{ PrimaryChatEnabledForAgent(string) bool })
+	return ok && policy.PrimaryChatEnabledForAgent(key)
+}
+
 // Bind installs the runtime implementation during app assembly. Calls are
 // safe after Bind returns; rebinding is supported for tests and hot assembly.
 func (s *Service) Bind(backend Backend) {

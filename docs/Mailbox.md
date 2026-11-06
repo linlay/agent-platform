@@ -85,6 +85,12 @@ WebClient 普通主聊天文本统一发送，待发消息按身份隔离保存�
 
 ## 投递规则
 
+`runtime.yml` 的 `primary-chat.enabled` 默认关闭。开启时仅 Native GENERAL 的主要聊天按到达顺序逐条开 Run，正在运行时所有 mail 留在队列，不插入；其他 mode、ACP、Proxy、渠道和普通会话保持现行规则。`mode` 仍为 GENERAL，主要聊天与分身是会话身份。开关通过主 WS `connected.primaryChat.enabled` 及 `GET /api/runtime/capabilities` 的 `primaryChat` 返回；HTTP 同时返回适用的公开 `agentKeys`。
+
+主要聊天固定提供 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`、`chat_query`，不要求挂载 task-control，不装配 Agent 的执行工具、连接器、技能或 Workspace 提示文件。调度提示词来自 `agent-prompt.yml` 的 `primary.system-prompt`，再加 SOUL、Agent 名称与描述、分身工具与技能名称清单及配置选中的记忆。模型来自 `agent-settings.yml` 的 `primary.modelKey/reasoningEffort`，空字段回退 Agent 配置。
+
+本 Agent 用 `chat_send {newChat:true}` 开出的自分身移除 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`，保留原本有效的 `chat_notify`；之后用户直接输入不会改变身份。创建来源写入首条主 query 的平台字段 `mailNewChat` 和 `origin`，不依赖重启即清空的 mail.db；旧记录缺少 `mailNewChat` 时沿用首条 query 的同 Agent origin 判定。主要聊天指针优先于分身来源；切走指针后重新按创建来源区分普通会话和分身。该限制只阻止分身继续使用 mailbox 调度，既有 `agent_invoke` 与其他 mode 的能力不变。
+
 四类 mail 共用同一规则：对收件会话中 `queued` 的 mail 按时间顺序处理，视会话状态而定。
 
 | 会话状态 | 处理 |
@@ -178,6 +184,7 @@ WebClient 普通主聊天文本统一发送，待发消息按身份隔离保存�
 **权限档位。**
 
 - `accessLevel`、`modelKey`、`reasoningEffort`、`chatName` 只能与 `newChat` 同用。档位省略时按收件 Agent 的 `accessConfig.default` 解析，未配置为 `ask_for_approval`；显式档位不得高于发信 Run 受理时的当前档位。
+- 上述开启的 Native GENERAL 主要聊天新开自分身时，省略 `accessLevel` 使用 `AcceptAtRunAccessLevel` 临界区内的实时父档位，`accessGrant.source=primary-chat`；预检查后发生的档位修改同样生效，受理后不再跟随父档位变化。显式 `default` 仍使用 Agent 默认值，显式具体档位仍校验实时上限。省略模型和思考强度使用 Agent 配置，不继承调度模型。
 - 寄往已有会话的信，冻结受理时收件 Agent 的默认档位；开新 Run 时使用该档位和目标 Agent 的默认模型，插入时不改变正在运行的 Run 的设置。
 - 回信、即时消息、请示在创建时冻结收件 Agent 的默认档位，不继承发送 Run 的权限，也不要求发送 Run 仍在运行。收件 Agent 已不可用时，回信保留完整结果并挂起，不静默降为 `ask_for_approval`。
 - `accessGrant` 保存权限来源与目标 revision，letter 另存父基线。已冻结的权限不因收件 Agent 后来修改默认值、发送 Run 结束或人工重投而改变。
@@ -187,6 +194,8 @@ WebClient 普通主聊天文本统一发送，待发消息按身份隔离保存�
 **发信方的控制权**由 `delivery` 决定：只有 `started` 的 letter 允许发信方查询和中断该 Run；`inserted` 只能查询这封信本身。回信、即时消息、请示开出的 Run 不授予对方任何控制。
 
 **调用方限制。** 只有主 Agent 根 Run（含 TEAM 总控）能调用 `chat_send`、`chat_notify`、`chat_submit`；BTW、`agent_invoke` 子任务和 Team 成员不能调用，规划 Run 默认排除这三个工具。由信开出的 Run 调用 `chat_get_status`、`chat_interrupt`，或使用 `wait` 的 `run.terminal` 条件，仍返回 `run_chaining_not_allowed`，派完活应使用不带条件的普通 `wait` 等回信唤醒。回信、即时消息、请示唤醒的是收件会话自己的 Run，这些工具照常可用。
+
+主要聊天开启时的固定五工具及自分身的四工具排除优先于普通工具装配规则。此时主要聊天没有 `wait`，派活后结束本轮；后续回信排队唤醒新 Run。信直接唤醒主要聊天的 Run 仍遵守现有派生控制限制；回信、即时消息、请示唤醒不授予发信方对主要聊天 Run 的控制。
 
 ## 文件
 

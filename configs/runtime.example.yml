@@ -184,6 +184,9 @@ conversation-export:
   max-snapshot-mib: 50
 
 # Mailbox is always enabled. Before chats-db-v2, startup resets mail.db and sidecars.
+primary-chat:
+  enabled: false # Native GENERAL only; restart after changes.
+
 mail:
   # Maximum causal mailbox distance; terminal replies may exceed this limit.
   max-hops: 4

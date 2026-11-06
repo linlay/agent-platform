@@ -16,7 +16,7 @@ func (r *ToolRouter) ToolApprovalInputPath(tool string, args map[string]any, e *
 		}
 	}
 	if owner, ok := connector.NativeToolConnector(tool); ok {
-		if e == nil || !e.Session.AllowsTool(tool) || e.Session.NativeConnectorTools[tool] != owner || e.Session.ConnectorDirs[owner] == "" {
+		if e == nil || !e.Session.AllowsTool(tool) || !e.Session.ProvidesPrimaryTool(tool) && (e.Session.NativeConnectorTools[tool] != owner || e.Session.ConnectorDirs[owner] == "") {
 			return "", fmt.Errorf("connector_not_mounted")
 		}
 	}
@@ -32,7 +32,7 @@ func (r *ToolRouter) PrepareToolApproval(ctx context.Context, tool string, args 
 		}
 	}
 	if owner, ok := connector.NativeToolConnector(tool); ok {
-		if e == nil || !e.Session.AllowsTool(tool) || e.Session.NativeConnectorTools[tool] != owner || e.Session.ConnectorDirs[owner] == "" {
+		if e == nil || !e.Session.AllowsTool(tool) || !e.Session.ProvidesPrimaryTool(tool) && (e.Session.NativeConnectorTools[tool] != owner || e.Session.ConnectorDirs[owner] == "") {
 			return nil, fmt.Errorf("connector_not_mounted")
 		}
 	}

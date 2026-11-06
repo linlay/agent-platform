@@ -39,3 +39,26 @@ func TestTaskToolsRequireTheirOwnConnectorAtRouter(t *testing.T) {
 		})
 	}
 }
+
+func TestPrimaryChatProvidesOnlyItsFixedToolsWithoutConnectorMount(t *testing.T) {
+	for _, name := range append(contracts.PrimaryChatTools(), "automation_manage", "chat_notify") {
+		backend := &recordingPolicyBackend{defs: []api.ToolDetailResponse{{Name: name}}}
+		router := mustNewToolRouter(t, backend, nil, nil, nil)
+		handler := &captureNamedToolHandler{names: []string{name}}
+		if err := router.RegisterHandler(handler); err != nil {
+			t.Fatal(err)
+		}
+		e := &contracts.ExecutionContext{Session: contracts.QuerySession{PrimaryChat: true, Mode: "GENERAL", ToolSetFrozen: true, ToolNames: contracts.PrimaryChatTools()}}
+		result, err := router.Invoke(t.Context(), name, map[string]any{}, e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e.Session.ProvidesPrimaryTool(name) {
+			if handler.invoked != name {
+				t.Fatalf("primary tool not dispatched %s: %+v", name, result)
+			}
+		} else if handler.invoked != "" || result.Error == "" {
+			t.Fatal("extra native tool admitted", name)
+		}
+	}
+}

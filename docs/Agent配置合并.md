@@ -25,6 +25,8 @@ shared:
 
 ## Agent 设置
 
+主要聊天开关属于 `runtime.yml` 的 `primary-chat.enabled`（默认 false、重启生效），仅 Native GENERAL 参与，Agent mode 保持 GENERAL。调度模型在 `agent-settings.yml` 的 `primary.modelKey/reasoningEffort`，调度提示词在 `agent-prompt.yml` 的 `primary.system-prompt`；两份配置均拒绝对方的字段。只对主要聊天使用该模型和提示词，自分身继续使用 Agent 配置。主要聊天工具固定为五个 Chat 调度工具，分身排除四个调度工具，详见 [Mailbox 投递规则](Mailbox.md#投递规则)。其他 mode 与后端的装配不变。
+
 agent-settings 顶层 preset-tools/preset-connectors 与 general/coder/kbase/team/executor 各自的同名数组相加，按名称去重并保留首次出现顺序。mode 省略或 [] 仅表示无增量，不清除全局项，因此全局列表只放所有 Native Agent（含无人值守的 EXECUTOR）都需要的能力；需要人回应或服务对话界面的 `ask_user_question`、`artifact_publish` 以及 `builtin.web-control`、`builtin.task-control` 在分发示例中列在 general/coder/kbase/team 各段，四种 mode 的有效预置与调整前相同，executor 段默认只有 `result_submit`。预置只作用于 native GENERAL/CODER/KBASE/TEAM/EXECUTOR，不写入 Agent YAML。创建、编辑、展示、装配和连接器删除保护使用相同有效预置（删除保护统计所有 mode 段的连接器）；已有显式声明不被删除。
 
 分发示例通过 `coder.preset-tools` 为普通 CODER 提供 `regex`，CODER mode profile 的缺省工具列表不再内置该工具。

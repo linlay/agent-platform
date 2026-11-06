@@ -482,6 +482,18 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	if statusErr := s.deps.Proxy.Configure(&agentDef); statusErr != nil {
 		return queryAdmission{}, statusErr
 	}
+	primaryChat, err := s.primaryChatRole(agentDef, chatID, req.Primary)
+	if err != nil {
+		return queryAdmission{}, err
+	}
+	if primaryChat {
+		if req.ResultContract != nil {
+			return queryAdmission{}, &statusError{Status: 400, Code: "invalid_request", Message: "execute requires an execution Chat; the primary Chat only schedules work"}
+		}
+		req.PlanningMode = nil
+		req.EditingMode = nil
+		req.Model = nil
+	}
 	if !req.SkipInteractionPolicy && !sessionbuild.IsProxyAgentMode(agentDef.Mode) && !catalog.AgentIsChannelMode(agentDef.Mode) {
 		if err := ValidateInteractionInput(agentDef.Interaction(), req, agentDef.AccessConfig.EffectiveDefault()); err != nil {
 			return queryAdmission{}, err
@@ -490,6 +502,12 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	ResolveQueryAccess(&req, agentDef)
 	if err := s.ValidateQueryModelOptions(req.Model, agentDef); err != nil {
 		return queryAdmission{}, err
+	}
+	if primaryChat {
+		req.Model = s.primaryModelOptions(agentDef)
+		if err := s.ValidateQueryModelOptions(req.Model, agentDef); err != nil {
+			return queryAdmission{}, err
+		}
 	}
 	if req.PlanningMode != nil && *req.PlanningMode && !agentbuiltin.PlanningModeSupported(agentDef.Mode) {
 		return queryAdmission{}, &statusError{Status: 400, Message: "planningMode is only supported for GENERAL, CODER, KBASE and TEAM agents"}

@@ -37,6 +37,9 @@ func (s *Service) releaseRunConnectorPins(runID string) {
 }
 
 func (s *Service) FreezeRunConnectors(prepared preparedQuery) error {
+	if prepared.Session.PrimaryChat {
+		return nil
+	}
 	snapshot := runConnectorSnapshot{RunID: prepared.Req.RunID}
 	snapshot.Agents = append(snapshot.Agents, prepared.AgentDef.FreezeConnectors())
 	if prepared.TeamSnapshot != nil {

@@ -180,6 +180,10 @@ func (s *Service) mailChatOwned(summary chat.Summary, subject string, seen map[s
 }
 func (s *Service) AcceptMail(ctx context.Context, _ mailbox.Request, p mailbox.Prepared, persist func(mailbox.Grant) error) error {
 	r := p.Request
+	inherit, err := s.inheritsPrimaryAccess(r, p.OpenedChat && !p.Primary)
+	if err != nil {
+		return err
+	}
 	acceptor, ok := s.deps.Runs.(runAccessLevelAcceptor)
 	if !ok {
 		return runToolError("run_start_authorization_unavailable", "atomic mail authorization unavailable")
@@ -200,7 +204,10 @@ func (s *Service) AcceptMail(ctx context.Context, _ mailbox.Request, p mailbox.P
 			return runToolError("agent_not_found", "target Agent is unavailable")
 		}
 		level, source, _ := contracts.ResolveInitialAccessLevel(r.AccessLevel, def.AccessConfig)
-		if def.RuntimeRevision != p.Plan.TargetRevision || level != p.Plan.AccessLevel || source != p.Plan.AccessSource {
+		if inherit {
+			level, source = parent, "primary-chat"
+		}
+		if def.RuntimeRevision != p.Plan.TargetRevision || !inherit && (level != p.Plan.AccessLevel || source != p.Plan.AccessSource) {
 			return runToolError("run_start_target_changed", "target Agent changed during mail admission")
 		}
 		grant := map[string]any{"parentAccessLevel": parent, "parentAccessVersion": version, "accessLevel": level, "source": source, "requestDigest": p.Plan.RequestDigest, "agentKey": r.AgentKey, "agentRevision": p.Plan.TargetRevision}
@@ -401,6 +408,13 @@ func (s *Service) MailTarget(ctx context.Context, m mailbox.Mail) (mailbox.Targe
 		return mailbox.Target{}, err
 	}
 	if ok {
+		primary, roleErr := s.primaryChatRole(def, m.ToChatID, false)
+		if roleErr != nil {
+			return mailbox.Target{}, roleErr
+		}
+		if primary {
+			return mailbox.Target{RunID: active.RunID, Queue: true}, nil
+		}
 		if m.OriginType == "user" {
 			queue := active.PlanningMode || active.State == contracts.RunLoopStateCompacting || sessionbuild.IsProxyRoutedAgent(def)
 			ignored := []string(nil)

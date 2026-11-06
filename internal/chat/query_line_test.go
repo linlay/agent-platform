@@ -28,6 +28,23 @@ func writeClientQueryForTest(t *testing.T, store *FileStore, chatID string, raw 
 	return lines[0]
 }
 
+func TestMailCreationProvenanceSurvivesQueryStorage(t *testing.T) {
+	for _, opened := range []bool{false, true} {
+		store, err := NewFileStore(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		line := writeClientQueryForTest(t, store, "worker", `{"message":"work"}`, map[string]any{
+			"runId": "run-1", "chatId": "worker", "agentKey": "agent", "message": "work",
+			"mailOrigin": "agent", "mailId": "mail-1", "mailKind": "letter", "mailAttempt": 1, "mailHop": 1, "mailNewChat": opened,
+			"origin": (&queryinput.Origin{Type: queryinput.OriginAgent, AgentKey: "agent"}).Payload(),
+		})
+		if recorded, ok := line["mailNewChat"].(bool); !ok || recorded != opened {
+			t.Fatalf("creation marker lost: %#v", line)
+		}
+	}
+}
+
 func TestQueryLineKeepsCallerInputAndPlatformDecisionsApart(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

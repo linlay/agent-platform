@@ -29,6 +29,7 @@ import (
 )
 
 type Options struct {
+	DispatchOnly bool
 	// Recovered runs cannot reconstruct their original in-memory script grants.
 	DisableSkillScriptGrants bool
 	// SkipInteractionPolicy exempts the query's own references from the
@@ -46,6 +47,30 @@ type Options struct {
 }
 
 func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryCommand, summary chat.Summary, agentDef catalog.AgentDefinition, options Options) (contracts.QuerySession, error) {
+	worker := false
+	primaryChat := false
+	if !options.DispatchOnly && options.SubTaskID == "" && req.Lane == "" && s.deps.Config.PrimaryChat.Enabled && PrimaryChatEligible(agentDef) {
+		if req.Primary {
+			primaryChat = true
+		}
+		if store, ok := s.deps.Chats.(chat.PrimaryStore); ok {
+			id, err := store.PrimaryChatID(agentDef.Key)
+			if err != nil {
+				return contracts.QuerySession{}, err
+			}
+			primaryChat = primaryChat || id != "" && id == req.ChatID
+		}
+		if !primaryChat {
+			var err error
+			worker, err = SelfWorkerChat(s.deps.Chats, req, agentDef)
+			if err != nil {
+				return contracts.QuerySession{}, err
+			}
+		}
+	}
+	if primaryChat {
+		return s.buildPrimaryChat(ctx, req, summary, agentDef, options)
+	}
 	planningModeRequested := agentbuiltin.PlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode)
 	// A planning Run never mutates the Workspace; editing takes effect in the
 	// Run that executes the confirmed plan, which keeps the request's editingMode.
@@ -122,7 +147,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	// Project settings are explicit configuration and apply to every mode; an
 	// ACP bridge owns its own project instructions.
 	workspaceAgentsPrompt := ""
-	if agentDef.Engine != catalog.AgentEngineACP {
+	if agentDef.Engine != catalog.AgentEngineACP && !options.DispatchOnly {
 		if err := agentbuiltin.ValidateWorkspaceGit(agentbuiltin.WorkspaceGitPolicy{
 			WorkspaceRoot:  resolvedWorkspaceRoot,
 			ExpectedBranch: agentDef.Project.Git.ExpectedBranch,
@@ -163,6 +188,9 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 	})
 	toolNames := BuildSessionToolNames(configuredToolNames, options.AllowInvokeAgents)
 	toolNames = RuntimeModeToolNames(toolNames, s.deps.Config.RuntimeMode)
+	if worker {
+		toolNames = WorkerChatTools(toolNames)
+	}
 	if options.SubTaskID != "" {
 		filtered := make([]string, 0, len(toolNames))
 		for _, name := range toolNames {
@@ -334,6 +362,11 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 		}
 	}
 	session.ReferencesScope = contracts.NewRunReferences(session.SkillScripts)
+	if options.DispatchOnly {
+		session.RuntimeContext.References = req.References
+		session.CurrentMessages = s.BuildCurrentMessages(req, session)
+		return session, nil
+	}
 	if options.DisableSkillScriptGrants {
 		// Same-Run recovery revalidates each recorded pointer independently.
 		// Invalid resources remain visible, but receive no restored grant.

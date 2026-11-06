@@ -62,6 +62,16 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 			Content:  content,
 		})
 	}
+	if session.PrimaryChat {
+		appendSection("primary-system", "Primary Chat", "chat.primary", session.ModeSystemPrompt)
+		appendSection("agent-identity", "Agent Identity", "agent.identity", buildAgentIdentitySection(session))
+		appendSection("agent-soul", "Soul Prompt", "agent.soul", session.SoulPrompt)
+		for index, prompt := range session.CapabilityPrompts {
+			appendSection(fmt.Sprintf("worker-capability-%d", index), "Worker Capabilities", "chat.worker", prompt)
+		}
+		appendRuntimeSystemPromptSections(&sections, session)
+		return sections
+	}
 
 	toolNames := toolNamesFromDefinitions(options.ToolDefinitions, session.ToolNames)
 	appendSection("agent-identity", "Agent Identity", "agent.identity", buildAgentIdentitySection(session))

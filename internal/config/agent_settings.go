@@ -169,7 +169,7 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 		return err
 	}
 	dropRetiredPlanExecute(values, path)
-	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "general", "coder", "kbase", "team", "executor", "proxy", "channel", "acp-bridges")
+	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "general", "coder", "kbase", "team", "executor", "proxy", "channel", "acp-bridges", "primary")
 	if err != nil {
 		return err
 	}
@@ -178,6 +178,16 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 		return err
 	}
 	c.PresetTools, c.PresetConnectors = presets.Tools, presets.Connectors
+	primary, err := optionalConfigMap(values, "primary", path, "modelKey", "reasoningEffort")
+	if err != nil {
+		return err
+	}
+	if c.PrimaryChat.ModelKey, err = configText(primary, "modelKey", path+".primary"); err != nil {
+		return err
+	}
+	if c.PrimaryChat.ReasoningEffort, err = configText(primary, "reasoningEffort", path+".primary"); err != nil {
+		return err
+	}
 	if c.PlanningMode, err = parsePlanningMode(values, path, c.PlanningMode); err != nil {
 		return err
 	}
@@ -285,12 +295,21 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	if shared, ok := v["shared"].(map[string]any); ok {
 		dropRetiredPlanExecute(shared, path+".shared")
 	}
-	v, err = configMap(v, path, "shared", "coder", "kbase")
+	v, err = configMap(v, path, "shared", "coder", "kbase", "primary")
 	if err != nil {
 		return err
 	}
 	if err := validatePromptTemplates(v, path); err != nil {
 		return err
+	}
+	primary, err := optionalConfigMap(v, "primary", path, "system-prompt")
+	if err != nil {
+		return err
+	}
+	if _, exists := primary["system-prompt"]; exists {
+		if c.PrimaryChat.SystemPrompt, err = configText(primary, "system-prompt", path+".primary"); err != nil {
+			return err
+		}
 	}
 	shared, err := optionalConfigMap(v, "shared", path, "runtime", "connector", "skill", "view", "announce", "reference", "tool-appendix", "automation", "btw", "planning-mode")
 	if err != nil {

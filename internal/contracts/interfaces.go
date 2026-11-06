@@ -333,6 +333,8 @@ type RunLimits struct {
 }
 
 type QuerySession struct {
+	// PrimaryChat is a trusted Chat role, independent of Agent mode.
+	PrimaryChat bool
 	// FrozenModelOptions records the admitted model for delivery comparisons.
 	FrozenModelOptions *queryinput.QueryModelOptions      `json:"-"`
 	Mail               *queryinput.MailInput              `json:"-"`

@@ -289,6 +289,8 @@ PUT/WS mutation 继续返回轻量 `sortMode/pinnedOrder/updatedAt`，不附带 
 
 ### 主要聊天
 
+`GET /api/runtime/capabilities` 返回 `{code:0,msg,data:{primaryChat:{enabled,agentKeys}}}`，响应不缓存；`enabled` 为 Platform 启动时读取的 `primary-chat.enabled`，`agentKeys` 是参与主要聊天分工的公开 Native GENERAL Agent。主 WS 的 `connected.data.primaryChat` 同时声明 `{enabled}`。客户端应跟随服务端开关，并对适用 Agent 的当前主要聊天隐藏规划、编辑和终端入口；其他 mode 与后端保持原有界面。该能力只改变 Chat 的装配与出队规则，Agent 的 `mode` 保持 GENERAL，不增加 PRIMARY 类型。详细工具、提示词、模型和档位规则见 [Mailbox](Mailbox.md#投递规则)。
+
 每个 Agent 最多有一个主要聊天，它的其他 active Chat 是历史聊天；归档不受影响。指针保存在 `chat-primary.json`（存储与损坏处理见 [会话存储与回放](会话存储与回放.md)），不进入 JSONL 或 `chats.db`，也不区分 mode。Chat 摘要、`/api/chats/order` 的 `pinnedChats[]` 与 `/api/chat` 详情顶层固定返回 `primary` boolean。
 
 - 新建：`/api/query`（HTTP/WS）带 `primary:true`，且本次请求创建该 Chat（省略 `chatId`、`chatId` 尚不存在，或是只有上传、尚未受理首条 query 的占位 Chat）。Chat 建立后指针随即切换；`chatId` 指向已有 Chat 时返回 400，侧通道（`lane` 非空）同样返回 400。`primary` 是调用方原样输入，只作用于这一次请求，计划批准后的执行 Run 与恢复不会重放它。

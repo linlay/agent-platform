@@ -97,7 +97,7 @@ func startRequest(args map[string]any, origin contracts.RunOrigin, execCtx *cont
 	// the actual executing model before idempotency. Another Agent
 	// keeps its own configured model and effort unless the call names them.
 	sameAgent := request.AgentKey == "" || request.AgentKey == strings.TrimSpace(origin.AgentKey)
-	if sameAgent && execCtx != nil && execCtx.CurrentModel != nil {
+	if sameAgent && execCtx != nil && !execCtx.Session.PrimaryChat && execCtx.CurrentModel != nil {
 		if request.ModelKey == "" {
 			request.ModelKey = execCtx.CurrentModel.Key
 		}

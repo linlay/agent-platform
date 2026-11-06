@@ -53,6 +53,7 @@ type Config struct {
 	Query            QueryConfig
 	Automation       AutomationConfig
 	Mail             MailConfig
+	PrimaryChat      PrimaryChatConfig
 	Billing          BillingConfig
 	Memory           MemoryConfig
 	Defaults         DefaultsConfig
@@ -88,6 +89,14 @@ type LoadOptions struct {
 type MailConfig struct {
 	MaxHops       int
 	RetentionDays int
+}
+
+// PrimaryChatConfig separates Chat roles without changing the Agent mode.
+type PrimaryChatConfig struct {
+	Enabled         bool   `json:"enabled"`
+	ModelKey        string `json:"-"`
+	ReasoningEffort string `json:"-"`
+	SystemPrompt    string `json:"-"`
 }
 
 type RuntimeMode string

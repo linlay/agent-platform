@@ -438,7 +438,7 @@ func effectiveToolDefinitions(defs []api.ToolDetailResponse, allowed []string, s
 	controlFiltered := make([]api.ToolDetailResponse, 0, len(filtered))
 	for _, def := range filtered {
 		if owner, ok := connector.NativeToolConnector(def.Name); ok && (owner == connector.PlatformControlConnectorID || owner == connector.TaskControlConnectorID || owner == connector.KanbanControlConnectorID || owner == connector.KBaseControlConnectorID) {
-			if session.NativeConnectorTools[def.Name] != owner || session.ConnectorDirs[owner] == "" {
+			if !session.ProvidesPrimaryTool(def.Name) && (session.NativeConnectorTools[def.Name] != owner || session.ConnectorDirs[owner] == "") {
 				continue
 			}
 			if connector.IsPlatformRootTool(def.Name) && !OrdinaryNativeRoot(session) {

@@ -10,7 +10,7 @@
 
 ## 执行记录（2026-11-06）
 
-阶段 1–4 及阶段 5 的用户消息部分已完成本地实现与自动化验收，覆盖 Platform 和相邻 `agent-webclient`；Automation/渠道改为发信仍等待待拍板第 6 项，阶段 6 未开始。
+阶段 1–4 及阶段 5 的用户消息部分已完成本地实现与自动化验收，覆盖 Platform 和相邻 `agent-webclient`；Automation/渠道改为发信仍等待待拍板第 6 项。阶段 6 的 Platform 出队与主要聊天/分身分工已完成本地实现；长上下文、客户端跟随开关及 Desktop 对齐仍需单独验收。
 
 - 阶段 1：mail 常开、旧 enabled 键拒绝、启动清库、信封头随 JSONL 与压缩快照保留、数据库硬拒绝保护；恢复与保留期代码保留。
 - 阶段 2：会话退避重试、归档关闭、列表摘要与 total、按需详情、侧栏入口与挂起角标。
@@ -78,11 +78,17 @@
 - **主要聊天开关放在 Platform 的 `runtime.yml`**（原待拍板 5a，即 P2）。WebClient 和 Desktop 从 Platform 读取（主 WS 的 `connected` 推送），不另存一份，两边始终一致，见阶段 6。
 - **主要聊天开启时，主聊天在跑也一律排队，不提供插入**（原待拍板 5b，即 P3）。急改靠中断当前 Run。
 
+2026-11-06 新增：
+
+- **主要聊天只调度，分身干活不调度。** 同一个 Agent 按会话分两个角色：主要聊天只有平台固定的五个调度工具，agent.yml 只描述分身；分身没有调度工具，靠自动回信和 `chat_notify` 回复。调度提示词放全局配置，不新增 agent.yml mode 或 `PRIMARY.md`。见阶段 6 的"主要聊天与分身的分工"。
+- **分身省略 `accessLevel` 时继承主要聊天受理时的当前档位**，不再用 Agent 默认值。
+
 ## 待拍板
 
 | # | 问题 | 建议 |
 |---|---|---|
 | 6 | 重启时仍在排队的 Automation 消息，在执行历史中记为什么结果 | Automation 改为发信前再定（阶段 5 末尾） |
+| 7 | 主要聊天顺序派活受跳数限制：派活 1 → 回信 2 → 再派 3 → 回信 4，默认上限 4 时，用户说一次话后只能顺序派两轮（同时派多件不受影响） | 分身不再派活，跳数只计主要聊天与分身之间的往返。先调大 `mail.max-hops`；是否改跳数语义另议 |
 
 ## 阶段 1：mail 常开，重启清空
 
@@ -321,9 +327,10 @@ GET /api/chats?openedBy=A&agentKey=B
 | # | 内容 | 做法 |
 |---|---|---|
 | 6.1 | 主要聊天形态定稿 | 把下表的答案写入 docs |
-| 6.2 | 主要聊天出队策略 | 见下文；开关位置与插入规则待拍板 |
+| 6.2 | 主要聊天出队策略 | 见下文 |
 | 6.3 | 长上下文 | 见 [primary-chat-long-context.md](primary-chat-long-context.md)。约束：切换聊天文件必须保持同一个 chatId。mail 的地址在发信时确定且不再改变，换 chatId 会让分身的回信、即时消息和请示落回旧会话 |
 | 6.4 | Desktop 对齐 | WebClient 定稿后进行 |
+| 6.5 | 主要聊天与分身的分工 | 见下文 |
 
 ### 主要聊天形态
 
@@ -333,17 +340,17 @@ mailbox 已经解决了派活结果的回传和多层派活。剩下两个问题
 
 | # | 问题 | 建议答案 |
 |---|---|---|
-| Q1 | 主聊天只做调度，还是也跑长任务 | 都做：短活自己做；长任务或另一件事用 `chat_send {newChat:true}` 派给分身。规则写进 task-control 手册 |
+| Q1 | 主聊天只做调度，还是也跑长任务 | 只调度（2026-11-06 改）：主聊天没有执行工具，需要动手的活都用 `chat_send` 派出，新的事 `newChat:true`，补充用 `chatId`。见"主要聊天与分身的分工" |
 | Q2 | 派出去的活放在哪里 | 挂在主聊天下的工作会话列表中（B1），不进普通历史列表的顶层 |
 | Q3 | 结果怎么回来 | 已由 mailbox 解决：回信自动开 Run |
-| Q4 | 派给自己的分身是否作为默认方式 | 不设默认，由模型按 Q1 的规则选择 |
-| Q5 | 能否多层派活 | 已由 mailbox 解决：可以，受跳数限制 |
+| Q4 | 派给自己的分身是否作为默认方式 | 是（2026-11-06 改）：派给自己的分身是主聊天干活的唯一方式；也可以寄给其他 Agent |
+| Q5 | 能否多层派活 | 开启后 Native GENERAL 的自分身 mailbox 派活只有一层（2026-11-06 改）：分身没有 `chat_send`。其他 mode、普通会话及既有内联 `agent_invoke` 规则不变；跨 Agent 的主要聊天仍可能继续调度，受跳数限制 |
 | Q6 | `primary_chat_busy` 是否保留 | 保留，只用于切换指针；阶段 5 之后用户消息不再因会话忙被拒 |
 | Q7 | 审批在哪里处理 | 两处都可以：主视图卡片（B4）或分身会话 |
 | Q8 | 任务表、Kanban、云端 Job、mail 是否合成一套 | 工作会话列表就是任务托盘；Kanban 和云端 Job 本期不合并 |
 | Q9 | 主聊天忙时，Automation 或渠道指向它怎么办 | 见阶段 5：排队 |
 | Q10 | Desktop 与 WebClient 的呈现是否一致 | WebClient 定稿后 Desktop 对齐 |
-| Q11 | 主聊天与分身用什么模型 | 主聊天用最强模型、低思考；分身的思考强度由主聊天在 `newChat` 时指定。思考强度跟随 Chat，只有 `newChat` 能带新的值。语音暂不纳入主要聊天 |
+| Q11 | 主聊天与分身用什么模型 | 主聊天用 agent-settings.yml `primary` 段配置的模型（建议最强模型、低思考）；分身默认用 agent.yml 的模型，主聊天可在 `newChat` 时指定模型和思考强度。思考强度跟随 Chat，只有 `newChat` 能带新的值。语音暂不纳入主要聊天 |
 | Q12 | 主聊天上的确认能等多久 | 可以一直等。依赖等待项过期时间的改造（见 chats-db-v2 的"另做"） |
 | Q13 | 主聊天怎样了解分身的进度 | 只读探测，不借用 steer，也不用 notify 把进度塞进主时间线。先确认 `chat_get_status {mailId}` 是否够用，不够再加最小的只读接口 |
 
@@ -360,7 +367,7 @@ mailbox 已经解决了派活结果的回传和多层派活。剩下两个问题
 
 - 用户消息与分身的回信、即时消息、请示在同一队列里，按到达顺序处理。Automation 和渠道发往主聊天的消息同样排队（Q9）。
 - 请示排在队列中时，用户仍可以从请示卡片（B2、B4）直接作答，不必等主聊天读到；否则一个长 Run 之后，请示可能已经超过 600 秒的时限。
-- 主聊天读到一件事后怎样处理，由主聊天的模型决定：自己做，用 `chat_send {chatId}` 补充给已有的分身，或用 `chat_send {newChat:true}` 新开分身（Q1、Q4）。出队策略只决定主聊天什么时候读到这件事。
+- 主聊天读到一件事后怎样处理，由主聊天的模型决定：不需要动手的直接回复用户，用 `chat_send {chatId}` 补充给已有的分身，或用 `chat_send {newChat:true}` 新开分身（Q1、Q4）。出队策略只决定主聊天什么时候读到这件事。
 
 P1（是否需要单独的出队策略）已确认：需要。
 
@@ -374,10 +381,10 @@ P1（是否需要单独的出队策略）已确认：需要。
     enabled: false   # 默认关闭，即现行投递规则；启动时读取，修改后重启生效
   ```
 
-- 作用于所有 Agent 的主要对话（`chat-primary.json` 指向的 Chat），其他会话不受影响。
+- 只作用于 Native GENERAL Agent 的主要对话（`chat-primary.json` 指向的 Chat）；其他 mode 和后端继续使用现行投递规则。
 - 客户端从 Platform 读取这个值，不另存一份，所以两边始终一致：
   - 主 WS 的 `connected` 推送增加 `primaryChat: {enabled}`；
-  - 另在一个 HTTP 读取入口提供，实施时选现有接口。
+  - HTTP `GET /api/runtime/capabilities` 返回 `primaryChat: {enabled, agentKeys}`，其中 `agentKeys` 只列适用的公开 Native GENERAL，客户端据此决定导航及主要聊天的入口展示，不自行推断 engine。
 - WebClient 现在的"主要对话模式"只是本地导航状态（`primaryNavigation`），Platform 并不知道。改为跟随 Platform 的值：开启时使用主要对话导航，关闭时使用普通导航，去掉本地切换按钮。否则用户在普通导航下发往主聊天的消息仍会被排队，两边对不上。Desktop 同样跟随。
 - 开关切换后，已经插入的消息不受影响，只改变之后的出队。
 
@@ -391,6 +398,50 @@ P1（是否需要单独的出队策略）已确认：需要。
 - 不必在发送协议中增加插入标记，也不用区分哪些消息算更正。
 
 分身寄来的 mail 和模型在任何情况下都不能插队。
+
+### 主要聊天与分身的分工（2026-11-06 确认）
+
+同一个 Agent 按会话分两个角色：主要聊天只调度；分身用 agent.yml 的完整能力干活，但不调度。只在 `primary-chat.enabled` 开启且 Agent 为 Native GENERAL 时生效（2026-11-06 补充确认）。Agent 的 `mode` 仍为 `GENERAL`，不新增 `PRIMARY` mode；主要聊天与分身是 Chat 身份。CODER、KBASE、TEAM、EXECUTOR、ACP、Proxy 和渠道 Agent 的工具、提示词、模型、档位与出队行为全部保持不变。
+
+| | 主要聊天（调度） | 分身（执行） |
+|---|---|---|
+| 哪些会话 | `chat-primary.json` 指向的会话（优先于分身来源） | 本 Agent 用 `chat_send {newChat:true}` 开出的会话。首条主 query 的平台字段 `mailNewChat` 与同 Agent `origin` 固化来源；旧记录缺少该字段时沿用首条 query 的同 Agent origin 判定。重启后仍成立，不读 mail.db。用户之后直接在里面输入，它仍是分身 |
+| 工具 | 平台固定提供 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`、`chat_query`，不读 agent.yml 的工具、连接器、技能和 MCP，也不能通过配置增减 | agent.yml 的有效工具，去掉 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`（即使挂了 task-control）；保留 `chat_notify` |
+| 提示词 | agent-prompt.yml 的 `primary` 段（全局调度提示词）、`SOUL.md`、Agent 名称与描述、分身能力清单（只列工具名和技能名）。不读 `AGENTS.md`、Workspace 提示文件和技能说明 | 不变 |
+| 模型 | agent-settings.yml 的 `primary.modelKey`、`primary.reasoningEffort`；留空时用 agent.yml 的模型 | agent.yml 的模型；`chat_send` 显式给出时用给出的值 |
+| 权限档位 | 用户在输入框选的档位，作为派活上限和代批依据 | 见下方"档位继承" |
+| 回复 | 回复用户 | 最终回答由平台自动寄回；`chat_notify` 发阶段结果；卡在等待项上自动转请示 |
+| 输入框入口 | 隐藏规划、编辑、终端入口 | 不变 |
+
+```yaml
+# configs/agent-settings.yml
+primary:
+  modelKey:          # 留空用 agent.yml 的模型
+  reasoningEffort:
+
+# configs/agent-prompt.yml
+primary:
+  system-prompt: |
+    ……调度规则：什么开新分身、什么补充给已有分身、怎样写派活的信……
+```
+
+**档位继承（必须遵守）。** 主要聊天派给自己开分身、且不写 `accessLevel` 时，分身的档位等于主要聊天**受理这封信那一刻的当前档位**：不是 Agent 的 `accessConfig.default`，也不是主要聊天 Run 启动时的档位。`PrepareRunStart` 的 `plan.ParentAccessLevel` 只是预检查快照；最终必须在 `AcceptMail` 的 `AcceptAtRunAccessLevel` 回调中使用实时 `parent` 解析并冻结，不能复用预检查档位。显式 `accessLevel` 仍不得高于该档位。冻结规则不变：受理后用户再调整主要聊天的档位，已受理的信不跟着变。寄往其他 Agent 的规则不变。
+
+其他规则：
+
+- agent.yml 只描述分身。名称、`SOUL.md`、记忆（按 agent.yml 的 contextConfig）、主要聊天指针两边相同，所以仍是同一个 Agent。不新增 agent.yml mode，也不新增 `PRIMARY.md`。
+- 用户在主要聊天中上传的文件和选中的引用，由主要聊天通过 `chat_send` 的 `files`、`references` 转给分身。
+- 模型继承：现在派给自己时子 Chat 继承调用方模型（`internal/runops/tool_handler.go` 的 `sameAgent`）。调用方是调度角色的主要聊天时改为用 agent.yml 的模型，其他情况不变。
+- 用户自己新建的普通会话不变：按 agent.yml 运行，挂了 task-control 就有调度工具。
+- 由信开出的 Run 的 `run_chaining_not_allowed` 保留；分身的工具列表里本来就没有这些工具。
+- 主要聊天的五个工具由平台提供，与 `finalize_planning`、`agent_delegate` 同类。实施时原地改写 AGENTS.md "普通 Native Agent 工具只来自……"一句，并同步 docs/Mailbox.md 的"调用方限制"和 task-control 手册。
+
+验收：
+
+- 开关开启：主要聊天的工具恰好是这五个，提示词不含 `AGENTS.md`；分身的工具是 agent.yml 去掉四个调度工具，用户在分身里直接输入后仍然如此。
+- 主要聊天档位为 A，不写 `accessLevel` 开分身，分身档位为 A；受理前把档位改为 B，分身为 B；受理后再改，已受理的分身不变。显式值高于当前档位时拒绝。
+- 主要聊天派活不写模型时，分身用 agent.yml 的模型。
+- 开关关闭、非 Native GENERAL Agent、普通会话的工具、模型、档位和出队策略与现状相同。
 
 2026-11-06 审核修订：阶段 5 入口名称确认使用 HTTP POST /api/send 与主 WS 同名帧。本轮先修复阶段 1–4 审核问题，不提前接入用户消息发送路径。
 
@@ -410,3 +461,11 @@ P1（是否需要单独的出队策略）已确认：需要。
 - `/api/send` 的 `model` 字段改为与 `/api/query` 相同的 `key`。
 - 只带有效引用的消息也走 `/api/send`，规则同 `/api/query`；网关模式不变。
 - 文档：发送一节移入 API 文档 Run 章节并补表格行；Mailbox 的 `mail.updated` 字段与推送范围更正。
+
+### 阶段 6 Platform 本轮实施记录
+
+- 开关默认关闭；开启后仅 Native GENERAL 的当前主要聊天使用平台固定五工具并逐条出队。mode 始终保留 GENERAL，其他 mode 与后端不变。主要聊天不装配执行连接器、技能、Workspace 规则或 AGENTS.md；分身能力只作为名称清单进入调度提示词。
+- 调度模型归 `agent-settings.primary`，提示词归 `agent-prompt.primary`；分身省略模型时使用 Agent 配置。自分身按首条主 query 的 `mailNewChat` 与 origin 判断，用户直接输入及重启后仍排除四个调度工具；显式 false 区分补建主要聊天，旧记录保留同 Agent origin 的回退。
+- 分身省略档位时在 `AcceptAtRunAccessLevel` 临界区冻结父实时档位；预检查后的修改生效、受理后的修改不追溯。显式 default 仍使用 Agent 默认，显式具体档位校验实时上限。
+- HTTP `/api/runtime/capabilities` 与 WS connected 的开关声明已提供。相邻 WebClient 的并行导航改动保持原样；客户端开关跟随、主要聊天输入框入口隐藏、长上下文和 Desktop 尚未在本轮完成验收。`mail.max-hops` 未修改，待拍板第 7 项保留。
+- 已验证 `make test` 全量通过（无重试）、相关包回归、权限/身份 race 检查、实际 HTTP→LLM 五工具装配及全仓构建。未部署。

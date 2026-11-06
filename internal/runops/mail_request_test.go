@@ -69,3 +69,25 @@ func TestRetainedRunControlsEnforceOwnershipAndChaining(t *testing.T) {
 		t.Fatal(result, err)
 	}
 }
+
+func TestPrimarySelfWorkerUsesAgentModelUnlessExplicit(t *testing.T) {
+	exec := &contracts.ExecutionContext{Session: contracts.QuerySession{PrimaryChat: true, Mode: "GENERAL"}, CurrentModel: &queryinput.QueryModelOptions{Key: "scheduler", ReasoningEffort: "HIGH"}}
+	origin := contracts.RunOrigin{AgentKey: "a", RunID: "r", ToolID: "t"}
+	for _, explicit := range []bool{false, true} {
+		args := map[string]any{"message": "work"}
+		if explicit {
+			args["modelKey"], args["reasoningEffort"] = "chosen", "LOW"
+		}
+		req, err := startRequest(args, origin, exec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if explicit {
+			if req.ModelKey != "chosen" || req.ReasoningEffort != "LOW" {
+				t.Fatal(req)
+			}
+		} else if req.ModelKey != "" || req.ReasoningEffort != "" {
+			t.Fatal("scheduler model leaked to worker", req)
+		}
+	}
+}

@@ -16,16 +16,19 @@ import (
 )
 
 type Handler struct {
-	cfg              config.WebSocketConfig
-	publicBaseURL    string
-	hub              *Hub
-	authenticator    TokenAuthenticator
-	defaultLocale    string
-	upgrader         gws.Upgrader
-	routes           map[string]RouteHandler
-	dispatch         RouteHandler
-	channelLifecycle ConnectionLifecycleCallbacks
+	primaryChatEnabled bool
+	cfg                config.WebSocketConfig
+	publicBaseURL      string
+	hub                *Hub
+	authenticator      TokenAuthenticator
+	defaultLocale      string
+	upgrader           gws.Upgrader
+	routes             map[string]RouteHandler
+	dispatch           RouteHandler
+	channelLifecycle   ConnectionLifecycleCallbacks
 }
+
+func (h *Handler) SetPrimaryChatEnabled(enabled bool) { h.primaryChatEnabled = enabled }
 
 func NewHandler(cfg config.WebSocketConfig, hub *Hub, authenticator TokenAuthenticator) *Handler {
 	return &Handler{
@@ -115,6 +118,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conn := NewConn(socket, h.hub, h.cfg, auth)
+	conn.primaryChatEnabled = h.primaryChatEnabled
 	if _, channelConnection := GatewayFromContext(auth.Context); channelConnection {
 		conn.silent = true
 		conn.SetLifecycleCallbacks(h.channelLifecycle)

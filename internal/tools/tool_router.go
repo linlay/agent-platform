@@ -237,7 +237,7 @@ func (r *ToolRouter) ListFileHistory(chatID string, runID string) ([]FileHistory
 func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	def, ok := r.lookup(toolName)
 	if owner, native := connector.NativeToolConnector(toolName); native {
-		if execCtx == nil || execCtx.Session.NativeConnectorTools[toolName] != owner || execCtx.Session.ConnectorDirs[owner] == "" {
+		if execCtx == nil || (!execCtx.Session.ProvidesPrimaryTool(toolName) && (execCtx.Session.NativeConnectorTools[toolName] != owner || execCtx.Session.ConnectorDirs[owner] == "")) {
 			return ToolExecutionResult{Error: "connector_not_mounted", Output: "tool requires mounted " + owner, ExitCode: -1}, nil
 		}
 	}

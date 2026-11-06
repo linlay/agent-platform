@@ -245,7 +245,7 @@ func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args 
 		if execCtx != nil {
 			id = execCtx.Session.NativeConnectorTools[toolName]
 		}
-		if id != owner || execCtx.Session.ConnectorDirs[id] == "" {
+		if execCtx == nil || !execCtx.Session.ProvidesPrimaryTool(toolName) && (id != owner || execCtx.Session.ConnectorDirs[id] == "") {
 			return ToolExecutionResult{Error: "connector_not_mounted", Output: "tool requires the mounted " + owner + " connector", ExitCode: -1}, nil
 		}
 		if isWebControlTool(toolName) {

@@ -4,6 +4,8 @@ All mail addresses are Chats. A letter is durable work; a notify is interim info
 
 ## chat_send
 
+When primary-chat is enabled, only Native GENERAL participates; the Agent mode stays GENERAL. Its primary Chat has five platform-provided scheduling tools and no execution tools or connector mounts. Dispatch work with newChat:true and end the turn; a reply wakes another Run. Self-created worker Chats keep their Agent execution tools but exclude chat_send, chat_submit, chat_get_status and chat_interrupt even after direct user input; chat_notify remains if configured. Omitted accessLevel for a new self-worker inherits the primary Run's live level at atomic mail acceptance and is frozen thereafter; explicit default still uses the Agent default. Omitted model/effort uses the worker Agent configuration, not the scheduling model. All other modes/backends retain their existing behavior.
+
 Routing: a user request to open/create a new or separate conversation, dialogue, chat, 会话 or 对话 means chat_send with newChat:true, not agent_invoke. Omitting both newChat and chatId addresses the primary Chat and does not open a separate conversation.
 
 `{message, agentKey?, chatId?, newChat?, chatName?, modelKey?, reasoningEffort?, accessLevel?, references?, files?}`.
