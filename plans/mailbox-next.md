@@ -217,17 +217,18 @@ GET /api/chats?openedBy=A&agentKey=B
   "references": [],
   "planningMode": false,
   "editingMode": true,
-  "model": {"modelKey": "…", "reasoningEffort": "LOW"},
+  "model": {"key": "…", "reasoningEffort": "LOW"},
   "accessLevel": "default"
 }
 ```
 
 - `requestId`：必填，由客户端生成（WebClient 现在已经为每次发送生成），兼作幂等键。
+- `message` 与有效引用至少有一项；只带有效引用的消息沿用 `/api/query` 的历史与引用准入，首次会话仍要求正文。正文和引用都为空的续跑继续走 `/api/query`。
 - `chatId`：已有会话，或客户端预分配、上传时创建的空会话；省略时新建会话。空会话与新建会话的处理同 `/api/query`。
 - `agentKey`：新建会话时必填；会话已存在时必须与会话的 Agent 一致。
 - `primary`：只在新建会话时有效，含义同 `/api/query`。
 - `references`：同 `/api/query`。文件先经 `/api/upload` 上传到目标会话，再以引用传入，不走 mail 的附件复制。
-- 运行选项 `planningMode`、`editingMode`、`model`、`accessLevel`：校验规则同 `/api/query`，只在这条消息开出新 Run 时生效。
+- 运行选项 `planningMode`、`editingMode`、`model`、`accessLevel`：校验规则同 `/api/query`，只在这条消息开出新 Run 时生效。`model` 使用与 Query 一致的 `key`；仅保存请求显式给出的模型选项，省略时在开 Run 时按 Agent 配置解析，避免把默认模型当作用户覆盖值。
 - `detail` 沿用现有位置（HTTP 用 URL 参数，WS 用帧顶层字段），只用于这条消息开出的 Run。
 - 公开请求拒绝未知字段，与 `/api/query` 一致。
 
@@ -245,7 +246,7 @@ GET /api/chats?openedBy=A&agentKey=B
 
 - `ignoredOptions`：插入时，请求中与当前 Run 不同的 `planningMode`、`editingMode`、`model` 被忽略，在这里列出；没有时省略。排队的消息之后被插入时，`mail.updated` 带同一字段。
 - 只有确定性的错误才拒绝：参数无效；会话不存在、已归档或不属于本人；Agent 不可用；引用不可用；运行选项不合法；`idempotency_conflict`。会话忙不再返回 409。
-- 同一 subject 下 requestId 重复时，返回第一次的结果；requestId 相同而内容不同，返回 `idempotency_conflict`。
+- 同一 subject 下 requestId 重复时，不再创建 mail，返回同一 mail 的当前投递收据；requestId 相同而内容不同，返回 `idempotency_conflict`。进程内仅合并并发请求，受理完成后由 MAILS 响应重放。
 
 **落地规则**沿用 docs/Mailbox.md 的"投递规则"：
 - 空闲时开 Run，在跑时插入；
@@ -279,7 +280,7 @@ GET /api/chats?openedBy=A&agentKey=B
 |---|---|---|
 | 5.1 | MAILS 结构 | 增加 `REQUEST_ID_`，以及冻结的 `PLANNING_MODE_`、`EDITING_MODE_`、`DETAIL_`、`IGNORED_OPTIONS_`；唯一索引 `(SUBJECT_, REQUEST_ID_) WHERE REQUEST_ID_ <> ''`。用户消息 `ORIGIN_TYPE_ = user`，`FROM_AGENT_KEY_`、`FROM_CHAT_ID_`、`FROM_RUN_ID_` 为空，因此不触发自寄检查和发件侧关闭处理。mail.db 每次新建，直接改 DDL |
 | 5.2 | 受理服务 | 在 `internal/runtime/query` 新增发送服务，HTTP 与 WS 共用：按 `/api/query` 的准入规则校验目标、归属、引用、interactionConfig、运行选项和权限档位（`default` 按 Agent 默认解析）；新建会话与 `primary:true` 的处理同 `/api/query`，不取会话 mutation 锁；然后写入 MAILS 并按投递规则处理。不经过 Agent 发信的地址资格检查（已打开、被引用、主要对话三类） |
-| 5.3 | 投递 | `DeliverMail` 区分用户消息：开 Run 时使用冻结的运行选项、`detail`、`requestId`，origin 为 user；插入时走普通用户 steer（带 `requestId`，没有 Agent origin）。`renderHeader` 对用户消息返回空。插入时比较冻结选项与当前 Run，把不同的项写入 `IGNORED_OPTIONS_` |
+| 5.3 | 投递 | `DeliverMail` 区分用户消息：开 Run 时使用保存的运行选项、`detail`、`requestId`，未显式选择的模型按届时 Agent 配置解析，origin 为 user；插入时走普通用户 steer（带 `requestId`，没有 Agent origin）。`renderHeader` 对用户消息返回空。插入时比较冻结选项与当前 Run，把不同的项写入 `IGNORED_OPTIONS_` |
 | 5.4 | Run 绑定 | `bindMailboxSession` 把用户消息当作用户直接输入：不设 RunOrigin（不受 `run_chaining_not_allowed` 限制），chat 引用资格取自该消息，跳数归 0。由用户消息开出的 Run 不产生请示，`chat_notify` 不可用（没有发信会话） |
 | 5.5 | 结算 | Run 结束时，用户消息转为 `done`，不生成回信。"为信开出的 Run 没读到信就结束时转为 failed"同样适用 |
 | 5.6 | 收件箱接口 | `mailbox.Filter` 增加 `Box`，`List` 与 `Count` 按箱筛选；`mail.updated` 增加 `requestId`、`ignoredOptions` |
@@ -291,7 +292,7 @@ GET /api/chats?openedBy=A&agentKey=B
 
 ### WebClient 实施
 
-- 输入框一律调用 `/api/send`（连接主 WS 时用 WS 帧）；BTW、解读和空消息续跑仍走 `/api/query`。去掉"运行中改走 steer"的分支，以及 `active_run_conflict`、`awaiting_pending` 的 409 提示路径。
+- 直连 Platform/Desktop 时，正文或只带有效引用的输入一律调用 `/api/send`（连接主 WS 时用 WS 帧）；BTW、解读和空消息续跑仍走 `/api/query`。Gateway 尚未转发 `/api/send`，网关模式暂时保留原 Query/steer 路径。去掉"运行中改走 steer"的分支，以及 `active_run_conflict`、`awaiting_pending` 的 409 提示路径。
 - 待发气泡：发送时按 `requestId` 立即显示，状态取自响应的 `delivery` 和之后的 `mail.updated`（排队中、已插入、已开始）。收到同一 `requestId` 的 `request.query` 或 `request.steer` 后替换为正式消息。有 `ignoredOptions` 时在气泡旁提示"这条按当前任务的设置处理，新设置从下一个 Run 开始生效"。
 - `started` 时按现有方式挂接 `runId`；订阅先沿用 `run.started` 推送加自动挂接，仍有遗漏时再增加 `chat.subscribe {chatId}`。
 - 刷新恢复：打开会话时用 `GET /api/mails?box=pending&chatId=` 取回仍在排队的用户消息，恢复待发气泡。
