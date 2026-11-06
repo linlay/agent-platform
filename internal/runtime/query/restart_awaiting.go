@@ -27,13 +27,19 @@ func (s *Service) persistRestartAwaitingToolResults(
 	answer map[string]any,
 	resolvedAt int64,
 ) error {
-	if step == nil || len(step.ToolCalls) == 0 {
-		return fmt.Errorf("terminalize awaiting chatId=%s awaitingId=%s: matching tool calls are required", item.ChatID, item.AwaitingID)
-	}
 	errorPayload := contracts.AnyMapNode(answer["error"])
 	errorCode := strings.TrimSpace(contracts.AnyStringNode(errorPayload["code"]))
 	if errorCode == "" {
 		return fmt.Errorf("terminalize awaiting chatId=%s awaitingId=%s: terminal error code is required", item.ChatID, item.AwaitingID)
+	}
+	if step == nil || len(step.ToolCalls) == 0 {
+		// An ask can be stored apart from its model turn (a TEAM member
+		// approval is written on the root lane). A restarted Run is closed
+		// below, which answers every open call, so only a timeout needs them.
+		if errorCode == "runtime_restarted" {
+			return nil
+		}
+		return fmt.Errorf("terminalize awaiting chatId=%s awaitingId=%s: matching tool calls are required", item.ChatID, item.AwaitingID)
 	}
 	output := strings.TrimSpace(contracts.AnyStringNode(errorPayload["message"]))
 	if output == "" {
