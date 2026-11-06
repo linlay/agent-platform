@@ -56,6 +56,9 @@ var shellBaselineCommands = map[string]string{
 	"pwsh": "pwsh -File task.ps1", "cmd": "cmd /c task.cmd",
 	"vm_stat": "vm_stat", "ps": "ps -A -o pid", "sw_vers": "sw_vers --productVersion",
 	"md5": "md5 notes.txt", "shasum": "shasum -a 256 notes.txt",
+	"mdls": "mdls -name kMDItemKind notes.txt", "qlmanage": "qlmanage -t -o thumbs notes.txt",
+	"memory_pressure": "memory_pressure", "sips": "sips -g pixelWidth notes.txt",
+	"diskutil": "diskutil list", "sysctl": "sysctl -n hw.memsize",
 	"go": "go build", "npm": "npm test", "npx": "npx tool", "yarn": "yarn test",
 	"pnpm": "pnpm test", "pip": "pip install example", "make": "make test",
 }
@@ -97,7 +100,8 @@ func TestBashReviewNormalizedBaseline(t *testing.T) {
 		"null-output": "printf ok > /dev/null", "null-input": "cat < /dev/null",
 		"null-curl": "curl -q -o /dev/null https://example.invalid/x", "null-cp": "cp notes.txt /dev/null",
 		"null-tee": "tee /dev/null", "null-cat": "cat /dev/null", "null-noncanonical": "printf ok > //dev/null",
-		"xargs": "xargs cat", "find-exec": "find . -exec cat '{}' ';'",
+		"xargs": "xargs cat", "find-exec": "find . -exec cat '{}' ';'", "find-exec-write": "find . -exec rm '{}' ';'",
+		"inline-code": "python3 -c 'print(1)'", "loop-values": "for f in notes.txt; do cat \"$f\"; done",
 		"shell-state": "eval 'echo ok'", "text-block": "echo '\u202e'",
 	} {
 		cases["effect/"+name] = command
@@ -175,7 +179,7 @@ func TestBashReviewNormalizedBaseline(t *testing.T) {
 		indices[key(line)] = i
 	}
 	seen := map[string]bool{}
-	for _, deltaName := range []string{"bash-review-unix-resource-delta.txt", "bash-review-unified-policy-delta.txt", "bash-review-command-table-delta.txt"} {
+	for _, deltaName := range []string{"bash-review-unix-resource-delta.txt", "bash-review-unified-policy-delta.txt", "bash-review-command-table-delta.txt", "bash-review-approval-reduction-delta.txt"} {
 		delta, err := os.ReadFile(filepath.Join("testdata", deltaName))
 		if err != nil {
 			t.Fatal(err)

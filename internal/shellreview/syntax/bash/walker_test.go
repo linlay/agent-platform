@@ -1,6 +1,9 @@
 package bash
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseForSecurityScopeIsolationAcrossOr(t *testing.T) {
 	result := ParseForSecurity(`true || FLAG=--dry-run && cmd $FLAG`)
@@ -93,5 +96,58 @@ func TestParseForSecurityIfAndWhileExtractBodies(t *testing.T) {
 		if bases[idx] != want[idx] {
 			t.Fatalf("expected bases %#v, got %#v", want, bases)
 		}
+	}
+}
+
+func TestForLoopIsWalkedPerStaticValue(t *testing.T) {
+	var asked [][]string
+	globs := func(pattern string, dirs []string) ([]string, bool) {
+		asked = append(asked, append([]string{pattern}, dirs...))
+		return []string{"/m/x", "/m/y"}, true
+	}
+	argvs := func(command string) []string {
+		t.Helper()
+		result := ParseForExecution(command, map[string]string{"HOME": "/home/u"}, globs)
+		if result.Kind != Simple {
+			t.Fatalf("%s: %#v", command, result)
+		}
+		var out []string
+		for _, cmd := range result.Commands {
+			out = append(out, strings.Join(cmd.Argv, " "))
+		}
+		return out
+	}
+	for command, want := range map[string]string{
+		`for f in a "b c" {d,e}.txt; do cat "$f"; done`: "cat a|cat b c|cat d.txt|cat e.txt",
+		`for f in *.txt; do cat "$f" "$f.bak"; done`:    "cat /m/x /m/x.bak|cat /m/y /m/y.bak",
+		`for f in ~/notes; do cat "$f"; done`:           "cat /home/u/notes",
+		`for f in; do cat "$f"; done`:                   "",
+		`for f in $(ls); do cat "$f"; done`:             "ls|cat " + TrackedVariablePlaceholder,
+		`for f in '*'; do cat "$f"; done`:               "cat " + TrackedVariablePlaceholder,
+	} {
+		if got := strings.Join(argvs(command), "|"); got != want {
+			t.Errorf("%s: got %q, want %q", command, got, want)
+		}
+	}
+	asked = nil
+	argvs(`cd /a && cd b; for f in *; do cat "$f"; done`)
+	if len(asked) != 1 || strings.Join(asked[0], ",") != "*,,/a,/a/b" {
+		t.Errorf("relative glob must be expanded in every possible cwd: %v", asked)
+	}
+	asked = nil
+	argvs(`cd /a && for f in *; do cat "$f"; done; for g in *; do cat "$g"; done`)
+	if len(asked) != 2 || strings.Join(asked[0], ",") != "*,/a" || strings.Join(asked[1], ",") != "*,,/a" {
+		t.Errorf("after cd && only the cd target is a possible cwd: %v", asked)
+	}
+	asked = nil
+	if got := argvs(`cd "$(pwd)/x"; for f in *; do cat "$f"; done`); len(asked) != 0 || got[2] != "cat "+TrackedVariablePlaceholder {
+		t.Errorf("an unknown cd keeps a relative glob unexpanded: %v %v", asked, got)
+	}
+	if got := argvs(`cd "$(pwd)/x"; for f in /abs/*; do cat "$f"; done`); got[2] != "cat /m/x" {
+		t.Errorf("an absolute glob ignores the cwd: %v", got)
+	}
+	// Without an expander, as in the syntax review, loops stay unresolved.
+	if result := ParseForExecution(`for f in a b; do cat "$f"; done`, nil); len(result.Commands) != 1 || result.Commands[0].Argv[1] != TrackedVariablePlaceholder {
+		t.Errorf("no expander: %#v", result.Commands)
 	}
 }

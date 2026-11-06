@@ -37,7 +37,7 @@ func deterministicCommandChain(argv []string) [][]string {
 	return chain
 }
 
-func reviewRuntimeWrapperCommand(command string, argv []string) syntaxReviewResult {
+func reviewRuntimeWrapperCommand(command string, argv []string, findExecReviewed bool) syntaxReviewResult {
 	if len(argv) == 0 {
 		return syntaxReviewResult{Decision: ReviewAllow}
 	}
@@ -58,7 +58,7 @@ func reviewRuntimeWrapperCommand(command string, argv []string) syntaxReviewResu
 				return blockReview(fmt.Sprintf("Command uses unsupported shell builtin: %s", normalizedCommandBase(argv[idx+1])))
 			}
 		}
-		if foundExec {
+		if foundExec && !findExecReviewed {
 			return approvalReview(command, "Command uses find -exec with runtime-selected paths", RuleKeyRuntimeWrapperFindExec, LevelRuntimeWrapper)
 		}
 	}

@@ -35,6 +35,7 @@ Workspace 由 Agent `workspaceRoot` 决定；full_access 只把访问范围扩�
 | 远端修改、发布、上传 | 询问 | 询问 | 放行（可配置询问） |
 | 未授权脚本、未知程序 | 询问 | 自动批准并审计 | 放行 |
 | 本 Run 写入 Chat 目录的自写脚本 | 免审 | 免审 | 免审 |
+| 系统解释器的字面内联代码（`python -c`、`node -e` 等） | 免审 | 免审 | 免审 |
 | 已配置技能脚本、已挂载连接器 CLI | 放行 | 放行 | 放行 |
 | 满足只读条件的 Git 命令 | 放行 | 放行 | 放行 |
 | 平台私有资源 | 拒绝 | 拒绝 | 拒绝 |
@@ -56,10 +57,11 @@ Workspace 由 Agent `workspaceRoot` 决定；full_access 只把访问范围扩�
 ## 执行边界
 
 - 自写脚本免审仅限本 Run 经 `file_write/file_edit` 写入当前 Chat 目录、由系统解释器执行且内容未变的脚本；Workspace、公共临时目录和外来脚本不因此免审。
+- 内联代码与自写脚本同等对待：系统解释器（未经包装）执行的 `python -c`、`node -e/-p`、`perl -e/-E`、`ruby -e` 字面代码，或无程序参数时从 stdin 读取的字面 heredoc/here-string，三档免执行审批。含变量、命令替换的代码，`perl -i`、`python -m` 与管道或文件提供的程序仍按未知程序审批。
 - 技能脚本与连接器 CLI 仍校验 canonical 入口及内容摘要；外围 Shell、连接器 VIEW 拦截、readonly 和 KBASE mutation gate 独立生效。
 - readonly roots 和平台私有资源保护先于 writeRoots、hostAccess 与 HITL；批准不能解除硬拒绝。
 - `@temp` 是启动时冻结的共享临时根，尚无每 Run 私有临时目录；任意获准 Host 代码内部的文件访问不受静态分析隔离。
-- `find -exec` / `xargs` 内部执行对象、Container glob 和 Windows Shell 方言仍有分析限制；Git include 变更依赖缓存刷新，不能保证即时失效。
+- `find -exec` 仅在内部命令（`{}` 换成各搜索根）证明只读时按 find 自身的递归读取审查，否则与 `find -execdir/-ok`、`xargs` 的内部执行对象一样仍需审批；Container glob 和 Windows Shell 方言仍有分析限制；Git include 变更依赖缓存刷新，不能保证即时失效。
 
 具体路径、脚本凭据与审批规则见 [工具目录权限](工具目录权限.md)；人工交互与恢复见 [HITL 协议](HITL协议.md)。
 

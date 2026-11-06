@@ -86,7 +86,7 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 	}
 	reservation.Commit()
 	output := bashResult(result.Stdout, result.Stderr, "sandbox", result.Cwd, result.ExitCode, "")
-	if approvalSource != "" || accessReview.HasConnector || accessReview.AutoApproved() || accessReview.RuleKey == "bash-access:authored-script" || accessReview.RuleKey == "bash-access:temp-script" || accessReview.RuleKey == "bash-access:skill-script" {
+	if approvalSource != "" || accessReview.HasConnector || accessReview.AutoApproved() || accessReview.RuleKey == "bash-access:authored-script" || accessReview.RuleKey == "bash-access:temp-script" || accessReview.RuleKey == "bash-access:skill-script" || accessReview.RuleKey == "bash-access:inline-code" {
 		if output.Structured == nil {
 			output.Structured = map[string]any{"stdout": result.Stdout, "stderr": result.Stderr, "mode": "sandbox", "cwd": result.Cwd, "exitCode": result.ExitCode}
 		}

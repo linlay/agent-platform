@@ -10,13 +10,13 @@ import (
 	"agent-platform/internal/shellreview/unwrap"
 )
 
-func reviewFromAST(original, command string, result bashsyntax.ParseResult, variables map[string]string, depth int) syntaxReviewResult {
+func reviewFromAST(original, command string, result bashsyntax.ParseResult, variables map[string]string, depth int, findExecReviewed bool) syntaxReviewResult {
 	review := syntaxReviewResult{Decision: ReviewAllow}
 	if blocked := reviewText(command, result); blocked.Decision == ReviewBlock {
 		return blocked
 	}
 	for _, cmd := range result.Commands {
-		next := reviewASTCommand(original, cmd)
+		next := reviewASTCommand(original, cmd, findExecReviewed)
 		if next.Decision == ReviewBlock {
 			return next
 		}
@@ -24,7 +24,7 @@ func reviewFromAST(original, command string, result bashsyntax.ParseResult, vari
 			review = next
 		}
 		if script, ok := unwrap.ShellScript(cmd.Argv); ok && depth < maxScriptDepth {
-			inner := reviewScript(original, script, variables, depth+1)
+			inner := reviewScript(original, script, variables, depth+1, findExecReviewed)
 			if inner.Decision == ReviewBlock {
 				return inner
 			}
@@ -36,7 +36,7 @@ func reviewFromAST(original, command string, result bashsyntax.ParseResult, vari
 	return review
 }
 
-func reviewASTCommand(command string, cmd types.Invocation) syntaxReviewResult {
+func reviewASTCommand(command string, cmd types.Invocation, findExecReviewed bool) syntaxReviewResult {
 	result := syntaxReviewResult{Decision: ReviewAllow}
 	for _, argv := range deterministicCommandChain(cmd.Argv) {
 		if len(argv) == 0 {
@@ -49,7 +49,7 @@ func reviewASTCommand(command string, cmd types.Invocation) syntaxReviewResult {
 		if registry.IDOf(base) == registry.CmdFc && hasFlagLetter(argv[1:], 'e') {
 			return blockReview("Command uses 'fc -e' which can execute arbitrary commands via editor")
 		}
-		if review := reviewRuntimeWrapperCommand(command, argv); review.Decision == ReviewBlock {
+		if review := reviewRuntimeWrapperCommand(command, argv, findExecReviewed); review.Decision == ReviewBlock {
 			return review
 		} else if review.Decision == ReviewRequiresApproval {
 			result = review

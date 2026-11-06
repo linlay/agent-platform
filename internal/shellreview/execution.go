@@ -86,6 +86,13 @@ func analyzeBashExecution(session QuerySession, cmd types.Invocation, cwd string
 			x.Opaque = true
 			x.TrustedInterpreter = identity.IsInterpreter(base)
 			x.Script = identity.InterpreterScript(base, x.Argv[1:])
+			if x.TrustedInterpreter && !x.Wrapped && len(x.Words) == len(x.Argv) {
+				var inline []int
+				inline, x.Inline = identity.InlineProgram(base, x.Argv[1:], x.Words[1:], cmd.Redirects)
+				for _, i := range inline {
+					x.InlineArgs = append(x.InlineArgs, i+1)
+				}
+			}
 			if x.Script != "" && session.AgentHasRuntimeSandbox && env != nil && env.Canonical != nil {
 				resolved, err := env.Canonical(x.Script, x.Cwd)
 				if err != nil {

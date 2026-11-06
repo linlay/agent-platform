@@ -45,14 +45,16 @@ func reviewBashSecurity(command string) syntaxReviewResult {
 // cannot represent faithfully (hard block) or cannot analyze (approval). File,
 // program and network effects belong to the access policy.
 func reviewBashSecurityWithKnownVariables(command string, variables map[string]string) syntaxReviewResult {
-	return reviewScript(command, command, variables, 0)
+	return reviewScript(command, command, variables, 0, false)
 }
 
-func reviewScript(original, command string, variables map[string]string, depth int) syntaxReviewResult {
+// findExecReviewed drops the find -exec requirement after the access review
+// showed every find -exec read-only; dangerous inner builtins still block.
+func reviewScript(original, command string, variables map[string]string, depth int, findExecReviewed bool) syntaxReviewResult {
 	result := bashsyntax.ParseForSecurityWithKnownVariables(command, variables)
 	switch result.Kind {
 	case bashsyntax.Simple:
-		return reviewFromAST(original, command, result, variables, depth)
+		return reviewFromAST(original, command, result, variables, depth, findExecReviewed)
 	case bashsyntax.TooComplex:
 		if bashsyntax.IsHardBlockReason(result.Reason) {
 			return blockReview(result.Reason)

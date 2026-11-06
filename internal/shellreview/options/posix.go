@@ -87,6 +87,25 @@ func Parse(spec types.OptionSpec, args []string) types.ParsedOptions {
 			}
 			continue
 		}
+		if role, ok := spec.Words[a[1:]]; ok {
+			word := a[1:]
+			switch role {
+			case types.OptionNone, types.OptionRecursive, types.OptionRemote:
+				apply(word, role, "", types.ValueRef{})
+			case types.OptionOptionalValue:
+				apply(word, types.OptionValue, "", types.ValueRef{})
+			case types.OptionTwoValues, types.OptionNameFile:
+				p.Incomplete = true
+			default:
+				if i+1 >= len(args) {
+					p.Incomplete = true
+					continue
+				}
+				i++
+				apply(word, role, args[i], types.ArgumentRef(i, args[i]))
+			}
+			continue
+		}
 		letters := a[1:]
 		if spec.NumericShort {
 			if _, err := strconv.Atoi(letters); err == nil {

@@ -90,6 +90,16 @@ fake-none:
       expect: {}
     - args: [-f, in.txt, --suffix=.c, notes.txt]
       expect: {read: [in.txt]}
+fake-reject:
+  operands: reject
+  short:
+    value: [s]
+  word:
+    flag: [quiet]
+    value: [level]
+  examples:
+    - args: [-s, "5", -quiet, -level, warn]
+      expect: {}
 fake-read:
   operands: read
   numeric: true
@@ -119,9 +129,13 @@ fake-create:
   operands: create
   short:
     write-dir: [T]
+  word:
+    write: [plist]
   examples:
     - args: [-T, tmp, new]
       expect: {create: [tmp, new], recursive: [tmp]}
+    - args: [-plist, out.plist, new]
+      expect: {output: [out.plist], create: [new]}
 fake-output:
   operands: output
   long:
@@ -161,6 +175,9 @@ func TestSpecFormatCoversEveryOperandUseAndRole(t *testing.T) {
 	if e := parsed["fake-none"].analyze([]string{"--made-up", "notes.txt", "https://x/y"}); !e.Incomplete || len(e.Files) != 1 || !e.Files[0].Write {
 		t.Fatalf("unknown option must turn data operands into writes, except URLs: %+v", e)
 	}
+	if e := parsed["fake-reject"].analyze([]string{"notes.txt"}); !e.Incomplete || len(e.Files) != 1 || !e.Files[0].Write {
+		t.Fatalf("an operand of a reject command is unmodeled: %+v", e)
+	}
 }
 
 func TestSpecLoaderIsStrict(t *testing.T) {
@@ -173,6 +190,10 @@ func TestSpecLoaderIsStrict(t *testing.T) {
 		"unquoted digit":          "x:\n  operands: read\n  short:\n    flag: [1]\n",
 		"two letters":             "x:\n  operands: read\n  short:\n    flag: [ab]\n",
 		"dashed long":             "x:\n  operands: read\n  long:\n    flag: [--all]\n",
+		"dashed word":             "x:\n  operands: read\n  word:\n    flag: [-raw]\n",
+		"one-letter word":         "x:\n  operands: read\n  word:\n    flag: [r]\n",
+		"duplicate word":          "x:\n  operands: read\n  word:\n    flag: [raw]\n    value: [raw]\n",
+		"recursive reject":        "x:\n  operands: reject\n  short:\n    recursive: [r]\n",
 		"long with value":         "x:\n  operands: read\n  long:\n    flag: [color=auto]\n",
 		"duplicate short":         "x:\n  operands: read\n  short:\n    flag: [a]\n    value: [a]\n",
 		"duplicate long":          "x:\n  operands: read\n  long:\n    flag: [all]\n    value: [all]\n",

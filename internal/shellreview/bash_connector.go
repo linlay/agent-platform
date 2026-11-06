@@ -39,7 +39,8 @@ func securityReview(p shellplan.BashPlan, command string, variables map[string]s
 		// The whole-call access requirement carries unsupported grammar review.
 		return syntaxReviewResult{Decision: ReviewAllow}
 	}
-	result := reviewBashSecurityWithKnownVariables(p.ShellReviewCommand(command), variables)
+	reviewed := p.ShellReviewCommand(command)
+	result := reviewScript(reviewed, reviewed, variables, 0, p.FindExecReviewed)
 	if result.Fingerprint != "" {
 		result.Fingerprint = ApprovalFingerprint(command)
 		if p.LaunchFingerprint != "" {

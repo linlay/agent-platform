@@ -4,7 +4,6 @@ import (
 	_ "embed"
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 
 	"agent-platform/internal/config"
@@ -51,6 +50,9 @@ func mustSpecCommands(data []byte) map[string]specCommand {
 		if !programName.MatchString(name) {
 			panic(fmt.Sprintf("commands.yml: %q is not a lowercase program name", name))
 		}
+		if _, ok := programs[name]; ok {
+			panic(fmt.Sprintf("commands.yml: %s also has a Go analyzer", name))
+		}
 		entry, registered := registry.Lookup(name)
 		if !registered {
 			continue
@@ -68,25 +70,6 @@ func mustSpecCommands(data []byte) map[string]specCommand {
 }
 
 var programName = regexp.MustCompile(`^[a-z0-9][a-z0-9._+-]*$`)
-
-// TablePrograms lists commands.yml names absent from the registry. Identity
-// treats them as ordinary programs, still trusted only as system installations.
-func TablePrograms() []string {
-	var names []string
-	for name := range specCommands {
-		if IsTableProgram(name) {
-			names = append(names, name)
-		}
-	}
-	slices.Sort(names)
-	return names
-}
-
-func IsTableProgram(name string) bool {
-	_, table := specCommands[name]
-	_, registered := registry.Lookup(name)
-	return table && !registered
-}
 
 func parseSpecCommands(data []byte) (map[string]specCommand, error) {
 	tree, err := config.LoadYAMLTreeBytesWithOptions(data, config.YAMLTreeOptions{RejectDuplicateKeys: true, DisableEnvInterpolation: true})
@@ -116,19 +99,17 @@ func parseSpecCommand(raw any) (specCommand, error) {
 	if _, ok := fields["operands"]; !ok {
 		return specCommand{}, fmt.Errorf("operands is required")
 	}
-	c := specCommand{spec: types.OptionSpec{ShortArgs: map[byte]types.OptionRole{}, Long: map[string]types.OptionRole{}}}
+	c := specCommand{spec: types.OptionSpec{ShortArgs: map[byte]types.OptionRole{}, Long: map[string]types.OptionRole{}, Words: map[string]types.OptionRole{}}}
 	for key, value := range fields {
 		var err error
 		switch key {
 		case "operands":
 			c.operands, _ = value.(string)
-			if _, ok := operandKinds[c.operands]; !ok && c.operands != "none" {
-				err = fmt.Errorf("operands must be none, read, create, output or delete")
+			if _, ok := operandKinds[c.operands]; !ok && c.operands != "none" && c.operands != "reject" {
+				err = fmt.Errorf("operands must be none, reject, read, create, output or delete")
 			}
-		case "short":
-			err = c.parseOptions(value, true)
-		case "long":
-			err = c.parseOptions(value, false)
+		case "short", "long", "word":
+			err = c.parseOptions(value, key)
 		case "numeric":
 			if c.spec.NumericShort, ok = value.(bool); !ok {
 				err = fmt.Errorf("numeric must be true or false")
@@ -143,16 +124,18 @@ func parseSpecCommand(raw any) (specCommand, error) {
 		}
 	}
 	recursiveLong := false
-	for _, role := range c.spec.Long {
-		recursiveLong = recursiveLong || role == types.OptionRecursive
+	for _, names := range []map[string]types.OptionRole{c.spec.Long, c.spec.Words} {
+		for _, role := range names {
+			recursiveLong = recursiveLong || role == types.OptionRecursive
+		}
 	}
-	if c.operands == "none" && (recursiveLong || c.recursiveShort != "") {
+	if _, files := operandKinds[c.operands]; !files && (recursiveLong || c.recursiveShort != "") {
 		return specCommand{}, fmt.Errorf("recursive options need file operands")
 	}
 	return c, nil
 }
 
-func (c *specCommand) parseOptions(raw any, short bool) error {
+func (c *specCommand) parseOptions(raw any, group string) error {
 	groups, ok := raw.(map[string]any)
 	if !ok {
 		return fmt.Errorf("options must be grouped by role")
@@ -167,14 +150,22 @@ func (c *specCommand) parseOptions(raw any, short bool) error {
 			return fmt.Errorf("%s: %w", roleName, err)
 		}
 		for _, name := range names {
-			if !short {
+			if group != "short" {
+				target := c.spec.Long
+				if group == "word" {
+					// A one-letter word would shadow the short option of that letter.
+					target = c.spec.Words
+					if len(name) < 2 {
+						return fmt.Errorf("word option %q must be longer than one letter", name)
+					}
+				}
 				if name == "" || strings.HasPrefix(name, "-") || strings.ContainsAny(name, "= \t") {
-					return fmt.Errorf("long option %q must be a bare name", name)
+					return fmt.Errorf("%s option %q must be a bare name", group, name)
 				}
-				if _, dup := c.spec.Long[name]; dup {
-					return fmt.Errorf("long option %q listed twice", name)
+				if _, dup := target[name]; dup {
+					return fmt.Errorf("%s option %q listed twice", group, name)
 				}
-				c.spec.Long[name] = role
+				target[name] = role
 				continue
 			}
 			if len(name) != 1 || !isOptionLetter(name[0]) {
@@ -289,7 +280,10 @@ func (c specCommand) analyze(args []string) effectDraft {
 			}
 		}
 		e.Destructive = kind == types.Delete && recursive
-	} else if e.Incomplete {
+	} else if c.operands == "reject" && len(p.Positional) > 0 {
+		e.Incomplete = true
+	}
+	if _, files := operandKinds[c.operands]; !files && e.Incomplete {
 		// Operands are data; only an unrecognized option can make them paths.
 		for i, path := range p.Positional {
 			if path != "-" && !strings.Contains(path, "://") {

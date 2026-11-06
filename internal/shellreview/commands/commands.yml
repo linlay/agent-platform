@@ -2,11 +2,15 @@
 # here or in a Go analyzer, never both; conditional grammar stays in Go.
 #
 # <name>:
-#   operands: none | read | create | output | delete
+#   operands: none | reject | read | create | output | delete
 #   short:    {<role>: [letters]}   quote digits: ["0", "1"]
 #   long:     {<role>: [names]}     names without the leading --
+#   word:     {<role>: [names]}     single-dash names (mdls -name), without the dash
 #   numeric:  true                  accept -NUM (head -20)
 #   examples: [{args: [...], expect: {read|create|output|delete|recursive: [paths], exec: true}}]
+#
+# Operands: none means data; reject means the command takes none, so any
+# operand needs complex-command approval like an unlisted option.
 #
 # Roles: flag, value (-x v, --x=v), optional (only -xV and --x=V; never takes
 # the next argument), read, write, read-dir, write-dir, exec, recursive.
@@ -133,6 +137,29 @@ ps:
     optional: [help]
   examples:
     - args: [-A, -o, "rss,command"]
+      expect: {}
+
+# macOS and procps disagree on c, d, i, O, s, u and w; they stay flags.
+top:
+  operands: none
+  short:
+    flag: [a, b, c, d, e, F, f, H, h, i, O, R, r, S, s, u, v, w, "1"]
+    value: [E, l, n, o, p, U]
+  word:
+    value: [ncols, stats, pid, user]
+  examples:
+    - args: [-l, "1", -n, "0"]
+      expect: {}
+    - args: [-l, "1", -stats, "pid,command,mem", -o, mem]
+      expect: {}
+    - args: [-b, -n, "1", -d, "2"]
+      expect: {}
+
+# Its options allocate memory or simulate pressure; only the bare report reads.
+memory_pressure:
+  operands: reject
+  examples:
+    - args: []
       expect: {}
 
 sw_vers:
@@ -300,6 +327,36 @@ md5:
   examples:
     - args: [-q, -s, hello, a.txt]
       expect: {read: [a.txt]}
+
+mdls:
+  operands: read
+  short:
+    flag: [r, s]
+    value: [n, m]
+    write: [p]
+  word:
+    flag: [raw, sdb]
+    value: [name, attr, nullMarker]
+    write: [plist]
+  examples:
+    - args: [-name, kMDItemPixelWidth, -name, kMDItemPixelHeight, -raw, a.mov]
+      expect: {read: [a.mov]}
+    - args: [-plist, out.plist, a.mov]
+      expect: {output: [out.plist], read: [a.mov]}
+
+# -r resets Quick Look caches and -m queries the server; both stay unlisted.
+qlmanage:
+  operands: read
+  short:
+    flag: [t, p, x, i, z, h]
+    value: [s, f, F, c]
+    write-dir: [o]
+    exec: [g]
+  examples:
+    - args: [-t, -s, "1600", -o, thumbs, a.svg]
+      expect: {read: [a.svg], create: [thumbs], recursive: [thumbs]}
+    - args: [-t, -g, x.qlgenerator, a.svg]
+      expect: {read: [a.svg], exec: true}
 
 # -c/--check reads the files named inside the list; keep it unlisted.
 shasum:

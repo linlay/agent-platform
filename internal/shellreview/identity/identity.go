@@ -22,7 +22,7 @@ func CommandFamily(name string) string {
 
 func captureSystemExecutables() map[string]string {
 	out := map[string]string{}
-	names := append(registry.Names(registry.Capture), commands.TablePrograms()...)
+	names := append(registry.Names(registry.Capture), commands.Programs()...)
 	for _, name := range names {
 		if p, err := exec.LookPath(name); err == nil {
 			if c, err := pathutil.Canonicalize(p); err == nil {
@@ -83,7 +83,7 @@ func ResolveIdentity(session QuerySession, name, cwd string, vars map[string]str
 }
 
 func IsOrdinaryCommand(base string) bool {
-	return registry.Is(base, registry.Arguments|registry.Builtin) || commands.IsTableProgram(base)
+	return registry.Is(base, registry.Arguments|registry.Builtin) || commands.IsProgram(base)
 }
 func IsOpaqueCommand(base string) bool {
 	return registry.Is(CommandFamily(base), registry.Interpreter|registry.BuildTool)
@@ -95,7 +95,7 @@ func SystemPrograms() map[string]string { return maps.Clone(systemExecutables) }
 
 // OrdinaryCommands returns the current recognized-program inventory.
 func OrdinaryCommands() []string {
-	return append(registry.Names(registry.Arguments), commands.TablePrograms()...)
+	return append(registry.Names(registry.Arguments), commands.Programs()...)
 }
 
 // ShellBuiltins returns a copy of the current builtin inventory.

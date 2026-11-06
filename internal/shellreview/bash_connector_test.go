@@ -50,9 +50,9 @@ func TestMountedConnectorAllOperationsAndAccessLevels(t *testing.T) {
 func TestMountedConnectorLeavesSurroundingShellUnderReview(t *testing.T) {
 	session, vars, _ := connectorFixture(t)
 	for _, command := range []string{
-		"wecom-cli send && python3 -c 'print(1)'",
+		"wecom-cli send && python3 task.py",
 		"wecom-cli send > /outside/result",
-		"wecom-cli send \"$(python3 -c 'print(1)')\"",
+		"wecom-cli send \"$(python3 task.py)\"",
 		"wecom-cli send | cat /outside/file",
 	} {
 		p := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "", vars)

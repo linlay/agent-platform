@@ -161,8 +161,8 @@ func TestTempScriptExecutionExceptionIsNarrow(t *testing.T) {
 	}
 
 	for _, command := range []string{
-		`python3 -c 'print("ok")'`,
-		`node -e 'console.log("ok")'`,
+		`python3 -c "$(cat task.py)"`,
+		`node -e "$(cat task.js)"`,
 		`python3 task.py > output.txt`,
 		`python3 task.py && true`,
 		`bash task.py`,

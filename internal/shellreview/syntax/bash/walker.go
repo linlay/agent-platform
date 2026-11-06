@@ -2,7 +2,9 @@ package bash
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -127,12 +129,20 @@ type walker struct {
 	source   string
 	scope    *varScope
 	commands []types.Invocation
+	globs    GlobExpander
+	// cwds lists the directories a later command may run in, relative to the
+	// review cwd ("" is that cwd); every cd adds one. cwdUnknown records a cd
+	// whose target is not static.
+	cwds       []string
+	cwdUnknown bool
+	// cdTargets holds the directories of the latest cd with a static target.
+	cdTargets []string
 }
 
 const maxExtractedCommands = 256
 
 func newWalkerWithKnownVariables(source string, variables map[string]string) *walker {
-	return &walker{source: source, scope: newVarScopeWithKnownVariables(variables)}
+	return &walker{source: source, scope: newVarScopeWithKnownVariables(variables), cwds: []string{""}}
 }
 
 func (w *walker) walkFile(file *syntax.File) *walkError {
@@ -235,11 +245,24 @@ func (w *walker) walkCommand(cmd syntax.Command, redirs []*syntax.Redirect, scop
 func (w *walker) walkBinaryCmd(cmd *syntax.BinaryCmd, scope *varScope) (*varScope, *walkError) {
 	switch cmd.Op {
 	case syntax.AndStmt:
+		start := len(w.commands)
+		w.cdTargets = nil
 		next, err := w.walkStmt(cmd.X, scope)
 		if err != nil {
 			return scope, err
 		}
+		// The right side runs only after a left-side cd succeeded.
+		saved := slices.Clone(w.cwds)
+		if len(w.commands) == start+1 && w.cdTargets != nil {
+			w.cwds = w.cdTargets
+		}
 		last, err := w.walkStmt(cmd.Y, next.snapshot())
+		for _, dir := range w.cwds {
+			if !slices.Contains(saved, dir) {
+				saved = append(saved, dir)
+			}
+		}
+		w.cwds = saved
 		return joinScopes(next, last), err
 	case syntax.OrStmt:
 		left, err := w.walkStmt(cmd.X, scope.snapshot())
@@ -307,6 +330,7 @@ func (w *walker) walkCallExpr(call *syntax.CallExpr, redirs []*syntax.Redirect, 
 	if err != nil {
 		return scope, err
 	}
+	w.trackCd(argv, scope)
 	if err := w.appendCommand(types.Invocation{
 		Words:     words,
 		Variables: scope.knownValues(),
@@ -478,8 +502,174 @@ func (w *walker) walkForClause(clause *syntax.ForClause, scope *varScope) (*varS
 	if err != nil {
 		return scope, err
 	}
+	if iter.Name != nil {
+		values, ok := w.loopValues(iter.Items, scope)
+		if ok && start+(len(w.commands)-start)*len(values) <= maxExtractedCommands {
+			// Review the body once per value the loop will see.
+			w.commands = w.commands[:start]
+			bodies := []*varScope{scope}
+			for _, value := range values {
+				itemScope := scope.snapshot()
+				itemScope.set(iter.Name.Value, value)
+				next, err := w.walkStmts(clause.Do, itemScope.snapshot())
+				if err != nil {
+					return scope, err
+				}
+				w.markLoopMutation(start, itemScope, next)
+				bodies = append(bodies, next)
+			}
+			return joinScopes(bodies...), nil
+		}
+	}
 	w.markLoopMutation(start, loopScope, body)
 	return joinScopes(scope, body), nil
+}
+
+const maxLoopValues = 64
+
+// loopValues lists the words a for loop iterates over when every item is
+// static: plain or quoted text, known variables, braces, a leading ~ with a
+// known HOME, and globs the expander resolves.
+func (w *walker) loopValues(items []*syntax.Word, scope *varScope) ([]string, bool) {
+	if w.globs == nil {
+		return nil, false
+	}
+	var values []string
+	for _, item := range items {
+		words, err := expandBraceWord(item)
+		if err != nil {
+			return nil, false
+		}
+		for _, word := range words {
+			value, glob, ok := staticLoopWord(word, scope)
+			if !ok {
+				return nil, false
+			}
+			if !glob {
+				values = append(values, value)
+				continue
+			}
+			if w.cwdUnknown && !filepath.IsAbs(value) {
+				return nil, false
+			}
+			matches, ok := w.globs(value, w.cwds)
+			if !ok {
+				return nil, false
+			}
+			values = append(values, matches...)
+		}
+		if len(values) > maxLoopValues {
+			return nil, false
+		}
+	}
+	return values, true
+}
+
+// staticLoopWord returns a loop item's value and whether it holds an unquoted
+// glob. Backslashes and glob characters inside quotes are not modeled.
+func staticLoopWord(word *syntax.Word, scope *varScope) (string, bool, bool) {
+	var b strings.Builder
+	glob := false
+	known := func(name string) (string, bool) {
+		value, ok := scope.get(name)
+		return value, ok && value != TrackedVariablePlaceholder && value != CommandSubstitutionPlaceholder
+	}
+	quoted := func(text string) bool {
+		b.WriteString(text)
+		return !strings.ContainsAny(text, "*?[\\")
+	}
+	for i, part := range word.Parts {
+		switch node := part.(type) {
+		case *syntax.Lit:
+			text := node.Value
+			if strings.Contains(text, `\`) {
+				return "", false, false
+			}
+			if i == 0 && (text == "~" || strings.HasPrefix(text, "~/")) {
+				home, ok := known("HOME")
+				if !ok || !filepath.IsAbs(home) {
+					return "", false, false
+				}
+				text = home + text[1:]
+			} else if i == 0 && strings.HasPrefix(text, "~") {
+				return "", false, false
+			}
+			glob = glob || strings.ContainsAny(text, "*?[")
+			b.WriteString(text)
+		case *syntax.SglQuoted:
+			if node.Dollar || !quoted(node.Value) {
+				return "", false, false
+			}
+		case *syntax.DblQuoted:
+			if node.Dollar {
+				return "", false, false
+			}
+			for _, inner := range node.Parts {
+				switch inner := inner.(type) {
+				case *syntax.Lit:
+					if !quoted(inner.Value) {
+						return "", false, false
+					}
+				case *syntax.ParamExp:
+					value, ok := known(inner.Param.Value)
+					if !isSimpleParamExp(inner) || !ok || !quoted(value) {
+						return "", false, false
+					}
+				default:
+					return "", false, false
+				}
+			}
+		case *syntax.ParamExp:
+			value, ok := known(node.Param.Value)
+			if !isSimpleParamExp(node) || !ok || hasBareVarUnsafeChars(value) {
+				return "", false, false
+			}
+			b.WriteString(value)
+		default:
+			return "", false, false
+		}
+	}
+	return b.String(), glob, true
+}
+
+// trackCd adds the target of each cd as a possible cwd. Any cd, even one in a
+// pipeline or branch that might not change this shell, widens the set.
+func (w *walker) trackCd(argv []string, scope *varScope) {
+	if len(argv) > 1 && (argv[0] == "command" || argv[0] == "builtin") {
+		argv = argv[1:]
+	}
+	if len(argv) == 0 || argv[0] != "cd" {
+		w.cdTargets = nil
+		return
+	}
+	target := ""
+	if len(argv) == 2 {
+		target = argv[1]
+	}
+	if home, ok := scope.get("HOME"); ok && (target == "~" || strings.HasPrefix(target, "~/")) && filepath.IsAbs(home) {
+		target = home + target[1:]
+	}
+	_, cdpath := scope.get("CDPATH")
+	if target == "" || strings.HasPrefix(target, "-") || strings.HasPrefix(target, "~") || strings.Contains(target, TrackedVariablePlaceholder) || strings.Contains(target, CommandSubstitutionPlaceholder) || cdpath && !filepath.IsAbs(target) {
+		w.cwdUnknown = true
+		return
+	}
+	var targets []string
+	for _, dir := range w.cwds {
+		next := target
+		if !filepath.IsAbs(target) {
+			next = filepath.Join(dir, target)
+		}
+		if !slices.Contains(targets, next) {
+			targets = append(targets, next)
+		}
+	}
+	for _, next := range targets {
+		if !slices.Contains(w.cwds, next) {
+			w.cwds = append(w.cwds, next)
+		}
+	}
+	w.cdTargets = targets
 }
 
 func (w *walker) parseAssignments(assigns []*syntax.Assign, scope *varScope) ([]types.EnvVar, *walkError) {
@@ -535,10 +725,34 @@ func (w *walker) parseRedirects(redirs []*syntax.Redirect, scope *varScope) ([]t
 			next.IsHeredoc = true
 			next.HeredocBodyStart = bodyStart
 			next.HeredocBodyEnd = bodyEnd
+			next.HeredocLiteral = heredocLiteral(redir)
 		}
 		out = append(out, next)
 	}
 	return out, nil
+}
+
+// heredocLiteral reports a body the shell passes on unchanged: any quoting in
+// the delimiter disables expansion, otherwise the body must be plain text.
+func heredocLiteral(redir *syntax.Redirect) bool {
+	if redir.Word != nil {
+		for _, part := range redir.Word.Parts {
+			switch p := part.(type) {
+			case *syntax.SglQuoted, *syntax.DblQuoted:
+				return true
+			case *syntax.Lit:
+				if strings.Contains(p.Value, `\`) {
+					return true
+				}
+			}
+		}
+	}
+	for _, part := range redir.Hdoc.Parts {
+		if lit, ok := part.(*syntax.Lit); !ok || strings.Contains(lit.Value, `\`) {
+			return false
+		}
+	}
+	return true
 }
 
 func (w *walker) heredocBodyRange(redir *syntax.Redirect, delimiter string) (int, int) {

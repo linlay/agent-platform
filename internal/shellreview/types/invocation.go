@@ -74,4 +74,7 @@ type Redirect struct {
 	IsHeredoc        bool
 	HeredocBodyStart int
 	HeredocBodyEnd   int
+	// HeredocLiteral marks a body the shell passes on unchanged: the delimiter
+	// is quoted, or the body has no expansion or backslash.
+	HeredocLiteral bool
 }

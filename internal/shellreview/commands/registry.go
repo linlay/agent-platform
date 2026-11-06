@@ -1,8 +1,10 @@
 package commands
 
 import (
-	"agent-platform/internal/shellreview/registry"
+	"slices"
 	"strings"
+
+	"agent-platform/internal/shellreview/registry"
 )
 
 type command struct {
@@ -17,7 +19,6 @@ var analyzers = map[registry.ID]command{
 	registry.CmdFalse:     {analyze: func(args []string) effectDraft { return simpleOperands(registry.CmdFalse, args) }},
 	registry.CmdTest:      {analyze: func(args []string) effectDraft { return simpleOperands(registry.CmdTest, args) }},
 	registry.CmdCd:        {analyze: func(args []string) effectDraft { return simpleOperands(registry.CmdCd, args) }},
-	registry.CmdTop:       {analyze: func(args []string) effectDraft { return simpleOperands(registry.CmdTop, args) }},
 	registry.CmdGit:       {analyze: gitOperands},
 	registry.CmdSed:       {analyze: sedOperands},
 	registry.CmdAwk:       {analyze: awkOperands},
@@ -44,6 +45,39 @@ var analyzers = map[registry.ID]command{
 	registry.CmdWget:      {analyze: wgetOperands, config: wgetConfig},
 }
 
+// programs are Go analyzers for names outside the registry. Like commands.yml
+// names, identity trusts them only as the system installation on PATH.
+var programs = map[string]command{
+	"diskutil": {analyze: diskutilOperands},
+	"sips":     {analyze: sipsOperands},
+	"sysctl":   {analyze: sysctlOperands},
+}
+
+// Programs lists analyzed names absent from the registry, from commands.yml
+// or Go. Identity captures them as ordinary system programs.
+func Programs() []string {
+	var names []string
+	for name := range specCommands {
+		if IsProgram(name) {
+			names = append(names, name)
+		}
+	}
+	for name := range programs {
+		if IsProgram(name) {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
+func IsProgram(name string) bool {
+	_, table := specCommands[name]
+	_, program := programs[name]
+	_, registered := registry.Lookup(name)
+	return (table || program) && !registered
+}
+
 func operands(base string, args []string) effectDraft {
 	if base != strings.ToLower(base) {
 		return unknownOperands(args)
@@ -52,6 +86,9 @@ func operands(base string, args []string) effectDraft {
 		if c, ok := analyzers[entry.ID]; ok {
 			return c.analyze(args)
 		}
+	}
+	if c, ok := programs[base]; ok {
+		return c.analyze(args)
 	}
 	if c, ok := specCommands[base]; ok {
 		return c.analyze(args)

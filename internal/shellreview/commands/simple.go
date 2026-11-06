@@ -36,10 +36,6 @@ func simpleOperands(id registry.ID, args []string) effectDraft {
 	if id == registry.CmdTest {
 		return testOperands(args)
 	}
-	// top only reads process state; its options are not modeled.
-	if len(args) == 0 {
-		return effectDraft{}
-	}
 	return unknownOperands(args)
 }
 

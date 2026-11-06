@@ -1,0 +1,5 @@
+# find -exec whose commands only read is reviewed like find over its roots, so
+# it needs neither execution nor find -exec approval (supersedes the C12b rows).
+effect/find-exec	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+effect/find-exec	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+effect/find-exec	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true

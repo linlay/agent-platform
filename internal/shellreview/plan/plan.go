@@ -42,6 +42,9 @@ type BashPlan struct {
 	// UsesSSHAgent marks Git network operations that may authenticate with the
 	// user's SSH agent; only then is SSH_AUTH_SOCK passed to the process.
 	UsesSSHAgent bool
+	// FindExecReviewed marks a command whose every find -exec was shown
+	// read-only, so the syntax review drops its find -exec requirement.
+	FindExecReviewed bool
 }
 
 func (p BashPlan) Allowed() bool {

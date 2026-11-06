@@ -62,6 +62,93 @@ func ShebangFamily(header string, session QuerySession, cwd string, vars map[str
 	return ""
 }
 
+// InlineProgram returns the indices in args of program text a system
+// interpreter takes literally from this command: python -c, node -e/-p, perl
+// -e/-E and ruby -e. With no program argument, a literal heredoc or here-string
+// on stdin qualifies. Any other form, such as perl -i or python -m, is not
+// inline code.
+func InlineProgram(base string, args []string, words []types.SourceWord, redirects []types.Redirect) ([]int, bool) {
+	literal := func(i int) bool {
+		return i < len(words) && words[i].Origin == types.WordOriginSyntax && words[i].Literal
+	}
+	var code []int
+	i := 0
+	switch registry.IDOf(base) {
+	case registry.CmdPython, registry.CmdPython3:
+		for ; i < len(args); i++ {
+			a := args[i]
+			if a == "-W" || a == "-X" {
+				i++
+				continue
+			}
+			if a == "-c" {
+				if i+1 < len(args) && literal(i+1) {
+					return []int{i + 1}, true
+				}
+				return nil, false
+			}
+			if len(a) < 2 || a[0] != '-' || strings.Trim(a[1:], "uBIOEsSqv") != "" {
+				break
+			}
+		}
+	case registry.CmdNode:
+		if len(args) > 0 && (args[0] == "-e" || args[0] == "--eval" || args[0] == "-p" || args[0] == "--print") {
+			if len(args) > 1 && literal(1) {
+				return []int{1}, true
+			}
+			return nil, false
+		}
+	case registry.CmdPerl, registry.CmdRuby:
+		codeLetters := "eE"
+		if registry.IDOf(base) == registry.CmdRuby {
+			codeLetters = "e" // ruby -E sets the encoding
+		}
+		for ; i < len(args); i++ {
+			a := args[i]
+			if len(a) < 2 || a[0] != '-' || a == "--" {
+				break
+			}
+			letters := a[1:]
+			if strings.Trim(letters[:len(letters)-1], "lnpaw") != "" {
+				return nil, false
+			}
+			last := letters[len(letters)-1]
+			if strings.IndexByte(codeLetters, last) >= 0 {
+				if i++; i >= len(args) || !literal(i) {
+					return nil, false
+				}
+				code = append(code, i)
+			} else if strings.IndexByte("lnpaw", last) < 0 {
+				return nil, false
+			}
+		}
+		if len(code) > 0 {
+			return code, true
+		}
+	default:
+		return nil, false
+	}
+	// No program argument: the interpreter reads its program from stdin.
+	if i < len(args) && args[i] != "-" {
+		return nil, false
+	}
+	stdin := false
+	for _, r := range redirects {
+		if !strings.HasPrefix(r.Op, "<") || r.Fd > 0 {
+			continue
+		}
+		switch {
+		case r.IsHeredoc:
+			stdin = r.HeredocLiteral
+		case r.Op == "<<<":
+			stdin = r.TargetWord.Literal
+		default:
+			stdin = false
+		}
+	}
+	return []int{}, stdin
+}
+
 func IsInterpreter(base string) bool {
 	return base == strings.ToLower(base) && registry.Is(base, registry.Interpreter)
 }

@@ -53,5 +53,6 @@ func includeSyntaxRequirements(p shellplan.BashPlan, session contracts.QuerySess
 	result.ReviewCommand, result.HasConnector, result.ConnectorOnly = p.ReviewCommand, p.HasConnector, p.ConnectorOnly
 	result.ConnectorIDs, result.ConnectorCall = p.ConnectorIDs, p.ConnectorCall
 	result.UnknownDialect, result.UsesSSHAgent = p.UnknownDialect, p.UsesSSHAgent
+	result.FindExecReviewed = p.FindExecReviewed
 	return result
 }

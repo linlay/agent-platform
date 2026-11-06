@@ -28,7 +28,7 @@ func New(cfg config.AccessPolicyConfig, session QuerySession, command string) Re
 func (r Reviewer) Allow() shellplan.BashPlan { return shellplan.BashPlan{Decision: DecisionAllow} }
 
 func KeepRequirement(p shellplan.BashPlan) bool {
-	return p.Decision != DecisionAllow || p.RuleKey == "bash-access:authored-script" || p.RuleKey == "bash-access:skill-script"
+	return p.Decision != DecisionAllow || p.RuleKey == "bash-access:authored-script" || p.RuleKey == "bash-access:skill-script" || p.RuleKey == "bash-access:inline-code"
 }
 
 func (r Reviewer) Complex(reason string) shellplan.BashPlan {
@@ -78,6 +78,10 @@ func (r Reviewer) SkillScript(path string) shellplan.BashPlan {
 
 func (r Reviewer) AuthoredScript(path string) shellplan.BashPlan {
 	return shellplan.New(r.command, r.accessLevel, DecisionAllow, "script was written by this run in the current Chat directory", "bash-access:authored-script", path)
+}
+
+func (r Reviewer) InlineCode(interpreter string) shellplan.BashPlan {
+	return shellplan.New(r.command, r.accessLevel, DecisionAllow, "program text is written literally in this command", "bash-access:inline-code", interpreter)
 }
 
 func (r Reviewer) Destructive(cwd string) shellplan.BashPlan {

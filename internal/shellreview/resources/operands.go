@@ -1,9 +1,11 @@
 package resources
 
 import (
+	"slices"
+	"strings"
+
 	"agent-platform/internal/shellreview/identity"
 	"agent-platform/internal/shellreview/types"
-	"strings"
 )
 
 // OpaquePathArguments returns arguments that visibly name local paths: "." and
@@ -17,8 +19,8 @@ func OpaquePathArguments(x types.BashExecution) []string {
 		rawScript = identity.InterpreterScript(identity.CommandFamily(x.Argv[0]), x.Argv[1:])
 	}
 	skipNext := false
-	for _, arg := range x.Argv[1:] {
-		if skipNext {
+	for i, arg := range x.Argv[1:] {
+		if skipNext || slices.Contains(x.InlineArgs, i+1) {
 			skipNext = false
 			continue
 		}

@@ -25,6 +25,9 @@ type OptionSpec struct {
 	ShortFlags string                // letters without values
 	ShortArgs  map[byte]OptionRole   // letters taking a value
 	Long       map[string]OptionRole // long options by name, without leading --
+	// Words are single-dash long options (mdls -name), without the dash. An
+	// exact word match wins over reading the argument as clustered letters.
+	Words map[string]OptionRole
 	// NumericShort accepts -NUM forms (head -20, tail -200).
 	NumericShort bool
 }

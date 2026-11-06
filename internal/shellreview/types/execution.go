@@ -19,7 +19,11 @@ type BashExecution struct {
 	Uncertain          bool
 	Wrapped            bool
 	TrustedInterpreter bool
-	BlockReason        string
+	// Inline marks a system interpreter running program text written literally
+	// in this command; InlineArgs are its argv indices (none for stdin text).
+	Inline      bool
+	InlineArgs  []int
+	BlockReason string
 	// Env is the environment visible to Argv: the reviewed environment plus
 	// shell scope, inline assignments and env(1) assignments.
 	Env              map[string]string

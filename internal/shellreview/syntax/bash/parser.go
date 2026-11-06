@@ -14,16 +14,18 @@ const parseTimeout = 50 * time.Millisecond
 
 var errParserTimeout = errors.New("parser timeout")
 
-func ParseForSecurityWithKnownVariables(command string, variables map[string]string) ParseResult {
+// An optional GlobExpander lets for loops over static items be walked once per
+// value; without one, the loop variable stays unknown.
+func ParseForSecurityWithKnownVariables(command string, variables map[string]string, globs ...GlobExpander) ParseResult {
 	if ok, reason := runPrechecks(command); !ok {
 		return ParseResult{Kind: TooComplex, Reason: reason, NodeType: "precheck"}
 	}
-	return ParseForExecution(command, variables)
+	return ParseForExecution(command, variables, globs...)
 }
 
 // ParseForExecution only identifies shell structure. Callers must still run
 // security checks on every part not covered by a verified execution grant.
-func ParseForExecution(command string, variables map[string]string) ParseResult {
+func ParseForExecution(command string, variables map[string]string, globs ...GlobExpander) ParseResult {
 	file, err := parseFile(command)
 	if err != nil {
 		reason := fmt.Sprintf("parse error: %v", err)
@@ -37,6 +39,9 @@ func ParseForExecution(command string, variables map[string]string) ParseResult 
 	}
 
 	w := newWalkerWithKnownVariables(command, variables)
+	for _, glob := range globs {
+		w.globs = glob
+	}
 	if err := w.walkFile(file); err != nil {
 		return ParseResult{Kind: TooComplex, Reason: err.reason, NodeType: err.nodeType}
 	}

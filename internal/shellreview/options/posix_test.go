@@ -16,6 +16,7 @@ func TestOptionValuesKeepTheirResourceRoles(t *testing.T) {
 			"color": types.OptionOptionalValue, "rawfile": types.OptionNameFile,
 		},
 		NumericShort: true,
+		Words:        map[string]types.OptionRole{"name": types.OptionValue, "plist": types.OptionWrite, "raw": types.OptionNone},
 	}
 	for _, tc := range []struct {
 		name       string
@@ -34,6 +35,10 @@ func TestOptionValuesKeepTheirResourceRoles(t *testing.T) {
 		{"after_double_dash", []string{"--", "--output", "-f"}, nil, []string{"--output", "-f"}, false},
 		{"numeric_short", []string{"-20", "in.txt"}, nil, []string{"in.txt"}, false},
 		{"missing_value_keeps_prior_file", []string{"-f", "input.txt", "--output"}, []types.FileAccess{{Path: "input.txt"}}, nil, true},
+		{"word_value_and_flag", []string{"-name", "kind", "-raw", "in.txt"}, nil, []string{"in.txt"}, false},
+		{"word_file", []string{"-plist", "out.plist", "in.txt"}, []types.FileAccess{{Path: "out.plist", Write: true}}, []string{"in.txt"}, false},
+		{"word_missing_value", []string{"-name"}, nil, nil, true},
+		{"unknown_word_reads_as_letters", []string{"-qname", "in.txt"}, nil, []string{"in.txt"}, true},
 		{"unknown_keeps_known_file", []string{"-finput.txt", "--unknown=/outside/out"}, []types.FileAccess{{Path: "input.txt"}, {Path: "/outside/out", Write: true}}, nil, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

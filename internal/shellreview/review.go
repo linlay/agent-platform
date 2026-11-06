@@ -2,6 +2,7 @@ package shellreview
 
 import (
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 
@@ -51,7 +52,9 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 	if len(contexts) > 0 {
 		execCtx = contexts[0]
 	}
-	plan := reviewBashScript(cfg, session, command, cwd, variables, environment, execCtx, 0, &scriptReviewHistory{})
+	history := &scriptReviewHistory{}
+	plan := reviewBashScript(cfg, session, command, cwd, variables, environment, execCtx, 0, history)
+	plan.FindExecReviewed = history.findExecs > 0 && history.findExecPending == 0
 	plan = includeSyntaxRequirements(plan, session, command, cwd, variables, environment)
 	if environment != nil && environment.Launch != nil && !plan.ConnectorOnly {
 		plan = shellplan.BindLaunch(plan, *environment.Launch)
@@ -59,7 +62,84 @@ func reviewBashExecution(cfg config.AccessPolicyConfig, session QuerySession, co
 	return plan
 }
 
-type scriptReviewHistory struct{ mayMutate bool }
+type scriptReviewHistory struct {
+	mayMutate bool
+	// beyondPaths records a requirement other than path review or a hard
+	// block, whatever the access level decided for it.
+	beyondPaths bool
+	// findExecs counts reviewed commands whose words mention -exec, and
+	// findExecPending those not shown read-only by reviewFindExec.
+	findExecs, findExecPending int
+}
+
+// reviewFindExec reviews each -exec command with {} replaced by every search
+// root. If none of them can write, run unanalyzed code or use unmodeled
+// options, find reads nothing beyond its recursive root review: it returns the
+// arguments without -exec and the inner plans, whose path requirements stay.
+func reviewFindExec(cfg config.AccessPolicyConfig, session QuerySession, x types.BashExecution, environment *types.BashEnvironment, execCtx *ExecutionContext, depth int) ([]string, []types.SourceWord, []shellplan.BashPlan, bool) {
+	args, words := x.Argv[1:], x.Words[1:]
+	roots, execs, keep, ok := commands.FindExec(args)
+	if !ok || len(execs) == 0 || len(words) != len(args) || depth >= maxShellScriptDepth {
+		return nil, nil, nil, false
+	}
+	var inner []shellplan.BashPlan
+	for _, argv := range execs {
+		for _, root := range roots {
+			quoted := make([]string, len(argv))
+			for i, word := range argv {
+				quoted[i] = "'" + strings.ReplaceAll(strings.ReplaceAll(word, "{}", root), "'", `'\''`) + "'"
+			}
+			history := &scriptReviewHistory{}
+			p := reviewBashScript(cfg, session, strings.Join(quoted, " "), x.Cwd, x.Env, environment, execCtx, depth+1, history)
+			if history.mayMutate || history.beyondPaths || history.findExecPending > 0 {
+				return nil, nil, nil, false
+			}
+			inner = append(inner, p)
+		}
+	}
+	rest, restWords := make([]string, len(keep)), make([]types.SourceWord, len(keep))
+	for i, k := range keep {
+		rest[i], restWords[i] = args[k], words[k]
+	}
+	return rest, restWords, inner, true
+}
+
+// pathRequirement reports a plan that only allows, reviews paths or blocks.
+func pathRequirement(p shellplan.BashPlan) bool {
+	if len(p.Requirements) > 0 {
+		for _, r := range p.Requirements {
+			if !pathRequirement(r) {
+				return false
+			}
+		}
+		return true
+	}
+	return p.Blocked() || p.RuleKey == "" || p.RuleKey == "bash-access" || strings.HasPrefix(p.RuleKey, "bash-access:path")
+}
+
+// loopGlobs expands for-loop globs on the Host at review time, as file operand
+// globs are; a container has no guest expansion yet, so only its literal loop
+// items are walked per value.
+func loopGlobs(session QuerySession, cwd string) bashsyntax.GlobExpander {
+	if session.AgentHasRuntimeSandbox {
+		return func(string, []string) ([]string, bool) { return nil, false }
+	}
+	return func(pattern string, dirs []string) ([]string, bool) {
+		var values []string
+		for _, dir := range dirs {
+			base := cwd
+			if dir != "" {
+				base = ResolveAgainstCwd(dir, cwd)
+			}
+			matches, err := resources.ExpandOperandPaths(ResolveAgainstCwd(pattern, base))
+			if err != nil {
+				return nil, false
+			}
+			values = append(values, matches...)
+		}
+		return values, true
+	}
+}
 
 func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, command, cwd string, variables map[string]string, environment *types.BashEnvironment, execCtx *ExecutionContext, depth int, history *scriptReviewHistory) shellplan.BashPlan {
 	accessLevel := SessionAccessLevel(session)
@@ -86,6 +166,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 		if p.Blocked() {
 			hardViolationSeen = true
 		}
+		history.beyondPaths = history.beyondPaths || !pathRequirement(p)
 		if policy.KeepRequirement(p) {
 			plans = append(plans, p)
 		}
@@ -151,9 +232,10 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 			add(reviewer.Complex("container working directory cannot be resolved"))
 		}
 	}
-	parsed := bashsyntax.ParseForSecurityWithKnownVariables(command, variables)
+	globs := loopGlobs(session, workingDir)
+	parsed := bashsyntax.ParseForSecurityWithKnownVariables(command, variables, globs)
 	if len(session.ConnectorCLIEntries) > 0 {
-		parsed = bashsyntax.ParseForExecution(command, variables)
+		parsed = bashsyntax.ParseForExecution(command, variables, globs)
 	}
 	if parsed.Kind != bashsyntax.Simple {
 		pathReview(ReadAccess, workingDir)
@@ -171,7 +253,12 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 	var call *types.ConnectorCall
 	for _, cmd := range parsed.Commands {
 		allConnector := len(cmd.Words) > 0
+		mentionsExec := slices.ContainsFunc(cmd.Argv, func(word string) bool { return strings.Contains(word, "-exec") })
 		for _, candidateCwd := range append([]string(nil), possibleCwds...) {
+			if mentionsExec {
+				history.findExecs++
+				history.findExecPending++
+			}
 			x := analyzeBashExecution(session, cmd, candidateCwd, variables, environment)
 			if depth == 0 && len(parsed.Commands) == 1 {
 				call = connectorCall(command, variables, x)
@@ -241,6 +328,9 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 					add(reviewer.SkillScript(x.Script))
 				case identity.AuthoredScriptExempt(session, execCtx, x, environment):
 					add(reviewer.AuthoredScript(ResolveAgainstCwd(x.Script, x.Cwd)))
+				case x.Inline:
+					// Literal program text is as visible as a script this Run wrote.
+					add(reviewer.InlineCode(x.Identity))
 				default:
 					add(opaquePlan(x))
 				}
@@ -255,7 +345,17 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 					add(reviewer.Subtree(WriteAccess, target))
 				}
 			default:
-				effects := commands.Analyze(types.CommandInput{Name: identity.CommandFamily(x.Argv[0]), Args: x.Argv[1:], Words: x.Words[1:], Identity: x.CommandIdentity, Dialect: dialect.Bash})
+				args, words := x.Argv[1:], x.Words[1:]
+				if mentionsExec && identity.CommandFamily(x.Argv[0]) == "find" {
+					if rest, restWords, inner, ok := reviewFindExec(cfg, session, x, environment, execCtx, depth); ok {
+						args, words = rest, restWords
+						for _, p := range inner {
+							add(p)
+						}
+						history.findExecPending--
+					}
+				}
+				effects := commands.Analyze(types.CommandInput{Name: identity.CommandFamily(x.Argv[0]), Args: args, Words: words, Identity: x.CommandIdentity, Dialect: dialect.Bash})
 				repoDir := x.Cwd
 				gitCheck := types.GitCheckNone
 				executesBehavior := effects.Has(types.Exec)

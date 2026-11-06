@@ -117,7 +117,7 @@ func TestSkillNodeCJSUsesSkillProof(t *testing.T) {
 	if !p.Allowed() || p.RuleKey != "bash-access:skill-script" {
 		t.Fatalf("cjs not covered by skill proof: %+v", p)
 	}
-	for _, command := range []string{"node -e 'console.log(1)'", "node -r ./foreign.cjs selected/scripts/build-call.cjs"} {
+	for _, command := range []string{`node -e "$(cat foreign.cjs)"`, "node -r ./foreign.cjs selected/scripts/build-call.cjs"} {
 		if p := ReviewBashCommand(config.AccessPolicyConfig{}, ctx.Session, command, "", nil, ctx); !p.RequiresApproval() {
 			t.Fatalf("inline/preload unexpectedly exempt: %s %+v", command, p)
 		}

@@ -66,8 +66,7 @@ func awkOperands(args []string) effectDraft {
 }
 
 // awkProgramSafe rejects programs that can run commands, read other files or
-// redirect output. Comparison operators are indistinguishable from output
-// redirection without a full parser, so print statements with '>' are rejected.
+// redirect output.
 func awkProgramSafe(program string) bool {
 	var b strings.Builder
 	prev := byte('(')
@@ -114,10 +113,36 @@ func awkProgramSafe(program string) bool {
 	if strings.Contains(strings.ReplaceAll(code, "||", ""), "|") {
 		return false
 	}
-	if strings.Contains(code, "print") && strings.Contains(code, ">") {
-		return false
+	return !printRedirects(code)
+}
+
+// printRedirects reports a '>' outside parentheses within a print or printf
+// statement, where awk reads it as output redirection. Elsewhere, such as in
+// patterns, conditions or parenthesized expressions, '>' is a comparison.
+func printRedirects(code string) bool {
+	for start := 0; ; {
+		i := strings.Index(code[start:], "print")
+		if i < 0 {
+			return false
+		}
+		depth := 0
+	statement:
+		for j := start + i + len("print"); j < len(code); j++ {
+			switch code[j] {
+			case '(', '[':
+				depth++
+			case ')', ']':
+				depth--
+			case ';', '{', '}', '\n':
+				break statement
+			case '>':
+				if depth <= 0 {
+					return true
+				}
+			}
+		}
+		start += i + len("print")
 	}
-	return true
 }
 
 func isIdentifier(name string) bool {
