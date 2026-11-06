@@ -229,12 +229,17 @@ func voiceHello(chatID string, rate int) map[string]any {
 
 func dialVoice(t *testing.T, srv *httptest.Server, chatID string, rate int) (*websocket.Conn, string) {
 	t.Helper()
+	return dialVoiceHello(t, srv, voiceHello(chatID, rate))
+}
+
+func dialVoiceHello(t *testing.T, srv *httptest.Server, hello map[string]any) (*websocket.Conn, string) {
+	t.Helper()
 	c, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/api/voice/ws", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { c.Close() })
-	if err := c.WriteJSON(voiceHello(chatID, rate)); err != nil {
+	if err := c.WriteJSON(hello); err != nil {
 		t.Fatal(err)
 	}
 	frame, _ := readVoice(t, c)
@@ -663,6 +668,11 @@ func TestVoiceAuthCapabilitiesOriginAndHelloValidation(t *testing.T) {
 		func(msg map[string]any) { msg["chatId"] = "missing" },
 		func(msg map[string]any) { msg["voice"] = "not-allowed" },
 		func(msg map[string]any) { msg["accessLevel"] = "full_access" },
+		func(msg map[string]any) { msg["newChat"], msg["chatId"] = true, "existing-chat" },
+		func(msg map[string]any) { msg["primary"] = true },
+		func(msg map[string]any) { msg["primary"] = false },
+		func(msg map[string]any) { msg["newChat"] = "true" },
+		func(msg map[string]any) { msg["newChat"], msg["primary"] = true, "true" },
 	} {
 		c, _, err := dialer.Dial(wsURL, http.Header{"Origin": []string{srv.URL}})
 		if err != nil {
