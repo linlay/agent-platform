@@ -167,6 +167,34 @@ func TestUserSendWebSocketSharesHTTPIdempotency(t *testing.T) {
 	}
 }
 
+func TestUserSendWebSocketDetailLevels(t *testing.T) {
+	for _, detail := range []string{"simple", "detailed"} {
+		t.Run(detail, func(t *testing.T) {
+			f := newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{notifications: platformws.NewHub()})
+			box := bindUserMailbox(t, f)
+			conn := connectorUsageSocket(t, f.server)
+			frame := platformws.RequestFrame{
+				Frame: platformws.FrameRequest, Type: "/api/send", ID: "send-detail",
+				Detail: detail,
+				Payload: marshalPayload(map[string]any{
+					"requestId": "detail-request", "agentKey": "mock-agent", "message": "hello",
+				}),
+			}
+			if err := conn.WriteJSON(frame); err != nil {
+				t.Fatal(err)
+			}
+			receipt := waitForWebSocketResponseData[mailbox.Receipt](t, conn, frame.ID)
+			if receipt.Delivery != "started" || receipt.RunID == "" {
+				t.Fatalf("WS receipt: %#v", receipt)
+			}
+			mail, err := box.Store.Get(receipt.MailID)
+			if err != nil || mail.Detail != detail {
+				t.Fatalf("mail detail=%q, want %q: %v", mail.Detail, detail, err)
+			}
+		})
+	}
+}
+
 func TestUserSendProxyStartsWhenIdleAndQueuesWhileBusy(t *testing.T) {
 	captured := make(chan map[string]any, 2)
 	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
