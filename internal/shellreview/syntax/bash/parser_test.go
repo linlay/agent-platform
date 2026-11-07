@@ -1,6 +1,7 @@
 package bash
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -183,7 +184,6 @@ func TestParseForSecurityTooComplex(t *testing.T) {
 		`cat <(echo hi)`,
 		`echo $((1 + 2))`,
 		`echo {1..1000}`,
-		`echo \ hello`,
 		"echo `date`",
 	}
 	for _, command := range tests {
@@ -222,8 +222,22 @@ func TestParseForSecurityPrechecks(t *testing.T) {
 	if result.Kind != Simple || len(result.Commands[0].Argv) != 2 || result.Commands[0].Argv[1] != "{a,b}" {
 		t.Fatalf("expected quoted brace string to remain one literal, got %#v", result)
 	}
-	if IsHardBlockReason(ParseForSecurity(`echo \ hello`).Reason) {
-		t.Fatal("backslash-escaped whitespace is approval-only")
+}
+
+// Review must see the argv the shell passes, or `.st\ate` would be checked as
+// a different path than the `.state` that runs.
+func TestParseForSecurityRemovesBackslashesLikeBash(t *testing.T) {
+	for command, want := range map[string][]string{
+		`ls /home/u/Library/Application\ Support`: {"ls", "/home/u/Library/Application Support"},
+		`cat .st\ate/token`:                       {"cat", ".state/token"},
+		`\rm a\*b`:                                {"rm", "a*b"},
+		`echo "a\$b\\c\d\"" 'e\f'`:                {"echo", `a$b\c\d"`, `e\f`},
+		`find . -exec cat {} \;`:                  {"find", ".", "-exec", "cat", "{}", ";"},
+	} {
+		result := ParseForSecurityWithKnownVariables(command, map[string]string{"HOME": "/home/u"})
+		if result.Kind != Simple || !reflect.DeepEqual(result.Commands[0].Argv, want) {
+			t.Errorf("%s: %#v", command, result)
+		}
 	}
 }
 

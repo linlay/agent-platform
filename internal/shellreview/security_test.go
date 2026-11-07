@@ -88,7 +88,7 @@ func TestReviewBashSecurityBlocksDangerousBuiltins(t *testing.T) {
 }
 
 func TestReviewBashSecurityApprovalForUnanalyzableStructure(t *testing.T) {
-	for _, command := range []string{`(echo hi)`, `curl "$URL"`, `echo a\ b`, `echo {1..1000}`} {
+	for _, command := range []string{`(echo hi)`, `curl "$URL"`, `echo {1..1000}`} {
 		result := reviewBashSecurity(command)
 		if result.Decision != ReviewRequiresApproval || result.RuleKey != RuleKeyTooComplex || result.Level != LevelTooComplex {
 			t.Fatalf("%q: %#v", command, result)

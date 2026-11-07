@@ -805,10 +805,33 @@ func (w *walker) parseWord(word *syntax.Word, scope *varScope) (string, *walkErr
 	return b.String(), nil
 }
 
+// removeBackslashes applies Bash quote removal to literal text, which the
+// parser keeps verbatim: unquoted, a backslash yields the next character;
+// inside double quotes it escapes only $ ` " and \. The parser already drops
+// line continuations. Reviewing the raw text would check a different path
+// than the one the shell opens.
+func removeBackslashes(text string, insideDoubleQuote bool) string {
+	if !strings.Contains(text, `\`) {
+		return text
+	}
+	var b strings.Builder
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		if c == '\\' && i+1 < len(text) {
+			if next := text[i+1]; !insideDoubleQuote || strings.IndexByte("$`\"\\", next) >= 0 {
+				i++
+				c = next
+			}
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
+
 func (w *walker) parseWordPart(part syntax.WordPart, scope *varScope, insideDoubleQuote bool) (string, *walkError) {
 	switch node := part.(type) {
 	case *syntax.Lit:
-		return node.Value, nil
+		return removeBackslashes(node.Value, insideDoubleQuote), nil
 	case *syntax.SglQuoted:
 		if node.Dollar {
 			value, err := expand.Literal(&expand.Config{}, &syntax.Word{Parts: []syntax.WordPart{node}})
