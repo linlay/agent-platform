@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"agent-platform/internal/config"
@@ -48,6 +49,18 @@ func TestGeneralPrimaryRunPublishesExactlyFiveToolsWithoutTaskMount(t *testing.T
 	sort.Strings(want)
 	if !reflect.DeepEqual(names, want) {
 		t.Fatalf("actual model tools=%v want=%v", names, want)
+	}
+	modelInput, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"Coordinate workers", "approval_requires_human", "mail_hop_limit", "files:[path]", "default or omission inherits"} {
+		if !strings.Contains(string(modelInput), required) {
+			t.Fatalf("actual model input missing scheduling instructions %q", required)
+		}
+	}
+	if strings.Contains(string(modelInput), "Read the task-control skill before use") || strings.Contains(string(modelInput), "See its skill.") {
+		t.Fatal("primary model still receives an impossible skill-read prerequisite")
 	}
 	rec = httptest.NewRecorder()
 	f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/runtime/capabilities", nil))

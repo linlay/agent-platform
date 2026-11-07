@@ -466,6 +466,9 @@ func effectiveToolDefinitions(defs []api.ToolDetailResponse, allowed []string, s
 	}
 
 	out := cloneToolDefinitions(filtered)
+	for index := range out {
+		configurePrimaryChatTool(&out[index], session)
+	}
 	if !sessionHasWorkspace(session) {
 		for index := range out {
 			hardenWorkspaceLessToolDefinition(&out[index])

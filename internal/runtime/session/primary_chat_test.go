@@ -74,7 +74,28 @@ func TestPrimaryChatDoesNotLoadWorkerExecutionContext(t *testing.T) {
 	if session.SoulPrompt != "soul" || len(session.RuntimeContext.References) != 1 {
 		t.Fatal("identity or forwarding references lost")
 	}
+	for _, required := range []string{"chat_submit", "approval_requires_human", "mail_hop_limit", "files:[path]", "chat_query", "accessLevel:\"default\""} {
+		if !strings.Contains(session.PrimaryChatProtocol, required) {
+			t.Fatalf("missing scheduling protocol %q", required)
+		}
+	}
 	if !reflect.DeepEqual(def.Tools, []string{"bash", "file_read"}) {
 		t.Fatal("published definition mutated")
+	}
+}
+
+func TestPrimarySideLanesKeepAgentExecutionContext(t *testing.T) {
+	for _, lane := range []string{"btw", "explain"} {
+		t.Run(lane, func(t *testing.T) {
+			b := New(Dependencies{Config: config.Config{Paths: config.PathsConfig{ChatsDir: t.TempDir()}, PrimaryChat: config.PrimaryChatConfig{Enabled: true, ModelKey: "scheduler", SystemPrompt: "dispatch"}}})
+			def := catalog.AgentDefinition{Key: "a", Mode: "GENERAL", ModelKey: "worker", AgentsPrompt: "agent-side-rules", Tools: []string{"file_read", "chat_send"}}
+			session, err := b.BuildQuerySession(t.Context(), runtimetypes.QueryCommand{Primary: true, Lane: lane, ChatID: "c", AgentKey: "a"}, chat.Summary{ChatID: "c"}, def, Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if session.PrimaryChat || session.PrimaryChatProtocol != "" || session.ModelKey != "worker" || session.AgentsPrompt != "agent-side-rules" || !ContainsTool(session.ToolNames, "file_read") {
+				t.Fatalf("side lane inherited scheduling context: %+v", session)
+			}
+		})
 	}
 }

@@ -335,6 +335,9 @@ type RunLimits struct {
 type QuerySession struct {
 	// PrimaryChat is a trusted Chat role, independent of Agent mode.
 	PrimaryChat bool
+	// PrimaryChatProtocol is the embedded scheduling protocol, independent of
+	// the deployment's configurable primary.system-prompt.
+	PrimaryChatProtocol string
 	// FrozenModelOptions records the admitted model for delivery comparisons.
 	FrozenModelOptions *queryinput.QueryModelOptions      `json:"-"`
 	Mail               *queryinput.MailInput              `json:"-"`

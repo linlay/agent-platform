@@ -89,6 +89,10 @@ WebClient 普通主聊天文本统一发送，待发消息按身份隔离保存�
 
 主要聊天固定提供 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`、`chat_query`，不要求挂载 task-control，不装配 Agent 的执行工具、连接器、技能或 Workspace 提示文件。调度提示词来自 `agent-prompt.yml` 的 `primary.system-prompt`，再加 SOUL、Agent 名称与描述、分身工具与技能名称清单及配置选中的记忆。模型来自 `agent-settings.yml` 的 `primary.modelKey/reasoningEffort`，空字段回退 Agent 配置。
 
+上述五工具限制作用于主 lane。BTW 与解读（explain）保留既有旁路合同：使用 Agent 配置的模型、上下文及工具定义，执行时强制只读，最多 3 轮、4 次工具调用；不注入主要聊天调度协议，不参与主队列，不获得发信、审批代答或写操作能力。这是已确认的旁路例外，不能作为主要聊天执行任务的入口。
+
+主要聊天的必要调度协议来自随包内置的 task-control `references/primary-chat.md`，装配时直接进入 system prompt，不要求读取 Skill 文件、不挂载技能或增加工具。协议包含发信与补充、文件复制、回执及控制资格、请示代答、查询参数和跳数限制。五个工具的主要聊天专用说明同时使用正确的档位/模型默认值，不再要求先读不可用的技能。`configs/agent-prompt.yml` 的 `primary.system-prompt` 仍控制部署侧调度提示词；即使自定义或清空该项，必要协议也独立保留。
+
 本 Agent 用 `chat_send {newChat:true}` 开出的自分身移除 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`，保留原本有效的 `chat_notify`；之后用户直接输入不会改变身份。创建来源写入首条主 query 的平台字段 `mailNewChat` 和 `origin`，不依赖重启即清空的 mail.db；旧记录缺少 `mailNewChat` 时沿用首条 query 的同 Agent origin 判定。主要聊天指针优先于分身来源；切走指针后重新按创建来源区分普通会话和分身。该限制只阻止分身继续使用 mailbox 调度，既有 `agent_invoke` 与其他 mode 的能力不变。
 
 四类 mail 共用同一规则：对收件会话中 `queued` 的 mail 按时间顺序处理，视会话状态而定。
@@ -184,7 +188,7 @@ WebClient 普通主聊天文本统一发送，待发消息按身份隔离保存�
 **权限档位。**
 
 - `accessLevel`、`modelKey`、`reasoningEffort`、`chatName` 只能与 `newChat` 同用。档位省略时按收件 Agent 的 `accessConfig.default` 解析，未配置为 `ask_for_approval`；显式档位不得高于发信 Run 受理时的当前档位。
-- 上述开启的 Native GENERAL 主要聊天新开自分身时，省略 `accessLevel` 使用 `AcceptAtRunAccessLevel` 临界区内的实时父档位，`accessGrant.source=primary-chat`；预检查后发生的档位修改同样生效，受理后不再跟随父档位变化。显式 `default` 仍使用 Agent 默认值，显式具体档位仍校验实时上限。省略模型和思考强度使用 Agent 配置，不继承调度模型。
+- 上述开启的 Native GENERAL 主要聊天新开自分身时，省略 `accessLevel` 或显式 `default` 均使用 `AcceptAtRunAccessLevel` 临界区内的实时父档位，`accessGrant.source=primary-chat`；预检查后发生的档位修改同样生效，受理后不再跟随父档位变化。Agent 默认值高于父实时档位时也不能通过 `default` 提权；显式具体档位仍校验实时上限。省略模型和思考强度使用 Agent 配置，不继承调度模型。
 - 寄往已有会话的信，冻结受理时收件 Agent 的默认档位；开新 Run 时使用该档位和目标 Agent 的默认模型，插入时不改变正在运行的 Run 的设置。
 - 回信、即时消息、请示在创建时冻结收件 Agent 的默认档位，不继承发送 Run 的权限，也不要求发送 Run 仍在运行。收件 Agent 已不可用时，回信保留完整结果并挂起，不静默降为 `ask_for_approval`。
 - `accessGrant` 保存权限来源与目标 revision，letter 另存父基线。已冻结的权限不因收件 Agent 后来修改默认值、发送 Run 结束或人工重投而改变。

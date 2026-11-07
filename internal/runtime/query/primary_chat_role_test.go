@@ -60,15 +60,36 @@ func TestPrimaryWorkerAccessFrozenAtAtomicAcceptance(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := contracts.AccessLevelAutoApprove
-			if explicit == "default" {
-				want = contracts.AccessLevelAskForApproval
-			}
 			if frozen.AccessLevel != want {
 				t.Fatalf("frozen=%s want=%s", frozen.AccessLevel, want)
 			}
 			runs.UpdateAccessLevel(api.AccessLevelRequest{RunID: "r", AgentKey: "a", AccessLevel: contracts.AccessLevelAskForApproval})
 			if frozen.AccessLevel != want {
 				t.Fatal("accepted grant changed")
+			}
+		})
+	}
+}
+
+func TestPrimaryWorkerDefaultSelectorCannotUseHigherAgentDefault(t *testing.T) {
+	for _, requested := range []string{"", "default", " DEFAULT "} {
+		t.Run("selector="+requested, func(t *testing.T) {
+			def := catalog.AgentDefinition{Key: "a", Mode: "GENERAL", AccessConfig: contracts.AgentAccessConfig{Default: contracts.AccessLevelFullAccess}}
+			runs := runstate.NewManager()
+			runs.Register(t.Context(), contracts.QuerySession{RunID: "r", ChatID: "primary", AgentKey: "a", RunOwner: contracts.AgentRunOwner("a"), AccessLevel: contracts.AccessLevelAskForApproval})
+			runs.BindRunControlScope("r", controlscope.Scope{Subject: "owner"})
+			s := NewService(Dependencies{Config: config.Config{PrimaryChat: config.PrimaryChatConfig{Enabled: true}}, Registry: primaryRoleRegistry{def: def}, Chats: primaryRoleStore{PrimaryStore: primaryPointer{}}, Runs: runs})
+			r := contracts.RunStartRequest{AgentKey: "a", Message: "work", AccessLevel: requested, Origin: contracts.RunOrigin{AgentKey: "a", ChatID: "primary", RunID: "r", ToolID: "t", Subject: "owner"}}
+			plan, err := s.PrepareRunStart(t.Context(), r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var grant mailbox.Grant
+			if err := s.AcceptMail(t.Context(), mailbox.Request{}, mailbox.Prepared{Request: r, OpenedChat: true, Plan: plan}, func(g mailbox.Grant) error { grant = g; return nil }); err != nil {
+				t.Fatal(err)
+			}
+			if grant.AccessLevel != contracts.AccessLevelAskForApproval || grant.AccessGrant["source"] != "primary-chat" {
+				t.Fatalf("Agent default escalated worker permissions: %+v", grant)
 			}
 		})
 	}

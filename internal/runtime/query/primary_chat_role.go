@@ -39,9 +39,9 @@ func (s *Service) primaryModelOptions(def catalog.AgentDefinition) *queryinput.Q
 	return &queryinput.QueryModelOptions{Key: key, ReasoningEffort: effort}
 }
 
-// Omission inherits only for new self-workers sent by a scheduling Chat.
+// The backend-default selector inherits for new self-workers sent by a scheduling Chat.
 func (s *Service) inheritsPrimaryAccess(r contracts.RunStartRequest, newChat bool) (bool, error) {
-	if !newChat || r.AccessLevel != "" || r.AgentKey != r.Origin.AgentKey {
+	if !newChat || !contracts.IsDefaultAccessLevelRequest(r.AccessLevel) || r.AgentKey != r.Origin.AgentKey {
 		return false, nil
 	}
 	def, ok := s.deps.Registry.AgentDefinition(r.Origin.AgentKey)

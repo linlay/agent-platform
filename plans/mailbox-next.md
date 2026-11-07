@@ -403,11 +403,13 @@ P1（是否需要单独的出队策略）已确认：需要。
 
 同一个 Agent 按会话分两个角色：主要聊天只调度；分身用 agent.yml 的完整能力干活，但不调度。只在 `primary-chat.enabled` 开启且 Agent 为 Native GENERAL 时生效（2026-11-06 补充确认）。Agent 的 `mode` 仍为 `GENERAL`，不新增 `PRIMARY` mode；主要聊天与分身是 Chat 身份。CODER、KBASE、TEAM、EXECUTOR、ACP、Proxy 和渠道 Agent 的工具、提示词、模型、档位与出队行为全部保持不变。
 
+上述角色限制只作用于主 lane。BTW 与解读（explain）明确保留既有只读旁路合同：继续使用 Agent 的模型、AGENTS.md/Workspace 等上下文及工具定义，执行时只读，最多 3 轮、4 次工具调用，不派活、不代批、不参与主队列，也不改变主聊天角色。
+
 | | 主要聊天（调度） | 分身（执行） |
 |---|---|---|
 | 哪些会话 | `chat-primary.json` 指向的会话（优先于分身来源） | 本 Agent 用 `chat_send {newChat:true}` 开出的会话。首条主 query 的平台字段 `mailNewChat` 与同 Agent `origin` 固化来源；旧记录缺少该字段时沿用首条 query 的同 Agent origin 判定。重启后仍成立，不读 mail.db。用户之后直接在里面输入，它仍是分身 |
 | 工具 | 平台固定提供 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`、`chat_query`，不读 agent.yml 的工具、连接器、技能和 MCP，也不能通过配置增减 | agent.yml 的有效工具，去掉 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`（即使挂了 task-control）；保留 `chat_notify` |
-| 提示词 | agent-prompt.yml 的 `primary` 段（全局调度提示词）、`SOUL.md`、Agent 名称与描述、分身能力清单（只列工具名和技能名）。不读 `AGENTS.md`、Workspace 提示文件和技能说明 | 不变 |
+| 提示词 | configs/agent-prompt.yml 的 `primary.system-prompt`、平台直接注入的必要调度协议、`SOUL.md`、Agent 名称与描述、分身能力清单（只列工具名和技能名）。不读取 Agent 的 `AGENTS.md`、Workspace 提示文件或配置技能的说明；必要协议取自随包内置资源 | 不变 |
 | 模型 | agent-settings.yml 的 `primary.modelKey`、`primary.reasoningEffort`；留空时用 agent.yml 的模型 | agent.yml 的模型；`chat_send` 显式给出时用给出的值 |
 | 权限档位 | 用户在输入框选的档位，作为派活上限和代批依据 | 见下方"档位继承" |
 | 回复 | 回复用户 | 最终回答由平台自动寄回；`chat_notify` 发阶段结果；卡在等待项上自动转请示 |
@@ -425,7 +427,7 @@ primary:
     ……调度规则：什么开新分身、什么补充给已有分身、怎样写派活的信……
 ```
 
-**档位继承（必须遵守）。** 主要聊天派给自己开分身、且不写 `accessLevel` 时，分身的档位等于主要聊天**受理这封信那一刻的当前档位**：不是 Agent 的 `accessConfig.default`，也不是主要聊天 Run 启动时的档位。`PrepareRunStart` 的 `plan.ParentAccessLevel` 只是预检查快照；最终必须在 `AcceptMail` 的 `AcceptAtRunAccessLevel` 回调中使用实时 `parent` 解析并冻结，不能复用预检查档位。显式 `accessLevel` 仍不得高于该档位。冻结规则不变：受理后用户再调整主要聊天的档位，已受理的信不跟着变。寄往其他 Agent 的规则不变。
+**档位继承（必须遵守）。** 主要聊天派给自己开分身，省略 `accessLevel` 或显式传入 `default` 时，分身的档位均等于主要聊天**受理这封信那一刻的当前档位**：不是 Agent 的 `accessConfig.default`，也不是主要聊天 Run 启动时的档位。`PrepareRunStart` 的 `plan.ParentAccessLevel` 只是预检查快照；最终必须在 `AcceptMail` 的 `AcceptAtRunAccessLevel` 回调中使用实时 `parent` 解析并冻结，不能复用预检查档位。显式具体 `accessLevel` 仍不得高于该档位。冻结规则不变：受理后用户再调整主要聊天的档位，已受理的信不跟着变。寄往其他 Agent 的规则不变。
 
 其他规则：
 
@@ -466,6 +468,13 @@ primary:
 
 - 开关默认关闭；开启后仅 Native GENERAL 的当前主要聊天使用平台固定五工具并逐条出队。mode 始终保留 GENERAL，其他 mode 与后端不变。主要聊天不装配执行连接器、技能、Workspace 规则或 AGENTS.md；分身能力只作为名称清单进入调度提示词。
 - 调度模型归 `agent-settings.primary`，提示词归 `agent-prompt.primary`；分身省略模型时使用 Agent 配置。自分身按首条主 query 的 `mailNewChat` 与 origin 判断，用户直接输入及重启后仍排除四个调度工具；显式 false 区分补建主要聊天，旧记录保留同 Agent origin 的回退。
-- 分身省略档位时在 `AcceptAtRunAccessLevel` 临界区冻结父实时档位；预检查后的修改生效、受理后的修改不追溯。显式 default 仍使用 Agent 默认，显式具体档位校验实时上限。
+- 分身省略档位或显式 default 时均在 `AcceptAtRunAccessLevel` 临界区冻结父实时档位；预检查后的修改生效、受理后的修改不追溯。显式具体档位校验实时上限，Agent 默认档位不能通过 default 绕过实时继承。
 - HTTP `/api/runtime/capabilities` 与 WS connected 的开关声明已提供。相邻 WebClient 的并行导航改动保持原样；客户端开关跟随、主要聊天输入框入口隐藏、长上下文和 Desktop 尚未在本轮完成验收。`mail.max-hops` 未修改，待拍板第 7 项保留。
 - 已验证 `make test` 全量通过（无重试）、相关包回归、权限/身份 race 检查、实际 HTTP→LLM 五工具装配及全仓构建。未部署。
+
+### 已确认的评审修复（2026-11-07）
+
+- 主要聊天开自分身时，省略和显式 default 统一继承受理时父实时档位；补充 Agent 默认 full_access、父为 ask_for_approval 的防提权回归，以及受理前后修改档位的用例。
+- 必要调度协议作为随包内置资源直接注入主要聊天 system prompt，覆盖发信、文件转交、回执与 Run 控制资格、代答审批、查询参数及跳数边界；五工具的会话专用说明不再要求读取不可用的 Skill，并更正档位、模型和思考默认值。普通会话的工具说明与 schema 保持原样。
+- 部署侧提示词位置仍为 configs/agent-prompt.yml 的 primary.system-prompt；必要协议独立保留，不随自定义提示词覆盖而丢失。BTW/explain 明确保留原有 Agent 配置和只读旁路限制，仅主 lane 采用固定调度角色。
+- 已通过相关完整包回归、实际 HTTP→LLM 协议与五工具说明检查、BTW/解读回归、针对性 race 检查和全仓构建。身份读取的全文件/全局锁问题尚未修改，待用示例解释短读方案后确认；未部署。

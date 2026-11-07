@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
+	"agent-platform/internal/resources"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
@@ -53,6 +55,10 @@ func PrimaryChatEligible(def catalog.AgentDefinition) bool {
 }
 
 func (b *Builder) buildPrimaryChat(ctx context.Context, req runtimetypes.QueryCommand, summary chat.Summary, def catalog.AgentDefinition, options Options) (contracts.QuerySession, error) {
+	protocol, err := resources.ConnectorFS.ReadFile("connectors/builtin.task-control/skills/task-control/references/primary-chat.md")
+	if err != nil {
+		return contracts.QuerySession{}, fmt.Errorf("load primary Chat protocol: %w", err)
+	}
 	capabilities := "Worker capabilities:\nTools: " + strings.Join(WorkerChatTools(EffectiveAgentTools(def)), ", ") + "\nSkills: " + strings.Join(def.EffectiveSkills(), ", ")
 	// Construct a separate execution definition. Never mutate the published
 	// Agent or mount its connectors/skills into the scheduling Chat.
@@ -81,6 +87,7 @@ func (b *Builder) buildPrimaryChat(ctx context.Context, req runtimetypes.QueryCo
 		return session, err
 	}
 	session.PrimaryChat = true
+	session.PrimaryChatProtocol = strings.TrimSpace(string(protocol))
 	session.ToolNames = contracts.PrimaryChatTools()
 	session.ModeToolDefinitions = nil
 	session.ModeSystemPrompt = strings.TrimSpace(b.deps.Config.PrimaryChat.SystemPrompt)
