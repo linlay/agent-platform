@@ -3,6 +3,7 @@ package shellreview
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	. "agent-platform/internal/accesspolicy"
@@ -60,9 +61,11 @@ func TestReadWriteOperandSeparationAndProtectedDescendants(t *testing.T) {
 
 func TestPlatformStateHardBlockAcrossLevels(t *testing.T) {
 	s := policyFixture(t)
-	vars, environment := fakeSystemPrograms(t, "curl", "tar", "rg")
+	vars, environment := fakeSystemPrograms(t, "curl", "tar", "rg", "cat")
 	protected := filepath.Join(s.WorkspaceRoot, ".state")
 	s.ProtectedPaths = []string{protected}
+	// Bash removes the backslashes, so these name the protected token too.
+	escaped := []string{"cat " + s.WorkspaceRoot + `/.st\ate/identity/token`, "cat " + s.WorkspaceRoot + `/".st"\a'te'/identity/token`}
 	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
 		s.AccessLevel = level
 		for _, mode := range []AccessMode{ReadAccess, WriteAccess} {
@@ -71,9 +74,100 @@ func TestPlatformStateHardBlockAcrossLevels(t *testing.T) {
 				t.Fatalf("%s %s: %+v %v", level, mode, p, err)
 			}
 		}
-		for _, command := range []string{"curl file://" + protected + "/identity/token", "tar -cf archive.tar .", "rg token ."} {
+		for _, command := range append([]string{"curl file://" + protected + "/identity/token", "tar -cf archive.tar .", "rg token ."}, escaped...) {
 			if p := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, s, command, s.WorkspaceRoot, vars, environment, nil); !p.Blocked() {
 				t.Fatalf("protected indirect access %s at %s: %+v", command, level, p)
+			}
+		}
+	}
+}
+
+// Calls that never reach the protected state are not hard-blocked by it: a
+// file matched between wildcards is skipped like bash does, and a snapshot
+// listing names its mount point without walking it. Other tmutil verbs and
+// unregistered programs handed "/" keep the hard protection.
+func TestProtectedStateSparesCallsThatCannotReachIt(t *testing.T) {
+	vars, environment := fakeSystemPrograms(t, "du", "tmutil")
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
+		s := policyFixture(t)
+		s.AccessLevel = level
+		protected := filepath.Join(s.WorkspaceRoot, ".state")
+		s.ProtectedPaths = []string{protected}
+		for _, dir := range []string{protected, filepath.Join(s.WorkspaceRoot, "repo", "app", "node_modules")} {
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(s.WorkspaceRoot, ".DS_Store"), nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+		review := func(command string) shellplan.BashPlan {
+			return ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, s, command, s.WorkspaceRoot, vars, environment, nil)
+		}
+		if p := review("du -sh " + s.WorkspaceRoot + "/*/*/node_modules"); p.Blocked() || p.RequiresApproval() {
+			t.Errorf("glob past a file at %s: %+v", level, p)
+		}
+		if p := review("tmutil listlocalsnapshots /"); p.Blocked() || level != AccessLevelAskForApproval && p.RequiresApproval() {
+			t.Errorf("snapshot listing at %s: %+v", level, p)
+		}
+		for _, command := range []string{"tmutil deletelocalsnapshots /", "unknown-program /"} {
+			if p := review(command); !p.Blocked() {
+				t.Errorf("%s at %s: %+v", command, level, p)
+			}
+		}
+	}
+}
+
+// find over a parent of protected directories passes when -maxdepth or a
+// leading prune clause provably keeps the walk out of every one of them.
+func TestFindWalkPassesPrunedProtectedDirectories(t *testing.T) {
+	vars, environment := fakeSystemPrograms(t, "find", "du")
+	for _, level := range []string{AccessLevelAskForApproval, AccessLevelAutoApprove, AccessLevelFullAccess} {
+		s := policyFixture(t)
+		s.AccessLevel = level
+		ws := s.WorkspaceRoot
+		state, previews := filepath.Join(ws, "env", ".state"), filepath.Join(ws, "env", "ru-previews")
+		s.ProtectedPaths = []string{state, previews}
+		for _, dir := range []string{state, previews, filepath.Join(ws, "app", "node_modules")} {
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		review := func(command string) shellplan.BashPlan {
+			return ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, s, command, ws, vars, environment, nil)
+		}
+		hosts := []string{}
+		for _, dir := range []string{state, previews} {
+			host, err := filepath.EvalSymlinks(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hosts = append(hosts, host)
+		}
+		p := review("find " + ws + " -maxdepth 4 -type d -name node_modules -prune")
+		if !p.Blocked() || !strings.Contains(p.Reason, strings.Join(hosts, ", ")) || !strings.Contains(p.Reason, "-prune -o") {
+			t.Fatalf("unbounded walk at %s: %+v", level, p)
+		}
+		for _, command := range []string{
+			"find " + ws + " -path '" + filepath.Join(ws, "env") + "' -prune -o -type d -name node_modules -prune -print",
+			"find " + ws + ` \( -name .state -o -name ru-previews \) -prune -o -name node_modules -print`,
+			"find . -path './env/*' -prune -o -name node_modules -print",
+			"find " + ws + " -maxdepth 1 -name node_modules",
+		} {
+			if p := review(command); p.Blocked() || p.RequiresApproval() {
+				t.Errorf("%s at %s: %+v", command, level, p)
+			}
+		}
+		for _, command := range []string{
+			"find " + ws + " -name .state -prune -o -print",
+			"find " + ws + " -path */env -prune -o -print",
+			"find -L " + ws + " -name env -prune -o -print",
+			"find " + ws + " -depth -name env -prune -o -print",
+			"find " + ws + " -maxdepth 2 -print",
+			"find " + ws + " -name env -prune -o -name node_modules -exec du -sh {} +",
+		} {
+			if p := review(command); !p.Blocked() {
+				t.Errorf("%s at %s: %+v", command, level, p)
 			}
 		}
 	}

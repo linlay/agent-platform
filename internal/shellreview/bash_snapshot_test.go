@@ -58,7 +58,7 @@ var shellBaselineCommands = map[string]string{
 	"md5": "md5 notes.txt", "shasum": "shasum -a 256 notes.txt",
 	"mdls": "mdls -name kMDItemKind notes.txt", "qlmanage": "qlmanage -t -o thumbs notes.txt",
 	"memory_pressure": "memory_pressure", "sips": "sips -g pixelWidth notes.txt",
-	"diskutil": "diskutil list", "sysctl": "sysctl -n hw.memsize",
+	"diskutil": "diskutil list", "sysctl": "sysctl -n hw.memsize", "tmutil": "tmutil listlocalsnapshotdates",
 	"go": "go build", "npm": "npm test", "npx": "npx tool", "yarn": "yarn test",
 	"pnpm": "pnpm test", "pip": "pip install example", "make": "make test",
 }

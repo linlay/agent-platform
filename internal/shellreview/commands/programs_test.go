@@ -38,6 +38,15 @@ func TestProgramAnalyzers(t *testing.T) {
 		"sysctl -f settings.conf":                                            {"exec"},
 		"sysctl -p":                                                          {"exec"},
 		"sysctl --system":                                                    {"exec"},
+		"tmutil listlocalsnapshots /":                                        {"read:/"},
+		"tmutil listlocalsnapshotdates":                                      nil,
+		"tmutil listlocalsnapshotdates /Volumes/x":                           {"read:/Volumes/x"},
+		"tmutil listlocalsnapshots":                                          {"exec"},
+		"tmutil listlocalsnapshots -X /":                                     {"exec"},
+		"tmutil deletelocalsnapshots /":                                      {"exec"},
+		"tmutil thinlocalsnapshots / 1000000000":                             {"exec"},
+		"tmutil startbackup":                                                 {"exec"},
+		"tmutil":                                                             {"exec"},
 	} {
 		fields := strings.Fields(command)
 		e := nativeFacts(fields[0], fields[1:]...)
@@ -63,7 +72,7 @@ func TestProgramAnalyzers(t *testing.T) {
 
 func TestProgramsAreCapturedOutsideTheRegistry(t *testing.T) {
 	names := strings.Join(Programs(), ",")
-	for _, name := range []string{"sips", "diskutil", "sysctl", "mdls", "qlmanage", "memory_pressure", "vm_stat"} {
+	for _, name := range []string{"sips", "diskutil", "sysctl", "tmutil", "mdls", "qlmanage", "memory_pressure", "vm_stat"} {
 		if !IsProgram(name) || !strings.Contains(","+names+",", ","+name+",") {
 			t.Errorf("%s is not captured as a program: %s", name, names)
 		}

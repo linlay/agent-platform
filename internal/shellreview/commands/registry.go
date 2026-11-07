@@ -51,6 +51,7 @@ var programs = map[string]command{
 	"diskutil": {analyze: diskutilOperands},
 	"sips":     {analyze: sipsOperands},
 	"sysctl":   {analyze: sysctlOperands},
+	"tmutil":   {analyze: tmutilOperands},
 }
 
 // Programs lists analyzed names absent from the registry, from commands.yml

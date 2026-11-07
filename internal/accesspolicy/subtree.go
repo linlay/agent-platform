@@ -1,6 +1,7 @@
 package accesspolicy
 
 import (
+	"slices"
 	"strings"
 
 	"agent-platform/internal/config"
@@ -10,6 +11,13 @@ import (
 
 // BuildSubtreePlan checks protected descendants as well as the target itself.
 func BuildSubtreePlan(cfg config.AccessPolicyConfig, session QuerySession, mode AccessMode, raw string) PathPlan {
+	return BuildWalkPlan(cfg, session, mode, raw, nil)
+}
+
+// BuildWalkPlan is BuildSubtreePlan for a walk that provably never visits
+// some descendants: skip reports a protected root (canonical) the walk of
+// target (canonical) passes by.
+func BuildWalkPlan(cfg config.AccessPolicyConfig, session QuerySession, mode AccessMode, raw string, skip func(target, root string) bool) PathPlan {
 	p, err := BuildPathPlan(cfg, session, mode, raw)
 	if err != nil {
 		return PathPlan{Decision: DecisionBlock, Reason: err.Error()}
@@ -41,6 +49,7 @@ func BuildSubtreePlan(cfg config.AccessPolicyConfig, session QuerySession, mode 
 	if chats := SessionChatsRoot(session); chats != "" {
 		roots = append(roots, chats)
 	}
+	var hits []string
 	for _, rawRoot := range roots {
 		if rawRoot == "" {
 			continue
@@ -51,13 +60,16 @@ func BuildSubtreePlan(cfg config.AccessPolicyConfig, session QuerySession, mode 
 			p.Reason = "cannot resolve protected subtree"
 			return p
 		}
-		if pathutil.WithinRoot(root, target) {
-			p.Decision = DecisionBlock
-			p.Reason = "recursive operation contains a protected subtree: " + root.Host
-			if mode == ReadAccess {
-				p.Reason += "; use file_grep or file_glob, which skip protected directories"
-			}
-			return p
+		if pathutil.WithinRoot(root, target) && !(skip != nil && skip(target.Host, root.Host)) && !slices.Contains(hits, root.Host) {
+			hits = append(hits, root.Host)
+		}
+	}
+	if len(hits) > 0 {
+		// Naming every hit lets one retry exclude them all.
+		p.Decision = DecisionBlock
+		p.Reason = "recursive operation contains a protected subtree: " + strings.Join(hits, ", ")
+		if mode == ReadAccess {
+			p.Reason += "; run it only on paths outside it (find skips a directory with -path '<dir>' -prune -o ...; a command run by find -exec is checked against find's start path), or use file_grep or file_glob, which skip protected directories"
 		}
 	}
 	return p

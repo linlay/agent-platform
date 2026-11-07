@@ -55,7 +55,7 @@ func Analyze(input types.CommandInput) types.Effects {
 		if f.Ref.Known {
 			origin = types.Argument
 		}
-		target := types.Target{Path: f.Path, Role: role, Word: word, Placement: f.Placement, Child: f.Child, RelativeToDestination: f.RelativeToDestination}
+		target := types.Target{Path: f.Path, Role: role, Word: word, Placement: f.Placement, Child: f.Child, RelativeToDestination: f.RelativeToDestination, Walk: literalWalk(input, f.Walk)}
 		op := types.Op{Kind: kind, Targets: []types.Target{target}, Recursive: f.Recursive, Arg: word.Arg, Origin: origin, Rule: input.Name + ":" + string(kind)}
 		if index, ok := groups[f.Group]; f.Group != 0 && ok {
 			e.Ops[index].Targets = append(e.Ops[index].Targets, target)
@@ -99,4 +99,24 @@ func Analyze(input types.CommandInput) types.Effects {
 	}
 	e.Deps = append(e.Deps, draft.Deps...)
 	return e
+}
+
+// literalWalk keeps the prune tests only when each pattern reaches the
+// program as written; the shell rewrites an unquoted glob or a leading tilde.
+func literalWalk(input types.CommandInput, w *types.Walk) *types.Walk {
+	if w == nil {
+		return nil
+	}
+	out := *w
+	for _, alt := range w.Prune {
+		for _, test := range alt {
+			if test.Primary != "-type" && !types.ValueSource(input, test.Ref, false).Literal {
+				out.Prune = nil
+			}
+		}
+	}
+	if out.MaxDepth < 0 && out.Prune == nil {
+		return nil
+	}
+	return &out
 }

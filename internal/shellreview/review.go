@@ -104,6 +104,22 @@ func reviewFindExec(cfg config.AccessPolicyConfig, session QuerySession, x types
 	return rest, restWords, inner, true
 }
 
+// walkSkip lets a bounded walk pass protected directories it never visits.
+// Container mounts may place them elsewhere, so it is Host-only, and -path
+// tests need the root exactly as the program received it.
+func walkSkip(session QuerySession, target types.Target) func(string, string) bool {
+	if target.Walk == nil || session.AgentHasRuntimeSandbox {
+		return nil
+	}
+	typed := ""
+	if target.Word.Literal {
+		typed = target.Path
+	}
+	return func(root, protected string) bool {
+		return resources.WalkSkips(*target.Walk, typed, root, protected)
+	}
+}
+
 // pathRequirement reports a plan that only allows, reviews paths or blocks.
 func pathRequirement(p shellplan.BashPlan) bool {
 	if len(p.Requirements) > 0 {
@@ -426,7 +442,7 @@ func reviewBashScript(cfg config.AccessPolicyConfig, session QuerySession, comma
 									}
 								}
 								if file.Recursive || file.Write && effects.Unknown(types.UnknownOption) || target.Placement == types.FileOrDirectory && len(parsed.Commands) > 1 {
-									add(reviewer.Subtree(mode, p))
+									add(reviewer.Walk(mode, p, walkSkip(session, target)))
 								}
 							}
 						}

@@ -289,6 +289,9 @@ command/test	full_access	allow	security=allow/	connector=false/false	leaves=1:al
 command/timeout	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/timeout	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/timeout	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/tmutil	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/tmutil	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
+command/tmutil	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/top	ask_for_approval	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/top	auto_approve	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true
 command/top	full_access	allow	security=allow/	connector=false/false	leaves=1:allow/bash-access//reusable=true

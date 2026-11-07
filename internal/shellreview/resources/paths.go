@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 func ExpandOperandPaths(raw string) ([]string, error) {
@@ -47,13 +48,20 @@ func ExpandOperandPaths(raw string) ([]string, error) {
 			return walk(filepath.Join(parent, part), i+1)
 		}
 		dir, err := os.Open(parent)
-		if os.IsNotExist(err) {
+		if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
 		defer dir.Close()
+		// Like a missing path, a file that an earlier wildcard matched has no
+		// entries for the next one; bash skips it rather than failing.
+		if info, err := dir.Stat(); err != nil {
+			return err
+		} else if !info.IsDir() {
+			return nil
+		}
 		for {
 			entries, err := dir.ReadDir(128)
 			if err != nil && err != io.EOF {

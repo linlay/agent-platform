@@ -14,6 +14,23 @@ type FileAccess struct {
 	Child                 string
 	RelativeToDestination bool
 	Group                 int
+	Walk                  *Walk
+}
+
+// Walk bounds the traversal of a recursive target, so a protected directory
+// the walk provably never visits does not block the call.
+type Walk struct {
+	// MaxDepth is the deepest level visited below the target; -1 is unlimited.
+	MaxDepth int
+	// Prune holds the alternatives of a leading `<tests> -prune -o` clause: a
+	// directory meeting every test of one alternative is not entered.
+	Prune [][]WalkTest
+}
+
+// WalkTest is a find test: -name or -path with a pattern, or -type d.
+type WalkTest struct {
+	Primary, Value string
+	Ref            ValueRef
 }
 
 // GitCheck names the repository state an analyzed Git invocation depends on.
@@ -94,6 +111,7 @@ type Target struct {
 	Placement             Placement
 	Child                 string
 	RelativeToDestination bool
+	Walk                  *Walk
 }
 type Op struct {
 	Kind      OpKind

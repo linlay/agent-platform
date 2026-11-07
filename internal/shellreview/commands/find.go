@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"strconv"
 	"strings"
 
 	"agent-platform/internal/shellreview/types"
@@ -74,7 +75,9 @@ func FindExec(args []string) (roots []string, execs [][]string, keep []int, ok b
 func findOperands(args []string) effectDraft {
 	var e effectDraft
 	i := 0
+	follow := false
 	for i < len(args) && (args[i] == "-L" || args[i] == "-H" || args[i] == "-P") {
+		follow = follow || args[i] == "-L"
 		i++
 	}
 	for i < len(args) && !strings.HasPrefix(args[i], "-") && findToken(args[i]) != "!" && findToken(args[i]) != "(" {
@@ -85,6 +88,7 @@ func findOperands(args []string) effectDraft {
 		e.Files = append(e.Files, types.FileAccess{Path: ".", Recursive: true})
 	}
 	roots := len(e.Files)
+	walk := findWalk(args, i, follow)
 	for ; i < len(args); i++ {
 		if findDataPrimaries[args[i]] {
 			if i++; i >= len(args) {
@@ -129,6 +133,134 @@ func findOperands(args []string) effectDraft {
 	}
 	if e.Incomplete {
 		escalateWrites(&e)
+	} else if walk != nil {
+		// Programs run by the walk could reach a skipped directory from an
+		// ancestor, so only complete walks without them keep the bound.
+		for j := 0; j < roots; j++ {
+			e.Files[j].Walk = walk
+		}
 	}
 	return e
+}
+
+// findWalk bounds the walk below find's roots by -maxdepth and by a leading
+// `<tests> -prune -o` clause over -name, -path and -type d. Following
+// symlinks reaches directories by other paths and depths, -depth and -delete
+// disable -prune, and -mindepth skips the tests near the roots.
+func findWalk(args []string, start int, follow bool) *types.Walk {
+	w := &types.Walk{MaxDepth: -1}
+	maxdepths := 0
+	prune := !follow
+	for i := start; i < len(args); i++ {
+		switch a := findToken(args[i]); a {
+		case "-maxdepth":
+			maxdepths++
+			if i+1 < len(args) {
+				if n, err := strconv.Atoi(args[i+1]); err == nil && n >= 0 {
+					w.MaxDepth = n
+				}
+			}
+		case "-follow":
+			return nil
+		case "-mindepth", "-depth", "-d", "-delete":
+			prune = false
+		}
+		i += findValueCount(args[i])
+	}
+	if follow || maxdepths != 1 {
+		w.MaxDepth = -1
+	}
+	if prune {
+		w.Prune = findPruneClause(args[start:], start)
+	}
+	if w.MaxDepth < 0 && w.Prune == nil {
+		return nil
+	}
+	return w
+}
+
+func findValueCount(arg string) int {
+	switch {
+	case findDataPrimaries[arg], arg == "-newer", arg == "-anewer", arg == "-cnewer", arg == "-samefile", arg == "-fprint", arg == "-fprint0", arg == "-fls":
+		return 1
+	case arg == "-fprintf":
+		return 2
+	}
+	return 0
+}
+
+// findPruneClause returns the prune clause as alternatives of tests, or nil
+// unless the expression starts with tests joined by -a and parenthesized -o
+// groups, ending in -prune and followed by -o or nothing. offset locates expr
+// in the analyzer's arguments.
+func findPruneClause(expr []string, offset int) [][]types.WalkTest {
+	alts := [][]types.WalkTest{nil}
+	for i := 0; i < len(expr); i++ {
+		switch a := findToken(expr[i]); a {
+		case "-a", "-and", "-xdev", "-mount", "-noleaf", "-daystart":
+		case "-maxdepth":
+			i++
+		case "-prune":
+			if i+1 == len(expr) || findToken(expr[i+1]) == "-o" || findToken(expr[i+1]) == "-or" {
+				return alts
+			}
+			return nil
+		case "(":
+			var group [][]types.WalkTest
+			current := []types.WalkTest{}
+			for i++; i < len(expr) && findToken(expr[i]) != ")"; i++ {
+				switch findToken(expr[i]) {
+				case "-a", "-and":
+				case "-o", "-or":
+					group, current = append(group, current), []types.WalkTest{}
+				default:
+					test, ok := findPruneTest(expr, i, offset)
+					if !ok {
+						return nil
+					}
+					current = append(current, test)
+					i++
+				}
+			}
+			if i >= len(expr) || len(current) == 0 {
+				return nil
+			}
+			group = append(group, current)
+			var next [][]types.WalkTest
+			for _, alt := range alts {
+				for _, tests := range group {
+					next = append(next, append(append([]types.WalkTest(nil), alt...), tests...))
+				}
+			}
+			if alts = next; len(alts) > 16 {
+				return nil
+			}
+		default:
+			test, ok := findPruneTest(expr, i, offset)
+			if !ok {
+				return nil
+			}
+			for j := range alts {
+				alts[j] = append(alts[j], test)
+			}
+			i++
+		}
+	}
+	return nil
+}
+
+func findPruneTest(expr []string, i, offset int) (types.WalkTest, bool) {
+	if i+1 >= len(expr) {
+		return types.WalkTest{}, false
+	}
+	switch a, value := findToken(expr[i]), expr[i+1]; a {
+	case "-name", "-path", "-wholename":
+		if a == "-wholename" {
+			a = "-path"
+		}
+		return types.WalkTest{Primary: a, Value: value, Ref: types.ArgumentRef(offset+i+1, value)}, true
+	case "-type":
+		return types.WalkTest{Primary: a, Value: value}, value == "d"
+	}
+	return types.WalkTest{}, false
 }

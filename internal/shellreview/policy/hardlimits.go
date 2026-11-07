@@ -19,7 +19,13 @@ func (r Reviewer) WorkspaceExecution(cwd string) shellplan.BashPlan {
 }
 
 func (r Reviewer) Subtree(mode AccessMode, target string) shellplan.BashPlan {
-	if p := BuildSubtreePlan(r.cfg, r.session, mode, target); p.Blocked() {
+	return r.Walk(mode, target, nil)
+}
+
+// Walk is Subtree for a traversal that provably passes by the protected
+// roots skip reports.
+func (r Reviewer) Walk(mode AccessMode, target string, skip func(target, root string) bool) shellplan.BashPlan {
+	if p := BuildWalkPlan(r.cfg, r.session, mode, target, skip); p.Blocked() {
 		return r.Block(p.Reason, "bash-access:subtree", target)
 	}
 	return r.Allow()
