@@ -6,12 +6,14 @@ package runtime
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/mailbox"
+	"agent-platform/internal/runtime/controlscope"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
@@ -25,6 +27,9 @@ type Backend interface {
 	RegisterPreparedQuery(context.Context, runtimetypes.PreparedQuery) (runtimetypes.RegisteredRun, *runtimetypes.RequestError)
 	FinishRegisteredQuery(runtimetypes.PreparedQuery, runtimetypes.RegisteredRun)
 
+	StartMessage(context.Context, runtimetypes.QueryCommand) (runtimetypes.RunHandle, error)
+	ExecuteMessage(context.Context, runtimetypes.QueryCommand, runtimetypes.QueryHooks) (runtimetypes.QueryResult, error)
+	MessageSteer(context.Context, runtimetypes.SteerCommand) (runtimetypes.SteerResult, error)
 	StartQuery(context.Context, runtimetypes.QueryCommand) (runtimetypes.RunHandle, error)
 	ExecuteQuery(context.Context, runtimetypes.QueryCommand, runtimetypes.QueryHooks) (runtimetypes.QueryResult, error)
 	Execute(context.Context, runtimetypes.ExecuteCommand) (runtimetypes.ExecuteResult, error)
@@ -42,6 +47,9 @@ func (s *Service) StartQuery(ctx context.Context, command runtimetypes.QueryComm
 	if err != nil {
 		return runtimetypes.RunHandle{}, err
 	}
+	if queuedMessage(ctx, command) {
+		return backend.StartMessage(ctx, command)
+	}
 	return backend.StartQuery(ctx, command)
 }
 
@@ -52,15 +60,6 @@ type Service struct {
 
 func NewService() *Service {
 	return &Service{}
-}
-
-func (s *Service) PrimaryChatEnabledForAgent(key string) bool {
-	backend, err := s.current()
-	if err != nil {
-		return false
-	}
-	policy, ok := backend.(interface{ PrimaryChatEnabledForAgent(string) bool })
-	return ok && policy.PrimaryChatEnabledForAgent(key)
 }
 
 // Bind installs the runtime implementation during app assembly. Calls are
@@ -130,7 +129,7 @@ func (s *Service) ExecuteQuery(ctx context.Context, cmd runtimetypes.QueryComman
 			}
 		}()
 	}}
-	result, executeErr := backend.ExecuteQuery(ctx, cmd, hooks)
+	result, executeErr := s.ExecuteQueryWithHooks(ctx, cmd, hooks)
 	forwardWG.Wait()
 	errMu.Lock()
 	sinkErr := forwardErr
@@ -148,6 +147,9 @@ func (s *Service) ExecuteQueryWithHooks(ctx context.Context, cmd runtimetypes.Qu
 	backend, err := s.current()
 	if err != nil {
 		return runtimetypes.QueryResult{}, err
+	}
+	if queuedMessage(ctx, cmd) {
+		return backend.ExecuteMessage(ctx, cmd, hooks)
 	}
 	return backend.ExecuteQuery(ctx, cmd, hooks)
 }
@@ -202,6 +204,9 @@ func (s *Service) Steer(ctx context.Context, command runtimetypes.SteerCommand) 
 	if err != nil {
 		return runtimetypes.SteerResult{}, err
 	}
+	if command.AgentCaller == nil && (strings.TrimSpace(command.Message) != "" || len(command.References) > 0) {
+		return backend.MessageSteer(ctx, command)
+	}
 	return backend.Steer(ctx, command)
 }
 
@@ -233,4 +238,11 @@ func (s *Service) Send(ctx context.Context, r queryinput.SendRequest, cmd runtim
 		return mailbox.Receipt{}, ErrBackendUnavailable
 	}
 	return sender.Send(ctx, r, cmd)
+}
+
+func queuedMessage(ctx context.Context, cmd runtimetypes.QueryCommand) bool {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return (cmd.Lane == "" || cmd.Lane == "main") && cmd.Mail == nil && cmd.ChatSource != "webapp" && controlscope.FromContext(ctx).Transport != "voice" && (strings.TrimSpace(cmd.Message) != "" || len(cmd.References) > 0)
 }

@@ -320,7 +320,7 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 	if err := recoverConnectorDetaches(cfg); err != nil {
 		return nil, fmt.Errorf("recover connector detach: %w", err)
 	}
-	for _, mode := range []string{"general", "coder", "kbase"} {
+	for _, mode := range []string{"general", "coder", "kbase", "bot"} {
 		if err := validatePresetTools(cfg.PresetsForMode(mode).Tools, toolDefs); err != nil {
 			return nil, fmt.Errorf("%s presets: %w", mode, err)
 		}
@@ -800,7 +800,7 @@ func resolveTeamSnapshotLocked(team AgentDefinition, agents map[string]AgentDefi
 		}
 		seen[key] = struct{}{}
 		snapshot.AgentKeys = append(snapshot.AgentKeys, key)
-		if def, exists := agents[key]; exists && strings.TrimSpace(def.Key) != "" {
+		if def, exists := agents[key]; exists && strings.TrimSpace(def.Key) != "" && def.Mode != AgentModeBot {
 			snapshot.ValidAgentKeys = append(snapshot.ValidAgentKeys, key)
 			snapshot.agentDefinitions[key] = cloneAgentDefinitionSnapshot(def)
 		} else {

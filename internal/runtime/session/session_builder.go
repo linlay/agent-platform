@@ -49,7 +49,7 @@ type Options struct {
 func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryCommand, summary chat.Summary, agentDef catalog.AgentDefinition, options Options) (contracts.QuerySession, error) {
 	worker := false
 	primaryChat := false
-	if !options.DispatchOnly && options.SubTaskID == "" && req.Lane == "" && s.deps.Config.PrimaryChat.Enabled && PrimaryChatEligible(agentDef) {
+	if !options.DispatchOnly && options.SubTaskID == "" && req.Lane == "" && PrimaryChatEligible(agentDef) {
 		if req.Primary {
 			primaryChat = true
 		}
@@ -60,13 +60,7 @@ func (s *Builder) BuildQuerySession(ctx context.Context, req runtimetypes.QueryC
 			}
 			primaryChat = primaryChat || id != "" && id == req.ChatID
 		}
-		if !primaryChat {
-			var err error
-			worker, err = SelfWorkerChat(s.deps.Chats, req, agentDef)
-			if err != nil {
-				return contracts.QuerySession{}, err
-			}
-		}
+		worker = !primaryChat
 	}
 	if primaryChat {
 		return s.buildPrimaryChat(ctx, req, summary, agentDef, options)

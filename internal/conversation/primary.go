@@ -10,6 +10,8 @@ import (
 
 var ErrPrimaryNotSupported = errors.New("primary chat is not supported")
 
+var ErrBotPrimaryFixed = errors.New("BOT main Chat cannot be switched to an existing Chat; use restart")
+
 const PrimaryChangedEvent = "chat.primary.changed"
 
 type PrimaryResult struct {
@@ -66,6 +68,9 @@ func (s *Service) SetChatPrimary(chatID string) (PrimaryResult, error) {
 		result.PreviousChatID = current
 		return result, nil
 	}
+	if s.botAgent(summary.AgentKey, summary.AgentMode) {
+		return result, ErrBotPrimaryFixed
+	}
 	if err := s.ensureChatIdle(summary.AgentKey, current); err != nil {
 		return result, err
 	}
@@ -92,6 +97,15 @@ func (s *Service) PublishPrimaryChat(agentKey string, chatID string) error {
 	store, err := s.primaryStore()
 	if err != nil {
 		return err
+	}
+	if s.botAgent(agentKey, "") {
+		current, e := store.PrimaryChatID(agentKey)
+		if e != nil {
+			return e
+		}
+		if current != "" && current != chatID {
+			return ErrBotPrimaryFixed
+		}
 	}
 	_, err = s.publishPrimary(store, agentKey, chatID)
 	return err
@@ -152,6 +166,30 @@ func (s *Service) ensureChatIdle(agentKey string, chatID string) error {
 	}
 	if ok {
 		return &chat.PrimaryChatBusyError{AgentKey: agentKey, ChatID: chatID, RunIDs: []string{activeRun.RunID}}
+	}
+	return nil
+}
+
+func (s *Service) botAgent(key, mode string) bool {
+	if s.IsBotAgent != nil {
+		return s.IsBotAgent(key)
+	}
+	return strings.EqualFold(mode, "BOT")
+}
+func (s *Service) botWorkerVisible(c ControlCaller, summary *chat.Summary) error {
+	if c.AgentKey == summary.AgentKey || !s.botAgent(summary.AgentKey, summary.AgentMode) {
+		return nil
+	}
+	store, err := s.primaryStore()
+	if err != nil {
+		return err
+	}
+	main, err := store.PrimaryChatID(summary.AgentKey)
+	if err != nil {
+		return err
+	}
+	if main != summary.ChatID {
+		return errors.New("chat_forbidden: external Agents cannot discover BOT workers")
 	}
 	return nil
 }

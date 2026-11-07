@@ -192,7 +192,7 @@ func (s *Store) Ask(runID, awaitingID string) (Mail, error) {
 
 // StartedLetter is the letter that opened runID, if it is still being worked.
 func (s *Store) StartedLetter(runID string) (Mail, error) {
-	return scan(s.db.QueryRow("SELECT "+columns+" FROM MAILS WHERE RUN_ID_=? AND KIND_='letter' AND ORIGIN_TYPE_<>'user' AND DELIVERY_='started' AND STATUS_ IN ('delivered','inflight') ORDER BY CREATED_AT_,MAIL_ID_ LIMIT 1", runID))
+	return scan(s.db.QueryRow("SELECT "+columns+" FROM MAILS WHERE RUN_ID_=? AND KIND_='letter' AND ORIGIN_TYPE_='agent' AND DELIVERY_='started' AND STATUS_ IN ('delivered','inflight') ORDER BY CREATED_AT_,MAIL_ID_ LIMIT 1", runID))
 }
 func (s *Store) AnsweredLetters(replyID string) ([]string, error) {
 	rows, err := s.db.Query("SELECT MAIL_ID_ FROM MAILS WHERE ANSWERED_BY_MAIL_ID_=? ORDER BY MAIL_ID_", replyID)
@@ -213,7 +213,7 @@ func (s *Store) AnsweredLetters(replyID string) ([]string, error) {
 
 // OwnsRun grants control only for a Run opened by the caller's own letter.
 func (s *Store) OwnsRun(runID, agentKey, subject string) (bool, error) {
-	return s.exists("RUN_ID_=? AND KIND_='letter' AND ORIGIN_TYPE_<>'user' AND DELIVERY_='started' AND FROM_AGENT_KEY_=? AND SUBJECT_=?", runID, agentKey, subject)
+	return s.exists("RUN_ID_=? AND KIND_='letter' AND ORIGIN_TYPE_='agent' AND DELIVERY_='started' AND FROM_AGENT_KEY_=? AND SUBJECT_=?", runID, agentKey, subject)
 }
 func (s *Store) OpenedBy(chatID, agentKey, subject string) (bool, error) {
 	return s.exists("TO_CHAT_ID_=? AND OPENED_CHAT_=1 AND FROM_AGENT_KEY_=? AND SUBJECT_=? AND TO_CHAT_CLOSED_AT_=0", chatID, agentKey, subject)

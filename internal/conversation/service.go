@@ -17,6 +17,7 @@ import (
 var ErrNotConfigured = errors.New("conversation service is not configured")
 
 type Service struct {
+	IsBotAgent      func(string) bool
 	MailboxPurge    func(string) error
 	MailboxOpened   func(string, string) ([]map[string]any, error)
 	ExportMaxBytes  int
@@ -338,6 +339,7 @@ func (s *Service) LockMutation() func() {
 // This supports embedders replacing transport dependencies while sharing the same lock.
 func (s *Service) WithDependencies(chats chat.Store, archives *chat.ArchiveStore, archiver *chat.Archiver, runs contracts.RunManager, notifications contracts.NotificationSink) *Service {
 	view := &Service{ExportMaxBytes: s.ExportMaxBytes, ControlReceipts: s.ControlReceipts, Chats: s.Chats, Archives: s.Archives, Archiver: s.Archiver, Runs: s.Runs, Notifications: notifications, mutationOwner: s}
+	view.IsBotAgent = s.IsBotAgent
 	view.MailboxPurge, view.MailboxOpened = s.MailboxPurge, s.MailboxOpened
 	if chats != nil {
 		view.Chats = chats

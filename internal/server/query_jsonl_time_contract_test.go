@@ -46,8 +46,13 @@ func TestQueryRejectsInvalidPersistedTimeOverHTTPAndWS(t *testing.T) {
 		t.Fatalf("write WS query: %v", err)
 	}
 	var frame ws.ErrorFrame
-	if err := conn.ReadJSON(&frame); err != nil {
-		t.Fatalf("read WS error: %v", err)
+	for {
+		if err := conn.ReadJSON(&frame); err != nil {
+			t.Fatalf("read WS error: %v", err)
+		}
+		if frame.Frame != ws.FramePush {
+			break
+		}
 	}
 	if frame.Frame != ws.FrameError || frame.ID != "query-jsonl-time-contract" || frame.Code != http.StatusUnprocessableEntity || frame.Type != "time_contract_violation" {
 		t.Fatalf("unexpected WS time violation frame: %#v", frame)
@@ -80,8 +85,13 @@ func TestQueryRejectsPersistedMessageMissingTsOverHTTPAndWS(t *testing.T) {
 		t.Fatalf("write WS query: %v", err)
 	}
 	var frame ws.ErrorFrame
-	if err := conn.ReadJSON(&frame); err != nil {
-		t.Fatalf("read WS error: %v", err)
+	for {
+		if err := conn.ReadJSON(&frame); err != nil {
+			t.Fatalf("read WS error: %v", err)
+		}
+		if frame.Frame != ws.FramePush {
+			break
+		}
 	}
 	if frame.Frame != ws.FrameError || frame.ID != "query-missing-message-ts" || frame.Code != http.StatusUnprocessableEntity || frame.Type != "time_contract_violation" {
 		t.Fatalf("unexpected WS time violation frame: %#v", frame)

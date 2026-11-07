@@ -389,7 +389,10 @@ func (s *Service) dispatch(chatID string) error {
 			row.RunID = target.RunID
 			row.Delivery = "inserted"
 			if row.RunID == "" {
-				row.RunID = chat.NewRunID()
+				row.RunID = target.StartRunID
+				if row.RunID == "" {
+					row.RunID = chat.NewRunID()
+				}
 				row.Delivery = "started"
 			}
 			return nil
@@ -572,7 +575,7 @@ func (s *Service) Action(ctx context.Context, id, action, subject string, scope 
 
 // renderHeader freezes correspondence provenance for JSONL.
 func (s *Service) renderHeader(m Mail) string {
-	if m.OriginType == "user" {
+	if queryinput.UserMailOrigin(m.OriginType) {
 		return ""
 	}
 	name := strings.ToUpper(string(m.Kind[:1])) + string(m.Kind[1:])
@@ -612,7 +615,7 @@ func (s *Service) renderHeader(m Mail) string {
 }
 
 func (s *Service) fail(m Mail, err error) error {
-	if m.OriginType == "user" {
+	if queryinput.UserMailOrigin(m.OriginType) {
 		_, e := s.change(m.ID, func(row *Mail) error {
 			if row.Terminal() {
 				return errStale
@@ -770,7 +773,7 @@ func (s *Service) Completed(completion chat.RunCompletion, hop int) error {
 			}
 			continue
 		}
-		if m.OriginType == "user" && m.Status == Delivered {
+		if queryinput.UserMailOrigin(m.OriginType) && m.Status == Delivered {
 			if _, err = s.change(m.ID, func(row *Mail) error {
 				if row.Status == Delivered {
 					row.Status = Done

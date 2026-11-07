@@ -242,6 +242,10 @@ func New(deps Dependencies) (*Server, error) {
 	if deps.Conversation == nil {
 		deps.Conversation = conversation.NewService(deps.Chats, deps.Archives, deps.Archiver, deps.Runs)
 	}
+	deps.Conversation.IsBotAgent = func(key string) bool {
+		def, ok := deps.Registry.AgentDefinition(key)
+		return ok && def.Mode == catalog.AgentModeBot
+	}
 	deps.Conversation.ExportMaxBytes = deps.Config.Export.MaxSnapshotBytes
 	if deps.ProxyRuntime == nil {
 		deps.ProxyRuntime = runtimeproxy.NewService()

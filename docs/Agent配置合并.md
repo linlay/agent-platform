@@ -25,7 +25,7 @@ shared:
 
 ## Agent 设置
 
-主要聊天开关属于 `runtime.yml` 的 `primary-chat.enabled`（默认 false、重启生效），仅 Native GENERAL 参与，Agent mode 保持 GENERAL。调度模型在 `agent-settings.yml` 的 `primary.modelKey/reasoningEffort`，调度提示词在 `agent-prompt.yml` 的 `primary.system-prompt`；两份配置均拒绝对方的字段。只对主要聊天使用该模型和提示词，自分身继续使用 Agent 配置。主要聊天工具固定为五个 Chat 调度工具及 action_announce，分身排除四个调度工具，详见 [Mailbox 投递规则](Mailbox.md#投递规则)。其他 mode 与后端的装配不变。
+BOT 主要聊天采用独立调度角色，其他所有 BOT 聊天为分身；GENERAL 的主要聊天是普通聊天。调度模型在 `agent-settings.yml` 的 `bot.dispatch.modelKey/reasoningEffort`，调度提示词在 `agent-prompt.yml` 的 `bot.system-prompt`；分身使用 bot 段 preset 与 Agent 配置。主聊天固定提供五个 Chat 调度工具及 action_announce，分身排除四个调度工具。runtime.yml 的 primary-chat 与两份 Agent 配置的顶层 primary 均拒绝加载。详见 [Mailbox 投递规则](Mailbox.md#投递规则)。
 
 完整配置位置是 `configs/agent-prompt.yml` → `primary` → `system-prompt`。该部署提示词与平台直接注入的必要调度协议分开：覆盖它不会去掉文件转交、权限代答、跳数和工具参数协议，也不授予 Skill 读取能力。六工具调度角色只作用于主 lane；BTW/explain 仍按 Agent 配置与既有只读旁路限制装配。
 

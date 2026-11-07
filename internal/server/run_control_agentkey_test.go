@@ -61,14 +61,14 @@ func TestRunControlHTTPRequiresAndValidatesAgentKey(t *testing.T) {
 			name:   "steer missing agentKey",
 			method: http.MethodPost,
 			path:   "/api/steer",
-			body:   `{"runId":"run-agent-check","message":"continue"}`,
+			body:   `{"runId":"run-agent-check","message":""}`,
 			status: http.StatusBadRequest,
 		},
 		{
 			name:   "steer mismatched agentKey",
 			method: http.MethodPost,
 			path:   "/api/steer",
-			body:   `{"agentKey":"other-agent","runId":"run-agent-check","message":"continue"}`,
+			body:   `{"agentKey":"other-agent","runId":"run-agent-check","message":""}`,
 			status: http.StatusForbidden,
 		},
 		{
@@ -181,7 +181,7 @@ func TestRunControlProxyMismatchReturnsForbiddenWithoutForwarding(t *testing.T) 
 		{
 			name: "steer",
 			path: "/api/steer",
-			body: `{"agentKey":"other-agent","runId":"run-proxy-agent-check","message":"continue"}`,
+			body: `{"agentKey":"other-agent","runId":"run-proxy-agent-check","message":""}`,
 		},
 		{
 			name: "access-level",
@@ -285,7 +285,7 @@ func TestRunControlProxyForwardsSubmitInterruptAndSteer(t *testing.T) {
 		{
 			name: "steer",
 			path: "/api/steer",
-			body: `{"agentKey":"proxy-agent","runId":"run-proxy-forward","message":"continue"}`,
+			body: `{"agentKey":"proxy-agent","runId":"run-proxy-forward","message":""}`,
 			want: "request.steer",
 		},
 	}

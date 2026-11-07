@@ -154,7 +154,7 @@ func TestLiveApprovalTimeoutKeepsSingleBatchResultsAndValidContinuation(t *testi
 		t.Fatalf("expected awaiting gate, got %#v", gate)
 	}
 	queryRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(queryRec, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"agentKey":"mock-agent","chatId":"`+chatID+`","message":"continue early"}`)))
+	serveKernelQueryForGateTest(fixture.server, queryRec, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"agentKey":"mock-agent","chatId":"`+chatID+`","message":"continue early"}`)))
 	if queryRec.Code != http.StatusConflict {
 		t.Fatalf("live query admitted: %d %s", queryRec.Code, queryRec.Body.String())
 	}

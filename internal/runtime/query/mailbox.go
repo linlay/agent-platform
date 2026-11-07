@@ -58,6 +58,29 @@ func (s *Service) PrepareMail(ctx context.Context, req mailbox.Request) (mailbox
 		return mailbox.Prepared{}, err
 	}
 	p := mailbox.Prepared{Request: r, ChatID: r.ChatID, OpenedChat: req.NewChat}
+	if def, ok := s.deps.Registry.AgentDefinition(r.AgentKey); ok && sessionbuild.PrimaryChatEligible(def) {
+		selfDispatch, roleErr := s.primaryChatRole(def, r.Origin.ChatID, false)
+		if roleErr != nil {
+			return p, roleErr
+		}
+		if r.Origin.AgentKey != r.AgentKey {
+			selfDispatch = false
+		}
+		if !selfDispatch {
+			if req.NewChat {
+				return p, runToolError("bot_main_chat_required", "send to the BOT main Chat without newChat; external Agents cannot create BOT workers")
+			}
+			if r.ChatID != "" {
+				main, err := s.primaryChatRole(def, r.ChatID, false)
+				if err != nil {
+					return p, err
+				}
+				if !main {
+					return p, runToolError("bot_main_chat_required", "external Agents can address only the BOT main Chat")
+				}
+			}
+		}
+	}
 	if p.ChatID == "" && !req.NewChat {
 		store, ok := s.deps.Chats.(chat.PrimaryStore)
 		if !ok {
@@ -391,8 +414,29 @@ func (s *Service) MailTarget(ctx context.Context, m mailbox.Mail) (mailbox.Targe
 	if summary == nil {
 		return mailbox.Target{}, mailbox.Reject(runToolError("chat_not_found", "target Chat is missing or archived"))
 	}
-	if summary.AgentKey != m.ToAgentKey || !s.mailChatOwned(*summary, m.Subject, map[string]bool{}) {
+	s.sends.Lock()
+	frozen := s.sends.contexts[m.ID]
+	s.sends.Unlock()
+	owned := s.mailChatOwned(*summary, m.Subject, map[string]bool{})
+	// A trusted internal caller can reserve a Chat with a non-query source.
+	// Only this exact newly-created reservation can use that source; later
+	// user/Agent mail still requires ordinary ownership, never a source match.
+	reserved := queryinput.UserMailOrigin(m.OriginType) && frozen.MessageCreated && frozen.ChatID == m.ToChatID && frozen.AgentKey == m.ToAgentKey && frozen.Caller.Subject == m.Subject && frozen.ChatSource != "" && summary.Source == frozen.ChatSource
+	if summary.AgentKey != m.ToAgentKey || (!owned && !reserved) {
 		return mailbox.Target{}, mailbox.Reject(runToolError("mail_not_owned", "target owner changed"))
+	}
+	if m.Kind == mailbox.Letter && m.OriginType == "agent" && sessionbuild.PrimaryChatEligible(def) {
+		targetMain, err := s.primaryChatRole(def, m.ToChatID, false)
+		if err != nil {
+			return mailbox.Target{}, err
+		}
+		senderMain, err := s.primaryChatRole(def, m.FromChatID, false)
+		if err != nil {
+			return mailbox.Target{}, err
+		}
+		if !targetMain && (m.FromAgentKey != m.ToAgentKey || !senderMain) {
+			return mailbox.Target{}, mailbox.Reject(runToolError("bot_main_chat_required", "only the BOT main Chat can send letters to its workers"))
+		}
 	}
 	if m.Model != nil {
 		copy := *m.Model
@@ -408,6 +452,9 @@ func (s *Service) MailTarget(ctx context.Context, m mailbox.Mail) (mailbox.Targe
 		return mailbox.Target{}, err
 	}
 	if ok {
+		if frozen.ResultContract != nil {
+			return mailbox.Target{RunID: active.RunID, Queue: true}, nil
+		}
 		primary, roleErr := s.primaryChatRole(def, m.ToChatID, false)
 		if roleErr != nil {
 			return mailbox.Target{}, roleErr
@@ -415,7 +462,7 @@ func (s *Service) MailTarget(ctx context.Context, m mailbox.Mail) (mailbox.Targe
 		if primary {
 			return mailbox.Target{RunID: active.RunID, Queue: true}, nil
 		}
-		if m.OriginType == "user" {
+		if queryinput.UserMailOrigin(m.OriginType) {
 			queue := active.PlanningMode || active.State == contracts.RunLoopStateCompacting || sessionbuild.IsProxyRoutedAgent(def)
 			ignored := []string(nil)
 			if !queue {
@@ -428,7 +475,7 @@ func (s *Service) MailTarget(ctx context.Context, m mailbox.Mail) (mailbox.Targe
 	if gate := s.AwaitingQueryGateError(m.ToChatID, summary); gate != nil {
 		return mailbox.Target{Queue: true}, nil
 	}
-	return mailbox.Target{}, ctx.Err()
+	return mailbox.Target{StartRunID: frozen.MessageRunID}, ctx.Err()
 }
 func (s *Service) DeliverMail(ctx context.Context, m mailbox.Mail, scope controlscope.Scope) (mailbox.DeliveryResult, error) {
 	refs := append([]queryinput.Reference(nil), m.References...)
@@ -437,7 +484,7 @@ func (s *Service) DeliverMail(ctx context.Context, m mailbox.Mail, scope control
 		refs = append(refs, queryinput.Reference{Type: "file", Name: f.Name, URL: "@chat/" + f.Path, SizeBytes: &size})
 	}
 	origin := &queryinput.Origin{Type: queryinput.OriginAgent, AgentKey: m.FromAgentKey, ChatID: m.FromChatID, RunID: m.FromRunID, ToolID: m.FromToolID}
-	if m.OriginType == "user" {
+	if queryinput.UserMailOrigin(m.OriginType) {
 		origin = nil
 	}
 	if m.Delivery == "inserted" {
@@ -459,7 +506,7 @@ func (s *Service) DeliverMail(ctx context.Context, m mailbox.Mail, scope control
 	body := s.mailbox.Body(m)
 	input, _ := json.Marshal(map[string]any{"message": body, "references": refs})
 	cmd := runtimetypes.QueryCommand{RunID: m.RunID, ChatID: m.ToChatID, AgentKey: m.ToAgentKey, Message: body, References: refs, Origin: origin, Mail: m.Metadata(), AccessLevel: m.AccessLevel, AccessGrant: m.AccessGrant, Model: m.Model, OriginalQuery: input, SkipInteractionPolicy: true, Identity: &contracts.AuthIdentity{Subject: m.Subject}}
-	if m.OriginType == "user" {
+	if queryinput.UserMailOrigin(m.OriginType) {
 		s.sends.Lock()
 		frozen := s.sends.contexts[m.ID]
 		s.sends.Unlock()
@@ -477,7 +524,9 @@ func (s *Service) DeliverMail(ctx context.Context, m mailbox.Mail, scope control
 		cmd.PlanningMode = m.PlanningMode
 		cmd.EditingMode = m.EditingMode
 		cmd.OriginalQuery = m.Input
-		cmd.Origin = &queryinput.Origin{Type: queryinput.OriginUser, UserID: m.Subject}
+		if cmd.Origin == nil {
+			cmd.Origin = &queryinput.Origin{Type: m.OriginType, UserID: m.Subject}
+		}
 		if cmd.Identity == nil {
 			cmd.Identity = &contracts.AuthIdentity{Subject: m.Subject}
 		}
@@ -486,20 +535,29 @@ func (s *Service) DeliverMail(ctx context.Context, m mailbox.Mail, scope control
 	}
 	cmd.ModelMessage = m.Header + body
 	ctx = controlscope.WithContext(s.backgroundCtx, scope)
-	_, err := s.StartQuery(ctx, cmd)
+	handle, err := s.StartQuery(ctx, cmd)
 	if err != nil {
 		var request *runtimetypes.RequestError
 		if errors.As(err, &request) && (request.Code == activeRunConflictCode || request.Code == awaitingPendingCode || request.Code == "compact_in_progress") {
 			return mailbox.DeliveryResult{}, nil
 		}
+		if cmd.MessageDispatchError != nil {
+			cmd.MessageDispatchError(err)
+		}
 		// Once registered, a Run may already be working on this mail.
 		if _, registered := s.deps.Runs.RunStatus(m.RunID); registered {
 			return mailbox.DeliveryResult{Unknown: true}, err
+		}
+		if cmd.MessageDispatchError != nil {
+			return mailbox.DeliveryResult{Rejected: true}, err
 		}
 		if s.backgroundCtx.Err() == nil && mailDefinitive(err) {
 			return mailbox.DeliveryResult{Rejected: true}, err
 		}
 		return mailbox.DeliveryResult{}, err
+	}
+	if cmd.MessageDispatched != nil {
+		cmd.MessageDispatched(handle)
 	}
 	return mailbox.DeliveryResult{Accepted: true, RunID: m.RunID}, nil
 }
@@ -521,7 +579,7 @@ func (s *Service) MailConsumedEvidence(m mailbox.Mail) (bool, error) {
 	}
 	// A user's message is not persisted with mail fields; its requestId is.
 	key, want := "mailId", m.ID
-	if m.OriginType == "user" {
+	if queryinput.UserMailOrigin(m.OriginType) {
 		key, want = "requestId", m.RequestID
 	}
 	if want == "" {
@@ -551,19 +609,19 @@ func (s *Service) bindMailboxSession(req runtimetypes.QueryCommand, session *con
 		return
 	}
 	session.Mail = req.Mail
-	if (req.Mail == nil || req.Mail.OriginType == "user") && (req.Origin == nil || req.Origin.Type == queryinput.OriginUser) {
+	if (req.Mail == nil || queryinput.UserMailOrigin(req.Mail.OriginType)) && (req.Origin == nil || req.Origin.Type == queryinput.OriginUser) {
 		session.UserChatReferences = queryinput.ResourceIDs(req.References, "chat")
 	}
 	// Only a letter derives the Run from its sender. A reply, notification or
 	// ask wakes the receiving Chat's own Agent, which keeps its Chat tools and
 	// gives the sender no control over the Run.
-	if req.Mail != nil && req.Mail.OriginType != "user" && req.Mail.Kind == string(mailbox.Letter) {
+	if req.Mail != nil && !queryinput.UserMailOrigin(req.Mail.OriginType) && req.Mail.Kind == string(mailbox.Letter) {
 		session.RunOrigin = &contracts.RunOrigin{AgentKey: req.Origin.AgentKey, ChatID: req.Origin.ChatID, RunID: req.Origin.RunID, ToolID: req.Origin.ToolID, Subject: session.Subject}
 	}
 	session.RuntimeEvent = func(event stream.EventData) {
 		if event.Type == "request.query" || event.Type == "request.steer" {
 			if input := queryinput.MailFromPayload(event.Payload); input != nil {
-				if input.OriginType == "user" {
+				if queryinput.UserMailOrigin(input.OriginType) {
 					s.MailReleased(input.ID)
 				}
 				if err := s.mailbox.Consumed(input, req.RunID); err != nil {

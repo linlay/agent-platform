@@ -141,7 +141,7 @@ func stripPresetToolDeclarations(definition map[string]any, presets, existing []
 // the ordinary native modes, never pipeline or remote execution modes.
 func presetMode(mode string) bool {
 	switch mode {
-	case AgentModeGeneral, AgentModeCoder, AgentModeKBase, AgentModeExecutor, "TEAM":
+	case AgentModeGeneral, AgentModeCoder, AgentModeKBase, AgentModeExecutor, AgentModeBot, "TEAM":
 		return true
 	}
 	return false

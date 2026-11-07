@@ -101,3 +101,13 @@ func TestExecuteQueryForwardsRuntimeEventsToSink(t *testing.T) {
 		t.Fatalf("event order changed: %#v", sink.events)
 	}
 }
+
+func (f *fakeBackend) StartMessage(ctx context.Context, cmd runtimetypes.QueryCommand) (runtimetypes.RunHandle, error) {
+	return f.StartQuery(ctx, cmd)
+}
+func (f *fakeBackend) ExecuteMessage(ctx context.Context, cmd runtimetypes.QueryCommand, hooks runtimetypes.QueryHooks) (runtimetypes.QueryResult, error) {
+	return f.ExecuteQuery(ctx, cmd, hooks)
+}
+func (f *fakeBackend) MessageSteer(ctx context.Context, cmd runtimetypes.SteerCommand) (runtimetypes.SteerResult, error) {
+	return f.Steer(ctx, cmd)
+}

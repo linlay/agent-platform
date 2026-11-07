@@ -61,7 +61,7 @@ func TestQueryGateRejectsPendingAwaitingModes(t *testing.T) {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"second query"}`))
 			req.Header.Set("Content-Type", "application/json")
-			fixture.server.ServeHTTP(rec, req)
+			serveKernelQueryForGateTest(fixture.server, rec, req)
 
 			if rec.Code != http.StatusConflict {
 				t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
@@ -171,7 +171,7 @@ func TestQueryRejectsExistingLiveActiveRun(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"second query"}`))
 	req.Header.Set("Content-Type", "application/json")
-	fixture.server.ServeHTTP(rec, req)
+	serveKernelQueryForGateTest(fixture.server, rec, req)
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())

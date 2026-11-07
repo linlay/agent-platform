@@ -86,6 +86,11 @@ func (s *Server) wsQueryForLane(ctx context.Context, conn *ws.Conn, req ws.Reque
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	defer func() {
+		if !forwarding && handle.Subscription != nil {
+			handle.Subscription.Close()
+		}
+	}()
 	if reserveErr := conn.BindStreamRun(req.ID, handle.RunID); reserveErr != nil {
 		_, _ = s.deps.Runtime.Interrupt(ctx, runtimeSetupInterrupt(handle, contracts.InterruptReasonObserverAttachFailed, reserveErr.Error()))
 		if protoErr, ok := reserveErr.(*ws.ProtocolError); ok {
@@ -94,10 +99,13 @@ func (s *Server) wsQueryForLane(ctx context.Context, conn *ws.Conn, req ws.Reque
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	subscription, err := s.deps.Runtime.AttachRun(ctx, runtimetypes.RunRef{
-		RunID: handle.RunID, ChatID: handle.ChatID, AgentKey: handle.AgentKey,
-		Caller: command.Caller,
-	}, 0)
+	subscription := handle.Subscription
+	if subscription == nil {
+		subscription, err = s.deps.Runtime.AttachRun(ctx, runtimetypes.RunRef{
+			RunID: handle.RunID, ChatID: handle.ChatID, AgentKey: handle.AgentKey,
+			Caller: command.Caller,
+		}, 0)
+	}
 	if err != nil {
 		_, _ = s.deps.Runtime.Interrupt(ctx, runtimeSetupInterrupt(handle, contracts.InterruptReasonObserverAttachFailed, err.Error()))
 		conn.ReleaseStream(req.ID)
@@ -151,6 +159,7 @@ func (s *Server) wsQueryDetached(ctx context.Context, conn *ws.Conn, req ws.Requ
 	}
 	queryRequest.OriginalQuery = append([]byte(nil), originalPayload...)
 	command := trustedQueryCommand(ctx, queryRequest)
+	command.Detached = true
 	command.Locale = conn.Locale()
 	command.ResourceBaseURL = conn.RequestBaseURL()
 	command.ChatSource = chatSourceFromContext(ctx)

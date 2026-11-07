@@ -79,6 +79,12 @@ func (s *Service) StartQuery(ctx context.Context, cmd runtimetypes.QueryCommand)
 	if err != nil {
 		return runtimetypes.RunHandle{}, err
 	}
+	if cmd.BeforeMessageRun != nil {
+		if err := cmd.BeforeMessageRun(runtimetypes.RunRef{RunID: prepared.Req.RunID, ChatID: prepared.Req.ChatID, AgentKey: prepared.Req.AgentKey, Caller: cmd.Caller}); err != nil {
+			releaseQuery(prepared.Release)
+			return runtimetypes.RunHandle{}, err
+		}
+	}
 	registered, statusErr := s.RegisterPreparedQuery(ctx, prepared)
 	if statusErr != nil {
 		releaseQuery(prepared.Release)
@@ -91,6 +97,25 @@ func (s *Service) StartQuery(ctx context.Context, cmd runtimetypes.QueryCommand)
 		s.FinishRegisteredQuery(prepared, registered)
 		return runtimetypes.RunHandle{}, &contracts.RunToolError{Code: "internal_error", Message: "run event bus unavailable"}
 	}
+	owner := contracts.ResolveRunOwner(prepared.Session.RunOwner)
+	handle := runtimetypes.RunHandle{SideID: sideQueryID(prepared), RunID: prepared.Req.RunID, ChatID: prepared.Req.ChatID, AgentKey: owner.AgentKey, StartedAt: registered.StartedAtMillis, Status: "running", Detached: true, Detail: prepared.Session.Detail}
+	var closeObserver func()
+	keepObserver := false
+	defer func() {
+		if !keepObserver && closeObserver != nil {
+			closeObserver()
+		}
+	}()
+	if cmd.ObserveMessageRun != nil {
+		var err error
+		closeObserver, err = cmd.ObserveMessageRun(handle)
+		if err != nil {
+			s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.Req, contracts.InterruptReasonObserverAttachFailed, err.Error()))
+			s.FinishRegisteredQuery(prepared, registered)
+			releaseQuery(prepared.Release)
+			return runtimetypes.RunHandle{}, err
+		}
+	}
 	if session.IsProxyRoutedAgent(prepared.AgentDef) {
 		wait := proxy.UpstreamTransport(prepared.AgentDef.ProxyConfig) == "sse" && strings.TrimSpace(cmd.ClientTarget.SessionID) == ""
 		if err := s.deps.Proxy.Start(prepared, registered, bus, wait); err != nil {
@@ -99,8 +124,8 @@ func (s *Service) StartQuery(ctx context.Context, cmd runtimetypes.QueryCommand)
 	} else {
 		s.startPreparedLocalRun(prepared, registered, bus)
 	}
-	owner := contracts.ResolveRunOwner(prepared.Session.RunOwner)
-	return runtimetypes.RunHandle{SideID: sideQueryID(prepared), RunID: prepared.Req.RunID, ChatID: prepared.Req.ChatID, AgentKey: owner.AgentKey, StartedAt: registered.StartedAtMillis, Status: "running", Detached: true, Detail: prepared.Session.Detail}, nil
+	keepObserver = true
+	return handle, nil
 }
 func (s *Service) ExecuteQuery(ctx context.Context, cmd runtimetypes.QueryCommand, hooks runtimetypes.QueryHooks) (runtimetypes.QueryResult, error) {
 	ctx = context.WithValue(queryContext(ctx, cmd), queryHooksKey{}, hooks)

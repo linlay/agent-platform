@@ -99,6 +99,9 @@ func (r *FileRegistry) WriteEditableAgentSource(key string, content string, base
 	if err != nil {
 		return EditableAgentSourceFile{}, err
 	}
+	if err := r.validateBotTeamMembers(tree.(map[string]any)); err != nil {
+		return EditableAgentSourceFile{}, err
+	}
 	if err := r.validateEditableConnectorSelection(tree.(map[string]any)); err != nil {
 		return EditableAgentSourceFile{}, err
 	}
@@ -185,6 +188,9 @@ func (r *FileRegistry) CreateEditableAgent(key string, definition map[string]any
 	if err := validateEditableDefinition(key, definition); err != nil {
 		return EditableAgentFiles{}, err
 	}
+	if err := r.validateBotTeamMembers(definition); err != nil {
+		return EditableAgentFiles{}, err
+	}
 	if err := r.validateEditableConnectorSelection(definition); err != nil {
 		return EditableAgentFiles{}, err
 	}
@@ -233,6 +239,9 @@ func (r *FileRegistry) UpdateEditableAgent(key string, definition map[string]any
 		definition["toolConfig"] = newTools
 	}
 	if err := validateEditableDefinition(key, definition); err != nil {
+		return EditableAgentFiles{}, err
+	}
+	if err := r.validateBotTeamMembers(definition); err != nil {
 		return EditableAgentFiles{}, err
 	}
 	if err := r.validateEditableConnectorSelection(definition); err != nil {

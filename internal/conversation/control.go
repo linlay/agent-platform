@@ -150,6 +150,9 @@ func (s *Service) ResolveControlChat(c ControlCaller, id string, archived bool) 
 	if summary == nil {
 		return nil, chat.ErrChatNotFound
 	}
+	if err := s.botWorkerVisible(c, summary); err != nil {
+		return nil, err
+	}
 	if c.Subject == "" {
 		if id != c.ChatID {
 			return nil, fmt.Errorf("chat_forbidden: anonymous runs may access only the current Chat")
@@ -192,6 +195,9 @@ func (s *Service) ResolveQueryChat(c ControlCaller, id string, archived bool) (*
 	}
 	if summary == nil {
 		return nil, chat.ErrChatNotFound
+	}
+	if err := s.botWorkerVisible(c, summary); err != nil {
+		return nil, err
 	}
 	if strings.HasPrefix(summary.Source, "query:") {
 		return nil, fmt.Errorf("chat_forbidden")

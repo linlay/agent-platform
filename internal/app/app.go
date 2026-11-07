@@ -424,6 +424,10 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	chatResourceService := chatresource.NewService(chatStore)
 	terminalManager := terminal.NewManager()
 	conversationService := conversation.NewService(chatStore, archiveStore, archiver, runManager)
+	conversationService.IsBotAgent = func(key string) bool {
+		def, ok := registry.AgentDefinition(key)
+		return ok && def.Mode == catalog.AgentModeBot
+	}
 	voiceService := voice.NewService(backgroundCtx, voice.Dependencies{Config: cfg.Voice, Models: modelRegistry, Runtime: runtimeService, Chats: chatStore, Agents: registry, Runs: runManager})
 	cleanupVoice := true
 	defer func() {

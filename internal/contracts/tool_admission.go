@@ -8,7 +8,7 @@ func PrimaryChatTools() []string {
 }
 
 func (s QuerySession) ProvidesPrimaryTool(name string) bool {
-	if !s.PrimaryChat || !strings.EqualFold(s.Mode, "GENERAL") || s.SubTaskID != "" {
+	if !s.PrimaryChat || !strings.EqualFold(s.Mode, "BOT") || s.SubTaskID != "" {
 		return false
 	}
 	for _, tool := range PrimaryChatTools() {

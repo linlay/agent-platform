@@ -1,9 +1,13 @@
 # Agent settings. Copy to agent-settings.yml. Restart after changes.
 
-# Scheduling Chat model; the Agent mode remains GENERAL.
-primary:
-  modelKey:
-  reasoningEffort:
+# BOT workers use the ordinary global presets plus this section.
+bot:
+  dispatch:
+    modelKey:
+    reasoningEffort:
+  preset-tools: []
+  preset-connectors: []
+  default-agent: {}
 
 # Native Agent presets; not written to agent.yml. Restart after changes.
 # Effective presets = global + mode, deduplicated in first-seen order.

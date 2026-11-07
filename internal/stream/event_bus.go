@@ -465,3 +465,11 @@ func activitySnapshot(activity EventData) EventData {
 	snapshot.Payload = clonePayload(activity.Payload)
 	return snapshot
 }
+
+// IsFrozen reports that execution has closed its event stream. Run persistence
+// may still be finishing while an observer has already received the final event.
+func (b *RunEventBus) IsFrozen() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.frozen
+}

@@ -71,7 +71,7 @@ func TestRetainedRunControlsEnforceOwnershipAndChaining(t *testing.T) {
 }
 
 func TestPrimarySelfWorkerUsesAgentModelUnlessExplicit(t *testing.T) {
-	exec := &contracts.ExecutionContext{Session: contracts.QuerySession{PrimaryChat: true, Mode: "GENERAL"}, CurrentModel: &queryinput.QueryModelOptions{Key: "scheduler", ReasoningEffort: "HIGH"}}
+	exec := &contracts.ExecutionContext{Session: contracts.QuerySession{PrimaryChat: true, Mode: "BOT"}, CurrentModel: &queryinput.QueryModelOptions{Key: "scheduler", ReasoningEffort: "HIGH"}}
 	origin := contracts.RunOrigin{AgentKey: "a", RunID: "r", ToolID: "t"}
 	for _, explicit := range []bool{false, true} {
 		args := map[string]any{"message": "work"}

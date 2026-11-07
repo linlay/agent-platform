@@ -48,7 +48,7 @@ func TestPrimaryChatProvidesOnlyItsFixedToolsWithoutConnectorMount(t *testing.T)
 		if err := router.RegisterHandler(handler); err != nil {
 			t.Fatal(err)
 		}
-		e := &contracts.ExecutionContext{Session: contracts.QuerySession{PrimaryChat: true, Mode: "GENERAL", ToolSetFrozen: true, ToolNames: contracts.PrimaryChatTools()}}
+		e := &contracts.ExecutionContext{Session: contracts.QuerySession{PrimaryChat: true, Mode: "BOT", ToolSetFrozen: true, ToolNames: contracts.PrimaryChatTools()}}
 		result, err := router.Invoke(t.Context(), name, map[string]any{}, e)
 		if err != nil {
 			t.Fatal(err)

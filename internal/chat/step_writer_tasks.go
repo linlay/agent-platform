@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"agent-platform/internal/contracts/queryinput"
 	"sort"
 	"strings"
 
@@ -285,8 +286,8 @@ func (w *StepWriter) appendSteerLine(event stream.EventData) {
 	// their trusted mail provenance so validation and history reconstruction can
 	// distinguish them from ordinary Agent steers. User mail has no envelope,
 	// matching the query-line contract; its transport metadata stays live-only.
-	if event.String("mailOrigin") != "user" {
-		for _, key := range []string{"mailOrigin", "mailHeader", "mailId", "mailKind", "mailAttempt", "mailHop", "mailNewChat", "outcome"} {
+	if !queryinput.UserMailOrigin(event.String("mailOrigin")) {
+		for _, key := range []string{"mailOrigin", "mailHeader", "mailId", "mailKind", "mailAttempt", "mailHop", "outcome"} {
 			if value, ok := event.Payload[key]; ok {
 				steer[key] = value
 			}

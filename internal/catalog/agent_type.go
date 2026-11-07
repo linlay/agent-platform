@@ -29,6 +29,7 @@ var defaultAgentVisibilityScopes = []string{"nav"}
 // agent type. The legacy spelling is supported only when reading historical
 // chat/run data; YAML and API inputs must use GENERAL.
 const AgentModeGeneral = "GENERAL"
+const AgentModeBot = "BOT"
 const agentModeLegacyReact = "REACT"
 
 const AgentEngineNative = "native"
@@ -53,15 +54,15 @@ func AgentModeForAPI(value string) string {
 }
 
 // ParsePublicAgentMode accepts only the stable YAML/API spellings. Runtime-only
-// modes (TEAM and ONESHOT) are deliberately absent from this boundary.
+// modes such as ONESHOT are deliberately absent from this boundary.
 func ParsePublicAgentMode(value string) (string, error) {
 	raw := strings.TrimSpace(value)
 	if raw == "" {
 		return AgentModeGeneral, nil
 	}
 	switch strings.ToUpper(raw) {
-	case AgentModeGeneral:
-		return AgentModeGeneral, nil
+	case AgentModeGeneral, AgentModeBot:
+		return strings.ToUpper(raw), nil
 	case agentModeLegacyReact:
 		return "", deprecation.New("mode REACT was removed from configuration and API inputs; use GENERAL")
 	case AgentModeCoder, AgentModeKBase, AgentModeExecutor, AgentModeProxy, AgentModeChannel:
@@ -75,7 +76,7 @@ func ParsePublicAgentMode(value string) (string, error) {
 	case "TEAM":
 		return "TEAM", nil
 	default:
-		return "", fmt.Errorf("mode must be GENERAL, CODER, KBASE, TEAM, EXECUTOR, PROXY, or CHANNEL")
+		return "", fmt.Errorf("mode must be GENERAL, BOT, CODER, KBASE, TEAM, EXECUTOR, PROXY, or CHANNEL")
 	}
 }
 
@@ -309,6 +310,9 @@ func validateSandboxWorkspace(workspace AgentWorkspaceConfig, hasRuntimeSandbox 
 }
 
 func ValidateAgentCoderBackend(def AgentDefinition) error {
+	if def.Mode == AgentModeBot && (def.Engine == AgentEngineACP || def.ProxyConfig != nil) {
+		return fmt.Errorf("mode BOT only supports the native engine without proxyConfig")
+	}
 	acpBridgeID := strings.TrimSpace(def.ACPBridgeID)
 	if def.Engine != AgentEngineACP {
 		if acpBridgeID != "" {

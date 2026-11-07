@@ -38,14 +38,14 @@ func (s *Server) buildAgentCreationDefaults(locale string) api.AgentCreationDefa
 	nativeType := func(typeKey string, mode string, labelText string, modelKey string, reasoningEffort string) api.AgentCreationTypeOption {
 		baseTools := []string{}
 		switch typeKey {
-		case "general":
+		case "general", "bot":
 			baseTools = agentbuiltin.GeneralCreateToolNames()
 		case "kbase":
 			baseTools = agentbuiltin.KBaseCreateToolNames()
 		}
 		return api.AgentCreationTypeOption{
 			Key: typeKey, Label: labelText, Mode: mode, Engine: catalog.AgentEngineNative,
-			Available: true, WorkspaceRequired: true, ModelRequired: true,
+			Available: true, WorkspaceRequired: mode != catalog.AgentModeBot, ModelRequired: true,
 			DefaultModelKey:        strings.TrimSpace(modelKey),
 			DefaultModelAvailable:  s.agentCreationModelAvailable(modelKey),
 			DefaultReasoningEffort: strings.TrimSpace(reasoningEffort),
@@ -78,6 +78,7 @@ func (s *Server) buildAgentCreationDefaults(locale string) api.AgentCreationDefa
 	return api.AgentCreationDefaultsResponse{
 		Types: []api.AgentCreationTypeOption{
 			nativeType("general", catalog.AgentModeGeneral, label("通用智能体", "General agent"), cfg.GeneralSettings.DefaultAgent.ModelKey, cfg.GeneralSettings.DefaultAgent.ReasoningEffort),
+			nativeType("bot", catalog.AgentModeBot, label("机器人", "Bot"), cfg.BotSettings.DefaultAgent.ModelKey, cfg.BotSettings.DefaultAgent.ReasoningEffort),
 			nativeType("team", "TEAM", label("团队智能体", "Team agent"), cfg.TeamSettings.DefaultAgent.ModelKey, cfg.TeamSettings.DefaultAgent.ReasoningEffort),
 			coder,
 			nativeType("kbase", catalog.AgentModeKBase, label("知识库智能体", "Knowledge-base agent"), cfg.KBase.DefaultAgent.ModelKey, cfg.KBase.DefaultAgent.ReasoningEffort),
@@ -93,7 +94,7 @@ func (s *Server) validateCreateModel(definition map[string]any) error {
 	if err != nil {
 		return err
 	}
-	if engine == catalog.AgentEngineACP || (mode != catalog.AgentModeGeneral && mode != catalog.AgentModeCoder && mode != catalog.AgentModeKBase && mode != catalog.AgentModeExecutor) {
+	if engine == catalog.AgentEngineACP || (mode != catalog.AgentModeBot && mode != catalog.AgentModeGeneral && mode != catalog.AgentModeCoder && mode != catalog.AgentModeKBase && mode != catalog.AgentModeExecutor) {
 		return nil
 	}
 	modelConfig, _ := definition["modelConfig"].(map[string]any)

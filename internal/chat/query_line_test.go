@@ -28,7 +28,7 @@ func writeClientQueryForTest(t *testing.T, store *FileStore, chatID string, raw 
 	return lines[0]
 }
 
-func TestMailCreationProvenanceSurvivesQueryStorage(t *testing.T) {
+func TestMailCreationMarkerIsNoLongerStored(t *testing.T) {
 	for _, opened := range []bool{false, true} {
 		store, err := NewFileStore(t.TempDir())
 		if err != nil {
@@ -39,8 +39,8 @@ func TestMailCreationProvenanceSurvivesQueryStorage(t *testing.T) {
 			"mailOrigin": "agent", "mailId": "mail-1", "mailKind": "letter", "mailAttempt": 1, "mailHop": 1, "mailNewChat": opened,
 			"origin": (&queryinput.Origin{Type: queryinput.OriginAgent, AgentKey: "agent"}).Payload(),
 		})
-		if recorded, ok := line["mailNewChat"].(bool); !ok || recorded != opened {
-			t.Fatalf("creation marker lost: %#v", line)
+		if _, ok := line["mailNewChat"]; ok {
+			t.Fatalf("retired creation marker persisted: %#v", line)
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package mailbox
 
 import (
+	"agent-platform/internal/contracts/queryinput"
 	"context"
 
 	"agent-platform/internal/runtime/controlscope"
@@ -29,10 +30,15 @@ func (s *Service) AcceptUser(ctx context.Context, m Mail, scope controlscope.Sco
 	return receipt(current), nil
 }
 func (s *Service) drain(chatID string) {
+	if err := s.withDeliveryLock(chatID, func() error { return s.dispatch(chatID) }); err != nil {
+		s.retry(chatID, err)
+	}
+}
+func (s *Service) withDeliveryLock(chatID string, fn func() error) error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		return
+		return context.Canceled
 	}
 	lock := s.chatLocks[chatID]
 	if lock == nil {
@@ -44,7 +50,7 @@ func (s *Service) drain(chatID string) {
 	s.mu.Unlock()
 	defer s.wg.Done()
 	lock.mu.Lock()
-	err := s.dispatch(chatID)
+	err := fn()
 	lock.mu.Unlock()
 	s.mu.Lock()
 	lock.refs--
@@ -52,7 +58,29 @@ func (s *Service) drain(chatID string) {
 		delete(s.chatLocks, chatID)
 	}
 	s.mu.Unlock()
+	return err
+}
+
+// CancelUser serializes against dispatch. A delivered letter is never declared
+// withdrawn; the caller then interrupts its exact started Run instead.
+func (s *Service) CancelUser(id string) (Mail, error) {
+	m, err := s.Store.Get(id)
 	if err != nil {
-		s.retry(chatID, err)
+		return m, err
 	}
+	err = s.withDeliveryLock(m.ToChatID, func() error {
+		var e error
+		m, e = s.change(id, func(row *Mail) error {
+			if !queryinput.UserMailOrigin(row.OriginType) {
+				return failure("mail_not_owned", "only user/automation messages may be cancelled here")
+			}
+			if row.Status == Queued || row.Status == Accepting || row.Status == Suspended && row.ConsumedAt == 0 && row.Delivery == "" {
+				row.Status = Withdrawn
+				row.TerminalAt = now()
+			}
+			return nil
+		})
+		return e
+	})
+	return m, err
 }

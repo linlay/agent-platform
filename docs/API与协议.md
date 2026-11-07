@@ -289,7 +289,7 @@ PUT/WS mutation 继续返回轻量 `sortMode/pinnedOrder/updatedAt`，不附带 
 
 ### 主要聊天
 
-`GET /api/runtime/capabilities` 返回 `{code:0,msg,data:{primaryChat:{enabled,agentKeys}}}`，响应不缓存；`enabled` 为 Platform 启动时读取的 `primary-chat.enabled`，`agentKeys` 是参与主要聊天分工的公开 Native GENERAL Agent。主 WS 的 `connected.data.primaryChat` 同时声明 `{enabled}`。客户端应跟随服务端开关，并对适用 Agent 的当前主要聊天隐藏规划、编辑和终端入口；其他 mode 与后端保持原有界面。该能力只改变 Chat 的装配与出队规则，Agent 的 `mode` 保持 GENERAL，不增加 PRIMARY 类型。详细工具、提示词、模型和档位规则见 [Mailbox](Mailbox.md#投递规则)。
+`mode: BOT` 只支持 Native，没有规划。`/api/send` 不带 chatId 时路由到主要聊天，没有则创建并设置指针；`/api/query` 主 lane 不能为 BOT 新建聊天，`/api/execute` 不接受 BOT 目标。非 BOT 的主要聊天是普通聊天，不迁移。已删除 `/api/runtime/capabilities` 与 `connected.data.primaryChat`；主要聊天摘要、指针 API 和 `chat.primary.changed` 保留。详细工具、提示词、模型和档位规则见 [Mailbox](Mailbox.md#投递规则)。
 
 每个 Agent 最多有一个主要聊天，它的其他 active Chat 是历史聊天；归档不受影响。指针保存在 `chat-primary.json`（存储与损坏处理见 [会话存储与回放](会话存储与回放.md)），不进入 JSONL 或 `chats.db`，也不区分 mode。Chat 摘要、`/api/chats/order` 的 `pinnedChats[]` 与 `/api/chat` 详情顶层固定返回 `primary` boolean。
 
@@ -601,7 +601,11 @@ TEAM 总控的普通工具与 reasoning 沿普通 Agent 事件链路；内部 `a
 
 `planningMode`、`editingMode` 与 `detail` 在受理时解析并冻结；`model` 只冻结请求显式给出的值，省略时开 Run 按 Agent 配置解析，与 `/api/query` 相同。这些选项只在新 Run 生效：插入时请求中与当前 Run 不同的 `planningMode/editingMode/model` 出现在 `ignoredOptions`；`accessLevel` 不改变当前 Run，调整仍用 `/api/access-level`。同一 subject 和 `requestId` 只产生一条 mail；重复请求返回相同 mail 的投递收据，不同内容返回 HTTP 409 `idempotency_conflict`。参数、Agent、归属、引用或选项校验失败直接拒绝。
 
-消费后的 `request.query/request.steer` 携带相同 `requestId/mailId` 和 `mailOrigin:user`；这些 mail 字段只在实时事件中，JSONL 只保存 `requestId`。`mail.updated` 包含 `requestId/ignoredOptions`，只推送给该 mail 所属 subject 的主连接。没有撤销发送或删除服务端消息的接口。原 `/api/query`、`/api/steer`、Desktop、Automation、execute 和渠道入口保持原协议。
+消费后的 `request.query/request.steer` 携带相同 `requestId/mailId` 和 `mailOrigin:user`；这些 mail 字段只在实时事件中，JSONL 只保存 `requestId`。`mail.updated` 包含 `requestId/ignoredOptions`，只推送给该 mail 所属 subject 的主连接。没有公开的撤销发送或删除服务端消息接口。原 `/api/query`、正文或引用 `/api/steer`、Desktop 普通输入、Automation 和渠道入口保持外部协议，Runtime 门面统一先投 mailbox；忙时按收件 Chat 规则插入或排队。`/api/execute` 忙时排队，调用方断开则撤回未投递的信或中断已开出的 Run。BOT 不接受 execute。
+
+BOT 首次发送不传 chatId，由 `/api/send` 原子创建主聊天；首次上传文件可带已有的 upload 暂存 ChatID 并将它设为主聊天。若上传期间已有别的请求创建主聊天，返回 `409 bot_main_changed`，保留暂存文件供用户重试。BOT 不允许通过主要聊天指针接口提升已有分身（`bot_primary_fixed`）；清空主指针后下一次 send 新建主聊天。外部 Agent 只能寻址 BOT 主聊天，不能创建或读取其分身。
+
+上述统一不含 BTW/explain、语音/WebApp 助手、Submit、空白“继续”、Interrupt、批准计划和内部子任务；这些入口的 mailbox 合同待讨论。Gateway 独立协议不在本轮范围。
 
 #### 细节等级与 run.activity
 
@@ -1388,7 +1392,9 @@ Platform WebSocket 注册同一路径：空 payload `{}` 或 `{agentKey}` 对应
 
 Agent 通过 chat_send 给已有 Chat 补充信件；在跑时由 Mailbox 插入，空闲时开 Run，暂不可投递时排队。request.steer 的 origin 与 mailId 等来源元数据由平台构造，HTTP/WS /api/steer 不允许伪造。mailHeader 只供持久化与模型输入，实时与回放均不下发。Agent 信件不作为用户 memory 证据。完整合同见 [Mailbox](Mailbox.md)。
 
-### planning 期间的 steer
+### planning 期间的内部 steer
+
+以下描述执行器内部的计划修订能力。公开主 lane 正文/引用输入已经转为 mailbox，在规划 Run 存在时排队，不再直接触发本节的修订协议；Submit 作答和空白继续保持既有入口。
 
 活动原生 planning Run（GENERAL/CODER/KBASE）的一轮规划结束不会关闭 Run 的 steer 队列。生成候选计划期间入队的 steer 会在当前模型调用结束后使该计划失效，并在同一 Run 中生成新 revision；等待确认期间收到 steer 也会立即使旧确认失效并唤醒规划。旧计划失效统一发布 `planning.superseded`，字段为 `planningId`、`planningFile`、`awaitingId`、`reason:"steer"`；客户端应将该计划标为已失效，不再允许执行。已有确认框还会收到 `awaiting.answer(status:"error", error.code:"planning_superseded")`，没有确认框时不会补造 `awaiting.ask` 或 `request.submit`。
 

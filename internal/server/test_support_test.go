@@ -427,6 +427,11 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		t.Fatalf("new server: %v", err)
 	}
 
+	t.Cleanup(func() {
+		if server.deps.Mailbox != nil {
+			_ = server.deps.Mailbox.Close()
+		}
+	})
 	return testFixture{
 		server:          server,
 		cfg:             cfg,

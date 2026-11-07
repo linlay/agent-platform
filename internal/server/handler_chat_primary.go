@@ -39,6 +39,8 @@ func (s *Server) setChatPrimary(request api.SetPrimaryChatRequest) (conversation
 	var busy *chat.PrimaryChatBusyError
 	var validationErr *chat.OrderValidationError
 	switch {
+	case errors.Is(err, conversation.ErrBotPrimaryFixed):
+		return result, newAgentStatusError(http.StatusBadRequest, "bot_primary_fixed", err.Error())
 	case errors.As(err, &busy):
 		return result, newAgentStatusErrorWithData(http.StatusConflict, "primary_chat_busy", busy.Error(), map[string]any{
 			"agentKey": busy.AgentKey, "chatId": busy.ChatID, "runIds": busy.RunIDs,

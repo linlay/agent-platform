@@ -7,13 +7,13 @@ description: Manage conversations, start and follow independent Agent or Team ru
 
 Requires builtin.task-control mounted in an ordinary Native root Run. Prefer chat_send for durable correspondence and automation_manage for future execution. Use chat_send with newChat:true for independent work.
 
-The enabled Native GENERAL primary Chat main lane is a Platform-owned scheduling role. It receives its six tools and the self-contained [primary Chat protocol](references/primary-chat.md) directly, without mounting this Skill or requiring a file read. Ordinary task-control Runs follow the references below. BTW/explain retain their separate read-only contract.
+The Native BOT primary Chat main lane is a Platform-owned scheduling role. It receives its six tools and the self-contained [primary Chat protocol](references/primary-chat.md) directly, without mounting this Skill or requiring a file read. Ordinary task-control Runs follow the references below. BTW/explain retain their separate read-only contract.
 
 Automation, schedule, scheduled task, 定时任务, 计划任务 and 提醒 describe the same scheduling capability. Read [automation workflow](references/automation-workflow.md) when interpreting a scheduling request. Read [automation YAML](references/automation-yaml.md) for definition files and authorized source maintenance.
 
 A message marked as an automation execution is the task of an existing automation running now. Being started by an automation is not a request to manage one: do the task, and do not create, change or trigger any automation from it.
 
-A request to open a new/separate conversation, dialogue, chat, 会话 or 对话 routes to chat_send with newChat:true, not agent_invoke. Omitting both chatId and newChat sends to the primary Chat.
+A request to open a new/separate conversation, dialogue, chat, 会话 or 对话 routes to chat_send with newChat:true, not agent_invoke. Omitting both chatId and newChat sends to the primary Chat. For another BOT, only its main Chat is available: omit chatId and newChat; its workers cannot be created or addressed by other Agents. BOT is never an agent_invoke target or TEAM member.
 
 Tool definitions only name a capability. Read the reference for a tool before calling it; arguments, types, constraints and examples live there, not in the tool schema.
 

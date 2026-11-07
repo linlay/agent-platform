@@ -4,7 +4,7 @@ All mail addresses are Chats. A letter is durable work; a notify is interim info
 
 ## chat_send
 
-When primary-chat is enabled, only Native GENERAL participates; the Agent mode stays GENERAL. Its primary Chat main lane has five platform-provided scheduling tools plus action_announce for progress, and no execution tools or connector mounts. Dispatch work with newChat:true and end the turn; a reply wakes another Run. Self-created worker Chats keep their Agent execution tools but exclude chat_send, chat_submit, chat_get_status and chat_interrupt even after direct user input; chat_notify remains if configured. Omitted accessLevel or explicit default for a new self-worker inherits the primary Run's live level at atomic mail acceptance and is frozen thereafter. Omitted model/effort uses the worker Agent configuration, not the scheduling model. The Platform directly supplies the self-contained [primary Chat protocol](primary-chat.md), without granting Skill access. BTW/explain retain their separate read-only execution contract. All other modes/backends retain their existing behavior.
+Only Native BOT has the scheduling role; other modes keep ordinary primary Chats. Its primary Chat main lane has five platform-provided scheduling tools plus action_announce for progress, and no execution tools or connector mounts. Dispatch work with newChat:true and end the turn; a reply wakes another Run. All other BOT Chats keep their Agent execution tools but exclude chat_send, chat_submit, chat_get_status and chat_interrupt even after direct user input; chat_notify remains if configured. Omitted accessLevel or explicit default for a new self-worker inherits the primary Run's live level at atomic mail acceptance and is frozen thereafter. Omitted model/effort uses the worker Agent configuration, not the scheduling model. The Platform directly supplies the self-contained [primary Chat protocol](primary-chat.md), without granting Skill access. BTW/explain retain their separate read-only execution contract. All other modes/backends retain their existing behavior.
 
 Routing: a user request to open/create a new or separate conversation, dialogue, chat, 会话 or 对话 means chat_send with newChat:true, not agent_invoke. Omitting both newChat and chatId addresses the primary Chat and does not open a separate conversation.
 
@@ -20,6 +20,8 @@ Routing: a user request to open/create a new or separate conversation, dialogue,
 - After dispatching work, call ordinary wait without run.terminal conditions. A letter-started Run cannot call chat_get_status/chat_interrupt or wait on run.terminal; it can send new mail. Mail wakes ordinary wait with reason=mail; continue processing the mail.
 - Hop increases once when sending. At mail_hop_limit stop sending and return results to the user; final replies remain automatic. Only root main Runs including TEAM coordinators may use mail tools; child tasks and BTW cannot.
 - Before chats-db-v2, every restart clears mail.db; unfinished work will not reply and must be requested again by the user. Human redelivery or discard remains available for runtime suspension after reviewing evidence and the frozen access level.
+
+For a BOT recipient, another Agent must address its main Chat (omit chatId and newChat). It cannot open or address BOT workers, even through a user Chat reference. Only that BOT's current main Chat may create its own workers. BOT Agents cannot be TEAM members or agent_invoke targets. A dispatch Run's acknowledgement is not evidence that later worker Runs completed.
 
 ## chat_notify
 

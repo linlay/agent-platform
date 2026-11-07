@@ -141,3 +141,19 @@ func teamCatalogFingerprint(value any) string {
 	digest := sha256.Sum256(data)
 	return hex.EncodeToString(digest[:])
 }
+
+func (r *FileRegistry) validateBotTeamMembers(definition map[string]any) error {
+	if DefinitionRuntimeMode(definition) != "TEAM" {
+		return nil
+	}
+	config, err := parseTeamConfig("TEAM", stringNode(definition["key"]), definition["teamConfig"])
+	if err != nil {
+		return err
+	}
+	for _, key := range config.Members {
+		if def, ok := r.AgentDefinition(key); ok && def.Mode == AgentModeBot {
+			return fmt.Errorf("BOT Agent %q cannot be a TEAM member; use chat_send to its main Chat", key)
+		}
+	}
+	return nil
+}

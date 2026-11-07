@@ -52,6 +52,25 @@ func (s *Service) Steer(ctx context.Context, command runtimetypes.SteerCommand) 
 		return runtimetypes.SteerResult{}, statusErr
 	}
 	status, _ := s.deps.Runs.RunStatus(req.RunID)
+	// Side lanes have independent admission scopes. Apply queue-only steering
+	// solely to the active main Run of the BOT dispatch Chat.
+	if s.deps.Registry != nil {
+		if def, ok := s.deps.Registry.AgentDefinition(status.AgentKey); ok {
+			primary, err := s.primaryChatRole(def, status.ChatID, false)
+			if err != nil {
+				return runtimetypes.SteerResult{}, err
+			}
+			if primary {
+				active, found, err := s.deps.Runs.ActiveRunForChat(status.ChatID)
+				if err != nil {
+					return runtimetypes.SteerResult{}, err
+				}
+				if found && active.RunID == req.RunID {
+					return runtimetypes.SteerResult{}, &statusError{Status: 400, Code: "bot_chat_queue_only", Message: "Use /api/send to queue messages for the BOT main Chat"}
+				}
+			}
+		}
+	}
 	if caller := command.AgentCaller; caller != nil {
 		if err := ctx.Err(); err != nil {
 			return runtimetypes.SteerResult{}, &contracts.RunToolError{Code: "chat_steer_cancelled", Message: err.Error(), ExecutionState: "not_started"}

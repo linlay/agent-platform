@@ -28,7 +28,7 @@ func TestProcessorPersistsConsecutiveMailboxSteers(t *testing.T) {
 			for i := 1; i <= 3; i++ {
 				mail := &queryinput.MailInput{
 					OriginType: "agent", ID: fmt.Sprintf("mail-%d", i), Kind: kind,
-					Attempt: i, Hop: 2, NewChat: kind == "letter",
+					Attempt: i, Hop: 2,
 					Header: fmt.Sprintf("[%s mail-%d from agent agent]\n", kind, i),
 				}
 				origin := &queryinput.Origin{Type: "agent", AgentKey: "agent", ChatID: "work-chat", RunID: "work-run"}
@@ -78,7 +78,7 @@ func TestProcessorPersistsConsecutiveMailboxSteers(t *testing.T) {
 					t.Fatalf("mail %d lost trusted history input: %#v", i+1, message)
 				}
 				mail := queryinput.MailFromPayload(input)
-				if mail == nil || mail.ID != fmt.Sprintf("mail-%d", i+1) || mail.Attempt != i+1 || mail.NewChat != (kind == "letter") {
+				if mail == nil || mail.ID != fmt.Sprintf("mail-%d", i+1) || mail.Attempt != i+1 {
 					t.Fatalf("mail %d lost provenance: %#v", i+1, mail)
 				}
 				if kind == "reply" && (mail.Outcome != "completed" || !strings.Contains(mail.Header, mail.ID)) {

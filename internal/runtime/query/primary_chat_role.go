@@ -8,13 +8,8 @@ import (
 	sessionbuild "agent-platform/internal/runtime/session"
 )
 
-func (s *Service) PrimaryChatEnabledForAgent(key string) bool {
-	def, ok := s.deps.Registry.AgentDefinition(key)
-	return ok && s.deps.Config.PrimaryChat.Enabled && sessionbuild.PrimaryChatEligible(def)
-}
-
 func (s *Service) primaryChatRole(def catalog.AgentDefinition, chatID string, creatingPrimary bool) (bool, error) {
-	if !s.deps.Config.PrimaryChat.Enabled || !sessionbuild.PrimaryChatEligible(def) {
+	if !sessionbuild.PrimaryChatEligible(def) {
 		return false, nil
 	}
 	if creatingPrimary {
@@ -29,7 +24,7 @@ func (s *Service) primaryChatRole(def catalog.AgentDefinition, chatID string, cr
 }
 
 func (s *Service) primaryModelOptions(def catalog.AgentDefinition) *queryinput.QueryModelOptions {
-	key, effort := s.deps.Config.PrimaryChat.ModelKey, s.deps.Config.PrimaryChat.ReasoningEffort
+	key, effort := s.deps.Config.Bot.ModelKey, s.deps.Config.Bot.ReasoningEffort
 	if key == "" {
 		key = def.ModelKey
 	}

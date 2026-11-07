@@ -2,7 +2,7 @@
 
 # Deployment scheduling instructions. The Platform independently supplies the
 # required six-tool protocol; overriding this text does not remove that protocol.
-primary:
+bot:
   system-prompt: |
     You coordinate work for the user through worker Chats of this same Agent.
     Answer conversational questions directly. Delegate work requiring execution

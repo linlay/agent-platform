@@ -23,6 +23,13 @@ import (
 
 func bindUserMailbox(t *testing.T, f testFixture) *mailbox.Service {
 	t.Helper()
+	// The ordinary fixture already binds a mailbox. Close it before resetting
+	// the same database path, so two SQLite handles cannot share reset sidecars.
+	if existing := f.server.deps.Mailbox; existing != nil {
+		if err := existing.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
 	store, err := mailbox.Open(f.cfg.Paths.ChatsDir)
 	if err != nil {
 		t.Fatal(err)

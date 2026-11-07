@@ -11,7 +11,7 @@ import (
 
 // presetModeSections are the agent-settings sections of the native modes that
 // receive mode-level presets and creation defaults.
-var presetModeSections = []string{"general", "coder", "kbase", "team", "executor"}
+var presetModeSections = []string{"general", "coder", "kbase", "team", "bot", "executor"}
 
 var retiredAgentFiles = []string{"general-settings.yml", "coder-settings.yml", "kbase-settings.yml", "prompts.yml", "coder-prompts.yml", "kbase-prompts.yml", "ai-tools.yml"}
 
@@ -169,7 +169,7 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 		return err
 	}
 	dropRetiredPlanExecute(values, path)
-	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "general", "coder", "kbase", "team", "executor", "proxy", "channel", "acp-bridges", "primary")
+	values, err = configMap(values, path, "preset-tools", "preset-connectors", "planning-mode", "general", "coder", "kbase", "team", "bot", "executor", "proxy", "channel", "acp-bridges")
 	if err != nil {
 		return err
 	}
@@ -178,26 +178,34 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 		return err
 	}
 	c.PresetTools, c.PresetConnectors = presets.Tools, presets.Connectors
-	primary, err := optionalConfigMap(values, "primary", path, "modelKey", "reasoningEffort")
+	dispatch, err := optionalConfigMap(values, "bot", path, "dispatch", "preset-tools", "preset-connectors", "default-agent", "workspace-agents", "interaction-config")
 	if err != nil {
 		return err
 	}
-	if c.PrimaryChat.ModelKey, err = configText(primary, "modelKey", path+".primary"); err != nil {
+	dispatch, err = optionalConfigMap(dispatch, "dispatch", path+".bot", "modelKey", "reasoningEffort")
+	if err != nil {
 		return err
 	}
-	if c.PrimaryChat.ReasoningEffort, err = configText(primary, "reasoningEffort", path+".primary"); err != nil {
+	if c.Bot.ModelKey, err = configText(dispatch, "modelKey", path+".bot.dispatch"); err != nil {
+		return err
+	}
+	if c.Bot.ReasoningEffort, err = configText(dispatch, "reasoningEffort", path+".bot.dispatch"); err != nil {
 		return err
 	}
 	if c.PlanningMode, err = parsePlanningMode(values, path, c.PlanningMode); err != nil {
 		return err
 	}
 	c.ModeDefaultDetails = map[string]string{}
-	for _, mode := range []string{"general", "coder", "kbase", "team", "executor", "proxy", "channel"} {
+	for _, mode := range []string{"general", "coder", "kbase", "team", "bot", "executor", "proxy", "channel"} {
 		raw, exists := values[mode]
 		if !exists {
 			continue
 		}
-		section, err := configMap(raw, path+"."+mode, "preset-tools", "preset-connectors", "default-agent", "workspace-agents", "interaction-config")
+		keys := []string{"preset-tools", "preset-connectors", "default-agent", "workspace-agents", "interaction-config"}
+		if mode == "bot" {
+			keys = append(keys, "dispatch")
+		}
+		section, err := configMap(raw, path+"."+mode, keys...)
 		if mode == "proxy" || mode == "channel" {
 			section, err = configMap(raw, path+"."+mode, "interaction-config")
 		}
@@ -223,7 +231,11 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 		return err
 	}
 	for _, mode := range presetModeSections {
-		v, err := optionalConfigMap(values, mode, path, "preset-tools", "preset-connectors", "default-agent", "workspace-agents", "interaction-config")
+		keys := []string{"preset-tools", "preset-connectors", "default-agent", "workspace-agents", "interaction-config"}
+		if mode == "bot" {
+			keys = append(keys, "dispatch")
+		}
+		v, err := optionalConfigMap(values, mode, path, keys...)
 		if err != nil {
 			return err
 		}
@@ -241,6 +253,8 @@ func (c *Config) applyAgentSettingsFile(path string) error {
 			return err
 		}
 		switch mode {
+		case "bot":
+			c.BotSettings = GeneralSettingsConfig{DefaultAgent: d, WorkspaceAgents: w}
 		case "team":
 			c.TeamSettings = GeneralSettingsConfig{DefaultAgent: d, WorkspaceAgents: w}
 		case "executor":
@@ -295,19 +309,19 @@ func (c *Config) applyAgentPromptFile(path string) error {
 	if shared, ok := v["shared"].(map[string]any); ok {
 		dropRetiredPlanExecute(shared, path+".shared")
 	}
-	v, err = configMap(v, path, "shared", "coder", "kbase", "primary")
+	v, err = configMap(v, path, "shared", "coder", "kbase", "bot")
 	if err != nil {
 		return err
 	}
 	if err := validatePromptTemplates(v, path); err != nil {
 		return err
 	}
-	primary, err := optionalConfigMap(v, "primary", path, "system-prompt")
+	bot, err := optionalConfigMap(v, "bot", path, "system-prompt")
 	if err != nil {
 		return err
 	}
-	if _, exists := primary["system-prompt"]; exists {
-		if c.PrimaryChat.SystemPrompt, err = configText(primary, "system-prompt", path+".primary"); err != nil {
+	if _, exists := bot["system-prompt"]; exists {
+		if c.Bot.SystemPrompt, err = configText(bot, "system-prompt", path+".bot"); err != nil {
 			return err
 		}
 	}

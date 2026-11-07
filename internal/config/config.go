@@ -42,6 +42,7 @@ type Config struct {
 	CoderSettings    CoderSettingsConfig
 	GeneralSettings  GeneralSettingsConfig
 	TeamSettings     GeneralSettingsConfig
+	BotSettings      GeneralSettingsConfig
 	ExecutorSettings GeneralSettingsConfig
 	KBase            KBaseConfig
 	VisionRecognize  VisionRecognizeConfig
@@ -53,7 +54,7 @@ type Config struct {
 	Query            QueryConfig
 	Automation       AutomationConfig
 	Mail             MailConfig
-	PrimaryChat      PrimaryChatConfig
+	Bot              BotConfig
 	Billing          BillingConfig
 	Memory           MemoryConfig
 	Defaults         DefaultsConfig
@@ -91,9 +92,8 @@ type MailConfig struct {
 	RetentionDays int
 }
 
-// PrimaryChatConfig separates Chat roles without changing the Agent mode.
-type PrimaryChatConfig struct {
-	Enabled         bool   `json:"enabled"`
+// BotConfig configures BOT dispatch Chats. Worker defaults live in BotSettings.
+type BotConfig struct {
 	ModelKey        string `json:"-"`
 	ReasoningEffort string `json:"-"`
 	SystemPrompt    string `json:"-"`
@@ -931,6 +931,8 @@ func (c Config) WorkspaceAgentsForMode(mode string) CoderWorkspaceAgentsConfig {
 		return c.CoderSettings.WorkspaceAgents
 	case "KBASE":
 		return c.KBase.WorkspaceAgents
+	case "BOT":
+		return c.BotSettings.WorkspaceAgents
 	case "TEAM":
 		return c.TeamSettings.WorkspaceAgents
 	case "EXECUTOR":

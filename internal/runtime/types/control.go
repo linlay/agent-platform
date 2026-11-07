@@ -18,10 +18,11 @@ type RunRef struct {
 }
 
 type RunHandle struct {
-	SideID   string
-	RunID    string
-	ChatID   string
-	AgentKey string
+	Subscription *Subscription `json:"-"`
+	SideID       string
+	RunID        string
+	ChatID       string
+	AgentKey     string
 
 	StartedAt int64
 	LastSeq   int64

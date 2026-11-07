@@ -1546,13 +1546,11 @@ func TestAgentEditorOptionsHTTP(t *testing.T) {
 	if response.Data.Models[0].ReasoningEfforts == nil || len(response.Data.Models[0].ReasoningEfforts) != 0 {
 		t.Fatalf("non-reasoner model should return an empty reasoning effort list, got %#v", response.Data.Models[0].ReasoningEfforts)
 	}
-	if got := response.Data.Modes; len(got) != 4 ||
-		got[0].Key != "GENERAL" || got[0].Label != "GENERAL" ||
-		got[1].Key != "CODER" || got[1].Label != "CODER" ||
-		got[2].Key != "CHANNEL" || got[2].Label != "CHANNEL" ||
-		got[3].Key != "PROXY" || got[3].Label != "PROXY" {
+	if got := response.Data.Modes; len(got) != 5 ||
+		got[0].Key != "GENERAL" || got[1].Key != "BOT" || got[2].Key != "CODER" || got[3].Key != "CHANNEL" || got[4].Key != "PROXY" {
 		t.Fatalf("unexpected modes %#v", got)
 	}
+
 	for _, tag := range response.Data.ContextTags {
 		if tag.Key == "agents" {
 			t.Fatal("retired agents tag exposed by editor options")

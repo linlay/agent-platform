@@ -2,8 +2,11 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -12,10 +15,11 @@ import (
 	"testing"
 	"time"
 
+	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 )
 
-func TestGeneralPrimaryRunPublishesExactlySixToolsWithoutTaskMount(t *testing.T) {
+func TestBotPrimaryRunPublishesExactlySixToolsWithoutTaskMount(t *testing.T) {
 	requests := make(chan map[string]any, 1)
 	f := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
@@ -25,16 +29,29 @@ func TestGeneralPrimaryRunPublishesExactlySixToolsWithoutTaskMount(t *testing.T)
 		requests <- body
 		writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"ready"},"finish_reason":"stop"}]}`, `[DONE]`)
 	}, testFixtureOptions{configure: func(cfg *config.Config) {
-		cfg.PrimaryChat = config.PrimaryChatConfig{Enabled: true, SystemPrompt: "Coordinate workers"}
+		cfg.Bot = config.BotConfig{SystemPrompt: "Coordinate workers"}
+		path := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(strings.Replace(string(content), "mode: GENERAL", "mode: BOT", 1)), 0600); err != nil {
+			t.Fatal(err)
+		}
 	}})
-	rec := postPrimaryQuery(t, f.server, map[string]any{"agentKey": "mock-agent", "message": "hello", "primary": true})
+	bindUserMailbox(t, f)
+	if def, _ := f.registry.AgentDefinition("mock-agent"); def.Mode != "BOT" {
+		t.Fatalf("fixture mode=%s", def.Mode)
+	}
+	rec := httptest.NewRecorder()
+	f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/send", strings.NewReader(`{"requestId":"bot-first","agentKey":"mock-agent","message":"hello"}`)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("query status=%d: %s", rec.Code, rec.Body.String())
 	}
 	var body map[string]any
 	select {
 	case body = <-requests:
-	default:
+	case <-time.After(5 * time.Second):
 		t.Fatal("model request missing")
 	}
 	var names []string
@@ -66,20 +83,12 @@ func TestGeneralPrimaryRunPublishesExactlySixToolsWithoutTaskMount(t *testing.T)
 	}
 	rec = httptest.NewRecorder()
 	f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/runtime/capabilities", nil))
-	var capability struct {
-		Data struct {
-			Primary struct {
-				Enabled bool     `json:"enabled"`
-				Keys    []string `json:"agentKeys"`
-			} `json:"primaryChat"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &capability); err != nil || !capability.Data.Primary.Enabled || !reflect.DeepEqual(capability.Data.Primary.Keys, []string{"mock-agent"}) {
-		t.Fatalf("capabilities=%s err=%v", rec.Body.String(), err)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("retired capabilities status=%d", rec.Code)
 	}
 }
 
-func TestGeneralPrimaryRunAnnouncesProgressWithoutTaskMount(t *testing.T) {
+func TestBotPrimaryRunAnnouncesProgressWithoutTaskMount(t *testing.T) {
 	var calls atomic.Int32
 	announced := make(chan struct{})
 	f := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
@@ -104,11 +113,26 @@ func TestGeneralPrimaryRunAnnouncesProgressWithoutTaskMount(t *testing.T) {
 		}
 		writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"ready"},"finish_reason":"stop"}]}`, `[DONE]`)
 	}, testFixtureOptions{configure: func(cfg *config.Config) {
-		cfg.PrimaryChat = config.PrimaryChatConfig{Enabled: true, SystemPrompt: "Coordinate workers"}
+		cfg.Bot = config.BotConfig{SystemPrompt: "Coordinate workers"}
+		path := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(strings.Replace(string(content), "mode: GENERAL", "mode: BOT", 1)), 0600); err != nil {
+			t.Fatal(err)
+		}
 		cfg.ModeDefaultDetails = allModesDetail("simple")
 	}})
+	if def, _ := f.registry.AgentDefinition("mock-agent"); def.Mode != "BOT" {
+		t.Fatalf("fixture mode=%s", def.Mode)
+	}
 	rec := &primaryAnnouncementRecorder{ResponseRecorder: httptest.NewRecorder(), announced: announced}
-	req := httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"agentKey":"mock-agent","message":"hello","primary":true}`))
+	seedAgentModeChat(t, f.chats.(*chat.FileStore), "bot-main", "loyw3v2a", "mock-agent", "BOT", 1000)
+	if _, err := f.chats.(chat.PrimaryStore).SetChatPrimary("mock-agent", "bot-main"); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"chatId":"bot-main","agentKey":"mock-agent","message":"hello"}`))
 	req.Header.Set("Content-Type", "application/json")
 	f.server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || calls.Load() != 2 {
@@ -133,4 +157,122 @@ func (r *primaryAnnouncementRecorder) Write(data []byte) (int, error) {
 		r.once.Do(func() { close(r.announced) })
 	}
 	return n, err
+}
+
+func TestBotEntryRestrictionsAndMainChatRouting(t *testing.T) {
+	f := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`, `[DONE]`)
+	}, testFixtureOptions{configure: func(cfg *config.Config) {
+		path := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(strings.Replace(string(content), "mode: GENERAL", "mode: BOT", 1)), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}})
+	bindUserMailbox(t, f)
+	for _, body := range []string{
+		`{"agentKey":"mock-agent","message":"new"}`,
+		`{"agentKey":"mock-agent","message":"new","primary":true}`,
+	} {
+		rec := postPrimaryQuery(t, f.server, mapFromBotJSON(t, body))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("query creation status=%d: %s", rec.Code, rec.Body.String())
+		}
+	}
+	// Concurrent first messages must share one newly-created main Chat.
+	var wg sync.WaitGroup
+	ids := make(chan string, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			rec := httptest.NewRecorder()
+			f.server.handleSend(rec, httptest.NewRequest(http.MethodPost, "/api/send", strings.NewReader(fmt.Sprintf(`{"requestId":"bot-concurrent-%d","agentKey":"mock-agent","message":"one"}`, i))))
+			if rec.Code != http.StatusOK {
+				t.Errorf("concurrent send: %d %s", rec.Code, rec.Body.String())
+				return
+			}
+			var result struct {
+				Data struct {
+					ChatID string `json:"chatId"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+				t.Error(err)
+				return
+			}
+			ids <- result.Data.ChatID
+		}(i)
+	}
+	wg.Wait()
+	close(ids)
+	mainID := ""
+	for id := range ids {
+		if mainID != "" && mainID != id {
+			t.Fatalf("multiple main Chats: %s %s", mainID, id)
+		}
+		mainID = id
+	}
+	status, first := sendHTTP(t, f, `{"requestId":"bot-a","agentKey":"mock-agent","message":"one"}`)
+	if status != http.StatusOK || first.ChatID == "" {
+		t.Fatalf("first=%+v status=%d", first, status)
+	}
+	status, second := sendHTTP(t, f, `{"requestId":"bot-b","agentKey":"mock-agent","message":"two"}`)
+	if status != http.StatusOK || second.ChatID != first.ChatID {
+		t.Fatalf("second=%+v first=%+v status=%d", second, first, status)
+	}
+	status, _ = sendHTTP(t, f, `{"requestId":"bot-plan","agentKey":"mock-agent","message":"plan","planningMode":true}`)
+	if status != http.StatusBadRequest {
+		t.Fatalf("planning accepted: %d", status)
+	}
+	for _, chatID := range []string{"", first.ChatID} {
+		rec := httptest.NewRecorder()
+		body, _ := json.Marshal(map[string]any{"agentKey": "mock-agent", "chatId": chatID, "message": "execute"})
+		f.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/execute", strings.NewReader(string(body))))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("execute accepted: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func mapFromBotJSON(t *testing.T, body string) map[string]any {
+	t.Helper()
+	var result map[string]any
+	if err := json.Unmarshal([]byte(body), &result); err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func TestBotFirstUploadReservationBecomesMainChat(t *testing.T) {
+	f := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`, `[DONE]`)
+	}, testFixtureOptions{configure: func(cfg *config.Config) {
+		path := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
+		source, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(strings.Replace(string(source), "mode: GENERAL", "mode: BOT", 1)), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}})
+	if _, _, err := f.chats.EnsureChat("upload-staging", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	status, receipt := sendHTTP(t, f, `{"requestId":"first-upload","chatId":"upload-staging","agentKey":"mock-agent","message":"read file"}`)
+	main, err := f.chats.(chat.PrimaryStore).PrimaryChatID("mock-agent")
+	if status != 200 || receipt.ChatID != "upload-staging" || main != receipt.ChatID || err != nil {
+		t.Fatalf("upload reservation: %d %+v main=%s err=%v", status, receipt, main, err)
+	}
+	if _, _, err := f.chats.EnsureChat("late-upload", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	status, _ = sendHTTP(t, f, `{"requestId":"late-upload","chatId":"late-upload","agentKey":"mock-agent","message":"read next"}`)
+	if status != 409 {
+		t.Fatalf("upload race status=%d", status)
+	}
 }

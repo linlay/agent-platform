@@ -268,7 +268,11 @@ func (s *ExecutionHistoryService) reconcileRunning(store *ExecutionStore) {
 			}
 			item = completeExecution(item, &completion, "", nil)
 		} else {
-			item = completeExecution(item, nil, "platform restarted before execution completed", fmt.Errorf("platform restarted before execution completed"))
+			reason := "platform restarted before execution completed"
+			if item.RunID == "" {
+				reason = "platform restarted before execution started"
+			}
+			item = completeExecution(item, nil, reason, fmt.Errorf("%s", reason))
 		}
 		s.Submit(item)
 	}

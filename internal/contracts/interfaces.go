@@ -333,7 +333,7 @@ type RunLimits struct {
 }
 
 type QuerySession struct {
-	// PrimaryChat is a trusted Chat role, independent of Agent mode.
+	// PrimaryChat is the trusted dispatch role of a native BOT main Chat.
 	PrimaryChat bool
 	// PrimaryChatProtocol is the embedded scheduling protocol, independent of
 	// the deployment's configurable primary.system-prompt.

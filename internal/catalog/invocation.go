@@ -27,6 +27,9 @@ func ResolvedModeCapabilities(def AgentDefinition) agentcontract.ModeCapabilitie
 // AgentInvocationError describes static agent_invoke target eligibility. Caller
 // authorization, self-target checks and live availability remain runtime checks.
 func AgentInvocationError(def AgentDefinition) error {
+	if def.Mode == AgentModeBot {
+		return fmt.Errorf("BOT cannot run as an inline child; use chat_send to its main Chat")
+	}
 	if !AgentUsesACPCoderBackend(def) && !ResolvedModeCapabilities(def).RunAsChild {
 		return fmt.Errorf("sub-agent must be GENERAL/ONESHOT/CODER/KBASE/PROXY")
 	}

@@ -8,6 +8,8 @@
 4. CHATS、RUNS 补齐列：创建关系、等待过期时间、Run 档位、控制归属、来源；删除无用的 `TEAM_ID_`。
 5. chats.db、archive.db 加入工具硬拒绝名单。
 
+**2026-11-07 再次确认继续暂缓：mail.db 保持独立，不并库。** 主要聊天的剩余任务都按不并库的前提安排，见 [mailbox-next.md](mailbox-next.md)。
+
 **暂缓（2026-11-05）：本期不改 chats.db。** mail.db 保持独立，每次启动先删除再新建（[mailbox-next.md](mailbox-next.md) 阶段 1），因此本方案不再是 mailbox 的前置。改为先在 mail.db 上做的部分：归档关闭 mail 与 `CLOSED_AT_` 列名（阶段 2.2），mail.db 的硬拒绝保护（阶段 1.5）。工作会话列表暂以 mail.db 为数据源（阶段 4），`OPENED_BY_` 落地后改用 CHATS，接口不变。
 
 ## 已确认的决定

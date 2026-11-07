@@ -92,34 +92,38 @@ func (s *Service) Execute(ctx context.Context, cmd runtimetypes.ExecuteCommand) 
 		ChatSource:      cmd.ChatSource,
 		Caller:          cmd.Caller,
 	}
+	query.BeforeMessageRun = cmd.OnPrepared
 	ctx = queryContext(ctx, query)
-	prepared, err := s.prepare(ctx, query)
+	query, delivery := s.trackMessage(query, true)
+	defer delivery.abandon()
+	receipt, err := s.acceptMessage(ctx, query)
 	if err != nil {
 		return runtimetypes.ExecuteResult{}, err
 	}
-	if cmd.OnPrepared != nil {
-		if err := cmd.OnPrepared(runtimetypes.RunRef{ChatID: prepared.Req.ChatID, RunID: prepared.Req.RunID, AgentKey: prepared.Req.AgentKey, Caller: cmd.Caller}); err != nil {
-			releaseQuery(prepared.Release)
-			return runtimetypes.ExecuteResult{}, err
+	cancelMessage := func() {
+		m, e := s.mailbox.CancelUser(receipt.MailID)
+		if e == nil && m.Delivery == "started" && m.RunID != "" {
+			req := query
+			req.RunID = m.RunID
+			req.ChatID = m.ToChatID
+			s.deps.Runs.Interrupt(interruptRequestForQuery(req, contracts.InterruptSourceHTTPAPI, contracts.InterruptReasonUserCancelled, "execute caller disconnected"))
 		}
 	}
-	registered, statusErr := s.RegisterPreparedQuery(ctx, prepared)
-	if statusErr != nil {
-		releaseQuery(prepared.Release)
-		return runtimetypes.ExecuteResult{}, statusErr
-	}
-	stop := context.AfterFunc(ctx, func() {
-		s.deps.Runs.Interrupt(interruptRequestForQuery(prepared.Req, contracts.InterruptSourceHTTPAPI, contracts.InterruptReasonUserCancelled, "execute caller disconnected"))
-	})
+	stop := context.AfterFunc(ctx, cancelMessage)
 	defer stop()
-	result, err := s.executePreparedLocalQuery(prepared, registered, nil, nil)
+	handle, err := s.awaitMessageRun(ctx, receipt, delivery)
+	if err != nil {
+		return runtimetypes.ExecuteResult{}, err
+	}
+	handle.Subscription = delivery.subscription()
+	result, err := s.waitMessageResult(ctx, query, handle, runtimetypes.QueryHooks{})
 	if err != nil {
 		return runtimetypes.ExecuteResult{}, err
 	}
 	if submission := contract.Submission(); submission != nil {
 		return runtimetypes.ExecuteResult{ChatID: chatID, Status: submission.Status, Output: submission.Output, Reason: submission.Reason}, nil
 	}
-	return runtimetypes.ExecuteResult{}, executeRunError(chatID, result)
+	return runtimetypes.ExecuteResult{}, executeRunError(chatID, queryRunResult{FinishReason: result.FinishReason, AssistantText: result.Content, ErrorPayload: result.ErrorPayload, ErrorMessage: result.ErrorMessage})
 }
 
 // checkExecuteTarget admits only a native Agent whose effective tools include
@@ -131,6 +135,9 @@ func (s *Service) checkExecuteTarget(agentKey string) error {
 	def, ok := s.deps.Registry.AgentDefinition(agentKey)
 	if !ok {
 		return executeRequestError(404, "agent_not_found", "agent not found: "+agentKey, "")
+	}
+	if def.Mode == catalog.AgentModeBot {
+		return executeRequestError(400, "execute_unsupported_agent", "BOT Agents cannot be execute targets", "")
 	}
 	if sessionbuild.IsProxyRoutedAgent(def) || catalog.AgentUsesACPCoderBackend(def) || sessionbuild.IsProxyAgentMode(def.Mode) {
 		return executeRequestError(400, "execute_unsupported_agent", "only native Agents can be executed", "")

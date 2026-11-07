@@ -185,17 +185,7 @@ func (c *Config) applyRuntimeFile(path string) error {
 		return nil
 	}
 	if _, exists := values["primary-chat"]; exists {
-		primary, err := optionalConfigMap(values, "primary-chat", path, "enabled")
-		if err != nil {
-			return err
-		}
-		if value, exists := primary["enabled"]; exists {
-			enabled, ok := value.(bool)
-			if !ok {
-				return fmt.Errorf("primary-chat.enabled must be a boolean")
-			}
-			c.PrimaryChat.Enabled = enabled
-		}
+		return fmt.Errorf("%s: primary-chat was removed; configure mode BOT and agent-settings.bot.dispatch", path)
 	}
 	if value, exists := values["webapps"]; exists {
 		if err := c.applyWebApps(value); err != nil {

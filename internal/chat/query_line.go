@@ -14,7 +14,7 @@ var requestContentKeys = []string{"message", "params", "scene"}
 // A line written before they moved out of query lacks them; readers treat a
 // missing decision as unset, since such a Run is never resumed.
 var requestDecisionKeys = []string{
-	"mailOrigin", "mailId", "mailKind", "mailAttempt", "mailHop", "mailNewChat", "outcome",
+	"mailOrigin", "mailId", "mailKind", "mailAttempt", "mailHop", "outcome",
 	"requestId", "runId", "chatId", "agentKey", "lane", "origin", "accessGrant", "planRunId",
 	"accessLevel", "editingMode", "model", "references",
 }
@@ -298,7 +298,7 @@ func queryLineDecisionsFromPayload(payload map[string]any) QueryLine {
 	if editing, ok := payload["editingMode"].(bool); ok {
 		line.EditingMode = &editing
 	}
-	if line.MailInput != nil && line.MailInput.OriginType == "user" {
+	if line.MailInput != nil && queryinput.UserMailOrigin(line.MailInput.OriginType) {
 		// A user's message has no envelope; origin already says who sent it and
 		// mail evidence matches its requestId. The mail fields stay live-only.
 		line.MailInput = nil

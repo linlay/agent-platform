@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	agentcontract "agent-platform/internal/agent"
+	"agent-platform/internal/agent/bot"
 	"agent-platform/internal/agent/coder"
 	"agent-platform/internal/agent/kbase"
 	agentteam "agent-platform/internal/agent/team"
@@ -15,6 +16,8 @@ import (
 
 func Lookup(mode string) (agentcontract.ModeDescriptor, bool) {
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
+	case bot.Mode:
+		return bot.Descriptor().Clone(), true
 	case coder.Mode:
 		return coder.Descriptor().Clone(), true
 	case kbase.Mode:
@@ -28,6 +31,8 @@ func Lookup(mode string) (agentcontract.ModeDescriptor, bool) {
 
 func SystemInitSpec(mode string) (agentcontract.SystemInitSpec, bool) {
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
+	case bot.Mode:
+		return bot.MainSystemInitSpec(), true
 	case coder.Mode:
 		return coder.MainSystemInitSpec(), true
 	case kbase.Mode:

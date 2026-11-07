@@ -33,7 +33,7 @@ func callerAllowed(ctx *contracts.ExecutionContext) bool {
 		return false
 	}
 	switch strings.ToUpper(strings.TrimSpace(s.Mode)) {
-	case "GENERAL", "REACT", "CODER", "KBASE", "TEAM", "EXECUTOR":
+	case "GENERAL", "REACT", "CODER", "KBASE", "BOT", "TEAM", "EXECUTOR":
 		return true
 	}
 	return false

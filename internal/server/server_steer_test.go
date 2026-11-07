@@ -234,7 +234,10 @@ func assertSteerPersistedWithoutInputMessage(t *testing.T, jsonlContent string, 
 			if !ok || steer["message"] != steerMessage || steer["role"] != "user" || strings.TrimSpace(fmt.Sprint(steer["chatId"])) == "" || strings.TrimSpace(fmt.Sprint(steer["runId"])) == "" || strings.TrimSpace(fmt.Sprint(steer["steerId"])) == "" {
 				t.Fatalf("unexpected steer payload on line: %s", line)
 			}
-			for _, field := range []string{"type", "timestamp", "seq", "liveSeq", "requestId"} {
+			if id, ok := steer["requestId"].(string); !ok || id == "" {
+				t.Fatalf("mailbox correlation missing: %s", line)
+			}
+			for _, field := range []string{"type", "timestamp", "seq", "liveSeq"} {
 				if _, ok := steer[field]; ok {
 					t.Fatalf("did not expect steer.%s on line: %s", field, line)
 				}

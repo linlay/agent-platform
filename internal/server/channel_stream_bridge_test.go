@@ -133,9 +133,11 @@ func TestChannelImportQueryUsesServerModeInboundChannel(t *testing.T) {
 		t.Fatalf("expected steer 200, got %d: %s", steerResp.StatusCode, buf.String())
 	}
 
-	steerFrame := readChannelRequestFrame(t, peer, "/api/steer", "steer-server-channel")
-	if steerFrame["frame"] != "request" || steerFrame["type"] != "/api/steer" || steerFrame["id"] != "steer-server-channel" {
-		t.Fatalf("unexpected steer frame %#v", steerFrame)
+	// The public text adapter queues through mailbox while a channel Run is
+	// active; it must not send the old direct /api/steer frame upstream.
+	letter, err := fixture.server.deps.Mailbox.Store.UserRequest("", "steer-server-channel")
+	if err != nil || letter.Status != "queued" || letter.Message != "focus" || letter.RunID != "" {
+		t.Fatalf("channel follow-up bypassed mailbox: %+v %v", letter, err)
 	}
 
 	writeUpstreamStreamFrame(t, peer, queryID, "s_"+runID, map[string]any{

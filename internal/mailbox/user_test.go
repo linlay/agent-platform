@@ -70,3 +70,27 @@ func TestUserMailHasNoEnvelopeReplyOrDerivedControl(t *testing.T) {
 		t.Fatalf("unexpected reply: %d", n)
 	}
 }
+
+func TestCancelQueuedLetterCannotWithdrawDeliveredRun(t *testing.T) {
+	s, p := testBox(t)
+	p.target = Target{Queue: true}
+	m := sample("cancel-queued", Letter, Queued)
+	m.OriginType = "user"
+	m.RequestID = "request-cancel"
+	if _, err := s.AcceptUser(t.Context(), m, controlscope.Scope{Subject: m.Subject}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.CancelUser(m.ID)
+	if err != nil || got.Status != Withdrawn {
+		t.Fatalf("queued cancellation: %+v %v", got, err)
+	}
+	delivered := sample("cancel-delivered", Letter, Delivered)
+	delivered.OriginType = "user"
+	delivered.Delivery = "started"
+	delivered.RunID = "exact-run"
+	put(t, s.Store, delivered)
+	got, err = s.CancelUser(delivered.ID)
+	if err != nil || got.Status == Withdrawn || got.RunID != "exact-run" {
+		t.Fatalf("delivered letter mislabeled: %+v %v", got, err)
+	}
+}

@@ -24,7 +24,7 @@ func (c *RunControl) ConsumeMailInput(m *queryinput.MailInput, origin *queryinpu
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if m != nil && m.OriginType != "user" {
+	if m != nil && !queryinput.UserMailOrigin(m.OriginType) {
 		c.mailHop = max(c.mailHop, m.Hop)
 	} else if origin == nil || origin.Type == queryinput.OriginUser {
 		c.mailHop = 0

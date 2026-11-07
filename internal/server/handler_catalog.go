@@ -362,6 +362,8 @@ func (s *Server) applyGeneralDefaultAgentConfig(definition map[string]any) map[s
 	switch {
 	case agentbuiltin.IsGeneralMode(mode):
 		defaults = s.deps.Config.GeneralSettings.DefaultAgent
+	case mode == "BOT":
+		defaults = s.deps.Config.BotSettings.DefaultAgent
 	case mode == "TEAM":
 		defaults = s.deps.Config.TeamSettings.DefaultAgent
 	case agentbuiltin.IsExecutorMode(mode):
@@ -716,6 +718,7 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 		},
 		Modes: []api.AgentEditorOption{
 			{Key: "GENERAL", Label: "GENERAL"},
+			{Key: "BOT", Label: "BOT"},
 			{Key: "CODER", Label: "CODER"},
 			{Key: "CHANNEL", Label: "CHANNEL"},
 			{Key: "PROXY", Label: "PROXY"},

@@ -83,6 +83,21 @@ func loadAgentsWithAdminAssembler(root, chatsDir string, globalMemoryEnabled boo
 		return nil, nil, err
 	}
 
+	for key, def := range items {
+		if def.Mode != "TEAM" || def.TeamConfig == nil {
+			continue
+		}
+		for _, member := range def.TeamConfig.Members {
+			if target, ok := items[member]; ok && target.Mode == AgentModeBot {
+				delete(items, key)
+				item := adminItems[key]
+				item.Status = AdminAgentStatusInvalid
+				item.Diagnostics = append(item.Diagnostics, AdminAgentDiagnostic{Severity: "error", Code: "invalid_team_member", Message: fmt.Sprintf("BOT Agent %q cannot be a TEAM member; use chat_send to its main Chat", member)})
+				adminItems[key] = item
+				break
+			}
+		}
+	}
 	return items, adminItems, nil
 }
 

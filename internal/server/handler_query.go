@@ -104,6 +104,9 @@ func (s *Server) writeRuntimeQueryStream(w http.ResponseWriter, ctx context.Cont
 		writeQueryStartError(w, err)
 		return
 	}
+	if handle.Subscription != nil {
+		defer handle.Subscription.Close()
+	}
 	display := s.chatDisplay(handle.AgentKey, handle.Detail)
 	detail := display.EffectiveDetail
 	filter := s.detailFilter(detail)
@@ -124,9 +127,12 @@ func (s *Server) writeRuntimeQueryStream(w http.ResponseWriter, ctx context.Cont
 	}
 	defer sseWriter.Close()
 	sseWriter.StartHeartbeat()
-	subscription, err := s.deps.Runtime.AttachRun(ctx, runtimetypes.RunRef{
-		RunID: handle.RunID, ChatID: handle.ChatID, AgentKey: handle.AgentKey,
-	}, 0)
+	subscription := handle.Subscription
+	if subscription == nil {
+		subscription, err = s.deps.Runtime.AttachRun(ctx, runtimetypes.RunRef{
+			RunID: handle.RunID, ChatID: handle.ChatID, AgentKey: handle.AgentKey,
+		}, 0)
+	}
 	if err != nil {
 		_, _ = s.deps.Runtime.Interrupt(ctx, runtimeSetupInterrupt(handle, contracts.InterruptReasonObserverAttachFailed, err.Error()))
 		_ = sseWriter.WriteDone()

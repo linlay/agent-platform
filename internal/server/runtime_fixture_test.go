@@ -1,7 +1,10 @@
 package server
 
 import (
+	"agent-platform/internal/mailbox"
+	"context"
 	"fmt"
+	"net/http"
 	"sync"
 
 	agentruntime "agent-platform/internal/runtime"
@@ -39,6 +42,17 @@ func bindTestRuntime(s *Server) *query.Service {
 		facade = agentruntime.NewService()
 		s.deps.Runtime = facade
 	}
+	if d.Mailbox == nil && d.Config.Paths.ChatsDir != "" {
+		store, err := mailbox.Open(d.Config.Paths.ChatsDir)
+		if err != nil {
+			panic(err)
+		}
+		d.Mailbox = mailbox.New(context.Background(), store, d.Config.Paths.ChatsDir, 4, d.Notifications)
+		s.deps.Mailbox = d.Mailbox
+	}
+	if d.Mailbox != nil {
+		app.BindMailbox(d.Mailbox)
+	}
 	facade.Bind(app)
 	testQueryServices.Store(s, app)
 	return app
@@ -48,4 +62,20 @@ func testQueryService(s *Server) *query.Service {
 		return v.(*query.Service)
 	}
 	return bindTestRuntime(s)
+}
+
+// These tests exercise the kernel's exclusive-run gate. Public content queries
+// now enter mailbox, which queues/inserts rather than trying that gate directly.
+func serveKernelQueryForGateTest(s *Server, w http.ResponseWriter, r *http.Request) {
+	req, err := decodeQueryRequest(r)
+	if err != nil {
+		writeQueryStartError(w, err)
+		return
+	}
+	_, err = testQueryService(s).StartQuery(r.Context(), queryCommandFromAPI(req))
+	if err != nil {
+		writeQueryStartError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }

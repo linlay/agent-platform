@@ -27,9 +27,19 @@ type ClientTarget struct {
 // HTTP and WebSocket adapters are responsible for decoding external DTOs into
 // this value before invoking application behavior.
 type QueryCommand struct {
-	MailboxAcceptance bool                  `json:"-"`
-	ModelMessage      string                `json:"-"`
-	Mail              *queryinput.MailInput `json:"-"`
+	// Internal delivery hooks transfer an observer before execution can emit
+	// ephemeral progress and preserve execution admission checks. These fields
+	// are never accepted from external JSON.
+	ObserveMessageRun    func(RunHandle) (func(), error) `json:"-"`
+	BeforeMessageRun     func(RunRef) error              `json:"-"`
+	MessageCreated       bool                            `json:"-"`
+	MessageDispatched    func(RunHandle)                 `json:"-"`
+	MessageDispatchError func(error)                     `json:"-"`
+	Detached             bool                            `json:"-"`
+	MessageRunID         string                          `json:"-"`
+	MailboxAcceptance    bool                            `json:"-"`
+	ModelMessage         string                          `json:"-"`
+	Mail                 *queryinput.MailInput           `json:"-"`
 	// OriginalQuery is the immutable incoming JSON, separate from resolved inputs.
 	OriginalQuery json.RawMessage `json:"-"`
 

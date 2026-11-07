@@ -51,22 +51,45 @@ type OpenedRun struct {
 func (s *Service) ControlOpened(c ControlCaller) ([]OpenedChat, error) {
 	evidence := map[string]map[string]any{}
 	ids := []string{}
-	if s.MailboxOpened != nil {
-		rows, err := s.MailboxOpened(c.AgentKey, c.Subject)
+	var summaries []chat.Summary
+	var err error
+	store, hasPrimary := s.Chats.(chat.PrimaryStore)
+	main := ""
+	if hasPrimary {
+		main, err = store.PrimaryChatID(c.AgentKey)
 		if err != nil {
 			return nil, err
 		}
-		for _, row := range rows {
-			if id, ok := row["chatId"].(string); ok {
-				evidence[id] = row
-				ids = append(ids, id)
+	}
+	if main == c.ChatID && s.botAgent(c.AgentKey, "") {
+		primary := false
+		summaries, err = s.ListSummariesWithOptions(chat.ListOptions{AgentKey: c.AgentKey, Primary: &primary})
+	} else {
+		if s.MailboxOpened != nil {
+			rows, e := s.MailboxOpened(c.AgentKey, c.Subject)
+			if e != nil {
+				return nil, e
+			}
+			for _, row := range rows {
+				if id, ok := row["chatId"].(string); ok {
+					evidence[id] = row
+					ids = append(ids, id)
+				}
 			}
 		}
+		summaries, err = s.ListSummariesWithOptions(chat.ListOptions{ChatIDs: ids})
 	}
-	summaries, err := s.ListSummariesWithOptions(chat.ListOptions{ChatIDs: ids})
 	if err != nil {
 		return nil, err
 	}
+	visible := summaries[:0]
+	for _, summary := range summaries {
+		if _, e := s.ResolveControlChat(c, summary.ChatID, false); e == nil {
+			visible = append(visible, summary)
+		}
+	}
+	summaries = visible
+
 	ids = ids[:0]
 	for _, summary := range summaries {
 		ids = append(ids, summary.ChatID)

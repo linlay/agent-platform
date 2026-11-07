@@ -10,7 +10,7 @@
 
 ## 执行记录（2026-11-06）
 
-阶段 1–4 及阶段 5 的用户消息部分已完成本地实现与自动化验收，覆盖 Platform 和相邻 `agent-webclient`；Automation/渠道改为发信仍等待待拍板第 6 项。阶段 6 的 Platform 出队与主要聊天/分身分工已完成本地实现；长上下文、客户端跟随开关及 Desktop 对齐仍需单独验收。
+阶段 1–4 及阶段 5 的用户消息部分已完成本地实现与自动化验收，覆盖 Platform 和相邻 `agent-webclient`；Automation/渠道改为发信的方案已于 2026-11-07 确定，尚未实施。阶段 6 的 Platform 出队与主要聊天/分身分工已完成本地实现；6.7–6.8、长上下文分页及 Desktop 对齐尚未实施。2026-11-07 改为新增 `mode: BOT`，已实现的开关与 GENERAL 判断按 6.9 改造，导航按 6.10 改为三区；6.6 取消。
 
 - 阶段 1：mail 常开、旧 enabled 键拒绝、启动清库、信封头随 JSONL 与压缩快照保留、数据库硬拒绝保护；恢复与保留期代码保留。
 - 阶段 2：会话退避重试、归档关闭、列表摘要与 total、按需详情、侧栏入口与挂起角标。
@@ -74,21 +74,39 @@
 - **保留期清理保留**（原待拍板 1）。并库后 mail 持久保留，`mail.retention-days` 与每日清理照旧。
 - **工作会话列表暂时只覆盖本次进程**（原待拍板 2）。重启会取消所有 Run 并清空 mail，旧分身会话留在普通历史列表中。chats-db-v2 落地后改用 CHATS 的 `OPENED_BY_` 列，列表才能跨重启。
 - **工作会话列表先不做状态筛选**（原待拍板 3），默认返回全部未归档的工作会话。
-- **主要聊天开关决定出队策略**（原待拍板 5 的前半）。开启时主聊天按"主助理出队"处理，关闭时沿用现行投递规则，见阶段 6。
-- **主要聊天开关放在 Platform 的 `runtime.yml`**（原待拍板 5a，即 P2）。WebClient 和 Desktop 从 Platform 读取（主 WS 的 `connected` 推送），不另存一份，两边始终一致，见阶段 6。
-- **主要聊天开启时，主聊天在跑也一律排队，不提供插入**（原待拍板 5b，即 P3）。急改靠中断当前 Run。
+- **主要聊天开关决定出队策略**（原待拍板 5 的前半）。开启时主聊天按"主助理出队"处理，关闭时沿用现行投递规则，见阶段 6。（2026-11-07 改为由 BOT mode 决定。）
+- **主要聊天开关放在 Platform 的 `runtime.yml`**（原待拍板 5a，即 P2）。WebClient 和 Desktop 从 Platform 读取（主 WS 的 `connected` 推送），不另存一份，两边始终一致，见阶段 6。（2026-11-07 取消，开关删除。）
+- **主要聊天开启时，主聊天在跑也一律排队，不提供插入**（原待拍板 5b，即 P3）。急改靠中断当前 Run。（2026-11-07 起适用于 BOT 主聊天。）
 
 2026-11-06 新增：
 
-- **主要聊天只调度，分身干活不调度。** 同一个 Agent 按会话分两个角色：主要聊天只有平台固定的五个调度工具，agent.yml 只描述分身；分身没有调度工具，靠自动回信和 `chat_notify` 回复。调度提示词放全局配置，不新增 agent.yml mode 或 `PRIMARY.md`。见阶段 6 的"主要聊天与分身的分工"。
+- **主要聊天只调度，分身干活不调度。** 同一个 Agent 按会话分两个角色：主要聊天只有平台固定的五个调度工具和 action_announce 进度工具，agent.yml 只描述分身；分身没有调度工具，靠自动回信和 `chat_notify` 回复。调度提示词放全局配置，不新增 `PRIMARY.md`。（"不新增 agent.yml mode"已于 2026-11-07 改为新增 BOT mode，见下。）
 - **分身省略 `accessLevel` 时继承主要聊天受理时的当前档位**，不再用 Agent 默认值。
+
+2026-11-07 补充确认：`mail.max-hops` 先保留 4，当前跳数含义不变；接受一次用户输入后典型顺序派活只能往返两轮的限制，暂不调整默认值或计数语义（原待拍板第 7 项）。
+
+2026-11-07 剩余任务确认：
+
+- **放弃 gateway。** agent-gateway 目前不使用，不转发 `/api/send`、`/api/mails*` 和 `mail.updated`。主要聊天、用户消息发送和收件箱只支持直连 Platform 与 Desktop。
+- **mail.db 继续独立，暂不并入 chats.db。** [chats-db-v2.md](chats-db-v2.md) 继续暂缓。这些现状因此长期保留：每次启动清空 mail.db，排队中的 mail 不跨重启，openedBy 工作会话列表重启后为空。（BOT 的分身身份与"进行中"列表按 Agent 判断，不受影响，见阶段 6。）
+- **Automation 与渠道统一改为发信**，见阶段 5 末尾。原待拍板第 6 项已定。
+- 以下各项按建议确认（用户未提异议）：分身身份短读、默认调度提示词只留 YAML、主要聊天拒绝 `/api/steer`（阶段 6.6–6.8），长上下文首版分页（见 [primary-chat-long-context.md](primary-chat-long-context.md)），关闭 Q13，Q12 维持现状。
+
+2026-11-07 BOT mode：
+
+- **新增 `mode: BOT`。** 调度角色归 BOT 这个 mode，取代 `runtime.yml` 的 `primary-chat.enabled` 与 Native GENERAL 限制。理由：BOT 不会是 CODER，规划对 BOT 没用，独立 mode 便于管理、更清晰。BOT 与 TEAM 同为带运行逻辑的 mode。见阶段 6 的"BOT mode"。
+- **BOT 除主聊天外的聊天一律是分身**，用户不能给 BOT 新建普通对话。
+- **GENERAL 的主要聊天变回普通聊天**，不迁移；需要机器人时新建 BOT Agent。
+- **BOT 可以有 Workspace，没有规划。**
+- **导航三区并存**：机器人、对话、项目，用户自行隐藏，属于客户端显示偏好，后端不记录（6.10）。
+- **所有消息都走 mailbox，`/api/execute` 也是**，见阶段 5 末尾；gateway 不管。
+- 原待拍板第 8 项关闭；6.6 分身身份短读取消。
 
 ## 待拍板
 
 | # | 问题 | 建议 |
 |---|---|---|
-| 6 | 重启时仍在排队的 Automation 消息，在执行历史中记为什么结果 | Automation 改为发信前再定（阶段 5 末尾） |
-| 7 | 主要聊天顺序派活受跳数限制：派活 1 → 回信 2 → 再派 3 → 回信 4，默认上限 4 时，用户说一次话后只能顺序派两轮（同时派多件不受影响） | 分身不再派活，跳数只计主要聊天与分身之间的往返。先调大 `mail.max-hops`；是否改跳数语义另议 |
+| 9 | 语音定稿（`internal/voice/session.go`）与 WebApp 助手（`internal/webappbridge/assistant.go`）仍直接开 Query，按"所有消息都走 mailbox"也要改为发信 | 都作为用户消息发信：会话忙时排队，不再返回 `chat_busy`；语音发给 BOT 时进入主聊天，照常朗读主聊天的回复。实施前再核对语音的打断、等待项提示和朗读时机 |
 
 ## 阶段 1：mail 常开，重启清空
 
@@ -258,7 +276,7 @@ GET /api/chats?openedBy=A&agentKey=B
 - 空闲时开 Run，在跑时插入；
 - 规划 Run、收尾或压缩中、有未决等待项时排队；
 - 停在提问、审批或表单上时插入，等待项解决后才被读到，不代替作答；作答仍走 `/api/submit`；
-- 主要聊天开启时，主聊天在跑时一律排队（阶段 6 的 P3）。
+- BOT 主聊天在跑时一律排队（阶段 6 的 P3）。
 
 **事件**
 
@@ -294,7 +312,7 @@ GET /api/chats?openedBy=A&agentKey=B
 | 5.8 | 非 Native 后端 | 目标范围与 `/api/query` 相同。实施时核对 ACP 与 Proxy 的插入路径；不支持插入的后端，在跑时按排队处理 |
 | 5.9 | 文档 | `docs/API与协议.md` 新增发送入口一节；`docs/Mailbox.md` 增加用户消息与三箱；AGENTS.md 的 mailbox 一句与 §6 API 说明原地改写；`README.md` |
 
-`/api/query`、`/api/steer` 不变，继续给 Desktop、gateway、Automation、execute 和渠道使用，何时删除另行决定。
+本阶段 `/api/query`、`/api/steer` 不变，继续给 Desktop、gateway、Automation、execute 和渠道使用；Automation、渠道与 execute 随后改为发信，见本阶段末尾。
 
 ### WebClient 实施
 
@@ -316,54 +334,66 @@ GET /api/chats?openedBy=A&agentKey=B
 - 刷新后排队中的气泡能恢复；重启后显示"未送达"。
 - `/api/query`、`/api/steer`、Desktop、gateway、Automation、execute 和渠道的行为不变；`make test` 与 WebClient 测试通过。
 
-### 随后：Automation 与渠道改为发信
+### 随后：Automation、渠道与 execute 改为发信（2026-11-07 确认）
 
-- 走同一入口（origin 为 automation 或 channel），目标会话忙时排队，不再拒绝。
-- Automation 的初始权限和执行历史合同沿用现有源码，不套用 Agent 发信规则。
-- 待拍板 6：重启时仍在排队的 Automation 消息，在执行历史中记为什么结果。
+- **统一入口。** Automation 与渠道消息走和用户消息相同的受理、排队与投递流程；目标会话忙时排队，不再返回 409。来源由平台的可信入口确定，公共输入不能伪造。
+- **来源。** Automation 的 origin 为 `automation`。渠道消息仍记为 `user`（是人发的），跳数为 0，没有信封头、回信和请示；渠道只记在来源信息里，不新增 `channel` 这种 origin，与现状一致。渠道身份与授权规则不变。
+- **权限。** Automation 的初始档位仍来自它自己 query 的 `accessLevel`，省略时为 `ask_for_approval`，不继承聊天上一次的档位，也不套用 Agent 发信规则。
+- **执行历史跟随投递。** 收到收据只记"已触发、排队中"，不记为成功；开出 Run 后关联 `chatId/runId`，Run 结束后记真实结果。插入正在运行的 Run 时，关联该 Run，以该 Run 的结束为结果。
+- **重启（原待拍板第 6 项）。** mail.db 每次启动都会清空，重启前还在排队、未开出 Run 的 Automation 消息，在执行历史中记为失败，原因为 `platform restarted before execution started`，与现有的 `platform restarted before execution completed`（`internal/automation/history_service.go`）同一写法；不伪造 Run 或结果，不自动重发。
+- **渠道回复。** 渠道仍按现有方式回复；排队的渠道消息在开出或插入 Run 后照常回复。重启丢失的排队消息不回复，也不补发。
+- **execute。** `/api/execute` 同样受理为 mail，来源与用户消息相同（`user`）：目标会话忙时排队，不再返回 409。调用方在排队期间保持连接；断开时，未投递的 mail 撤回（`withdrawn`），已开出的 Run 中断。等待 `result_submit`、打回与返回形状不变。BOT 不接受 execute：不能为 BOT 新建会话，主聊天也没有 `result_submit`。
+- **划线。** 发给某个 Chat 的消息一律走 mailbox：用户输入、Automation、渠道、execute，以及待拍板第 9 项的语音与 WebApp 助手。不算消息、保留原入口的：BTW/解读旁路、`/api/submit` 作答与续跑、"继续"这类对已有 Run 的控制、`agent_invoke`/`agent_delegate` 子任务、计划批准后的执行 Run。
 
-## 阶段 6：主要聊天形态与 Desktop
+## 阶段 6：BOT mode、导航与 Desktop
+
+2026-11-07 改为新增 `mode: BOT`：调度角色不再是 `runtime.yml` 全局开关加在 Native GENERAL 上的会话身份，而是 BOT 这个 mode 本身。下文已按新决定改写；末尾"阶段 6 Platform 本轮实施记录"描述的是旧开关实现，按 6.9 改造。
 
 | # | 内容 | 做法 |
 |---|---|---|
-| 6.1 | 主要聊天形态定稿 | 把下表的答案写入 docs |
-| 6.2 | 主要聊天出队策略 | 见下文 |
-| 6.3 | 长上下文 | 见 [primary-chat-long-context.md](primary-chat-long-context.md)。约束：切换聊天文件必须保持同一个 chatId。mail 的地址在发信时确定且不再改变，换 chatId 会让分身的回信、即时消息和请示落回旧会话 |
-| 6.4 | Desktop 对齐 | WebClient 定稿后进行 |
-| 6.5 | 主要聊天与分身的分工 | 见下文 |
+| 6.1 | 形态定稿 | 把下表的答案写入 docs |
+| 6.2 | BOT 主聊天出队策略 | 见下文 |
+| 6.3 | 长上下文 | 见 [primary-chat-long-context.md](primary-chat-long-context.md)，适用于 BOT 主聊天。顺序：先分页回放，再观察压缩，最后分卷。约束：分卷必须保持同一个 chatId。mail 的地址在发信时确定且不再改变，换 chatId 会让分身的回信、即时消息和请示落回旧会话 |
+| 6.4 | Desktop 对齐 | WebClient 完成 6.10 后按同一协议进行：删除设置中的"主要对话模式（实验）"，侧栏排序与显示设置增加 `group:bots` |
+| 6.5 | 主聊天与分身的分工 | 见下文"BOT mode" |
+| 6.6 | ~~分身身份短读~~ | 取消（2026-11-07）：BOT 的分身按"BOT 且不是主聊天"判断，不再读 JSONL 首条 query |
+| 6.7 | 默认调度提示词只留一份 | 删除 `internal/config/config_defaults.go` 中硬编码的调度文案，只保留 `configs/agent-prompt.example.yml` 的 `bot.system-prompt`。部署配置缺这一项时为空、不报错，平台内置的调度协议照常注入 |
+| 6.8 | BOT 主聊天不接受 steer | BOT 主聊天的主 lane 拒绝 `/api/steer`（HTTP 与 WS），错误码 `bot_chat_queue_only`，提示改用 `/api/send`，保证没有入口绕过 P3 的排队规则。BTW、解读与分身不受影响 |
+| 6.9 | Platform 改造 | 见下文"Platform 改造" |
+| 6.10 | 导航三区 | 见下文"导航：机器人、对话、项目" |
 
-### 主要聊天形态
+### BOT 形态
 
-WebClient 的主要聊天模式把用户收拢到一个主窗口，但执行仍然是一个 Chat 只有一个 Run。目标是主 Agent 一边派活、一边接用户指令，让用户感觉可以同时派出很多件事。
+BOT 把用户收拢到一个主窗口，但执行仍然是一个 Chat 只有一个 Run。目标是 BOT 一边派活、一边接用户指令，让用户感觉可以同时派出很多件事。
 
-mailbox 已经解决了派活结果的回传和多层派活。剩下两个问题：主窗口怎样呈现派出去的工作（阶段 4），以及用户输入怎样不被挡住（阶段 5）。
+mailbox 已经解决了派活结果的回传和多层派活。剩下两个问题：主窗口怎样呈现派出去的工作（阶段 4、6.10），以及用户输入怎样不被挡住（阶段 5）。
 
-| # | 问题 | 建议答案 |
+| # | 问题 | 答案 |
 |---|---|---|
-| Q1 | 主聊天只做调度，还是也跑长任务 | 只调度（2026-11-06 改）：主聊天没有执行工具，需要动手的活都用 `chat_send` 派出，新的事 `newChat:true`，补充用 `chatId`。见"主要聊天与分身的分工" |
-| Q2 | 派出去的活放在哪里 | 挂在主聊天下的工作会话列表中（B1），不进普通历史列表的顶层 |
+| Q1 | 主聊天只做调度，还是也跑长任务 | 只调度（2026-11-06 改）：主聊天没有执行工具，需要动手的活都用 `chat_send` 派出，新的事 `newChat:true`，补充用 `chatId`。见"BOT mode" |
+| Q2 | 派出去的活放在哪里 | BOT 除主聊天外的聊天都是分身，只出现在 BOT 页头的"进行中"和历史中，不进对话区、项目区（6.10） |
 | Q3 | 结果怎么回来 | 已由 mailbox 解决：回信自动开 Run |
 | Q4 | 派给自己的分身是否作为默认方式 | 是（2026-11-06 改）：派给自己的分身是主聊天干活的唯一方式；也可以寄给其他 Agent |
-| Q5 | 能否多层派活 | 开启后 Native GENERAL 的自分身 mailbox 派活只有一层（2026-11-06 改）：分身没有 `chat_send`。其他 mode、普通会话及既有内联 `agent_invoke` 规则不变；跨 Agent 的主要聊天仍可能继续调度，受跳数限制 |
+| Q5 | 能否多层派活 | BOT 的自分身派活只有一层：分身没有 `chat_send`。其他 mode 及既有内联 `agent_invoke` 规则不变；寄往其他 BOT 主聊天仍可能继续调度，受跳数限制 |
 | Q6 | `primary_chat_busy` 是否保留 | 保留，只用于切换指针；阶段 5 之后用户消息不再因会话忙被拒 |
 | Q7 | 审批在哪里处理 | 两处都可以：主视图卡片（B4）或分身会话 |
-| Q8 | 任务表、Kanban、云端 Job、mail 是否合成一套 | 工作会话列表就是任务托盘；Kanban 和云端 Job 本期不合并 |
+| Q8 | 任务表、Kanban、云端 Job、mail 是否合成一套 | "进行中"就是任务托盘；Kanban 和云端 Job 本期不合并 |
 | Q9 | 主聊天忙时，Automation 或渠道指向它怎么办 | 见阶段 5：排队 |
-| Q10 | Desktop 与 WebClient 的呈现是否一致 | WebClient 定稿后 Desktop 对齐 |
-| Q11 | 主聊天与分身用什么模型 | 主聊天用 agent-settings.yml `primary` 段配置的模型（建议最强模型、低思考）；分身默认用 agent.yml 的模型，主聊天可在 `newChat` 时指定模型和思考强度。思考强度跟随 Chat，只有 `newChat` 能带新的值。语音暂不纳入主要聊天 |
-| Q12 | 主聊天上的确认能等多久 | 可以一直等。依赖等待项过期时间的改造（见 chats-db-v2 的"另做"） |
-| Q13 | 主聊天怎样了解分身的进度 | 只读探测，不借用 steer，也不用 notify 把进度塞进主时间线。先确认 `chat_get_status {mailId}` 是否够用，不够再加最小的只读接口 |
+| Q10 | Desktop 与 WebClient 的呈现是否一致 | 一致；WebClient 先做，Desktop 按同一协议对齐（6.4） |
+| Q11 | 主聊天与分身用什么模型 | 主聊天用 agent-settings.yml `bot.dispatch` 的模型（建议最强模型、低思考）；分身默认用 agent.yml 的模型，主聊天可在 `newChat` 时指定模型和思考强度。思考强度跟随 Chat，只有 `newChat` 能带新的值。语音见待拍板第 9 项 |
+| Q12 | 主聊天上的确认能等多久 | 维持现状（2026-11-07）：审批仍按 600 秒超时，排队中的请示可在卡片上直接作答。等待项过期合同随 chats-db-v2 的"另做"再处理，本期不动 |
+| Q13 | 主聊天怎样了解分身的进度 | 已关闭（2026-11-07）：主聊天有 `chat_get_status {mailId}` 与 `chat_query`，够用，不新增接口 |
 
-### 主要聊天出队策略
+### BOT 主聊天出队策略
 
-主要聊天开关只决定主聊天（Agent 的主要对话）的出队方式，不决定是否进 mailbox。其他会话始终按现行投递规则处理。依赖阶段 5：用户消息要先进 mailbox，才谈得上排队。
+出队方式由 mode 决定：只有 BOT 的主聊天按"主助理出队"处理，其他会话（含其他 mode 的主要聊天和 BOT 的分身）始终按现行投递规则。依赖阶段 5：用户消息要先进 mailbox，才谈得上排队。
 
-| 主聊天状态 | 关闭：现行投递规则 | 开启：主助理出队 |
+| 会话状态 | 其他会话：现行投递规则 | BOT 主聊天：主助理出队 |
 |---|---|---|
 | 空闲 | 用最早一条开 Run，其余插入这个 Run | 用最早一条开 Run，其余留在队列 |
 | 在跑 | 插入当前 Run | 留在队列，当前 Run 结束后按顺序逐条开 Run，不提供插入（P3） |
 | 停在提问、审批或表单上 | 插入，等待项解决后才被读到 | 留在队列；作答仍走 `/api/submit` |
-| 规划 Run、收尾或压缩中、有未决等待项 | 排队 | 排队 |
+| 收尾或压缩中、有未决等待项 | 排队 | 排队 |
 
 - 用户消息与分身的回信、即时消息、请示在同一队列里，按到达顺序处理。Automation 和渠道发往主聊天的消息同样排队（Q9）。
 - 请示排在队列中时，用户仍可以从请示卡片（B2、B4）直接作答，不必等主聊天读到；否则一个长 Run 之后，请示可能已经超过 600 秒的时限。
@@ -371,79 +401,117 @@ mailbox 已经解决了派活结果的回传和多层派活。剩下两个问题
 
 P1（是否需要单独的出队策略）已确认：需要。
 
-**P2 开关（已确认）**
+**P2 开关（2026-11-07 取消）。** 出队方式与调度角色都由 BOT mode 决定，不再有开关：删除 `runtime.yml` 的 `primary-chat` 段（出现即启动失败）、`GET /api/runtime/capabilities` 与主 WS `connected.data.primaryChat`。导航不需要从服务端读取开关，见 6.10。
 
-- 出队发生在服务端，分身回信到达时没有客户端在场，所以开关由 Platform 保存：
+**P3 BOT 主聊天在跑时，用户的新消息一律排队（已确认）**
 
-  ```yaml
-  # configs/runtime.yml
-  primary-chat:
-    enabled: false   # 默认关闭，即现行投递规则；启动时读取，修改后重启生效
-  ```
+这里只管"主聊天正在跑一个 Run 时，用户又发来一句"。例如主聊天正在写一段回复，用户补一句"用英文写"：排队时，这句话要等当前 Run 结束才被读到。
 
-- 只作用于 Native GENERAL Agent 的主要对话（`chat-primary.json` 指向的 Chat）；其他 mode 和后端继续使用现行投递规则。
-- 客户端从 Platform 读取这个值，不另存一份，所以两边始终一致：
-  - 主 WS 的 `connected` 推送增加 `primaryChat: {enabled}`；
-  - HTTP `GET /api/runtime/capabilities` 返回 `primaryChat: {enabled, agentKeys}`，其中 `agentKeys` 只列适用的公开 Native GENERAL，客户端据此决定导航及主要聊天的入口展示，不自行推断 engine。
-- WebClient 现在的"主要对话模式"只是本地导航状态（`primaryNavigation`），Platform 并不知道。改为跟随 Platform 的值：开启时使用主要对话导航，关闭时使用普通导航，去掉本地切换按钮。否则用户在普通导航下发往主聊天的消息仍会被排队，两边对不上。Desktop 同样跟随。
-- 开关切换后，已经插入的消息不受影响，只改变之后的出队。
-
-**P3 主聊天在跑时，用户的新消息一律排队（已确认）**
-
-这里只管"主聊天正在跑一个 Run 时，用户又发来一句"。例如主聊天正在写一段回复，用户补一句"用英文写"：如果排队，这句话要等当前 Run 结束才被读到。
-
-开启时一律排队，不提供插入。理由：
+一律排队，不提供插入。理由：
 - 按 Q1，主聊天的 Run 本来就短，排队等待的时间不长；
 - 需要立刻更正时，用户可以中断当前 Run，队列随即出队；
 - 不必在发送协议中增加插入标记，也不用区分哪些消息算更正。
 
 分身寄来的 mail 和模型在任何情况下都不能插队。
 
-### 主要聊天与分身的分工（2026-11-06 确认）
+### BOT mode（2026-11-07 确认）
 
-同一个 Agent 按会话分两个角色：主要聊天只调度；分身用 agent.yml 的完整能力干活，但不调度。只在 `primary-chat.enabled` 开启且 Agent 为 Native GENERAL 时生效（2026-11-06 补充确认）。Agent 的 `mode` 仍为 `GENERAL`，不新增 `PRIMARY` mode；主要聊天与分身是 Chat 身份。CODER、KBASE、TEAM、EXECUTOR、ACP、Proxy 和渠道 Agent 的工具、提示词、模型、档位与出队行为全部保持不变。
+- **组成。** 一个 BOT Agent 由一条主聊天和若干分身组成。主聊天是 `chat-primary.json` 指向的会话，只调度。**除主聊天外，BOT 的所有聊天都是分身**：不看是谁开的（BOT 自己、其他 Agent 或用户直接输入之后），也不读 JSONL 首条 query。
+- **不能新建普通对话。** `/api/send` 发给 BOT 且不带 chatId 时进入主聊天，没有则新建并设为主聊天，不需要 `primary:true`。`/api/query` 主 lane 和 `/api/execute` 不能为 BOT 新建会话。新分身只由 `chat_send {newChat:true}` 开出。
+- **可以有 Workspace。** 分身在 Workspace 中干活；主聊天不读 `AGENTS.md` 与 Workspace 提示文件。
+- **没有规划。** 主聊天与分身都拒绝 `planningMode`；BOT 的 interactionConfig 默认值关闭规划和终端入口。
+- **只支持 Native。** `engine: acp`、Proxy 或渠道 Agent 配置 `mode: BOT` 时加载失败。
+- **其他 mode 不变。** GENERAL 等 Agent 的主要聊天是普通聊天，没有调度角色、不逐条出队；主要聊天指针仍是 `chat_send` 不带 chatId 时的收信地址。已有的 GENERAL 主要聊天不迁移，需要机器人时新建 BOT Agent。
+- **BOT 是带运行逻辑的 mode。** 与 TEAM 一样，规则归 `internal/agent/bot`。这是"mode 只提供默认值"约定的明确例外，不作为其他 mode 增加专属逻辑的先例。
 
 上述角色限制只作用于主 lane。BTW 与解读（explain）明确保留既有只读旁路合同：继续使用 Agent 的模型、AGENTS.md/Workspace 等上下文及工具定义，执行时只读，最多 3 轮、4 次工具调用，不派活、不代批、不参与主队列，也不改变主聊天角色。
 
-| | 主要聊天（调度） | 分身（执行） |
+| | 主聊天（调度） | 分身（执行） |
 |---|---|---|
-| 哪些会话 | `chat-primary.json` 指向的会话（优先于分身来源） | 本 Agent 用 `chat_send {newChat:true}` 开出的会话。首条主 query 的平台字段 `mailNewChat` 与同 Agent `origin` 固化来源；旧记录缺少该字段时沿用首条 query 的同 Agent origin 判定。重启后仍成立，不读 mail.db。用户之后直接在里面输入，它仍是分身 |
-| 工具 | 平台固定提供 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`、`chat_query`，不读 agent.yml 的工具、连接器、技能和 MCP，也不能通过配置增减 | agent.yml 的有效工具，去掉 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`（即使挂了 task-control）；保留 `chat_notify` |
-| 提示词 | configs/agent-prompt.yml 的 `primary.system-prompt`、平台直接注入的必要调度协议、`SOUL.md`、Agent 名称与描述、分身能力清单（只列工具名和技能名）。不读取 Agent 的 `AGENTS.md`、Workspace 提示文件或配置技能的说明；必要协议取自随包内置资源 | 不变 |
-| 模型 | agent-settings.yml 的 `primary.modelKey`、`primary.reasoningEffort`；留空时用 agent.yml 的模型 | agent.yml 的模型；`chat_send` 显式给出时用给出的值 |
+| 哪些会话 | BOT 的主要聊天（`chat-primary.json` 指向） | BOT 的其他所有聊天 |
+| 工具 | 平台固定提供 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`、`chat_query`、`action_announce`，不读 agent.yml 的工具、连接器、技能和 MCP，也不能通过配置增减 | agent.yml 的有效工具（bot 段 preset、显式声明与连接器），去掉 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`（即使挂了 task-control）；保留 `chat_notify` |
+| 提示词 | configs/agent-prompt.yml 的 `bot.system-prompt`、平台直接注入的必要调度协议、`SOUL.md`、Agent 名称与描述、分身能力清单（只列工具名和技能名）。不读取 Agent 的 `AGENTS.md`、Workspace 提示文件或配置技能的说明；必要协议取自随包内置资源 | agent.yml 与 bot 段模板 |
+| 模型 | agent-settings.yml 的 `bot.dispatch.modelKey`、`bot.dispatch.reasoningEffort`；留空时用 agent.yml 的模型 | agent.yml 的模型；`chat_send` 显式给出时用给出的值 |
 | 权限档位 | 用户在输入框选的档位，作为派活上限和代批依据 | 见下方"档位继承" |
 | 回复 | 回复用户 | 最终回答由平台自动寄回；`chat_notify` 发阶段结果；卡在等待项上自动转请示 |
-| 输入框入口 | 隐藏规划、编辑、终端入口 | 不变 |
+| 输入框入口 | 不显示规划、编辑、终端和模型选择；档位选择保留，文字为"派给分身的档位" | 不显示规划、终端；编辑按 Agent 配置 |
 
 ```yaml
-# configs/agent-settings.yml
-primary:
-  modelKey:          # 留空用 agent.yml 的模型
-  reasoningEffort:
+# agents/assistant/agent.yml
+key: assistant
+name: 小助理
+mode: BOT
+runtimeConfig:
+  workspaceRoot: ~/notes   # 可选；分身在这里干活
+modelConfig: ...           # 分身的模型
+toolConfig: ...            # 分身的工具
 
-# configs/agent-prompt.yml
-primary:
+# configs/agent-settings.yml：删除顶层 primary 段；新增 bot 段，与 general/coder/kbase/team 并列
+bot:
+  dispatch:                # 主聊天的模型；留空用 agent.yml 的模型
+    modelKey:
+    reasoningEffort:
+  interaction-config: ...
+  preset-tools: [...]      # 分身的默认工具
+  preset-connectors: [...]
+  default-agent: {...}
+
+# configs/agent-prompt.yml：primary 段改为 bot 段
+bot:
   system-prompt: |
     ……调度规则：什么开新分身、什么补充给已有分身、怎样写派活的信……
+
+# configs/runtime.yml：删除 primary-chat 段，出现即启动失败
 ```
 
-**档位继承（必须遵守）。** 主要聊天派给自己开分身，省略 `accessLevel` 或显式传入 `default` 时，分身的档位均等于主要聊天**受理这封信那一刻的当前档位**：不是 Agent 的 `accessConfig.default`，也不是主要聊天 Run 启动时的档位。`PrepareRunStart` 的 `plan.ParentAccessLevel` 只是预检查快照；最终必须在 `AcceptMail` 的 `AcceptAtRunAccessLevel` 回调中使用实时 `parent` 解析并冻结，不能复用预检查档位。显式具体 `accessLevel` 仍不得高于该档位。冻结规则不变：受理后用户再调整主要聊天的档位，已受理的信不跟着变。寄往其他 Agent 的规则不变。
+不新增环境变量。
+
+**档位继承（必须遵守）。** BOT 主聊天派给自己开分身，省略 `accessLevel` 或显式传入 `default` 时，分身的档位均等于主聊天**受理这封信那一刻的当前档位**：不是 Agent 的 `accessConfig.default`，也不是主聊天 Run 启动时的档位。`PrepareRunStart` 的 `plan.ParentAccessLevel` 只是预检查快照；最终必须在 `AcceptMail` 的 `AcceptAtRunAccessLevel` 回调中使用实时 `parent` 解析并冻结，不能复用预检查档位。显式具体 `accessLevel` 仍不得高于该档位。冻结规则不变：受理后用户再调整主聊天的档位，已受理的信不跟着变。寄往其他 Agent 的规则不变。
 
 其他规则：
 
-- agent.yml 只描述分身。名称、`SOUL.md`、记忆（按 agent.yml 的 contextConfig）、主要聊天指针两边相同，所以仍是同一个 Agent。不新增 agent.yml mode，也不新增 `PRIMARY.md`。
-- 用户在主要聊天中上传的文件和选中的引用，由主要聊天通过 `chat_send` 的 `files`、`references` 转给分身。
-- 模型继承：现在派给自己时子 Chat 继承调用方模型（`internal/runops/tool_handler.go` 的 `sameAgent`）。调用方是调度角色的主要聊天时改为用 agent.yml 的模型，其他情况不变。
-- 用户自己新建的普通会话不变：按 agent.yml 运行，挂了 task-control 就有调度工具。
+- 名称、`SOUL.md`、记忆（按 agent.yml 的 contextConfig）、主要聊天指针两边相同，所以仍是同一个 Agent。不新增 `PRIMARY.md`。
+- 用户在主聊天中上传的文件和选中的引用，由主聊天通过 `chat_send` 的 `files`、`references` 转给分身。
+- 模型继承：现在派给自己时子 Chat 继承调用方模型（`internal/runops/tool_handler.go` 的 `sameAgent`）。调用方是 BOT 主聊天时改为用 agent.yml 的模型，其他情况不变。
 - 由信开出的 Run 的 `run_chaining_not_allowed` 保留；分身的工具列表里本来就没有这些工具。
-- 主要聊天的五个工具由平台提供，与 `finalize_planning`、`agent_delegate` 同类。实施时原地改写 AGENTS.md "普通 Native Agent 工具只来自……"一句，并同步 docs/Mailbox.md 的"调用方限制"和 task-control 手册。
+- 主聊天的六个工具由平台提供，与 `finalize_planning`、`agent_delegate` 同类。实施时原地改写 AGENTS.md "普通 Native Agent 工具只来自……"一句，并同步 docs/Mailbox.md 的"调用方限制"和 task-control 手册。
 
 验收：
 
-- 开关开启：主要聊天的工具恰好是这五个，提示词不含 `AGENTS.md`；分身的工具是 agent.yml 去掉四个调度工具，用户在分身里直接输入后仍然如此。
-- 主要聊天档位为 A，不写 `accessLevel` 开分身，分身档位为 A；受理前把档位改为 B，分身为 B；受理后再改，已受理的分身不变。显式值高于当前档位时拒绝。
-- 主要聊天派活不写模型时，分身用 agent.yml 的模型。
-- 开关关闭、非 Native GENERAL Agent、普通会话的工具、模型、档位和出队策略与现状相同。
+- BOT 主聊天的工具恰好是这六个，提示词不含 `AGENTS.md`；BOT 的任一其他聊天（BOT 自己开、其他 Agent 开、用户直接输入之后、重启之后）的工具是 agent.yml 去掉四个调度工具。
+- 主聊天档位为 A，不写 `accessLevel` 开分身，分身档位为 A；受理前把档位改为 B，分身为 B；受理后再改，已受理的分身不变。显式值高于当前档位时拒绝。
+- 主聊天派活不写模型时，分身用 agent.yml 的模型。
+- BOT 拒绝 `planningMode`；`/api/send` 不带 chatId 进入主聊天，没有时新建并设为主聊天；`/api/query` 主 lane 与 `/api/execute` 为 BOT 新建会话时拒绝；非 Native 配置 `mode: BOT` 时加载失败。
+- 配置了 `runtime.yml` 的 `primary-chat`，或 agent-settings.yml、agent-prompt.yml 的顶层 `primary` 段时，启动失败。
+- 非 BOT Agent（含 GENERAL 的主要聊天）的工具、模型、档位和出队策略与旧开关关闭时相同。
+
+### Platform 改造（6.9）
+
+| 位置 | 改动 |
+|---|---|
+| mode | 内置类型增加 BOT。`internal/agent/bot` 注册 descriptor：模板默认值、interactionConfig 默认值（规划、终端关闭）、规划不可用；非 Native 拒绝 |
+| 角色判断 | `internal/runtime/session/primary_chat.go` 的 `PrimaryChatEligible` 改为 mode 为 BOT 且 Native；`internal/runtime/query/primary_chat_role.go` 去掉 `PrimaryChat.Enabled`。分身判断改为"BOT 且不是主聊天"，`mailNewChat` 与 origin 不再用于身份 |
+| 配置 | 删除 `PrimaryChatConfig.Enabled` 与 runtime.yml 的解析，键出现即启动失败；`agent-settings.primary` 改为 `bot.dispatch`，`agent-prompt.primary` 改为 `bot.system-prompt`，旧顶层 `primary` 段拒绝加载 |
+| 入口 | `/api/send` 发给 BOT 且不带 chatId 时路由到主聊天，没有则新建并设指针；`/api/query` 主 lane 与 `/api/execute` 拒绝为 BOT 新建会话；BOT 的规划请求拒绝 |
+| 接口 | 删除 `GET /api/runtime/capabilities`（`internal/server/handler_runtime_capabilities.go`）与 WS `connected.data.primaryChat`；mode 取值增加 BOT。`/api/chats/primary`、`primaryChat` 摘要、`chat.primary.changed` 不变 |
+| 文档 | AGENTS.md 原地改写：§1 内置类型与"mode 只提供默认值"一句（BOT、TEAM 是带运行逻辑的例外）、§7 主要聊天一段改为 BOT、planningMode 与 editingMode 的适用 mode、"WebClient 不得按 mode 判断入口"改为导航可按 BOT 分区。同步 `docs/mode-capability-audit.html`、docs/Mailbox.md、docs/API与协议.md 的主要聊天一节、docs/智能体配置说明.md |
+
+### 导航：机器人、对话、项目（6.10）
+
+三个区同时存在，按 Agent 分区：
+
+| 区 | 内容 |
+|---|---|
+| 机器人 | `mode: BOT` 的 Agent，一行一个：头像、名称、主聊天最后一句、运行中、等你确认或未读。带 Workspace 的加 📁 角标。点击打开主聊天；还没有主聊天时打开空白主聊天页，第一句经 `/api/send` 新建。可排序 |
+| 对话 | 非 BOT、没有 Workspace 的 Agent 的聊天 |
+| 项目 | 非 BOT、有 Workspace 的 Agent，按项目展开聊天 |
+
+- 每个区都可以隐藏，只是客户端显示偏好：WebClient 存 localStorage，Desktop 并入现有侧栏排序与显示设置。隐藏不影响服务端：BOT 照常收信干活，历史与搜索仍能找到。
+- 删除 WebClient 侧栏顶部的 `primaryNavigation` 按钮和 `supportsPrimaryChat`（`mode === GENERAL`）判断，以及 Desktop 设置中的"主要对话模式（实验）"。
+- BOT 的聊天（主聊天和分身）不进对话区、项目区和置顶区。
+- BOT 主聊天页：页头"进行中 N"列出该 BOT 正在运行或等待处理的分身；菜单有"历史""重新开始"（归档当前主聊天，下一句新建）"编辑智能体"。数据用现有的 `/api/chats?agentKey=<bot>&primary=false` 加活动 Run 投影，不依赖 mail.db 的 openedBy，重启后仍完整。分身页页头显示返回 BOT 主聊天的链接。
+- 前端只用 `mode`、`workspaceDir` 和已有的 `primary` 判断分区与页面，不新增 `chatRole` 等字段。输入框入口仍取自后端给的 interactionConfig；BOT 主聊天额外隐藏模型选择。
+- 先完成 WebClient，再按同一协议对齐 Desktop（6.4）。
 
 2026-11-06 审核修订：阶段 5 入口名称确认使用 HTTP POST /api/send 与主 WS 同名帧。本轮先修复阶段 1–4 审核问题，不提前接入用户消息发送路径。
 
@@ -466,10 +534,10 @@ primary:
 
 ### 阶段 6 Platform 本轮实施记录
 
-- 开关默认关闭；开启后仅 Native GENERAL 的当前主要聊天使用平台固定五工具并逐条出队。mode 始终保留 GENERAL，其他 mode 与后端不变。主要聊天不装配执行连接器、技能、Workspace 规则或 AGENTS.md；分身能力只作为名称清单进入调度提示词。
+- 开关默认关闭；开启后仅 Native GENERAL 的当前主要聊天使用平台固定六工具并逐条出队。mode 始终保留 GENERAL，其他 mode 与后端不变。主要聊天不装配执行连接器、技能、Workspace 规则或 AGENTS.md；分身能力只作为名称清单进入调度提示词。
 - 调度模型归 `agent-settings.primary`，提示词归 `agent-prompt.primary`；分身省略模型时使用 Agent 配置。自分身按首条主 query 的 `mailNewChat` 与 origin 判断，用户直接输入及重启后仍排除四个调度工具；显式 false 区分补建主要聊天，旧记录保留同 Agent origin 的回退。
 - 分身省略档位或显式 default 时均在 `AcceptAtRunAccessLevel` 临界区冻结父实时档位；预检查后的修改生效、受理后的修改不追溯。显式具体档位校验实时上限，Agent 默认档位不能通过 default 绕过实时继承。
-- HTTP `/api/runtime/capabilities` 与 WS connected 的开关声明已提供。相邻 WebClient 的并行导航改动保持原样；客户端开关跟随、主要聊天输入框入口隐藏、长上下文和 Desktop 尚未在本轮完成验收。`mail.max-hops` 未修改，待拍板第 7 项保留。
+- HTTP `/api/runtime/capabilities` 与 WS connected 的开关声明已提供。相邻 WebClient 的并行导航改动保持原样；客户端开关跟随、主要聊天输入框入口隐藏、长上下文和 Desktop 尚未在本轮完成验收。`mail.max-hops` 保留 4，原待拍板第 7 项已确认暂不调整。
 - 已验证 `make test` 全量通过（无重试）、相关包回归、权限/身份 race 检查、实际 HTTP→LLM 五工具装配及全仓构建。未部署。
 
 ### 已确认的评审修复（2026-11-07）
@@ -478,3 +546,27 @@ primary:
 - 必要调度协议作为随包内置资源直接注入主要聊天 system prompt，覆盖发信、文件转交、回执与 Run 控制资格、代答审批、查询参数及跳数边界；五工具的会话专用说明不再要求读取不可用的 Skill，并更正档位、模型和思考默认值。普通会话的工具说明与 schema 保持原样。
 - 部署侧提示词位置仍为 configs/agent-prompt.yml 的 primary.system-prompt；必要协议独立保留，不随自定义提示词覆盖而丢失。BTW/explain 明确保留原有 Agent 配置和只读旁路限制，仅主 lane 采用固定调度角色。
 - 已通过相关完整包回归、实际 HTTP→LLM 协议与五工具说明检查、BTW/解读回归、针对性 race 检查和全仓构建。身份读取的全文件/全局锁问题尚未修改，待用示例解释短读方案后确认；未部署。
+
+### 阶段 6 BOT Platform 改造实施记录（2026-11-07）
+
+本节替代上面的旧开关实现说明；旧记录保留作历史，不代表当前合同。
+
+- 已实现 6.7–6.9 的 Platform 改造：新增 Native BOT descriptor、独立 system-init profile、bot preset/default-agent/Workspace 规则配置与创建入口；拒绝 ACP 与 proxyConfig。GENERAL 主要聊天恢复普通聊天，不迁移。
+- BOT 主聊天固定六工具并逐条出队，其余 BOT 聊天全部按分身装配，不读取 JSONL 判断身份；保留 BTW/explain 的旁路合同、分身模型与受理时实时档位冻结。
+- `/api/send` 不带 chatId 时解析或创建 BOT 主聊天；解析、创建和指针发布与现有 mutation 锁串行，并发首条消息只创建一条主聊天。BOT 拒绝规划、execute 与主 lane Query 新建；用户指定新 chatId 不能绕过主聊天入口。
+- 6.8：BOT 主聊天主 lane 的 HTTP/WS steer 在共享 Runtime 入口拒绝，错误码 `bot_chat_queue_only`；分身、BTW/explain 和其他 mode 保留原行为。
+- 删除 runtime primary-chat 配置、capabilities HTTP 接口及 connected.data.primaryChat；agent-settings/prompt 顶层 primary 拒绝加载。调度配置改为 bot.dispatch 与 bot.system-prompt；默认调度文案只留示例 YAML，缺省为空，内置必要协议照常注入。没有新增环境变量。
+- 已同步配置示例、AGENTS/README、Mailbox/API/Agent 配置文档及 task-control 协议。计划引用的 docs/mode-capability-audit.html 在当前工作树中不存在，未把它记为已同步。
+- 上述首批实施时尚未覆盖的 Automation/渠道/execute 与 WebClient，见下方第二批记录；Desktop、长上下文及第 9 项语音/WebApp 仍待核对。当前改动未提交、未部署。
+- 验证：`CGO_ENABLED=0 go test ./...` 全量通过（设置 MEMX_TEST_BINARY，含 memx 集成）；`CGO_ENABLED=0 go build ./...` 通过；BOT HTTP→LLM 六工具、并发主聊天创建、入口拒绝、分身权限冻结、角色与旁路相关 race 检查通过。首次全量的 npm discovery 超时、独立 Server 回归的既有 run.complete 落盘时序失败，分别复跑后通过；最终全量无失败。
+
+### BOT 与消息入口第二批实施记录（2026-11-07）
+
+- BOT 不作为 TEAM 成员或 agent_invoke 目标；外部 Agent 只寻址 BOT 主聊天，不能创建、发现或读取分身。BOT 主聊天查询分身改从 chats.db 的 agentKey/primary:false 列表读取并复核权限，不新增 chatRole 或来源短读。
+- BOT 已有分身不能切成主聊天，保留清空指针后重新创建的入口；L2/L3 不换 ChatID，L3 实施暂缓。取消 JSONL mailNewChat 的持久化、投影及身份用途。
+- 主 lane 普通 Query 与正文/引用 steer 保留外部协议，在 Runtime 门面转为 mailbox；包含 Desktop 普通输入、Automation、渠道。Automation 保留自身 origin，默认档位不继承 Chat 历史，不生成 Agent 信封、回信或派生控制权。
+- execute 经过 mailbox，忙时排队，断开撤回未投递信件或只中断实际开出的 Run。执行前的应用归属登记仍在模型启动前完成，失败不启动执行。BOT 一律拒绝 execute。
+- WebClient：BOT 创建/编辑、机器人导航与客户端隐藏偏好、分身与普通对话/项目隔离、主聊天首发、上传暂存、主/分身页头、返回主聊天及按 primary:false 分页的分身历史；BOT 禁用规划和终端，主聊天不显示模型/编辑；重新开始有影响提示与取消按钮。
+- 本批明确搁置：BOT 对外派活的跨 Run 最终结果关联、进行中筛选及数量、L3、Desktop 导航和设置、语音/WebApp Query、BTW/explain、Submit/Interrupt/空白继续/计划批准的 mailbox 控制合同、内部子任务。Gateway 独立协议不改。不宣称“所有消息已统一完成”。
+- 未提交、未部署。验证结果以本轮最终报告为准；上面的“全量通过”只描述首批当时的工作区。
+- 第二批最终验证：`CGO_ENABLED=0 go test ./... -p 2`（设置 MEMX_TEST_BINARY）与 `go build ./...` 通过；BOT、外部寻址、execute 取消与 WS 终态顺序的针对性 race 检查通过，并发 BOT 首次投递连续 20 轮 race 通过。修正受理已有 Chat 时重复改写身份导致的 SQLite 锁冲突，排队阶段仅冻结消息，实际开 Run 时更新 Chat。WebClient 的 515 套、4578 项测试及生产构建通过；只补齐既有 ConnectorPicker 测试的 transport mock，连接器 hook 的原有未提交实现保留。

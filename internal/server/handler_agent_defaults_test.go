@@ -23,7 +23,7 @@ func TestAgentDefaultsExposeRuntimeFacts(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Data.Types) != 5 {
+	if len(response.Data.Types) != 6 {
 		t.Fatalf("types: %#v", response.Data.Types)
 	}
 	for _, typ := range response.Data.Types {

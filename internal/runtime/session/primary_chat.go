@@ -1,57 +1,20 @@
 package session
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/contracts/queryinput"
 	"agent-platform/internal/resources"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
-func SelfWorkerChat(store chat.Store, req runtimetypes.QueryCommand, def catalog.AgentDefinition) (bool, error) {
-	isWorker := func(origin *queryinput.Origin, opened bool) bool {
-		return opened && origin != nil && origin.Type == queryinput.OriginAgent && origin.AgentKey == def.Key
-	}
-	if isWorker(req.Origin, req.Mail != nil && req.Mail.NewChat) {
-		return true, nil
-	}
-	if store == nil {
-		return false, nil
-	}
-	content, err := store.LoadJSONLContent(req.ChatID)
-	if err != nil {
-		return false, err
-	}
-	scan := bufio.NewScanner(strings.NewReader(content))
-	scan.Buffer(make([]byte, 65536), 64<<20)
-	for scan.Scan() {
-		var row map[string]any
-		if json.Unmarshal(scan.Bytes(), &row) != nil {
-			continue
-		}
-		lane := strings.TrimSpace(contracts.AnyStringNode(row["lane"]))
-		if row["_type"] != "query" || strings.TrimSpace(contracts.AnyStringNode(row["taskId"])) != "" || lane != "" && lane != "main" {
-			continue
-		}
-		opened, recorded := row["mailNewChat"].(bool)
-		// Legacy self-created Chats predate the explicit newChat provenance.
-		// Their first platform origin is the existing compatibility boundary.
-		return isWorker(queryinput.OriginFromPayload(row["origin"]), opened || !recorded), nil
-	}
-	return false, scan.Err()
-}
-
-// PrimaryChatEligible is deliberately narrower than the set of native modes.
-// GENERAL remains the persisted mode for both Chat roles.
+// PrimaryChatEligible selects only native BOT Agents.
 func PrimaryChatEligible(def catalog.AgentDefinition) bool {
-	return strings.EqualFold(def.Mode, "GENERAL") && catalog.AgentEngineForAPI(def) == catalog.AgentEngineNative && !IsProxyRoutedAgent(def)
+	return strings.EqualFold(def.Mode, "BOT") && catalog.AgentEngineForAPI(def) == catalog.AgentEngineNative && !IsProxyRoutedAgent(def)
 }
 
 func (b *Builder) buildPrimaryChat(ctx context.Context, req runtimetypes.QueryCommand, summary chat.Summary, def catalog.AgentDefinition, options Options) (contracts.QuerySession, error) {
@@ -90,7 +53,7 @@ func (b *Builder) buildPrimaryChat(ctx context.Context, req runtimetypes.QueryCo
 	session.PrimaryChatProtocol = strings.TrimSpace(string(protocol))
 	session.ToolNames = contracts.PrimaryChatTools()
 	session.ModeToolDefinitions = nil
-	session.ModeSystemPrompt = strings.TrimSpace(b.deps.Config.PrimaryChat.SystemPrompt)
+	session.ModeSystemPrompt = strings.TrimSpace(b.deps.Config.Bot.SystemPrompt)
 	session.CapabilityPrompts = []string{capabilities}
 	session.AgentsPrompt = ""
 	session.WorkspaceAgentsPrompt = ""

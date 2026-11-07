@@ -82,7 +82,7 @@ func TestTeamOwnedRunControlUsesAgentKey(t *testing.T) {
 			name:   "steer accepts team owner",
 			method: http.MethodPost,
 			path:   "/api/steer",
-			body:   `{"agentKey":"research","runId":"run-team-control","message":"continue"}`,
+			body:   `{"agentKey":"research","runId":"run-team-control","message":""}`,
 			status: http.StatusOK,
 		},
 		{

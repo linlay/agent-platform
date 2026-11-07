@@ -118,7 +118,7 @@ func (s *Service) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamE
 		IncludeUsage:       prepared.Req.IncludeUsage,
 		IncludeFullText:    prepared.Req.IncludeFullText,
 		AccessLevel:        prepared.Session.AccessLevel,
-		Created:            prepared.Created,
+		Created:            prepared.Created || prepared.Req.MessageCreated,
 		ContinueRun:        prepared.ContinueRun,
 		InitialSeq:         prepared.InitialSeq,
 		BootstrapSynthetic: prepared.SyntheticBootstrap,
@@ -482,10 +482,25 @@ func (s *Service) PrepareQueryAdmissionRequest(
 	if statusErr := s.deps.Proxy.Configure(&agentDef); statusErr != nil {
 		return queryAdmission{}, statusErr
 	}
+	if agentDef.Mode == catalog.AgentModeBot {
+		if req.PlanningMode != nil && *req.PlanningMode {
+			return queryAdmission{}, &statusError{Status: 400, Code: "invalid_request", Message: "BOT does not support planningMode"}
+		}
+		if req.ResultContract != nil {
+			return queryAdmission{}, &statusError{Status: 400, Code: "invalid_request", Message: "BOT cannot be an execute target"}
+		}
+		if (existingSummary == nil || chat.IsPendingUploadChat(*existingSummary)) && req.MailboxAcceptance && !req.Primary && req.Mail == nil {
+			return queryAdmission{}, &statusError{Status: 400, Code: "invalid_request", Message: "Send to BOT without chatId to use the main Chat"}
+		}
+		if (existingSummary == nil || chat.IsPendingUploadChat(*existingSummary)) && !req.MailboxAcceptance && req.Mail == nil && req.Lane == "" {
+			return queryAdmission{}, &statusError{Status: 400, Code: "invalid_request", Message: "Use /api/send to open the BOT main Chat"}
+		}
+	}
 	primaryChat, err := s.primaryChatRole(agentDef, chatID, req.Primary)
 	if err != nil {
 		return queryAdmission{}, err
 	}
+	primaryChat = primaryChat && req.Lane == ""
 	if primaryChat {
 		if req.ResultContract != nil {
 			return queryAdmission{}, &statusError{Status: 400, Code: "invalid_request", Message: "execute requires an execution Chat; the primary Chat only schedules work"}

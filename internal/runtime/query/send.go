@@ -34,6 +34,7 @@ type userSends struct {
 }
 
 func (s *Service) Send(ctx context.Context, request queryinput.SendRequest, command runtimetypes.QueryCommand) (mailbox.Receipt, error) {
+	ctx = queryContext(ctx, command)
 	if s.mailbox == nil {
 		return mailbox.Receipt{}, ErrNotConfigured
 	}
@@ -44,7 +45,15 @@ func (s *Service) Send(ctx context.Context, request queryinput.SendRequest, comm
 	if strings.TrimSpace(request.Message) == "" && len(request.References) == 0 {
 		return mailbox.Receipt{}, &statusError{Status: 400, Code: "invalid_request", Message: "message or references are required"}
 	}
-	encoded, err := json.Marshal(request)
+	var original any
+	if len(command.OriginalQuery) > 0 {
+		decoder := json.NewDecoder(strings.NewReader(string(command.OriginalQuery)))
+		decoder.UseNumber()
+		if err := decoder.Decode(&original); err != nil {
+			return mailbox.Receipt{}, err
+		}
+	}
+	encoded, err := json.Marshal(map[string]any{"request": request, "original": original, "params": command.Params, "scene": command.Scene, "hidden": command.Hidden, "origin": command.Origin, "source": command.ChatSource, "execute": command.ResultContract != nil})
 	if err != nil {
 		return mailbox.Receipt{}, err
 	}
@@ -102,6 +111,53 @@ func (s *Service) acceptUserSend(ctx context.Context, r queryinput.SendRequest, 
 	cmd.AccessLevel = r.AccessLevel
 	cmd.Primary = r.Primary
 	cmd.MailboxAcceptance = true
+	// Serialize missing-main resolution with mailbox creation and pointer mutations.
+	// Release before enqueue, whose synchronous delivery may take the same lock.
+	var unlockMain func()
+	defer func() {
+		if unlockMain != nil {
+			unlockMain()
+		}
+	}()
+	key := cmd.AgentKey
+	if key == "" {
+		key = s.deps.Registry.DefaultAgentKey()
+	}
+	if def, ok := s.deps.Registry.AgentDefinition(key); ok && def.Mode == catalog.AgentModeBot {
+		staging := false
+		if cmd.ChatID != "" {
+			pending, e := s.deps.Chats.Summary(cmd.ChatID)
+			if e != nil {
+				return mailbox.Receipt{}, e
+			}
+			staging = pending != nil && chat.IsPendingUploadChat(*pending)
+			if pending == nil {
+				return mailbox.Receipt{}, &statusError{Status: 400, Code: "invalid_request", Message: "Send to BOT without chatId to use its main Chat"}
+			}
+		}
+		if cmd.ChatID == "" || staging {
+			cmd.AgentKey = key
+			if locker, ok := s.deps.PrimaryChats.(interface{ LockMutation() func() }); ok {
+				unlockMain = locker.LockMutation()
+			}
+			main := ""
+			if store, ok := s.deps.Chats.(chat.PrimaryStore); ok {
+				var e error
+				main, e = store.PrimaryChatID(key)
+				if e != nil {
+					return mailbox.Receipt{}, e
+				}
+			}
+			if staging && main != "" && main != cmd.ChatID {
+				return mailbox.Receipt{}, &statusError{Status: 409, Code: "bot_main_changed", Message: "The BOT main Chat was created while files were uploading; open it and retry the message"}
+			}
+			if !staging {
+				cmd.ChatID = main
+			}
+			cmd.Primary = main == ""
+		}
+	}
+
 	identity := runtimetypes.IdentityFromContext(ctx)
 	if identity == nil {
 		identity = &contracts.AuthIdentity{Subject: cmd.Caller.Subject}
@@ -146,14 +202,29 @@ func (s *Service) acceptUserSend(ctx context.Context, r queryinput.SendRequest, 
 	if _, err = s.deps.Sessions.PrepareRunReferences(ctx, contracts.QuerySession{ChatID: admission.Req.ChatID, AgentKey: admission.Req.AgentKey, Subject: cmd.Caller.Subject}, admission.AgentDef, admission.Req.References, false, false, false); err != nil {
 		return mailbox.Receipt{}, err
 	}
-	if _, _, err = s.prepareAdmittedChat(ctx, admission); err != nil {
-		return mailbox.Receipt{}, err
+	// Existing Chats are already ownership-checked above. Queue acceptance
+	// does not rewrite their identity/source while the active Run is recording;
+	// delivery performs those mutations when it actually starts a new Run.
+	created := false
+	if summary == nil || chat.IsPendingUploadChat(*summary) || admission.Req.Primary {
+		_, created, err = s.prepareAdmittedChat(ctx, admission)
+		if err != nil {
+			return mailbox.Receipt{}, fmt.Errorf("prepare accepted Chat: %w", err)
+		}
+	}
+	if unlockMain != nil {
+		unlockMain()
+		unlockMain = nil
 	}
 	cmd = admission.Req
+	cmd.MessageCreated = created
 	cmd.MailboxAcceptance = false
 	cmd.Primary = false
 	cmd.Identity = &frozenIdentity
 	input, _ := json.Marshal(r)
+	if len(cmd.OriginalQuery) > 0 {
+		input = append([]byte(nil), cmd.OriginalQuery...)
+	}
 	planning := cmd.PlanningMode != nil && *cmd.PlanningMode
 	editing := agentbuiltin.WorkspaceEditingDefault(admission.AgentDef.Mode)
 	if cmd.EditingMode != nil {
@@ -163,7 +234,12 @@ func (s *Service) acceptUserSend(ctx context.Context, r queryinput.SendRequest, 
 	m := mailbox.Mail{
 		ID: mailbox.NewID("mail"), Kind: mailbox.Letter, Status: mailbox.Queued,
 		CreatedAt: nowMillis(), UpdatedAt: nowMillis(),
-		ToAgentKey: cmd.AgentKey, ToChatID: cmd.ChatID, OriginType: "user",
+		ToAgentKey: cmd.AgentKey, ToChatID: cmd.ChatID, OriginType: func() string {
+			if cmd.Origin != nil && cmd.Origin.Type == queryinput.OriginAutomation {
+				return "automation"
+			}
+			return "user"
+		}(),
 		Subject: cmd.Caller.Subject, RequestID: r.RequestID,
 		Input: input, Message: r.Message, References: cmd.References,
 		Model: cmd.Model, PlanningMode: cmd.PlanningMode, EditingMode: cmd.EditingMode,
@@ -175,11 +251,14 @@ func (s *Service) acceptUserSend(ctx context.Context, r queryinput.SendRequest, 
 	// consumed or terminal. TODO(chats-db-v2): persist it once queued mail
 	// survives restarts.
 	s.sends.Lock()
-	s.sends.contexts[m.ID] = runtimetypes.QueryCommand{Locale: cmd.Locale, ClientTarget: cmd.ClientTarget, ResourceBaseURL: cmd.ResourceBaseURL, Caller: cmd.Caller, Identity: cmd.Identity}
+	s.sends.contexts[m.ID] = cmd
 	s.sends.Unlock()
 	receipt, err := s.mailbox.AcceptUser(context.WithoutCancel(ctx), m, controlscope.FromContext(ctx))
 	if err != nil || receipt.MailID != m.ID {
 		s.MailReleased(m.ID)
+	}
+	if err != nil {
+		return receipt, fmt.Errorf("store accepted message: %w", err)
 	}
 	return receipt, err
 }

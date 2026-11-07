@@ -5,7 +5,6 @@ import "encoding/json"
 // MailInput is trusted input provenance, never decoded from public Query or
 // Steer requests. Attempt fences callbacks from an earlier delivery attempt.
 type MailInput struct {
-	NewChat    bool   `json:"mailNewChat"`
 	OriginType string `json:"mailOrigin,omitempty"`
 	Header     string `json:"mailHeader,omitempty"`
 	ID         string `json:"mailId"`
@@ -21,9 +20,6 @@ func (m *MailInput) Payload(p map[string]any) {
 	}
 	p["mailOrigin"] = m.OriginType
 	p["mailHeader"] = m.Header
-	if m.OriginType == "agent" {
-		p["mailNewChat"] = m.NewChat
-	}
 	p["mailId"], p["mailKind"], p["mailAttempt"], p["mailHop"] = m.ID, m.Kind, m.Attempt, m.Hop
 	if m.Outcome != "" {
 		p["outcome"] = m.Outcome
@@ -45,3 +41,5 @@ func MailFromPayload(p map[string]any) *MailInput {
 	}
 	return &m
 }
+
+func UserMailOrigin(origin string) bool { return origin == "user" || origin == "automation" }

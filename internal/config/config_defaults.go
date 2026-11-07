@@ -75,10 +75,9 @@ func defaultConfig(options LoadOptions) Config {
 		GeneralSettings: GeneralSettingsConfig{
 			WorkspaceAgents: CoderWorkspaceAgentsConfig{},
 		},
-		Providers:   CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "providers")},
-		Models:      CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "models")},
-		Mail:        MailConfig{MaxHops: 4, RetentionDays: 30},
-		PrimaryChat: PrimaryChatConfig{SystemPrompt: "Coordinate work through worker Chats of this Agent. Answer conversational questions directly. Delegate execution with chat_send newChat:true; use chatId for follow-up on the same task. Forward files and selected references. Summarize returned results and answer worker requests within current permissions. You have no execution tools."},
+		Providers: CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "providers")},
+		Models:    CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "models")},
+		Mail:      MailConfig{MaxHops: 4, RetentionDays: 30},
 		Automation: AutomationConfig{
 			ExternalDir: paths.AutomationsDir,
 			Enabled:     true,

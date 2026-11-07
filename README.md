@@ -76,7 +76,7 @@ Platform 提供调用方中立的标准连接器目录、CLI/MCP 执行、凭据
 - `POST /api/submit` 使用 awaiting 协议：请求体必须包含 `runId`、`awaitingId`，并按 run 类型携带 根 `agentKey`。
 - Chat 默认按更新时间倒序展示，排序偏好由 Platform 保存；支持跨普通、CODER/KBASE 等 mode 的统一置顶，独立保存到 `chat-pinned.json`；未置顶列表在截断前排除置顶项，展示排序不修改内容时间。协议与存储见 [API与协议](./docs/API与协议.md) 和 [会话存储与回放](./docs/会话存储与回放.md)。
 - 每个 Agent 可有一个主要聊天，其余 active Chat 为历史聊天；指针独立保存到 `chat-primary.json`，由创建 Chat 的 query `primary:true` 或 `PUT /api/chats/primary` 切换，当前主要聊天有活动 Run 时拒绝切换。规则见 [API与协议](./docs/API与协议.md#主要聊天)。
-- `primary-chat.enabled` 默认关闭；开启后只有 Native GENERAL 的主要聊天使用固定五个调度工具及 action_announce 进度工具并逐条出队，自分身使用 Agent 执行能力且排除四个调度工具，mode 保持 GENERAL。调度模型归 `agent-settings.primary`，提示词归 `agent-prompt.primary`，其他 mode 与后端不变，见 [Mailbox](docs/Mailbox.md#投递规则)。
+- Native `mode: BOT` 由一个主要聊天和若干分身组成。主聊天固定提供五个调度工具及 action_announce，消息逐条出队；其他所有聊天是分身，使用 Agent 执行能力并排除四个调度工具。BOT 可有 Workspace，不支持规划；调度模型归 `agent-settings.bot.dispatch`，提示词归 `agent-prompt.bot`。旧 primary-chat/primary 配置拒绝加载，GENERAL 的主要聊天恢复普通聊天，见 [Mailbox](docs/Mailbox.md#投递规则)。
 - Platform 重启统一取消全部未完成 Run，包括 question、planning、approval、form 和 wait；启动时幂等补齐中断结果与 cancel completion，清除 pending，不注册历史 activeRun 或自动启动执行。聊天内容保留，新 Query 使用当前 Agent 配置。活动 Run 的等待项由原执行流程收尾，会话读取不提前补写超时结果。
 - 工具执行中取消会先收尾工具结果，再保存 Run 终态；活动异步工具在整批共享 2 秒期限内保留真实返回，无法确认时明确记录副作用未知。旧的缺失结果历史不会自动重写，人工恢复流程见 [会话存储与回放](./docs/会话存储与回放.md)。
 - 文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传继续使用 `POST /api/upload`，实际下载继续使用 `GET /api/resource?file=...`；上传、生成图片和发布产物的 `url` 是相对于当前 Chat、按路径段编码的 `<relativePath>`，不含 `chatId`；Markdown 原样使用返回的 `url`，客户端资源 adapter 加入当前 `chatId` 后转换成该 HTTP 请求。发布产物 URL 指向发布副本。历史 endpoint Markdown 不迁移且不再预览，HTTP 数据面仍保留。`path` 只供智能体工具读取或继续发布，绝不进入 Markdown；`/ws` 只传文件引用与状态，不承载文件字节。
@@ -304,7 +304,7 @@ teamConfig:
 
 TEAM 是普通 Agent，统一用 `agentKey` 调用，可直接回答、使用工具或委派。总控与成员在准入时一起冻结版本和租约；成员无效时整个请求返回 503。规划、Skills、Workspace 和 Memory 沿普通 Agent 契约，权限按执行者计算。详见 [智能体配置](docs/智能体配置说明.md#team-agent-配置) 和 [子智能体调度](docs/子智能体调度.md)。
 
-用户消息（文字或只带引用）可经 HTTP/主 WS `/api/send` 随时投递，由平台开 Run、插入或排队，返回 mailId/chatId/delivery/runId；运行选项仅新 Run 生效。收件箱分待收取、已收件、垃圾箱，角标为待收取总数，垃圾箱只读。普通 Native 主 Agent 挂载 builtin.task-control 后使用 chat_send 派活或补充：新开会话必须 newChat:true，已有工作用 chatId，两者都省略时寄往目标主要对话。平台自动决定开 Run、插入或排队，并将完整最终结果回信；chat_notify 发中途消息，chat_submit 代答请示。chat_get_status/chat_interrupt 只控制由自己 letter started 开出的 Run，信派生 Run 保留控制链限制。默认档位通常取目标 Agent 默认；开启主要聊天时，Native GENERAL 主要聊天新开自分身的省略/default 均继承受理时的父实时档位，模型与思考默认用 Agent 配置；显式具体档位高于父当前档位拒绝。BTW/explain 保留既有只读旁路合同。详情见 [Mailbox](docs/Mailbox.md)。
+用户消息（文字或只带引用）可经 HTTP/主 WS `/api/send` 随时投递，由平台开 Run、插入或排队，返回 mailId/chatId/delivery/runId；运行选项仅新 Run 生效。收件箱分待收取、已收件、垃圾箱，角标为待收取总数，垃圾箱只读。普通 Native 主 Agent 挂载 builtin.task-control 后使用 chat_send 派活或补充：新开会话必须 newChat:true，已有工作用 chatId，两者都省略时寄往目标主要对话。平台自动决定开 Run、插入或排队，并将完整最终结果回信；chat_notify 发中途消息，chat_submit 代答请示。chat_get_status/chat_interrupt 只控制由自己 letter started 开出的 Run，信派生 Run 保留控制链限制。默认档位通常取目标 Agent 默认；BOT 主要聊天新开自分身的省略/default 均继承受理时的父实时档位，模型与思考默认用 Agent 配置；显式具体档位高于父当前档位拒绝。BTW/explain 保留既有只读旁路合同。详情见 [Mailbox](docs/Mailbox.md)。
 
 原生连接器由 `connector.json` 的 `type: native` 和连接器 ID 对应的源码工具表装配，不使用 `native.json`。`builtin.platform-control` 提供平台治理能力；`run_env` 独立提供当前普通 native root Run 的 list/set/unset/update/explain，由通过 preset 或 Agent 显式声明挂载，分发示例列入全局 preset-tools，可通过 excludeTools 排除。动态值仅影响后续命令、不继承到子任务或其他 Run。旧 platform-control 配置段已移除。详见 [Run 环境工具](docs/Run环境工具.md)。
 

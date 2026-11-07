@@ -2,29 +2,29 @@ package config
 
 import "testing"
 
-func TestPrimaryChatConfigurationOwnership(t *testing.T) {
+func TestBotConfigurationOwnership(t *testing.T) {
 	cfg := defaultConfig(LoadOptions{})
-	if cfg.PrimaryChat.Enabled {
-		t.Fatal("must default off")
+	if cfg.Bot.SystemPrompt != "" {
+		t.Fatal("deployment prompt must only live in example YAML")
 	}
-	if err := cfg.applyRuntimeFile(configFixture(t, "runtime.yml", "primary-chat:\n  enabled: true\n")); err != nil {
-		t.Fatal(err)
-	}
-	if err := cfg.applyAgentSettingsFile(configFixture(t, "agent-settings.yml", "primary:\n  modelKey: scheduler\n  reasoningEffort: LOW\n")); err != nil {
-		t.Fatal(err)
-	}
-	if err := cfg.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", "primary:\n  system-prompt: Schedule work\n")); err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.PrimaryChat.Enabled || cfg.PrimaryChat.ModelKey != "scheduler" || cfg.PrimaryChat.SystemPrompt != "Schedule work" {
-		t.Fatal(cfg.PrimaryChat)
-	}
-	for _, body := range []string{"primary-chat:\n  enabled: \"true\"\n", "primary-chat:\n  modelKey: x\n"} {
+	for _, body := range []string{"primary-chat: {}\n", "primary-chat:\n  enabled: false\n"} {
 		if err := cfg.applyRuntimeFile(configFixture(t, "runtime.yml", body)); err == nil {
-			t.Fatal("invalid runtime policy accepted", body)
+			t.Fatal("retired primary-chat accepted")
 		}
 	}
-	if err := cfg.applyAgentSettingsFile(configFixture(t, "agent-settings.yml", "primary:\n  system-prompt: x\n")); err == nil {
-		t.Fatal("prompt accepted in settings")
+	if err := cfg.applyAgentSettingsFile(configFixture(t, "agent-settings.yml", "bot:\n  dispatch:\n    modelKey: scheduler\n    reasoningEffort: LOW\n  preset-tools: [bash]\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", "bot:\n  system-prompt: Schedule work\n")); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Bot.ModelKey != "scheduler" || cfg.Bot.SystemPrompt != "Schedule work" || len(cfg.ModePresets["bot"].Tools) != 1 {
+		t.Fatal(cfg.Bot)
+	}
+	if err := cfg.applyAgentSettingsFile(configFixture(t, "agent-settings.yml", "primary: {}\n")); err == nil {
+		t.Fatal("retired primary accepted")
+	}
+	if err := cfg.applyAgentPromptFile(configFixture(t, "agent-prompt.yml", "primary: {}\n")); err == nil {
+		t.Fatal("retired primary accepted")
 	}
 }

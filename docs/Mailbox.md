@@ -25,7 +25,11 @@ mail 都寄给 Chat，不寄给 Run；寄给 Agent 就是寄给它的主要对�
 
 `GET /api/mails` 的 `box` 默认 pending，非法值拒绝；`box` 与 `status` 取交集，列表和 total 使用同一过滤。WebClient 角标为待收取总数。垃圾箱只读，不提供清空和永久删除；正文照常按保留期清理。用户 mail 只有收件 Chat，关闭该 Chat 后按无发件端记录清理。
 
-WebClient 普通主聊天文本统一发送，待发消息按身份隔离保存到本地。消费事件出现时按 requestId 替换为正式用户消息；刷新从 pending 恢复，启动清库导致 mail 不存在时显示“未送达”，可用新 requestId 重发或只删除本地消息。BTW、解读、空消息续跑及带专用参数的 Query 沿用既有入口。运行中卡在 HITL 的输入仍可发送，但作答必须提交等待项。
+WebClient 普通主聊天文本统一发送，待发消息按身份隔离保存到本地。消费事件出现时按 requestId 替换为正式用户消息；刷新从 pending 恢复，启动清库导致 mail 不存在时显示“未送达”，可用新 requestId 重发或只删除本地消息。公开 `/api/query`（含带专用参数）与正文非空或带引用的主 lane `/api/steer` 保留协议，在 Runtime 门面转换为 mailbox 投递；Desktop 普通输入、渠道输入及 Automation 同样经过此门面。Automation 保留 `origin:automation`，不生成 Agent 信封、回信或派生控制权，省略档位仍为 ask_for_approval。运行中卡在 HITL 的输入仍可发送，但作答必须提交等待项。
+
+`/api/execute` 受理为用户 letter，忙时排队，独占其实际开出的 Run，不插入已有 Run。调用方断开时，在投递锁内撤回尚未投递的消息；若已经开 Run，则只中断该消息开出的 Run。BOT 一律不能作为 execute 目标。
+
+尚未统一的入口：BTW/explain、Submit、空白 steer 的“继续”、Interrupt、批准计划及内部子任务；语音与 WebApp 助手的直接 Query 暂留待讨论。Gateway 独立协议不在本轮范围。因此不能宣称所有消息和控制命令都已 mailbox 化。
 
 ## chats.db 与 mail.db
 
@@ -85,15 +89,17 @@ WebClient 普通主聊天文本统一发送，待发消息按身份隔离保存�
 
 ## 投递规则
 
-`runtime.yml` 的 `primary-chat.enabled` 默认关闭。开启时仅 Native GENERAL 的主要聊天按到达顺序逐条开 Run，正在运行时所有 mail 留在队列，不插入；其他 mode、ACP、Proxy、渠道和普通会话保持现行规则。`mode` 仍为 GENERAL，主要聊天与分身是会话身份。开关通过主 WS `connected.primaryChat.enabled` 及 `GET /api/runtime/capabilities` 的 `primaryChat` 返回；HTTP 同时返回适用的公开 `agentKeys`。
+只有 Native `mode: BOT` 的主要聊天按到达顺序逐条开 Run，正在运行时所有 mail 留在队列，不插入。BOT 的其他所有聊天都是分身，不按发起方或 JSONL 判断，重启后身份不变；非 BOT 的主要聊天是普通聊天，保持现行投递规则，不迁移。BOT 可有 Workspace，不支持规划或 execute。`/api/send` 不带 chatId 时使用 BOT 的主要聊天，没有则创建并设指针；用户不能为 BOT 新建普通聊天，分身由 `chat_send {newChat:true}` 创建。旧 `runtime.yml.primary-chat` 与 Agent 配置顶层 `primary` 段出现即报错；不再提供 `/api/runtime/capabilities` 或 `connected.data.primaryChat`。
 
-主要聊天固定提供 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`、`chat_query` 和 `action_announce`，不要求挂载 task-control，不装配 Agent 的执行工具、连接器、技能或 Workspace 提示文件。调度提示词来自 `agent-prompt.yml` 的 `primary.system-prompt`，再加 SOUL、Agent 名称与描述、分身工具与技能名称清单及配置选中的记忆。模型来自 `agent-settings.yml` 的 `primary.modelKey/reasoningEffort`，空字段回退 Agent 配置。
+主要聊天固定提供 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`、`chat_query` 和 `action_announce`，不要求挂载 task-control，不装配 Agent 的执行工具、连接器、技能或 Workspace 提示文件。调度提示词来自 `agent-prompt.yml` 的 `bot.system-prompt`，再加 SOUL、Agent 名称与描述、分身工具与技能名称清单及配置选中的记忆。模型来自 `agent-settings.yml` 的 `bot.dispatch.modelKey/reasoningEffort`，空字段回退 Agent 配置。
 
 上述六工具限制作用于主 lane。BTW 与解读（explain）保留既有旁路合同：使用 Agent 配置的模型、上下文及工具定义，执行时强制只读，最多 3 轮、4 次工具调用；不注入主要聊天调度协议，不参与主队列，不获得发信、审批代答或写操作能力。这是已确认的旁路例外，不能作为主要聊天执行任务的入口。
 
-主要聊天的必要调度协议来自随包内置的 task-control `references/primary-chat.md`，装配时直接进入 system prompt，不要求读取 Skill 文件、不挂载技能或增加工具。协议包含发信与补充、文件复制、回执及控制资格、请示代答、查询参数和跳数限制。六个工具的主要聊天专用说明同时使用正确的档位/模型默认值，不再要求先读不可用的技能。`configs/agent-prompt.yml` 的 `primary.system-prompt` 仍控制部署侧调度提示词；即使自定义或清空该项，必要协议也独立保留。
+主要聊天的必要调度协议来自随包内置的 task-control `references/primary-chat.md`，装配时直接进入 system prompt，不要求读取 Skill 文件、不挂载技能或增加工具。协议包含发信与补充、文件复制、回执及控制资格、请示代答、查询参数和跳数限制。六个工具的主要聊天专用说明同时使用正确的档位/模型默认值，不再要求先读不可用的技能。`configs/agent-prompt.yml` 的 `bot.system-prompt` 仍控制部署侧调度提示词；即使自定义或清空该项，必要协议也独立保留。
 
-本 Agent 用 `chat_send {newChat:true}` 开出的自分身移除 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`，保留原本有效的 `chat_notify`；之后用户直接输入不会改变身份。创建来源写入首条主 query 的平台字段 `mailNewChat` 和 `origin`，不依赖重启即清空的 mail.db；旧记录缺少 `mailNewChat` 时沿用首条 query 的同 Agent origin 判定。主要聊天指针优先于分身来源；切走指针后重新按创建来源区分普通会话和分身。该限制只阻止分身继续使用 mailbox 调度，既有 `agent_invoke` 与其他 mode 的能力不变。
+BOT 的每条非主聊天都移除 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`，保留原本有效的 `chat_notify`；用户直接输入和重启不改变身份。不再保存或读取 `mailNewChat`。BOT 不能作为 TEAM 成员或 `agent_invoke` 目标。其他 Agent 只允许寄往 BOT 主聊天，不能创建、读取或控制其分身；只有 BOT 当前主聊天可以给自己创建分身。BOT 主聊天的 `chat_query opened` 从 chats.db 的 `agentKey + primary:false` 列表读取并复核权限，独立于会被清空的 mail.db。
+
+BOT 不允许把已有分身提升为主聊天；“重新开始”先清除主指针，下一次 `/api/send` 创建新主聊天。客户端必须先提示：旧分身任务与结果仍属于旧聊天，不会自动转投新主聊天，尚未投递的工作可能取消。L2 与后续 L3 保持 ChatID；L3 具体压缩方式尚未实现。外部 Agent 给 BOT 派活后的跨 Run 最终结果关联也仍待设计。
 
 四类 mail 共用同一规则：对收件会话中 `queued` 的 mail 按时间顺序处理，视会话状态而定。
 
@@ -188,7 +194,7 @@ WebClient 普通主聊天文本统一发送，待发消息按身份隔离保存�
 **权限档位。**
 
 - `accessLevel`、`modelKey`、`reasoningEffort`、`chatName` 只能与 `newChat` 同用。档位省略时按收件 Agent 的 `accessConfig.default` 解析，未配置为 `ask_for_approval`；显式档位不得高于发信 Run 受理时的当前档位。
-- 上述开启的 Native GENERAL 主要聊天新开自分身时，省略 `accessLevel` 或显式 `default` 均使用 `AcceptAtRunAccessLevel` 临界区内的实时父档位，`accessGrant.source=primary-chat`；预检查后发生的档位修改同样生效，受理后不再跟随父档位变化。Agent 默认值高于父实时档位时也不能通过 `default` 提权；显式具体档位仍校验实时上限。省略模型和思考强度使用 Agent 配置，不继承调度模型。
+- BOT 主要聊天新开自分身时，省略 `accessLevel` 或显式 `default` 均使用 `AcceptAtRunAccessLevel` 临界区内的实时父档位，`accessGrant.source=primary-chat`；预检查后发生的档位修改同样生效，受理后不再跟随父档位变化。Agent 默认值高于父实时档位时也不能通过 `default` 提权；显式具体档位仍校验实时上限。省略模型和思考强度使用 Agent 配置，不继承调度模型。
 - 寄往已有会话的信，冻结受理时收件 Agent 的默认档位；开新 Run 时使用该档位和目标 Agent 的默认模型，插入时不改变正在运行的 Run 的设置。
 - 回信、即时消息、请示在创建时冻结收件 Agent 的默认档位，不继承发送 Run 的权限，也不要求发送 Run 仍在运行。收件 Agent 已不可用时，回信保留完整结果并挂起，不静默降为 `ask_for_approval`。
 - `accessGrant` 保存权限来源与目标 revision，letter 另存父基线。已冻结的权限不因收件 Agent 后来修改默认值、发送 Run 结束或人工重投而改变。
@@ -199,7 +205,7 @@ WebClient 普通主聊天文本统一发送，待发消息按身份隔离保存�
 
 **调用方限制。** 只有主 Agent 根 Run（含 TEAM 总控）能调用 `chat_send`、`chat_notify`、`chat_submit`；BTW、`agent_invoke` 子任务和 Team 成员不能调用，规划 Run 默认排除这三个工具。由信开出的 Run 调用 `chat_get_status`、`chat_interrupt`，或使用 `wait` 的 `run.terminal` 条件，仍返回 `run_chaining_not_allowed`，派完活应使用不带条件的普通 `wait` 等回信唤醒。回信、即时消息、请示唤醒的是收件会话自己的 Run，这些工具照常可用。
 
-主要聊天开启时的固定六工具及自分身的四工具排除优先于普通工具装配规则。此时主要聊天没有 `wait`，派活后结束本轮；后续回信排队唤醒新 Run。信直接唤醒主要聊天的 Run 仍遵守现有派生控制限制；回信、即时消息、请示唤醒不授予发信方对主要聊天 Run 的控制。
+BOT 主要聊天的固定六工具及所有分身的四工具排除优先于普通工具装配规则。此时主要聊天没有 `wait`，派活后结束本轮；后续回信排队唤醒新 Run。信直接唤醒主要聊天的 Run 仍遵守现有派生控制限制；回信、即时消息、请示唤醒不授予发信方对主要聊天 Run 的控制。
 
 ## 文件
 
