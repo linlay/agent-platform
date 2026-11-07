@@ -281,6 +281,17 @@ func (w *StepWriter) appendSteerLine(event stream.EventData) {
 	if references := event.Value("references"); references != nil {
 		steer["references"] = references
 	}
+	// Generated replies and asks have no originating tool invocation. Preserve
+	// their trusted mail provenance so validation and history reconstruction can
+	// distinguish them from ordinary Agent steers. User mail has no envelope,
+	// matching the query-line contract; its transport metadata stays live-only.
+	if event.String("mailOrigin") != "user" {
+		for _, key := range []string{"mailOrigin", "mailHeader", "mailId", "mailKind", "mailAttempt", "mailHop", "mailNewChat", "outcome"} {
+			if value, ok := event.Payload[key]; ok {
+				steer[key] = value
+			}
+		}
+	}
 	if err := w.store.AppendSteerLine(w.chatID, SteerLine{
 		ChatID:    w.chatID,
 		RunID:     w.runID,

@@ -66,6 +66,7 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 		appendSection("primary-system", "Primary Chat", "chat.primary", session.ModeSystemPrompt)
 		appendSection("agent-identity", "Agent Identity", "agent.identity", buildAgentIdentitySection(session))
 		appendSection("primary-protocol", "Primary Chat Protocol", "chat.primary.protocol", session.PrimaryChatProtocol)
+		appendSection("tool-announce", "Progress Announcements", "tools.announce", buildAnnounceSection(options.ToolDefinitions, appendConfig))
 		appendSection("agent-soul", "Soul Prompt", "agent.soul", session.SoulPrompt)
 		for index, prompt := range session.CapabilityPrompts {
 			appendSection(fmt.Sprintf("worker-capability-%d", index), "Worker Capabilities", "chat.worker", prompt)

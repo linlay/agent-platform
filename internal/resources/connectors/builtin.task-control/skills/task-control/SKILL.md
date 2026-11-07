@@ -7,7 +7,7 @@ description: Manage conversations, start and follow independent Agent or Team ru
 
 Requires builtin.task-control mounted in an ordinary Native root Run. Prefer chat_send for durable correspondence and automation_manage for future execution. Use chat_send with newChat:true for independent work.
 
-The enabled Native GENERAL primary Chat main lane is a Platform-owned scheduling role. It receives its five tools and the self-contained [primary Chat protocol](references/primary-chat.md) directly, without mounting this Skill or requiring a file read. Ordinary task-control Runs follow the references below. BTW/explain retain their separate read-only contract.
+The enabled Native GENERAL primary Chat main lane is a Platform-owned scheduling role. It receives its six tools and the self-contained [primary Chat protocol](references/primary-chat.md) directly, without mounting this Skill or requiring a file read. Ordinary task-control Runs follow the references below. BTW/explain retain their separate read-only contract.
 
 Automation, schedule, scheduled task, 定时任务, 计划任务 and 提醒 describe the same scheduling capability. Read [automation workflow](references/automation-workflow.md) when interpreting a scheduling request. Read [automation YAML](references/automation-yaml.md) for definition files and authorized source maintenance.
 

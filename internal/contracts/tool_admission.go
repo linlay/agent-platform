@@ -4,7 +4,7 @@ import "strings"
 
 // PrimaryChatTools returns a fresh list so callers cannot alter the policy.
 func PrimaryChatTools() []string {
-	return []string{"chat_send", "chat_submit", "chat_get_status", "chat_interrupt", "chat_query"}
+	return []string{"chat_send", "chat_submit", "chat_get_status", "chat_interrupt", "chat_query", "action_announce"}
 }
 
 func (s QuerySession) ProvidesPrimaryTool(name string) bool {

@@ -87,11 +87,11 @@ WebClient 普通主聊天文本统一发送，待发消息按身份隔离保存�
 
 `runtime.yml` 的 `primary-chat.enabled` 默认关闭。开启时仅 Native GENERAL 的主要聊天按到达顺序逐条开 Run，正在运行时所有 mail 留在队列，不插入；其他 mode、ACP、Proxy、渠道和普通会话保持现行规则。`mode` 仍为 GENERAL，主要聊天与分身是会话身份。开关通过主 WS `connected.primaryChat.enabled` 及 `GET /api/runtime/capabilities` 的 `primaryChat` 返回；HTTP 同时返回适用的公开 `agentKeys`。
 
-主要聊天固定提供 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`、`chat_query`，不要求挂载 task-control，不装配 Agent 的执行工具、连接器、技能或 Workspace 提示文件。调度提示词来自 `agent-prompt.yml` 的 `primary.system-prompt`，再加 SOUL、Agent 名称与描述、分身工具与技能名称清单及配置选中的记忆。模型来自 `agent-settings.yml` 的 `primary.modelKey/reasoningEffort`，空字段回退 Agent 配置。
+主要聊天固定提供 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`、`chat_query` 和 `action_announce`，不要求挂载 task-control，不装配 Agent 的执行工具、连接器、技能或 Workspace 提示文件。调度提示词来自 `agent-prompt.yml` 的 `primary.system-prompt`，再加 SOUL、Agent 名称与描述、分身工具与技能名称清单及配置选中的记忆。模型来自 `agent-settings.yml` 的 `primary.modelKey/reasoningEffort`，空字段回退 Agent 配置。
 
-上述五工具限制作用于主 lane。BTW 与解读（explain）保留既有旁路合同：使用 Agent 配置的模型、上下文及工具定义，执行时强制只读，最多 3 轮、4 次工具调用；不注入主要聊天调度协议，不参与主队列，不获得发信、审批代答或写操作能力。这是已确认的旁路例外，不能作为主要聊天执行任务的入口。
+上述六工具限制作用于主 lane。BTW 与解读（explain）保留既有旁路合同：使用 Agent 配置的模型、上下文及工具定义，执行时强制只读，最多 3 轮、4 次工具调用；不注入主要聊天调度协议，不参与主队列，不获得发信、审批代答或写操作能力。这是已确认的旁路例外，不能作为主要聊天执行任务的入口。
 
-主要聊天的必要调度协议来自随包内置的 task-control `references/primary-chat.md`，装配时直接进入 system prompt，不要求读取 Skill 文件、不挂载技能或增加工具。协议包含发信与补充、文件复制、回执及控制资格、请示代答、查询参数和跳数限制。五个工具的主要聊天专用说明同时使用正确的档位/模型默认值，不再要求先读不可用的技能。`configs/agent-prompt.yml` 的 `primary.system-prompt` 仍控制部署侧调度提示词；即使自定义或清空该项，必要协议也独立保留。
+主要聊天的必要调度协议来自随包内置的 task-control `references/primary-chat.md`，装配时直接进入 system prompt，不要求读取 Skill 文件、不挂载技能或增加工具。协议包含发信与补充、文件复制、回执及控制资格、请示代答、查询参数和跳数限制。六个工具的主要聊天专用说明同时使用正确的档位/模型默认值，不再要求先读不可用的技能。`configs/agent-prompt.yml` 的 `primary.system-prompt` 仍控制部署侧调度提示词；即使自定义或清空该项，必要协议也独立保留。
 
 本 Agent 用 `chat_send {newChat:true}` 开出的自分身移除 `chat_send`、`chat_submit`、`chat_get_status`、`chat_interrupt`，保留原本有效的 `chat_notify`；之后用户直接输入不会改变身份。创建来源写入首条主 query 的平台字段 `mailNewChat` 和 `origin`，不依赖重启即清空的 mail.db；旧记录缺少 `mailNewChat` 时沿用首条 query 的同 Agent origin 判定。主要聊天指针优先于分身来源；切走指针后重新按创建来源区分普通会话和分身。该限制只阻止分身继续使用 mailbox 调度，既有 `agent_invoke` 与其他 mode 的能力不变。
 
@@ -199,7 +199,7 @@ WebClient 普通主聊天文本统一发送，待发消息按身份隔离保存�
 
 **调用方限制。** 只有主 Agent 根 Run（含 TEAM 总控）能调用 `chat_send`、`chat_notify`、`chat_submit`；BTW、`agent_invoke` 子任务和 Team 成员不能调用，规划 Run 默认排除这三个工具。由信开出的 Run 调用 `chat_get_status`、`chat_interrupt`，或使用 `wait` 的 `run.terminal` 条件，仍返回 `run_chaining_not_allowed`，派完活应使用不带条件的普通 `wait` 等回信唤醒。回信、即时消息、请示唤醒的是收件会话自己的 Run，这些工具照常可用。
 
-主要聊天开启时的固定五工具及自分身的四工具排除优先于普通工具装配规则。此时主要聊天没有 `wait`，派活后结束本轮；后续回信排队唤醒新 Run。信直接唤醒主要聊天的 Run 仍遵守现有派生控制限制；回信、即时消息、请示唤醒不授予发信方对主要聊天 Run 的控制。
+主要聊天开启时的固定六工具及自分身的四工具排除优先于普通工具装配规则。此时主要聊天没有 `wait`，派活后结束本轮；后续回信排队唤醒新 Run。信直接唤醒主要聊天的 Run 仍遵守现有派生控制限制；回信、即时消息、请示唤醒不授予发信方对主要聊天 Run 的控制。
 
 ## 文件
 

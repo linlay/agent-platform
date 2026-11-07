@@ -56,6 +56,10 @@ func TestMailboxStartsDetachedRunAndReturnsCompleteResultToWaitingChat(t *testin
 	session := contracts.QuerySession{RunID: "parent-run", ChatID: "mail-parent", AgentKey: "mock-agent", Subject: "alice", RunOwner: contracts.AgentRunOwner("mock-agent"), AccessLevel: "ask_for_approval"}
 	_, parent, _ := f.runs.Register(ctx, session)
 	defer f.runs.Finish(session.RunID)
+	status, _ := f.runs.RunStatus(session.RunID)
+	if err := f.chats.(chat.RunStartRecorder).OnRunStarted(chat.RunStart{ChatID: session.ChatID, RunID: session.RunID, AgentKey: session.AgentKey, StartedAtMillis: status.StartedAt}); err != nil {
+		t.Fatal(err)
+	}
 	scope := controlscope.Scope{Transport: "http", Subject: "alice"}
 	f.runs.BindRunControlScope(session.RunID, scope)
 	parent.SetSteerPreparer(func(r queryinput.SteerRequest) (queryinput.SteerRequest, error) {
@@ -105,6 +109,9 @@ func TestMailboxStartsDetachedRunAndReturnsCompleteResultToWaitingChat(t *testin
 	steers[0].Mail.Payload(payload)
 	writer.OnEvent(stream.EventData{Type: "request.steer", Timestamp: time.Now().UnixMilli(), Payload: payload})
 	writer.Flush()
+	if err := writer.Err(); err != nil {
+		t.Fatalf("persist reply: %v", err)
+	}
 	if err := box.Consumed(steers[0].Mail, session.RunID); err != nil {
 		t.Fatal(err)
 	}
